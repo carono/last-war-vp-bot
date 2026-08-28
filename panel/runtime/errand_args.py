@@ -98,6 +98,24 @@ SPEC: dict = {
         _num("count", "errand.arg.star.count", low=1, high=20,
              hint_key="errand.arg.star.count.hint"),
     ),
+    # THE DAY'S SECRET TASKS (#2022). Every one of these knobs existed already — on
+    # «Командный пункт», a tab `IN_DEVELOPMENT` and therefore off in the live profile.
+    # So the errand that spends the day's marches ran with a rule nobody could see, and
+    # «отправлять отряды» silently unticked the game's «только UR» filter and sent the
+    # cheap tasks with the UR ones. The filter is now a knob of its own, on by default,
+    # and the recipe VERIFIES it rather than trusting that it was set.
+    "secret_tasks_day": (
+        _flag("only_ur", "errand.arg.secret.only_ur",
+              hint_key="errand.arg.secret.only_ur.hint"),
+        _num("keep", "errand.arg.secret.keep", low=0, high=20,
+             hint_key="errand.arg.secret.keep.hint"),
+        _flag("mega", "errand.arg.secret.mega"),
+        _flag("use_diamonds", "errand.arg.secret.use_diamonds"),
+        _num("diamond_cap", "errand.arg.secret.diamond_cap", low=0, high=100000,
+             hint_key="errand.arg.secret.diamond_cap.hint"),
+        _flag("dispatch", "errand.arg.secret.dispatch",
+              hint_key="errand.arg.secret.dispatch.hint"),
+    ),
     "play_frontline_breakthrough": (
         _num("rounds", "errand.arg.frontline.rounds", low=1, high=20),
     ),

@@ -41,6 +41,9 @@ ARGS use_diamonds = 1
 ARGS diamond_cap = 1200
 ARGS mega = 1
 ARGS dispatch = 1
+# Only UR tasks are ever sent, and the popup is READ to prove it before every confirm
+# (#2022). `refresh_secret_tasks.md` holds the whole of the guard.
+ARGS only_ur = 1
 ARGS boxes = 0
 ARGS batch = 100
 

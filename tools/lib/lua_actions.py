@@ -13477,7 +13477,7 @@ def secret_post_dispatch_confirm() -> str:
 
 
 def secret_post_batch_read() -> str:
-    """Look into «Мега развертывание» before confirming it: how many will actually go.
+    """Look into «Мега развертывание» before confirming it: what would actually go.
 
     The popup arrives with a squad already chosen for every idle task AND with its own
     «только UR» toggle already on (`View.isOnlySelectUR`), so on the reading this was
@@ -13485,19 +13485,87 @@ def secret_post_batch_read() -> str:
     That is the game's own answer to «send the thing the refresh just won», and it is
     why this ability never needs to pick heroes itself.
 
-    Parks two numbers: how many rows the popup holds and how many of them are selected.
+    THIS IS A VERIFICATION AND NOT ONLY A COUNT (#2022). The toggle is the game's, and
+    the game remembers it: once anything unticks it — this ability's own last step used
+    to — it arrives UNTICKED next time, and every «send the UR the refresh just won»
+    afterwards quietly sends the cheap tasks beside it. A whole day of that is a day of
+    marches and slots spent on the things the rule was keeping. So this parks four
+    numbers rather than two:
+
+      * `rows` / `picked` — how many the popup holds and how many are selected;
+      * `onlyur` — 1 when the game's own toggle is really on, read rather than assumed;
+      * `cheap` — how many of the SELECTED rows are below UR, judged on the row's own
+        config `color` exactly as the scan judges an idle task;
+      * `unread` — how many of those rows had no readable colour at all. They are
+        counted CHEAP as well, because the only mistake that costs a day of marches is
+        sending one — but they are counted APART so the refusal that follows says «this
+        popup's rows could not be read» rather than «the game selected cheap tasks».
+        The two want opposite fixes, and one number for both hides which it is.
+
     Zero selected is not an error — it is «there is nothing here the rule wants sent»,
-    and the recipe closes the popup instead of confirming it.
+    and the recipe closes the popup instead of confirming it. A non-zero `cheap`, or an
+    `onlyur` of 0, is the recipe's cue to refuse the send outright.
+    """
+    return ("pcall(function() local M=DataCenter.ActDispatchTaskDataManager " + _NUM +
+            "local w=UIManager.Instance:GetWindow(UIWindowNames.UIDispatchTaskSuperPopup) "
+            "local rows,picked,cheap,unread=0,0,0,0 local onlyur=0 "
+            "if w~=nil and type(w.View)=='table' then "
+            "local v=w.View "
+            # The toggle is read from the Toggle behind it when there is one — that is
+            # the thing a click moves — and from the view's own flag otherwise. Either
+            # of them saying «on» is enough; neither being readable reads as OFF, so an
+            # unreadable popup refuses the send rather than trusting it.
+            "local t=v.toggleOnlySelectUR "
+            "if t~=nil then local u=t.unity_uitoggle "
+            "if u~=nil then pcall(function() if u.isOn then onlyur=1 end end) end end "
+            "if onlyur==0 then pcall(function() if v.isOnlySelectUR then onlyur=1 end end) end "
+            "for _,d in pairs(v.datas or {}) do rows=rows+1 "
+            "if d.selected then picked=picked+1 "
+            # A row's rarity, from the same place the scan reads it: the task's own
+            # config `color`, where 5 is UR and anything above it counts as UR too. A
+            # row whose colour cannot be read at all is counted as CHEAP — the safe
+            # side of the only mistake that costs marches.
+            "local col=-1 "
+            "pcall(function() col=_num(d.taskInfo.cfg:getValue('color')) end) "
+            "if col<0 then pcall(function() col=_num(d.cfg:getValue('color')) end) end "
+            "if col<0 then unread=unread+1 end "
+            "if col<5 then cheap=cheap+1 end end end end "
+            "M.__lw_ref_rows=rows M.__lw_ref_picked=picked M.__lw_ref_unread=unread "
+            "M.__lw_ref_onlyur=onlyur M.__lw_ref_cheap=cheap "
+            'CS.UnityEngine.Debug.LogError("ACT post_send_rows rows="..tostring(rows)'
+            '.." picked="..tostring(picked).." only_ur="..tostring(onlyur)'
+            '.." cheap="..tostring(cheap).." unread="..tostring(unread)) end)')
+
+
+def secret_post_batch_only_ur() -> str:
+    """Put «только UR» back ON, and say whether it had to be put back (#2022).
+
+    The counterpart of :func:`secret_post_batch_all`, and the reason it exists is that
+    the game REMEMBERS the toggle. The operator watched a run untick it and then send
+    cheap tasks together with the UR ones — «отправлены не только UR задания, но и
+    дешевые» — and the untick outlives the run that did it, so every later popup opens
+    with the filter off until something turns it back on.
+
+    So the run turns it back on itself, at every popup it opens, before it reads what
+    would be sent. Parks `__lw_ref_onlyur_fixed` = 1 when the toggle was found OFF and
+    had to be restored, which is the honest answer to «who unticks it»: a run that keeps
+    reporting 1 is being unticked by something outside this ability.
     """
     return ("pcall(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "M.__lw_ref_onlyur_fixed=0 "
             "local w=UIManager.Instance:GetWindow(UIWindowNames.UIDispatchTaskSuperPopup) "
-            "local rows,picked=0,0 "
-            "if w~=nil and type(w.View)=='table' then "
-            "for _,d in pairs(w.View.datas or {}) do rows=rows+1 "
-            "if d.selected then picked=picked+1 end end end "
-            "M.__lw_ref_rows=rows M.__lw_ref_picked=picked "
-            'CS.UnityEngine.Debug.LogError("ACT post_send_rows rows="..tostring(rows)'
-            '.." picked="..tostring(picked)) end)')
+            "if w==nil or type(w.View)~='table' then return end "
+            "local v=w.View local was=0 "
+            "local t=v.toggleOnlySelectUR local u=nil "
+            "if t~=nil then u=t.unity_uitoggle end "
+            "if u~=nil then pcall(function() if u.isOn then was=1 end end) "
+            # Setting `isOn` is what a click does: the game's own handler re-filters the
+            # rows off it, so nothing here has to know which of them are UR.
+            "if was==0 then pcall(function() u.isOn=true end) end "
+            "else pcall(function() if v.isOnlySelectUR then was=1 end end) "
+            "if was==0 then pcall(function() v.isOnlySelectUR=true end) end end "
+            "if was==0 then M.__lw_ref_onlyur_fixed=1 end "
+            'CS.UnityEngine.Debug.LogError("ACT post_send_only_ur was="..tostring(was)) end)')
 
 
 def secret_post_batch_all() -> str:

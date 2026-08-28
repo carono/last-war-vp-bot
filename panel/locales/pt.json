@@ -1582,6 +1582,7 @@
   "cmdpost.tasks.budget": "Teto de diamantes:",
   "cmdpost.tasks.mega": "Usar a megaatualização",
   "cmdpost.tasks.send": "Enviar os esquadrões depois",
+  "cmdpost.tasks.only_ur": "Só UR",
   "cmdpost.tasks.run": "Atualizar e enviar",
   "cmdpost.tasks.collect": "Recolher e abrir",
   "cmdpost.tasks.running_now": "a trabalhar…",
@@ -2384,5 +2385,15 @@
   "errand.arg.radar.forget": "Desistir das impossíveis",
   "errand.arg.star.count": "Mundos por volta",
   "errand.arg.star.count.hint": "Quantos mundos uma volta percorre. Seis são cerca de vinte segundos e deixam o cliente livre.",
+  "errand.arg.secret.only_ur": "Enviar apenas tarefas UR",
+  "errand.arg.secret.only_ur.hint": "O filtro «só UR» do próprio jogo é reposto antes de cada envio, e um envio cuja seleção não seja toda UR é recusado. Desligue apenas para enviar também as sobras baratas.",
+  "errand.arg.secret.keep": "Parar em não-UR",
+  "errand.arg.secret.keep.hint": "Quantas tarefas não-UR livres a atualização aceita deixar.",
+  "errand.arg.secret.mega": "Fazer a mega atualização",
+  "errand.arg.secret.use_diamonds": "Pode gastar diamantes",
+  "errand.arg.secret.diamond_cap": "Teto de diamantes",
+  "errand.arg.secret.diamond_cap.hint": "O máximo que uma mega atualização pode custar em diamantes, e a mesma verba para as atualizações comuns por passagem.",
+  "errand.arg.secret.dispatch": "Enviar os esquadrões depois",
+  "errand.arg.secret.dispatch.hint": "Enviar tudo o que ficou de pé no fim da passagem. Com «só UR» ligado, só saem as tarefas UR.",
   "errand.arg.frontline.rounds": "Rondas por passagem"
 }

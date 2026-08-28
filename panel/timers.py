@@ -410,6 +410,14 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # day has hours in it and a stuck run must not spin at the game.
         retry_sec=1800,
         enabled=False,
+        # THE RULE, WRITTEN DOWN WHERE BOTH FRONT-ENDS CAN REACH IT (#2022). The knobs
+        # were on «Командный пункт», which is dev-only — so on a live profile the day's
+        # errand ran on the recipe's own defaults and nothing could be seen or changed.
+        # These are those defaults, spelled out so the gear on «Таймеры» draws what is
+        # really in force rather than a blank that reads as «off»
+        # (`panel/runtime/errand_args.py`).
+        args={"keep": 3, "use_diamonds": 1, "diamond_cap": 1200,
+              "mega": 1, "dispatch": 1, "only_ur": 1},
         label_key="timers.item.secret_tasks_day",
     ),
     Timer(
@@ -1148,7 +1156,19 @@ def parse_catalogue(data, path: str | None = None,
             errors.append(Message("log.timers.no_scenario",
                                   f"{name}: no scenario to run — skipped", name=name))
             continue
+        # AN ARGUMENT THE ROW DOES NOT MENTION FALLS BACK TO THE BUILT-IN'S, exactly as
+        # the period, the retry and the switch above it already do (#2022). It has to:
+        # a row saved before an argument existed carries none of it, the recipe would
+        # run on its own `ARGS` default — and the gear on «Таймеры» would draw a blank,
+        # which for a switch reads as OFF. A knob showing «off» over a rule that is on
+        # is worse than no knob at all. Whatever the row DOES say still wins, so a flag
+        # somebody deliberately turned off stays off.
         args = raw.get("args")
+        if base is not None and base.args:
+            merged = dict(base.args)
+            if isinstance(args, dict):
+                merged.update(args)
+            args = merged
         timers.append(Timer(
             name=name,
             scenario=scenario,

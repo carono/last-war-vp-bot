@@ -1582,6 +1582,7 @@
   "cmdpost.tasks.budget": "Diamant-Obergrenze:",
   "cmdpost.tasks.mega": "Mega-Auffrischung nehmen",
   "cmdpost.tasks.send": "Danach die Trupps schicken",
+  "cmdpost.tasks.only_ur": "Nur UR",
   "cmdpost.tasks.run": "Auffrischen und schicken",
   "cmdpost.tasks.collect": "Abholen und öffnen",
   "cmdpost.tasks.running_now": "läuft…",
@@ -2384,5 +2385,15 @@
   "errand.arg.radar.forget": "Unerfüllbare aufgeben",
   "errand.arg.star.count": "Welten pro Runde",
   "errand.arg.star.count.hint": "Wie viele Welten eine Runde abläuft. Sechs sind etwa zwanzig Sekunden und lassen den Client frei.",
+  "errand.arg.secret.only_ur": "Nur UR-Aufträge senden",
+  "errand.arg.secret.only_ur.hint": "Der spieleigene Filter «nur UR» wird vor jedem Senden wieder eingeschaltet, und ein Versand, bei dem nicht nur UR ausgewählt ist, wird abgelehnt. Nur ausschalten, wenn auch die billigen Reste losgeschickt werden sollen.",
+  "errand.arg.secret.keep": "Anhalten bei Nicht-UR",
+  "errand.arg.secret.keep.hint": "Wie viele freie Nicht-UR-Aufträge die Auffrischung stehen lassen darf.",
+  "errand.arg.secret.mega": "Mega-Auffrischung nehmen",
+  "errand.arg.secret.use_diamonds": "Darf Diamanten ausgeben",
+  "errand.arg.secret.diamond_cap": "Diamant-Obergrenze",
+  "errand.arg.secret.diamond_cap.hint": "So viel darf eine Mega-Auffrischung höchstens in Diamanten kosten, und ebenso viel steht den gewöhnlichen Auffrischungen pro Lauf zu.",
+  "errand.arg.secret.dispatch": "Danach die Trupps senden",
+  "errand.arg.secret.dispatch.hint": "Am Ende des Laufs alles senden, was bereitsteht. Mit «nur UR» gehen ausschließlich UR-Aufträge hinaus.",
   "errand.arg.frontline.rounds": "Runden pro Lauf"
 }

@@ -1582,6 +1582,7 @@
   "cmdpost.tasks.budget": "Diamond ceiling:",
   "cmdpost.tasks.mega": "Take the mega refresh",
   "cmdpost.tasks.send": "Send the squads afterwards",
+  "cmdpost.tasks.only_ur": "Only UR",
   "cmdpost.tasks.run": "Refresh and send",
   "cmdpost.tasks.collect": "Collect and open",
   "cmdpost.tasks.running_now": "running…",
@@ -2384,5 +2385,15 @@
   "errand.arg.radar.forget": "Drop the ones it cannot do",
   "errand.arg.star.count": "Warzones per lap",
   "errand.arg.star.count.hint": "How many warzones one lap walks. Six is about twenty seconds and leaves the client free.",
+  "errand.arg.secret.only_ur": "Send only UR tasks",
+  "errand.arg.secret.only_ur.hint": "The game's own «only UR» filter is put back on before every send, and a send whose selected tasks are not all UR is refused. Turn it off only to send the cheap leftovers too.",
+  "errand.arg.secret.keep": "Stop at non-UR",
+  "errand.arg.secret.keep.hint": "How many idle non-UR tasks the refreshing is content to leave.",
+  "errand.arg.secret.mega": "Take the mega refresh",
+  "errand.arg.secret.use_diamonds": "May spend diamonds",
+  "errand.arg.secret.diamond_cap": "Diamond ceiling",
+  "errand.arg.secret.diamond_cap.hint": "The most one mega refresh may cost in diamonds, and the allowance the ordinary refreshes spend against.",
+  "errand.arg.secret.dispatch": "Send the squads afterwards",
+  "errand.arg.secret.dispatch.hint": "Send whatever is standing at the end of the run. With «only UR» on, only the UR tasks go out.",
   "errand.arg.frontline.rounds": "Rounds to play"
 }

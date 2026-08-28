@@ -99,6 +99,11 @@ class TasksPane:
         self.gold_var = statevar.boolean(self.rt.root, True)
         self.mega_var = statevar.boolean(self.rt.root, True)
         self.send_var = statevar.boolean(self.rt.root, True)
+        #: «Только UR» — the hard rule, and the reason it is a knob rather than a
+        #: constant is that its OFF is what «отправлять отряды» used to mean on its own.
+        #: On, the run puts the game's own toggle back on at every popup it opens and
+        #: refuses any send whose selected rows are not all UR (#2022).
+        self.only_ur_var = statevar.boolean(self.rt.root, True)
         self.build()
 
     # -- the window ----------------------------------------------------------
@@ -161,6 +166,9 @@ class TasksPane:
         self.rt.tr(ttk.Checkbutton(boxes, variable=self.send_var,
                                    command=self._on_rule_change),
                    "cmdpost.tasks.send").pack(side="left", padx=(12, 0))
+        self.rt.tr(ttk.Checkbutton(boxes, variable=self.only_ur_var,
+                                   command=self._on_rule_change),
+                   "cmdpost.tasks.only_ur").pack(side="left", padx=(12, 0))
         # A button that STARTS the ability, never one that MARKS anything (`CLAUDE.md`):
         # what it changes is in the game, and every reading above it comes back from the
         # run itself.
@@ -181,7 +189,7 @@ class TasksPane:
 
     # -- the rule, as the scenario's arguments -------------------------------
     def args(self) -> dict:
-        """The four knobs as the scenario's `ARGS`. Nothing else is passed.
+        """The knobs as the scenario's `ARGS`. Nothing else is passed.
 
         A half-typed box falls back to the scenario's own default rather than to zero:
         `keep = 0` would refresh until every idle task were UR and `diamond_cap = 0`
@@ -192,7 +200,8 @@ class TasksPane:
                 "use_diamonds": 1 if self.gold_var.get() else 0,
                 "diamond_cap": _int(self.budget_var.get(), DEFAULT_CAP),
                 "mega": 1 if self.mega_var.get() else 0,
-                "dispatch": 1 if self.send_var.get() else 0}
+                "dispatch": 1 if self.send_var.get() else 0,
+                "only_ur": 1 if self.only_ur_var.get() else 0}
 
     # -- playing the two scenarios -------------------------------------------
     def ensure_loaded(self) -> None:
@@ -263,17 +272,18 @@ class TasksPane:
         return {"title": "cmdpost.tasks.title", "rows": rows,
                 "fields": self.web_fields()}
 
-    #: The rule as five knobs, and the one place their names are written. The order is
+    #: The rule as six knobs, and the one place their names are written. The order is
     #: the window's: how many to keep, whether diamonds may be spent and up to how much,
     #: then what the run does with what it has left.
     WEB_FIELDS = (("keep", "cmdpost.tasks.keep", opt_value.NUMBER),
                   ("use_diamonds", "cmdpost.tasks.use_diamonds", opt_value.SWITCH),
                   ("diamond_cap", "cmdpost.tasks.budget", opt_value.NUMBER),
                   ("mega", "cmdpost.tasks.mega", opt_value.SWITCH),
-                  ("dispatch", "cmdpost.tasks.send", opt_value.SWITCH))
+                  ("dispatch", "cmdpost.tasks.send", opt_value.SWITCH),
+                  ("only_ur", "cmdpost.tasks.only_ur", opt_value.SWITCH))
 
     def web_fields(self) -> list:
-        """The five knobs the run is aimed with — FIELDS on the phone since #1976.
+        """The knobs the run is aimed with — FIELDS on the phone since #1976.
 
         They used to be one sentence («оставить N, до M алмазов») and nothing else,
         while «Отработать сейчас» has travelled since #1296. A press whose rule can only
@@ -304,7 +314,8 @@ class TasksPane:
         _name, kind = wanted[key]
         if kind is opt_value.SWITCH:
             {"use_diamonds": self.gold_var, "mega": self.mega_var,
-             "dispatch": self.send_var}[key].set(bool(value))
+             "dispatch": self.send_var,
+             "only_ur": self.only_ur_var}[key].set(bool(value))
         else:
             raw = str(value).strip()
             if not raw.isdigit():
@@ -319,7 +330,8 @@ class TasksPane:
                 "use_diamonds": bool(self.gold_var.get()),
                 "diamond_cap": _int(self.budget_var.get(), DEFAULT_CAP),
                 "mega": bool(self.mega_var.get()),
-                "dispatch": bool(self.send_var.get())}
+                "dispatch": bool(self.send_var.get()),
+                "only_ur": bool(self.only_ur_var.get())}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
@@ -331,10 +343,14 @@ class TasksPane:
         self.gold_var.set(bool(raw.get("use_diamonds", True)))
         self.mega_var.set(bool(raw.get("mega", True)))
         self.send_var.set(bool(raw.get("dispatch", True)))
+        # A profile saved before #2022 has no key here, and its default is ON: the
+        # failure it guards against — cheap tasks going out on the day's marches — is
+        # the one nobody would choose to keep.
+        self.only_ur_var.set(bool(raw.get("only_ur", True)))
 
     def persist_vars(self) -> list:
         return [self.keep_var, self.budget_var, self.gold_var, self.mega_var,
-                self.send_var]
+                self.send_var, self.only_ur_var]
 
     # -- lifecycle the tab expects ------------------------------------------
     def shutdown(self) -> None:

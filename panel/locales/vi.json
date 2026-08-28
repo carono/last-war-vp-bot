@@ -1582,6 +1582,7 @@
   "cmdpost.tasks.budget": "Trần kim cương:",
   "cmdpost.tasks.mega": "Dùng siêu làm mới",
   "cmdpost.tasks.send": "Gửi đội hình sau đó",
+  "cmdpost.tasks.only_ur": "Chỉ UR",
   "cmdpost.tasks.run": "Làm mới và gửi",
   "cmdpost.tasks.collect": "Nhận và mở",
   "cmdpost.tasks.running_now": "đang chạy…",
@@ -2384,5 +2385,15 @@
   "errand.arg.radar.forget": "Bỏ những việc không làm nổi",
   "errand.arg.star.count": "Số thế giới mỗi vòng",
   "errand.arg.star.count.hint": "Một vòng đi qua bao nhiêu thế giới. Sáu mất khoảng hai mươi giây và client vẫn rảnh.",
+  "errand.arg.secret.only_ur": "Chỉ gửi nhiệm vụ UR",
+  "errand.arg.secret.only_ur.hint": "Bộ lọc «chỉ UR» của chính trò chơi được bật lại trước mỗi lần gửi, và lần gửi nào có lựa chọn không hoàn toàn là UR sẽ bị từ chối. Chỉ tắt khi muốn gửi cả phần thừa rẻ tiền.",
+  "errand.arg.secret.keep": "Dừng ở mức không phải UR",
+  "errand.arg.secret.keep.hint": "Việc làm mới chấp nhận để lại bao nhiêu nhiệm vụ không phải UR đang rảnh.",
+  "errand.arg.secret.mega": "Dùng mega làm mới",
+  "errand.arg.secret.use_diamonds": "Được phép tiêu kim cương",
+  "errand.arg.secret.diamond_cap": "Trần kim cương",
+  "errand.arg.secret.diamond_cap.hint": "Mức cao nhất một lần mega làm mới được phép tốn bằng kim cương, và cũng là khoản dành cho các lần làm mới thường trong mỗi lượt chạy.",
+  "errand.arg.secret.dispatch": "Sau đó gửi đội quân",
+  "errand.arg.secret.dispatch.hint": "Gửi tất cả những gì còn đứng đó ở cuối lượt chạy. Khi «chỉ UR» đang bật, chỉ nhiệm vụ UR đi ra.",
   "errand.arg.frontline.rounds": "Số hiệp mỗi lượt"
 }

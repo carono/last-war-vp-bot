@@ -1582,6 +1582,7 @@
   "cmdpost.tasks.budget": "Потолок алмазов:",
   "cmdpost.tasks.mega": "Делать мега-обновление",
   "cmdpost.tasks.send": "Отправлять отряды после",
+  "cmdpost.tasks.only_ur": "Только UR",
   "cmdpost.tasks.run": "Обновить и отправить",
   "cmdpost.tasks.collect": "Собрать и вскрыть",
   "cmdpost.tasks.running_now": "работаю…",
@@ -2384,5 +2385,15 @@
   "errand.arg.radar.forget": "Отказываться от невыполнимых",
   "errand.arg.star.count": "Миров за проход",
   "errand.arg.star.count.hint": "Сколько миров обходит один проход. Шесть — примерно двадцать секунд, клиент остаётся свободен.",
+  "errand.arg.secret.only_ur": "Отправлять только UR",
+  "errand.arg.secret.only_ur.hint": "Перед каждой отправкой галка «только UR» в игре ставится обратно, а отправка, в которой выбраны не только UR, отменяется. Выключать только если нужно отправить и дешёвые остатки.",
+  "errand.arg.secret.keep": "Останавливаться на не-UR",
+  "errand.arg.secret.keep.hint": "Сколько свободных не-UR заданий обновление согласно оставить.",
+  "errand.arg.secret.mega": "Делать мега-обновление",
+  "errand.arg.secret.use_diamonds": "Можно тратить алмазы",
+  "errand.arg.secret.diamond_cap": "Потолок алмазов",
+  "errand.arg.secret.diamond_cap.hint": "Дороже этого одно мега-обновление не берётся, и столько же отпущено на обычные обновления за прогон.",
+  "errand.arg.secret.dispatch": "Отправлять отряды после",
+  "errand.arg.secret.dispatch.hint": "Отправить в конце прогона всё, что стоит. При включённом «только UR» уходят только UR задания.",
   "errand.arg.frontline.rounds": "Раундов за прогон"
 }

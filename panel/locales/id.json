@@ -1582,6 +1582,7 @@
   "cmdpost.tasks.budget": "Batas berlian:",
   "cmdpost.tasks.mega": "Pakai mega penyegaran",
   "cmdpost.tasks.send": "Kirim regu setelahnya",
+  "cmdpost.tasks.only_ur": "Hanya UR",
   "cmdpost.tasks.run": "Segarkan dan kirim",
   "cmdpost.tasks.collect": "Ambil dan buka",
   "cmdpost.tasks.running_now": "sedang bekerja…",
@@ -2384,5 +2385,15 @@
   "errand.arg.radar.forget": "Lepas yang tak bisa",
   "errand.arg.star.count": "Dunia per putaran",
   "errand.arg.star.count.hint": "Berapa dunia yang dilalui satu putaran. Enam sekitar dua puluh detik dan klien tetap bebas.",
+  "errand.arg.secret.only_ur": "Kirim hanya tugas UR",
+  "errand.arg.secret.only_ur.hint": "Filter «hanya UR» milik gim sendiri dinyalakan kembali sebelum setiap pengiriman, dan pengiriman yang pilihannya tidak semuanya UR akan ditolak. Matikan hanya bila sisa yang murah juga mau dikirim.",
+  "errand.arg.secret.keep": "Berhenti pada non-UR",
+  "errand.arg.secret.keep.hint": "Berapa banyak tugas non-UR yang menganggur boleh ditinggalkan oleh penyegaran.",
+  "errand.arg.secret.mega": "Ambil mega penyegaran",
+  "errand.arg.secret.use_diamonds": "Boleh memakai berlian",
+  "errand.arg.secret.diamond_cap": "Batas berlian",
+  "errand.arg.secret.diamond_cap.hint": "Paling mahal sebuah mega penyegaran boleh berharga sekian berlian, dan jatah yang sama untuk penyegaran biasa per putaran.",
+  "errand.arg.secret.dispatch": "Kirim regu setelahnya",
+  "errand.arg.secret.dispatch.hint": "Kirim apa pun yang masih berdiri di akhir putaran. Dengan «hanya UR» menyala, hanya tugas UR yang berangkat.",
   "errand.arg.frontline.rounds": "Ronde per jalan"
 }

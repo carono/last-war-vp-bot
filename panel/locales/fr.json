@@ -1582,6 +1582,7 @@
   "cmdpost.tasks.budget": "Plafond de diamants :",
   "cmdpost.tasks.mega": "Prendre le méga-rafraîchissement",
   "cmdpost.tasks.send": "Envoyer les escouades ensuite",
+  "cmdpost.tasks.only_ur": "UR seulement",
   "cmdpost.tasks.run": "Rafraîchir et envoyer",
   "cmdpost.tasks.collect": "Récupérer et ouvrir",
   "cmdpost.tasks.running_now": "en cours…",
@@ -2384,5 +2385,15 @@
   "errand.arg.radar.forget": "Abandonner les impossibles",
   "errand.arg.star.count": "Mondes par tour",
   "errand.arg.star.count.hint": "Combien de mondes parcourt un tour. Six font une vingtaine de secondes et laissent le client libre.",
+  "errand.arg.secret.only_ur": "N'envoyer que les tâches UR",
+  "errand.arg.secret.only_ur.hint": "Le filtre « UR seulement » du jeu est remis avant chaque envoi, et un envoi dont la sélection n'est pas entièrement UR est refusé. À désactiver uniquement pour envoyer aussi les restes bon marché.",
+  "errand.arg.secret.keep": "S'arrêter à non-UR",
+  "errand.arg.secret.keep.hint": "Combien de tâches non-UR libres le rafraîchissement accepte de laisser.",
+  "errand.arg.secret.mega": "Prendre le méga-rafraîchissement",
+  "errand.arg.secret.use_diamonds": "Peut dépenser des diamants",
+  "errand.arg.secret.diamond_cap": "Plafond de diamants",
+  "errand.arg.secret.diamond_cap.hint": "Le maximum qu'un méga-rafraîchissement peut coûter en diamants, et l'enveloppe dont disposent les rafraîchissements ordinaires par passage.",
+  "errand.arg.secret.dispatch": "Envoyer les escouades ensuite",
+  "errand.arg.secret.dispatch.hint": "Envoyer tout ce qui attend à la fin du passage. Avec « UR seulement », seules les tâches UR partent.",
   "errand.arg.frontline.rounds": "Manches par passage"
 }

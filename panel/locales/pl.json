@@ -1582,6 +1582,7 @@
   "cmdpost.tasks.budget": "Pułap diamentów:",
   "cmdpost.tasks.mega": "Robić megaodświeżenie",
   "cmdpost.tasks.send": "Potem wysłać oddziały",
+  "cmdpost.tasks.only_ur": "Tylko UR",
   "cmdpost.tasks.run": "Odśwież i wyślij",
   "cmdpost.tasks.collect": "Odbierz i otwórz",
   "cmdpost.tasks.running_now": "pracuję…",
@@ -2384,5 +2385,15 @@
   "errand.arg.radar.forget": "Rezygnować z niewykonalnych",
   "errand.arg.star.count": "Światów na przebieg",
   "errand.arg.star.count.hint": "Ile światów obchodzi jeden przebieg. Sześć to około dwudziestu sekund i klient zostaje wolny.",
+  "errand.arg.secret.only_ur": "Wysyłać tylko zadania UR",
+  "errand.arg.secret.only_ur.hint": "Gra ma własny filtr «tylko UR» — jest on włączany z powrotem przed każdą wysyłką, a wysyłka, w której zaznaczone są nie tylko UR, zostaje odrzucona. Wyłączać tylko wtedy, gdy mają pójść także tanie resztki.",
+  "errand.arg.secret.keep": "Zatrzymać się na nie-UR",
+  "errand.arg.secret.keep.hint": "Ile wolnych zadań nie-UR odświeżanie godzi się zostawić.",
+  "errand.arg.secret.mega": "Robić mega odświeżenie",
+  "errand.arg.secret.use_diamonds": "Można wydawać diamenty",
+  "errand.arg.secret.diamond_cap": "Pułap diamentów",
+  "errand.arg.secret.diamond_cap.hint": "Najwięcej, ile jedno mega odświeżenie może kosztować w diamentach, i tyle samo przypada zwykłym odświeżeniom na jeden przebieg.",
+  "errand.arg.secret.dispatch": "Wysyłać potem oddziały",
+  "errand.arg.secret.dispatch.hint": "Wysłać na koniec przebiegu wszystko, co stoi. Przy włączonym «tylko UR» wychodzą wyłącznie zadania UR.",
   "errand.arg.frontline.rounds": "Rund na przebieg"
 }

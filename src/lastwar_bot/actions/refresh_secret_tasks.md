@@ -92,6 +92,22 @@ ARGS diamond_cap = 1200
 ARGS mega = 1
 ARGS dispatch = 1
 
+# ONLY UR, AND IT IS CHECKED RATHER THAN ASSUMED (#2022). The dispatch popup has the
+# game's own «только UR» toggle and the game REMEMBERS it: the run's last step used to
+# untick it to send the leftovers, the untick outlived the run, and every later
+# «send the UR the refresh just won» went out with the cheap tasks beside it. The
+# operator watched it happen — «отправлены не только UR задания, но и дешевые» — and
+# the cost is a day of marches and task slots spent on the things the rule was keeping.
+#
+# So with this on — and it is on by default — the toggle is put BACK ON at every popup
+# this opens, and no send is confirmed until the popup has been read and answers three
+# ways at once: the toggle is on, no selected row is below UR, and no more rows are
+# selected than there are idle UR tasks. Any of the three failing cancels the send and
+# says which, because a send that goes out wrong cannot be taken back.
+#
+# Turning it off is what `dispatch` used to mean on its own: the leftovers go too.
+ARGS only_ur = 1
+
 # 1. Park the rule where the presses can read it — `TAP` takes no arguments — and stamp
 #    the purse the budget is measured from.
 LUA local M=DataCenter.ActDispatchTaskDataManager M.__lw_ref_keep={keep} M.__lw_ref_gold={use_diamonds} M.__lw_ref_budget={diamond_cap} M.__lw_ref_mega_cost=-1 M.__lw_ref_mega_tasks=0 local g=0 pcall(function() g=tonumber(LuaEntry.Player.gold) or 0 end) M.__lw_ref_gold0=g
@@ -127,14 +143,43 @@ WHILE go == 1 LIMIT 24
     #     precisely the task the last refresh won.
     IF ur > 0
         TAP open_batch_dispatch
+        IF only_ur == 1
+            TAP force_batch_only_ur
+            READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_onlyur_fixed) or 0) INTO ur_fixed
+            IF ur_fixed == 1
+                LOG "the game's «только UR» toggle was OFF and has been put back on before reading what would go"
         TAP read_batch_dispatch
         READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_picked) or 0) INTO picked
-        IF picked > 0
-            LOG "sending {picked} UR task(s) before touching the refresh"
-            TAP confirm_batch_dispatch
-        ELSE
-            LOG "a UR is idle and the game selected nothing to send it with — no free hero or no march slot"
+        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_cheap) or 0) INTO cheap
+        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_unread) or 0) INTO unread
+        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_onlyur) or 0) INTO only_ur_on
+        # …and the third question, which no condition here can ask: a DSL comparison
+        # takes a number on the right, never another variable, so «are more rows
+        # selected than there are idle UR tasks» is arithmetic done in the game and
+        # read back as one number. It is the cross-check that needs no field name at
+        # all — whatever a row turns out to be called, there cannot be more UR sent
+        # than there are UR standing.
+        READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local p=tonumber(M.__lw_ref_picked) or 0 local u=tonumber(M.__lw_ref_ur) or 0 local d=p-u if d<0 then d=0 end return d end)() INTO overpick
+        # The three questions, asked of the popup that is about to be confirmed and not
+        # of the one that was opened. `send` is 1 only when every one of them answers.
+        READ_LUA 1 INTO send
+        IF only_ur == 1
+            IF only_ur_on == 0
+                READ_LUA 0 INTO send
+            IF cheap > 0
+                READ_LUA 0 INTO send
+            IF overpick > 0
+                READ_LUA 0 INTO send
+        IF send == 0
+            LOG "REFUSING the send: «только UR» reads {only_ur_on}, {cheap} of the {picked} selected task(s) are below UR ({unread} of them with no readable rarity at all), and there are only {ur} idle UR — nothing goes out"
             TAP cancel_batch_dispatch
+        ELSE
+            IF picked > 0
+                LOG "sending {picked} UR task(s) before touching the refresh"
+                TAP confirm_batch_dispatch
+            ELSE
+                LOG "a UR is idle and the game selected nothing to send it with — no free hero or no march slot"
+                TAP cancel_batch_dispatch
     # 4b. …and only then the refresh, and only if the rescue actually worked.
     TAP open_secret_post
     TAP scan_secret_post
@@ -182,25 +227,52 @@ IF mega == 1
                 LOG "mega refresh: {mega_tasks} task(s) at {mega_want} order(s) would need {mega_gold} diamond(s) on top of the {tickets} order(s) in the bag — dearer than the ceiling of {diamond_cap}, left alone"
                 TAP cancel_mega_refresh
 
-# 7. Send what is standing: the URs the mega has just made, and — if the person asked for
-#    it — the tasks the rule was content to keep as well. The popup fills every squad
-#    itself; its confirm is the `hero.dispatch.batch.start`.
+# 7. Send what is standing — the URs the mega has just made, and NOTHING ELSE unless the
+#    person has turned `only_ur` off. The popup fills every squad itself and its confirm
+#    is the `hero.dispatch.batch.start`, so the whole of the guard is in what the popup
+#    is holding when that press happens: the toggle back on, the reading taken, and the
+#    three answers checked. `dispatch` alone no longer unticks anything — that was the
+#    bug (#2022), and «отправлять отряды» was never meant to read as «отправлять дешёвые».
 TAP open_secret_post
 TAP scan_secret_post
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_idle) or 0) INTO idle
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ur) or 0) INTO ur
 IF idle > 0
     TAP open_batch_dispatch
-    IF dispatch == 1
-        TAP select_all_batch_dispatch
+    IF only_ur == 1
+        TAP force_batch_only_ur
+        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_onlyur_fixed) or 0) INTO ur_fixed
+        IF ur_fixed == 1
+            LOG "the game's «только UR» toggle was OFF and has been put back on before reading what would go"
+    ELSE
+        IF dispatch == 1
+            LOG "«только UR» is turned OFF by the rule — the leftovers are going out too"
+            TAP select_all_batch_dispatch
     TAP read_batch_dispatch
     READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_rows) or 0) INTO rows
     READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_picked) or 0) INTO picked
-    IF picked > 0
-        LOG "sending {picked} of the {rows} idle task(s)"
-        TAP confirm_batch_dispatch
-    ELSE
-        LOG "nothing of the {rows} idle task(s) can be sent — no free hero or no march slot"
+    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_cheap) or 0) INTO cheap
+    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_unread) or 0) INTO unread
+    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_onlyur) or 0) INTO only_ur_on
+    READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local p=tonumber(M.__lw_ref_picked) or 0 local u=tonumber(M.__lw_ref_ur) or 0 local d=p-u if d<0 then d=0 end return d end)() INTO overpick
+    READ_LUA 1 INTO send
+    IF only_ur == 1
+        IF only_ur_on == 0
+            READ_LUA 0 INTO send
+        IF cheap > 0
+            READ_LUA 0 INTO send
+        IF overpick > 0
+            READ_LUA 0 INTO send
+    IF send == 0
+        LOG "REFUSING the send: «только UR» reads {only_ur_on}, {cheap} of the {picked} selected task(s) are below UR ({unread} of them with no readable rarity at all), and there are only {ur} idle UR — nothing goes out"
         TAP cancel_batch_dispatch
+    ELSE
+        IF picked > 0
+            LOG "sending {picked} of the {rows} idle task(s)"
+            TAP confirm_batch_dispatch
+        ELSE
+            LOG "nothing of the {rows} idle task(s) can be sent — no free hero or no march slot"
+            TAP cancel_batch_dispatch
 
 # 8. One last look, so whoever pressed this — the window or the phone — is told the state
 #    it LEFT rather than the one it started from. The panel draws its page off these,

@@ -1582,6 +1582,7 @@
   "cmdpost.tasks.budget": "Elmas tavanı:",
   "cmdpost.tasks.mega": "Mega yenilemeyi al",
   "cmdpost.tasks.send": "Sonra birlikleri gönder",
+  "cmdpost.tasks.only_ur": "Yalnızca UR",
   "cmdpost.tasks.run": "Yenile ve gönder",
   "cmdpost.tasks.collect": "Topla ve aç",
   "cmdpost.tasks.running_now": "çalışıyor…",
@@ -2384,5 +2385,15 @@
   "errand.arg.radar.forget": "Yapılamayanlardan vazgeç",
   "errand.arg.star.count": "Tur başına dünya",
   "errand.arg.star.count.hint": "Bir turun kaç dünya dolaştığı. Altı yaklaşık yirmi saniyedir ve istemciyi serbest bırakır.",
+  "errand.arg.secret.only_ur": "Yalnızca UR görevleri gönder",
+  "errand.arg.secret.only_ur.hint": "Oyunun kendi «yalnızca UR» filtresi her gönderimden önce yeniden açılır ve seçimi tamamen UR olmayan bir gönderim reddedilir. Yalnızca ucuz artıkları da göndermek istediğinizde kapatın.",
+  "errand.arg.secret.keep": "UR olmayanda dur",
+  "errand.arg.secret.keep.hint": "Yenileme kaç boştaki UR olmayan görevi bırakmaya razı olsun.",
+  "errand.arg.secret.mega": "Mega yenilemeyi al",
+  "errand.arg.secret.use_diamonds": "Elmas harcanabilir",
+  "errand.arg.secret.diamond_cap": "Elmas tavanı",
+  "errand.arg.secret.diamond_cap.hint": "Bir mega yenilemenin elmas olarak en fazla tutabileceği bedel; sıradan yenilemelere de tur başına aynı pay ayrılır.",
+  "errand.arg.secret.dispatch": "Sonra birlikleri gönder",
+  "errand.arg.secret.dispatch.hint": "Turun sonunda bekleyen ne varsa gönder. «Yalnızca UR» açıkken sadece UR görevler çıkar.",
   "errand.arg.frontline.rounds": "Geçiş başına raunt"
 }

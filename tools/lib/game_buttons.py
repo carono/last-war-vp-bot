@@ -588,15 +588,28 @@ BUTTONS: dict[str, Button] = {
     ),
     "read_batch_dispatch": Button(
         # What the popup would actually send, BEFORE anything is confirmed: how many
-        # rows it holds and how many its own «только UR» toggle has selected. Zero
-        # selected is the honest «nothing here the rule wants» and the recipe closes it.
+        # rows it holds, how many its own «только UR» toggle has selected, whether that
+        # toggle is really on, and how many of the SELECTED rows are below UR. Zero
+        # selected is the honest «nothing here the rule wants» and the recipe closes it;
+        # a selected row below UR is the failure #2022 was opened for and the recipe
+        # refuses the send on it.
         lua=_lua_actions.secret_post_batch_read(),
         wait=0.4, label="Read the batch dispatch",
         relay=("post_send_rows",),
     ),
+    "force_batch_only_ur": Button(
+        # Put «только UR» back on before anything is read or sent. The game REMEMBERS
+        # the toggle, so one untick outlives the run that did it — which is exactly how
+        # a day's marches went out on cheap tasks (#2022).
+        lua=_lua_actions.secret_post_batch_only_ur(),
+        wait=0.6, label="Put «only UR» back on",
+        relay=("post_send_only_ur",),
+    ),
     "select_all_batch_dispatch": Button(
-        # Untick «только UR» — the last step of a run, when the leftovers are to be sent
-        # too. The toggle is the game's own, so flipping it is what re-selects the rows.
+        # Untick «только UR» — ONLY when the person has explicitly turned the «only UR»
+        # rule off, and never otherwise. The toggle is the game's own, so flipping it is
+        # what re-selects the rows — and the game keeps it flipped, which is why this is
+        # no longer a step of an ordinary run.
         lua=_lua_actions.secret_post_batch_all(),
         wait=0.8, label="Send the leftovers too",
         relay=("post_send_all",),
