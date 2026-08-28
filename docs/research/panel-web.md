@@ -422,6 +422,56 @@ instead of happening inside the request. Pulling the interpreter out from under 
 socket would leave the phone with a dead connection and no way to tell «перезапускается»
 from «упало» — which is precisely the state a remote control must never leave somebody in.
 
+### 3.12 Where the person is standing is in the address bar (#2050)
+
+The person's words: «сделай чтобы ссылки пушились в адресную строку, чтобы при
+обновлении, я оставался на нужной странице, нужного аккаунта». Until this the page kept
+its place in React state alone, so every reload — a tab a phone threw away overnight, an
+F5, a link opened twice — landed on «Состояние» of whichever account the WINDOW happened
+to be showing. A remote control that forgets where it was every time it is put down is
+one screen short of useless with four profiles open.
+
+**It is a FRAGMENT, not a path**, and that is the decision worth the words. The bundle is
+served as plain files by `_page` in `panel/web/server.py`, which maps a URL to a file on
+disk; a real route like `/app/main/screen/develop` would be a 404, and giving the server
+an SPA fallback means teaching Python which paths belong to the app — a second copy of
+the front-end's own list, in another language, going stale the first time a screen is
+added. A fragment is never sent to the server at all, so `server.py` did not change one
+line for this.
+
+It also stays out of the token's way. Landing with `?token=…` is answered with a redirect
+to the bare path so the address bar never keeps the token (§3.2), and a browser carries
+the fragment across that redirect itself — so a link with a token AND a route in it lands
+on the right screen, with a cookie, at a clean address. The sign-in box learnt the same
+thing: it used to bounce to `location.pathname` and now bounces to
+`pathname + hash`, so being asked for the token does not cost the place you were headed.
+
+**Four things are in it**, and they are the four that answer «where am I»: the account,
+the bottom-bar tab, the screen opened out of «Ещё», and which of that screen's cards is
+open (`#/<profile>/state`, `#/<profile>/screen/<id>/<n>`). The card is named by its
+position, because that is what the chip strip is; a screen reopened tomorrow may have
+fewer cards, so a number past the end falls back to the summary rather than drawing a
+blank page.
+
+**Three things are deliberately NOT in it** — the search box, «Показать ещё» and the
+map's «Наша модель / Экран клиента» (#2018). They are how the page in front of you is
+drawn, not which page it is. Put a search box in the address and every keystroke becomes
+a history entry, so the back button walks a word letter by letter instead of going back
+where it came from. If one of them ever has to survive a reload it belongs in storage,
+never in the history.
+
+**A tap PUSHES, a correction REPLACES.** Choosing a chip, opening a screen, moving to
+another tab are steps the back button undoes. The panel filling in what the person did
+not type — falling back to the account the window is showing, or off a profile the
+address names and this panel does not have — replaces instead, because a back button that
+walks through the app's own corrections goes nowhere. Both directions are heard:
+`popstate` for the buttons, `hashchange` for an address typed by hand.
+
+Switching account clears the log, the scenario list and the screen list rather than
+showing them under the new name, and it hangs off the ROUTE rather than off the chip —
+the account can change without anything being tapped: a reload, a shared link, the back
+button.
+
 ## 4. What was left out, and why
 
 * **An Android application.** The original idea, dropped: `tkinter` does not exist on

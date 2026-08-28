@@ -10,7 +10,9 @@ export function LoginView() {
   const [bad, setBad] = useState(false)
   const enter = async () => {
     const answer = await post<{ ok?: boolean }>('/api/login', { token: token.trim() })
-    if (answer.ok) location.replace(location.pathname)
+    // The route survives signing in: somebody who followed a link to one account's map
+    // and was asked for the token lands on that map, not on the first screen (#2050).
+    if (answer.ok) location.replace(location.pathname + location.hash)
     else setBad(true)
   }
   return (

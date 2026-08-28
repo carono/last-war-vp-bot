@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, ping, setProfile, Unauthorised } from './api'
+import { useRoute, type Route, type ViewName } from './route'
 import { loadWords, span, t, type Words } from './i18n'
 import { ToastHost, useToast } from './ui/Toast'
 import { ActionsView } from './views/ActionsView'
@@ -25,8 +26,6 @@ import type {
 const POLL_MS = 2500 //  how often a visible page asks for state and log
 const SLOW_MS = 15000 // …and when it is in a pocket, hidden
 const LOG_KEEP = 400 //  lines held for a phone that has been open all evening
-
-type ViewName = 'state' | 'timers' | 'more'
 
 /* THERE IS NO «СЦЕНАРИИ» ENTRY AND NO «ЛОГ» ENTRY, and that is the point — the person's
  * decision, in their words: «вкладки сценарии быть не должно, в панели она была в
@@ -168,9 +167,12 @@ function StatusStrip({ header, account }: { header?: Header; account?: string })
 }
 
 function Panel() {
-  const [view, setView] = useState<ViewName>('state')
-  const [screen, setScreen] = useState<string | null>(null)
-  const [profile, setProfileName] = useState('')
+  /* WHERE WE ARE IS THE ADDRESS BAR (#2050) — the account, the tab, the open screen and
+   * which of its cards, so a reload comes back to the same place rather than to the
+   * first screen of whichever account the window is showing. `panel/web/app/src/route.ts`
+   * says what is in it and what deliberately is not. */
+  const [route, go] = useRoute()
+  const { view, screen, profile } = route
   const [profiles, setProfiles] = useState<Profiles>({ profiles: [] })
   const [state, setState] = useState<State | null>(null)
   const [timers, setTimers] = useState<TimerRow[]>([])
@@ -187,6 +189,10 @@ function Panel() {
   const notifyRef = useRef(false)
   const viewRef = useRef<ViewName>('state')
   viewRef.current = view
+  /* The poll runs on its own clock and may finish after the person has moved, so it
+   * reads the route through a ref rather than through the closure it was made in. */
+  const routeRef = useRef<Route>(route)
+  routeRef.current = route
 
   /* A line that says something went wrong reaches the person with the page in a pocket —
    * that is the whole point of a remote control. Nothing is pushed from the server: the
@@ -234,15 +240,21 @@ function Panel() {
 
   const tick = useCallback(async () => {
     try {
+      // The account named in the address goes on the request itself, before the first
+      // one is made: a reload asks about the profile it came back to, not about the
+      // session's own.
+      setProfile(profile)
       const who = await get<Profiles>('/api/profiles')
       setProfiles(who)
       const names = who.profiles || []
       if (!profile || !names.includes(profile)) {
         // Start on the account the WINDOW is showing, and fall back to it if the one
-        // being looked at was closed at the machine.
+        // being looked at was closed at the machine — or if the address names one this
+        // panel does not have. That is the app correcting the person rather than the
+        // person navigating, so it REPLACES: the back button must not walk through it.
         const want = names.includes(who.showing || '') ? who.showing! : names[0] || ''
         setProfile(want)
-        setProfileName(want)
+        if (want !== profile) go({ ...routeRef.current, profile: want }, true)
       }
       setState(await get<State>('/api/state'))
       const log = await get<{ lines?: LogLine[]; next: number; reset?: boolean }>(
@@ -261,7 +273,7 @@ function Panel() {
       if (err instanceof Unauthorised) location.reload()
       setOffline(true)
     }
-  }, [announce, profile, refreshTimers])
+  }, [announce, go, profile, refreshTimers])
 
   // The poll: quick while somebody is looking, slow while the phone is in a pocket.
   useEffect(() => {
@@ -290,20 +302,25 @@ function Panel() {
     if (screen === DEVELOP_SCREEN) void refreshActions()
   }, [screen, refreshActions])
 
+  /* Another account is another log with its own numbering, another scenario list (the
+   * titles follow that profile's language) and another everything — so what was read for
+   * the last one is dropped rather than shown under the new name. It hangs off the route
+   * because the account can change without a chip being tapped: a reload, a link, the
+   * back button. */
+  useEffect(() => {
+    logAt.current = 0
+    setLines([])
+    setActions([])
+    setScreens([])
+  }, [profile])
+
   const switchProfile = useCallback(
-    async (name: string) => {
-      // Another account is another log with its own numbering, another scenario list (the
-      // titles follow that profile's language) and another everything.
-      setProfile(name)
-      setProfileName(name)
-      logAt.current = 0
-      setLines([])
-      setActions([])
-      setScreens([])
-      setScreen(null)
-      await tick()
+    (name: string) => {
+      // The open screen does not travel: a tab switched on for one profile need not
+      // exist on the next, and «Ещё» is where the two lists differ.
+      go({ profile: name, view: view === 'more' ? 'more' : view, screen: null, part: 0 })
     },
-    [tick],
+    [go, view],
   )
 
   const names = profiles.profiles || []
@@ -330,12 +347,18 @@ function Panel() {
         />
       </header>
 
-      <Lights lights={profiles.lights || []} profile={profile} onPick={(n) => void switchProfile(n)} />
+      <Lights lights={profiles.lights || []} profile={profile} onPick={switchProfile} />
 
       <main>
         {screen ? (
           <>
-            <ScreenPage id={screen} pollKey={tickCount} onBack={() => setScreen(null)} />
+            <ScreenPage
+              id={screen}
+              pollKey={tickCount}
+              part={route.part}
+              onPart={(n) => go({ ...route, part: n })}
+              onBack={() => go({ ...route, screen: null, part: 0 })}
+            />
             {screen === DEVELOP_SCREEN ? (
               <>
                 {/* The log's page comes first in the window's own order (`PAGES`,
@@ -380,7 +403,7 @@ function Panel() {
             refresh={refreshTimers}
           />
         ) : (
-          <MoreView screens={screens} onOpen={(id) => setScreen(id)} />
+          <MoreView screens={screens} onOpen={(id) => go({ ...route, view: 'more', screen: id, part: 0 })} />
         )}
       </main>
 
@@ -391,10 +414,7 @@ function Panel() {
           <button
             key={entry.id}
             className={'nav' + (view === entry.id && !screen ? ' on' : '')}
-            onClick={() => {
-              setScreen(null)
-              setView(entry.id)
-            }}
+            onClick={() => go({ ...route, view: entry.id, screen: null, part: 0 })}
           >
             {t(entry.key)}
           </button>

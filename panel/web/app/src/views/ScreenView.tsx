@@ -362,15 +362,18 @@ export function ScreenPage({
   id,
   onBack,
   pollKey,
+  part: asked,
+  onPart,
 }: {
   id: string
   onBack: () => void
   pollKey: number
+  /** Which part of the screen is open: 0 is the summary, i+1 is card i. */
+  part: number
+  onPart: (part: number) => void
 }) {
   const [view, setView] = useState<View | null>(null)
   const [needle, setNeedle] = useState('')
-  //: Which part of the screen is open: 0 is the summary, i+1 is card i.
-  const [part, setPart] = useState(0)
   const held = useRef(0)
 
   /* An open screen is re-read on the ordinary poll, not only when it is opened (#1272).
@@ -395,7 +398,6 @@ export function ScreenPage({
 
   useEffect(() => {
     void draw(false)
-    setPart(0)
     setNeedle('')
   }, [draw])
 
@@ -409,6 +411,12 @@ export function ScreenPage({
   }, [view])
 
   const cards = view?.cards || []
+  /* WHICH CARD THE ADDRESS ASKED FOR, once the cards are known (#2050). A card is named
+   * by its position, and a screen reopened tomorrow may have fewer of them — a warzone
+   * that closed, a list that emptied — so a number past the end falls back to the
+   * summary instead of drawing nothing at all. */
+  const part = asked > cards.length ? 0 : asked
+  const setPart = onPart
   // A card titled the same as the screen it is on says it twice — «Альянс» over
   // «Альянс». One card, one heading, and the screen's own is the one that stays.
   const solo = cards.length === 1 && cards[0]?.title === view?.title
