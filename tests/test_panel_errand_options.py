@@ -445,6 +445,147 @@ def test_a_panel_with_no_window_registers_its_tabs_too():
     assert "rt.schedule.register(tab)" in where
 
 
+# ---------------------------------------------------------------------------
+# an errand's own ARGUMENTS (#2017)
+# ---------------------------------------------------------------------------
+class _Catalogue:
+    """Just enough of a timer catalogue: rows by name, and one replaced."""
+
+    def __init__(self, rows) -> None:
+        self.rows = dict(rows)
+
+    def by_name(self, name):
+        return self.rows.get(name)
+
+    def replace(self, timer):
+        fresh = dict(self.rows)
+        fresh[timer.name] = timer
+        return _Catalogue(fresh)
+
+
+class _Schedule:
+    """A schedule that holds a catalogue and writes nowhere — the two calls the
+    argument knobs make, and nothing else."""
+
+    def __init__(self, args) -> None:
+        import types
+        self.written: list = []
+        self.args = dict(args)
+        self.rows = types.SimpleNamespace(name="do_radar_tasks", args=self.args)
+
+    def timer_arg(self, errand, key, default=None):
+        return self.args.get(key, default)
+
+    def set_timer_arg(self, errand, key, value) -> bool:
+        self.written.append((errand, key, value))
+        self.args[key] = value
+        return True
+
+
+def test_an_errands_arguments_are_typed_knobs_not_raw_json():
+    """The five shipped errands steered by `args` carry them as controls (#2017)."""
+    from panel.runtime import errand_args
+
+    sched = _Schedule({"claim": 1, "help": 0, "duel_day": 0, "keep_free": 5})
+    options = {opt.key: opt for opt in
+               errand_args.options_for(sched, "do_radar_tasks")}
+    assert set(options) == {"claim", "help", "duel_day", "keep_free"}
+    assert options["claim"].kind == errandopts.SWITCH
+    assert options["claim"].read(None) is True, "1 draws as a ticked box"
+    assert options["help"].read(None) is False
+
+    # A switch is stored as the 0/1 the recipe reads, not as a bool: the DSL has no
+    # booleans, and a `true` in the row would reach the scenario as a word.
+    options["help"].write(None, True)
+    assert sched.args["help"] == 1
+    options["claim"].write(None, False)
+    assert sched.args["claim"] == 0
+
+
+def test_a_number_argument_is_held_inside_its_bounds_and_never_guessed():
+    """A half-typed box must not become a 0 — «claim nothing», «walk no warzones»."""
+    from panel.runtime import errand_args
+
+    sched = _Schedule({"count": 6})
+    count = errand_args.options_for(sched, "sweep_star_servers")[0]
+    assert count.key == "count" and count.kind == errandopts.NUMBER
+    count.write(None, "9")
+    assert sched.args["count"] == 9
+    count.write(None, "999")                 # above the bound → the bound
+    assert sched.args["count"] == 20
+    count.write(None, "")                    # a blank keeps what was there
+    assert sched.args["count"] == 20
+    count.write(None, "not a number")
+    assert sched.args["count"] == 20
+
+
+def test_a_list_of_weekdays_is_seven_switches_over_one_argument():
+    """`duel_days` decides which days the radar spends SQUADS on — a text box on a
+    phone is a value nobody can check before it is saved."""
+    from panel.runtime import errand_args
+
+    sched = _Schedule({"duel_days": [1, 3, 5, 6], "force": 0})
+    options = {opt.key: opt for opt in
+               errand_args.options_for(sched, "radar_full_cycle")}
+    days = [k for k in options if k.startswith("duel_days_")]
+    assert len(days) == 7
+    assert options["duel_days_3"].read(None) is True
+    assert options["duel_days_2"].read(None) is False
+
+    options["duel_days_2"].write(None, True)
+    assert sched.args["duel_days"] == [1, 2, 3, 5, 6], "sorted, and no duplicates"
+    options["duel_days_1"].write(None, False)
+    assert sched.args["duel_days"] == [2, 3, 5, 6]
+
+    # …and the mode is a CHOICE whose words are locale keys resolved when DRAWN, so a
+    # knob registered at boot still speaks the language switched on after it.
+    force = options["force"]
+    assert force.kind == errandopts.CHOICE
+    said = force.choices(_Words())
+    assert [c["value"] for c in said] == [0, 1, 2]
+    assert said[0]["text"] == "said:errand.arg.radar.force.day"
+
+
+class _Words:
+    """A runtime that only knows how to say a key."""
+
+    def t(self, key, **_fmt):
+        return "said:" + key
+
+
+def test_every_argument_knob_names_a_key_that_exists_everywhere():
+    from panel.runtime import errand_args
+
+    keys = set(errand_args.DAY_KEYS)
+    for specs in errand_args.SPEC.values():
+        for spec in specs:
+            if spec.get("label"):
+                keys.add(spec["label"])
+            if spec.get("hint"):
+                keys.add(spec["hint"])
+            for _value, text_key in spec.get("choices", ()):
+                keys.add(text_key)
+    for locale in sorted((_REPO / "panel" / "locales").glob("*.json")):
+        words = json.loads(locale.read_text(encoding="utf-8"))
+        missing = sorted(k for k in keys if k not in words)
+        assert not missing, f"{locale.name} lacks {missing[:3]}"
+
+
+def test_the_schedule_registers_the_argument_knobs_itself():
+    """Not the «Таймеры» tab: a profile with that tab off still runs the errands, and
+    its phone still gets the timers screen (#2010's lesson, in a new place)."""
+    source = (_REPO / "panel" / "runtime"
+              / "schedule.py").read_text(encoding="utf-8")
+    assert "errandargs.register(self)" in source
+    assert "def set_timer_arg(" in source
+    # …and the write goes through the tab when there IS one, or the row is undone by
+    # the tab's next save.
+    body = source.split("def set_timer_arg(", 1)[1].split("\n    def ", 1)[0]
+    assert 'getattr(tab, "write_args"' in body
+    timers = (_REPO / "panel" / "tabs" / "timers.py").read_text(encoding="utf-8")
+    assert "def write_args(" in timers
+
+
 def test_the_schedule_asks_every_tab_for_its_knobs():
     """A gear on «Таймеры» must work for a page nobody has opened (`LAZY`).
 

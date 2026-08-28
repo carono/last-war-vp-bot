@@ -516,6 +516,39 @@ class TimersTab(PanelTab):
         self._order_rows[order.name] = {"switch": var, "state": state}
         return cell
 
+    def write_args(self, name: str, args: dict) -> bool:
+        """Replace one row's ARGUMENTS, leaving everything else exactly as it is (#2017).
+
+        The schedule calls this when a knob behind the gear moves — its own catalogue
+        would otherwise be written into the file behind this tab's widgets and undone by
+        the next save, which is the fault every other press here already avoids
+        (:meth:`web_edit`).
+
+        Only the arguments: the steps, the title and the two periods belong to the
+        editor, and a knob that could rewrite a recipe is not a knob.
+        """
+        timer = self._timer_catalogue.by_name(name)
+        if timer is None:
+            return False
+        edited = self._edited_timer(
+            timer, name=timer.name, title=timer.title or "",
+            interval=timer.interval_sec, retry=timer.retry_sec,
+            scenario=timer.scenario, args=dict(args or {}),
+            enabled=timer.enabled, immediate=timer.immediate,
+            weekdays=",".join(str(d) for d in timer.weekdays))
+        catalogue = self._timer_catalogue.replace(edited)
+        if not self.built():
+            # A tab nobody has opened has no widgets to fold in and no grid to redraw,
+            # and `_write_timer` does both (`LAZY`). The file is the whole of the state
+            # here, so it is written straight out.
+            self._timer_catalogue = catalogue
+            timersmod.save_catalogue(catalogue, self.rt.profiles.timers_json())
+        else:
+            self._write_timer(catalogue)
+        # `_timer_catalogue` IS the schedule's — the property above — so both paths have
+        # already left the schedule holding what was written.
+        return True
+
     def _knobs(self):
         """This profile's errand-knob registry, and never an exception (#2017).
 

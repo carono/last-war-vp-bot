@@ -66,7 +66,11 @@ class Option:
         self.hint_key = hint_key
         self.setting = setting
         self._get, self._set = get, set
-        #: For `CHOICE`: `({"value": id, "text": what it calls itself}, …)`.
+        #: For `CHOICE`: `({"value": id, "text": what it calls itself}, …)` — or
+        #: `text_key`, a locale key, for a knob whose choices are the panel's own words
+        #: rather than the game's (`panel/runtime/errand_args.py`). Resolved when it is
+        #: DRAWN (:meth:`choices`), never at registration: a knob registered at boot
+        #: outlives every language switch after it.
         self.options = tuple(options or ())
 
     # -- the value ----------------------------------------------------------
@@ -113,8 +117,28 @@ class Option:
         if self.high is not None:
             field["max"] = self.high
         if self.options:
-            field["options"] = [dict(opt) for opt in self.options]
+            field["options"] = self.choices(rt)
         return field
+
+    def choices(self, rt) -> list:
+        """The `CHOICE` options with their words settled — `{"value", "text"}` each.
+
+        A `text_key` becomes the sentence this panel is speaking now; a plain `text` is
+        left alone, because it is the GAME's own word and the game has already said it
+        in the player's language.
+        """
+        settled: list = []
+        for opt in self.options:
+            text = opt.get("text")
+            key = opt.get("text_key")
+            if not text and key:
+                try:
+                    text = rt.t(key) if rt is not None else key
+                except Exception:            # noqa: BLE001 — a label, never the panel
+                    text = key
+            settled.append({"value": opt.get("value"),
+                            "text": text if text is not None else opt.get("value")})
+        return settled
 
 
 def _as_kind(kind: str, value):

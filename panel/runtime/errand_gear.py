@@ -58,8 +58,8 @@ def _draw(rt, parent, option) -> None:
                         command=lambda: option.write(rt, var.get())).pack(side="left")
     elif option.kind == errandopts.CHOICE:
         ttk.Label(row, text=_label(rt, option)).pack(side="left", padx=(0, 6))
-        words = {str(o.get("value")): str(o.get("text") or o.get("value"))
-                 for o in option.options}
+        words = {str(o.get("value")): str(o.get("text"))
+                 for o in option.choices(rt)}
         var = tk.StringVar(value=words.get(str(value), ""))
         box = ttk.Combobox(row, textvariable=var, values=list(words.values()),
                            state="readonly", width=18)

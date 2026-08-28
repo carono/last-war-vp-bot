@@ -34,6 +34,7 @@ from .. import timers as timersmod
 from .. import triggers as triggersmod
 from .paths import TOOLS, repo_rel
 from . import claims
+from . import errand_args as errandargs
 from . import errand_options as errandopts
 from . import link as linkmod
 from . import game_control
@@ -154,6 +155,11 @@ class Schedule:
 
         self.load_timers()
         self.load_triggers()
+        # …and the ARGUMENTS the shipped errands are steered by, which were raw JSON in
+        # a window-only editor until #2017. Registered here rather than by «Таймеры»
+        # because the catalogue is the schedule's: a profile with that tab switched off
+        # still runs every errand in it, and its phone still gets the timers screen.
+        errandargs.register(self)
         self.timers = timersmod.TimerScheduler(
             store=self.store,
             catalogue=lambda: self.timer_catalogue,
@@ -342,6 +348,43 @@ class Schedule:
         for problem in self.trigger_catalogue.errors:
             self.rt.put(f"[trigger] {repo_rel(path)}: "
                         f"{i18nmod.translated(self.rt.t, problem)}")
+
+    # -- one errand's own arguments (#2017) ----------------------------------
+    def timer_arg(self, errand: str, key: str, default=None):
+        """One argument of one row, as it is written down right now.
+
+        Off the catalogue rather than off a value captured earlier: the row can be
+        rewritten from the editor, from the phone or by a profile switch, and a knob
+        drawing what it said an hour ago is a second answer to one question.
+        """
+        timer = self.timer_catalogue.by_name(errand)
+        if timer is None:
+            return default
+        value = dict(timer.args or {}).get(key, default)
+        return value
+
+    def set_timer_arg(self, errand: str, key: str, value) -> bool:
+        """Move one argument of one row, and write the row down.
+
+        THROUGH THE TAB WHEN THERE IS ONE, for the reason every other switch here goes
+        that way: while «Таймеры» is drawn its widgets ARE the configuration, and a row
+        written into the file behind them is undone by the next save. With no tab — a
+        profile that never shows it, a panel with no window — the catalogue this object
+        holds IS the configuration, and it is written straight out.
+        """
+        timer = self.timer_catalogue.by_name(errand)
+        if timer is None:
+            return False
+        args = dict(timer.args or {})
+        args[key] = value
+        tab = self.rt.tabs.get("timers") if self.rt.tabs is not None else None
+        writer = getattr(tab, "write_args", None) if tab is not None else None
+        if writer is not None:
+            return bool(writer(errand, args))
+        self.timer_catalogue = self.timer_catalogue.replace(
+            timersmod.with_fields(timer, args=args))
+        timersmod.save_catalogue(self.timer_catalogue, self.rt.profiles.timers_json())
+        return True
 
     def timer_config(self) -> dict:
         """The timers' switches and periods — off the widgets when there are any.
