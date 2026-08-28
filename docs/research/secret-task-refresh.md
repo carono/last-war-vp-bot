@@ -183,13 +183,16 @@ toggle and every row is selected, which is what the run's last step does for the
 `MsgDefines.DispatchStart = hero.dispatch.start` exists for a single task, and is not
 needed while the popup answers this well.
 
-### Who unticks «только UR» — measured, and one claim withdrawn (#2022)
+### Who unticks «только UR» — measured, one claim withdrawn and then re-established (#2022)
 
 The operator: «отправлены не только UR задания, но и дешевые, вчера я заметил, что во
 время выполнения скрипт снял галку только UR при мега отправке». Three explanations were
-put up. Only one of them is established, and the first version of this section asserted a
-second as though it were — that is corrected here rather than quietly deleted, because
-the next agent has to be able to tell an exception from an omission.
+put up. Two of them are established now. The first version of this section asserted (c) as
+fact with nothing behind it, the second withdrew it, and the third — this one — puts it
+back because the panel's own log turned out to hold the measurement all along. Every step
+of that is left standing rather than quietly tidied, because the next agent has to be able
+to tell an exception from an omission, and because the lesson is that the evidence was in
+`panel.log` before anybody thought to look for it there.
 
 **(a) OUR OWN CODE — CONFIRMED, and it explains the whole report on its own.**
 `secret_post_batch_all()` is the only writer of that toggle anywhere in the repository
@@ -209,16 +212,42 @@ a mega refresh on a live client, which has not been done. It also does not matte
 fix: the toggle is re-armed at EVERY popup this ability opens, so a game that resets it
 is answered by the same code as a game that does not.
 
-**(c) THE UNTICK SURVIVING TO THE NEXT POPUP — NOT MEASURED, and the first version of
-this section stated it as fact.** It said «the game REMEMBERS that box», and inferred from
-it that every later «send the UR the refresh just won» in the refresh cycle went out with
-cheap tasks too. That inference was never measured, and the one live reading anybody has
-recorded says the opposite: the block above this one, taken from a real popup, has
-`View.isOnlySelectUR = true` — «already on when the popup opens». The damage may therefore
-have been confined to step 7 of each run rather than spreading through the cycle. **It
-does not change what the fix has to do**, and it is smaller than was claimed. Settling it
-needs a live client: `actions/dev/_t2022_only_ur_probe.md` does it in one run and spends
-nothing.
+**(c) THE UNTICK SURVIVING TO THE NEXT POPUP — CONFIRMED, from the live panel log, and it
+survives a client restart and a night.** The first version of this section stated it as
+fact with no measurement, and the second withdrew it on the strength of one recorded popup
+reading (`View.isOnlySelectUR = true`, «already on when the popup opens»). Both were wrong
+about the evidence: `profiles/<name>/panel.log` had recorded the whole thing. Grep it for
+`post_send_open` / `post_send_rows` / `post_send_all` and the pair falls out —
+
+```
+2026-08-27 17:34:27  post_scan  idle=3 nonur=0 ur=3 …
+2026-08-27 17:34:30  post_send_all only_ur=0        <- our own untick, the last one of the day
+2026-08-27 17:34:31  post_send_rows rows=3 picked=3
+
+… client restarted twice overnight (restart_game, 22:13 and 22:41) …
+
+2026-08-28 07:02:08  post_scan  idle=9 nonur=7 ur=2  <- SEVEN of the nine idle are below UR
+2026-08-28 07:02:11  post_send_open pressed=1        <- the FIRST popup of the new day
+2026-08-28 07:02:14  post_send_rows rows=9 picked=9  <- and all nine are selected
+2026-08-28 07:02:19  post_send_done pressed=1        <- «sending 9 UR task(s)» — seven of them cheap
+```
+
+There is no `post_send_all` in the morning run and no other `post_send_open` between the
+two, so nothing in this repository touched the toggle in between: the popup simply opened
+with the filter still off, thirteen and a half hours and two client restarts after it was
+unticked. That is (c), and it is not a client-session thing either — the state outlives the
+process. It also raises the damage back up: an untick is not confined to the run that made
+it, it is inherited by whatever opens the popup next, which is how a morning run that never
+touched the toggle sent seven cheap tasks.
+
+The earlier `View.isOnlySelectUR = true` reading is not contradicted — it was taken on a
+day nothing had unticked the box. «On when the popup opens» is the state the popup was
+LEFT in, not a default it returns to.
+
+**What that means for the fix: nothing changes, and that is the point.** The toggle is
+re-armed at every popup this ability opens, so an inherited untick is answered by the same
+code as a fresh one — and `__lw_ref_onlyur_fixed` now has a known-good meaning: on the
+first popup after somebody has turned the filter off by hand, it reports 1 once.
 
 ### What the fix does, and why it does not rest on the answer
 
@@ -226,8 +255,9 @@ nothing.
    anything. Sending the cheap leftovers is still possible — it is what turning `only_ur`
    off means — but it is now a decision somebody makes rather than the default.
 2. The toggle is put back on at every popup the run opens (`force_batch_only_ur` /
-   :func:`secret_post_batch_only_ur`), so (b) and (c) are both covered whatever their
-   answer turns out to be. `__lw_ref_onlyur_fixed` reports whether it had to be restored,
+   :func:`secret_post_batch_only_ur`), which is what answers (c) — an untick inherited
+   from yesterday's run is undone before anything is selected — and covers (b) whatever
+   its answer turns out to be. `__lw_ref_onlyur_fixed` reports whether it had to be restored,
    which is the standing measurement: a run that keeps reporting 1 is being unticked by
    something outside this ability, and that is when this section gets rewritten again.
 3. **The PRESS asks the verdict itself, at the moment it fires**
