@@ -70,16 +70,24 @@ def blob_name(path: str) -> str:
     return "settings:" + base
 
 
-def _profiles_root() -> str:
-    """Where the profile directories sit — asked of :mod:`panel.profile`, never of
-    :mod:`panel.paths`, because that is the name a test rebinds to point the panel at a
-    scratch tree. Read at CALL time for the same reason.
+def _profiles_roots() -> tuple:
+    """Every directory that counts as «where the profile directories sit».
+
+    TWO of them, and the second one is a live bug this cost (#2025). The first is
+    :mod:`panel.profile`'s `PROFILES_DIR`, read at CALL time, because that is the name a
+    test rebinds to point the panel at a scratch tree. The second is the REAL one from
+    :mod:`panel.paths`, which never moves — because while a test holds the first one
+    somewhere else, code seeding a profile still reads the SHIPPED TEMPLATE by its real
+    path (`profiles/timers.json`), and with only the rebound root to compare against it
+    fell to the scratch-tree branch and wrote rows into the live database under a scope
+    called «profiles». Nothing was lost and nothing was read back, which is exactly why
+    it would have gone unnoticed.
 
     Imported inside the function: `panel.profile` is imported by things that import this
     one, and a top-level import here would be a cycle.
     """
-    from .. import profile as profilemod
-    return os.path.abspath(profilemod.PROFILES_DIR)
+    from .. import paths, profile as profilemod
+    return (os.path.abspath(profilemod.PROFILES_DIR), os.path.abspath(paths.PROFILES_DIR))
 
 
 def _home(path: str):
@@ -96,11 +104,12 @@ def _home(path: str):
       the live panel's database.
     """
     folder = os.path.dirname(os.path.abspath(path))
-    root = _profiles_root()
-    if folder == root:
-        return os.path.join(root, storemod.DB_FILE), storemod.PANEL_SCOPE
-    if os.path.dirname(folder) == root:
-        return os.path.join(root, storemod.DB_FILE), os.path.basename(folder)
+    roots = _profiles_roots()
+    if folder in roots:
+        return os.path.join(folder, storemod.DB_FILE), storemod.PANEL_SCOPE
+    parent = os.path.dirname(folder)
+    if parent in roots:
+        return os.path.join(parent, storemod.DB_FILE), os.path.basename(folder)
     return os.path.join(folder, storemod.DB_FILE), os.path.basename(folder)
 
 

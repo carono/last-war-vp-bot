@@ -33,7 +33,8 @@ for _p in (_REPO, _REPO / "tests", _REPO / "tools" / "lib"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from panel.runtime import settings_files                   # noqa: E402
+from panel.runtime import settings_files
+from panel.runtime import store as storemod                   # noqa: E402
 from panel import timers as timersmod                      # noqa: E402
 from panel import triggers as triggersmod                  # noqa: E402
 from panel import rally_limits as limitsmod                # noqa: E402
@@ -129,13 +130,39 @@ def test_the_rally_caps_are_stored_and_re_read():
         assert limitsmod.load_limits(path).limit_for("doom_elite") == 4
 
 
-def test_the_two_stores_that_did_not_move_are_named_with_their_reason():
-    """`config.json` and the panel-wide `settings.json` are open questions, and the
-    module says so rather than leaving the gap silent."""
+def test_the_two_stores_that_had_not_moved_have_and_the_module_says_so():
+    """`config.json` and the panel-wide `settings.json` were named here as open
+    questions; #2025 answered both, and the module says which and why rather than
+    leaving the reversal silent."""
     source = (_REPO / "panel" / "runtime"
               / "settings_files.py").read_text(encoding="utf-8")
     assert "config.json" in source and "profiles/settings.json" in source
-    assert "WHAT DOES NOT" in source
+    assert "#2025" in source
+
+
+def test_a_shipped_template_lands_in_the_real_database_even_mid_test():
+    """THE LIVE BUG THIS COST (#2025), pinned from the outside.
+
+    A test points the panel at a scratch tree by rebinding `panel.profile.PROFILES_DIR`
+    — but the code seeding a new profile still reads the SHIPPED TEMPLATE by its own
+    real path. Resolving the database against the rebound root alone sent that read to
+    «beside the file, under the directory's own name», which for the real template is
+    the live `profiles/panel.db` under a scope called `profiles`. Nothing was lost and
+    nothing was read back, which is exactly why it went unnoticed for a whole session.
+    """
+    from panel import paths, profile as profilemod
+
+    was = profilemod.PROFILES_DIR
+    try:
+        profilemod.PROFILES_DIR = os.path.join(tempfile.gettempdir(), "nowhere",
+                                               "profiles")
+        for template in (paths.TIMERS_TEMPLATE, paths.TRIGGERS_TEMPLATE):
+            database, whose = settings_files._home(template)
+            assert whose == storemod.PANEL_SCOPE, (template, whose)
+            assert database == os.path.join(paths.PROFILES_DIR,
+                                            storemod.DB_FILE), database
+    finally:
+        profilemod.PROFILES_DIR = was
 
 
 def _run_standalone() -> int:
