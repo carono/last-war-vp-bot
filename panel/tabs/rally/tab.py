@@ -1104,6 +1104,18 @@ class RallyTab(PanelTab):
             get=(lambda s=squad: bool(self.autorally._squad_vars[s].get())),
             set=(lambda on, s=squad: self.set_join_squad(s, on)))
             for squad in RALLY_SQUADS)
+        # …and WHICH BANNERS it is for (#2017). Sixty-eight switches is a great many for
+        # one window, and the person said so and asked for them anyway: «нужны,
+        # переключатели мы позже переделаем». The reason is the same one that put the
+        # squads here — the filter deciding what the auto-join answers was on «Ралли»
+        # alone, so a page listing everything running by itself could not say why a
+        # banner went unanswered. Stored as what is OFF, exactly as the page stores it,
+        # so a season that adds a boss is joined by default.
+        kinds = tuple(errandopts.Option(
+            "kind_%s" % kind, "rally_limit.type.%s" % kind, errandopts.SWITCH,
+            get=(lambda k=kind: k not in self.autorally._kinds_off),
+            set=(lambda on, k=kind: self.set_join_kind(k, on)))
+            for kind in rally_kinds.KIND_ORDER)
         return {self.AUTOJOIN_TRIGGER: squads + (
             errandopts.Option("min_soldiers", "rally_troops.min", errandopts.NUMBER,
                               hint_key="rally_troops.hint",
@@ -1114,7 +1126,26 @@ class RallyTab(PanelTab):
                               hint_key="rally_day.hint",
                               low=0, high=autorallymod.DAILY_MAX_TOP,
                               get=self.autorally.daily_max,
-                              set=lambda v: self.set_join_number("daily_max", v)))}
+                              set=lambda v: self.set_join_number("daily_max", v)),
+        ) + kinds}
+
+    def set_join_kind(self, kind: str, on: bool) -> bool:
+        """Tick one kind of banner for the auto-join — the page's own box, and no copy.
+
+        The same three-way write as :meth:`set_join_squad`: the live set the joiner
+        reads, the checkbox on «Ралли» when the tab is drawn, and the block an unbuilt
+        tab hands back on save — or the choice is gone at the next restart (#2010).
+        """
+        if kind not in rally_kinds.KIND_ORDER:
+            return False
+        self.autorally.set_kind(kind, bool(on))
+        var = self.autorally._kind_vars.get(kind)
+        if var is not None:
+            var.set(bool(on))
+        self.remember({"autorally":
+                       {"kinds_off": sorted(self.autorally._kinds_off)}})
+        self.rt.settings.changed()
+        return True
 
     def set_join_squad(self, squad: int, on: bool) -> bool:
         """Tick one squad of the auto-join's list — the page's own box, nothing else.

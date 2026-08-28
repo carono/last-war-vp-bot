@@ -25,6 +25,7 @@ from __future__ import annotations
 
 TIER = "offline"        # see tools/run_tests.py
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -340,11 +341,38 @@ def test_a_knob_moved_from_anywhere_is_saved_where_an_unbuilt_tab_will_find_it()
         assert "self.remember(" in body, f"{setter} must save the block too"
 
     rally = (_REPO / "panel" / "tabs" / "rally" / "tab.py").read_text(encoding="utf-8")
-    for setter in ("def set_join_squad(", "def set_join_number("):
+    for setter in ("def set_join_squad(", "def set_join_number(", "def set_join_kind("):
         body = rally.split(setter, 1)[1].split("\n    def ", 1)[0]
         assert "self.remember(" in body, f"{setter} must save the block too"
     # …and the phone's own switch goes through that one setter rather than past it.
     assert "self.set_join_squad(squad, on)" in rally
+
+
+def test_the_auto_join_carries_every_kind_of_banner_it_may_answer():
+    """All sixty-eight kinds are knobs of `rally_auto_join` (#2017).
+
+    Many for one window, and the person asked for them knowing that — «нужны,
+    переключатели мы позже переделаем». Without them the page listing what runs by
+    itself cannot say why a banner went unanswered: the filter was on «Ралли» alone.
+
+    Stored as what is OFF, so a season that adds a boss is joined by default — a new
+    kind must never arrive switched off for everybody.
+    """
+    import rally_kinds
+
+    rally = (_REPO / "panel" / "tabs" / "rally" / "tab.py").read_text(encoding="utf-8")
+    assert '"kind_%s" % kind' in rally
+    assert '"rally_limit.type.%s" % kind' in rally
+    body = rally.split("def set_join_kind(", 1)[1].split("\n    def ", 1)[0]
+    assert '"kinds_off"' in body and "self.remember(" in body
+
+    # …and every one of them has a name in every shipped locale, which is what makes
+    # sixty-eight switches readable rather than sixty-eight keys.
+    for locale in sorted((_REPO / "panel" / "locales").glob("*.json")):
+        words = json.loads(locale.read_text(encoding="utf-8"))
+        missing = [k for k in rally_kinds.KIND_ORDER
+                   if "rally_limit.type.%s" % k not in words]
+        assert not missing, f"{locale.name} lacks {missing[:3]}"
 
 
 def test_the_sweep_left_no_errand_with_its_rules_off_its_row():
