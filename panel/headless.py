@@ -42,6 +42,7 @@ from .runtime import autostart as autostartmod
 from .runtime import panel_control as panelctl
 from .runtime import profile_control as profilectl
 from .runtime import provision as provisionmod
+from .runtime import rally_orders as rallyorders
 from .runtime import service_control as servicectl
 from .runtime import updates as updatesmod
 from .runtime import web_control as webctl
@@ -651,6 +652,15 @@ class HeadlessPanel:
         # a headless panel writing `tabs.enabled` off a list it did not build is how a
         # tab a person switched off would come back.
         rt.settings.on_change = lambda: HeadlessPanel._save_tab_blocks(rt)
+        # …AND THE RALLY AUTO-JOIN'S FOUR STANDING RULES (#2051). Same hole again, one
+        # door along from #2017 and #2024: its arguments, the hook that writes the count
+        # down and its two preconditions were registered by the WINDOW alone, so on the
+        # front-end that actually farms the accounts every banner arrived with no target
+        # (classified as the fallback «monster»), the press was handed no per-kind budget
+        # at all, the day's ceiling and the soldier floor fell back to their defaults and
+        # nothing ever moved `rally_counts` — which is why the counter on the screen read
+        # almost nothing while the log showed hundreds of joins.
+        rallyorders.wire(rt)
 
     @staticmethod
     def _save_tab_blocks(rt) -> None:
