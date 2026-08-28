@@ -1243,6 +1243,12 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         keys = {f["key"] for f in group["fields"]}
         for wanted in ("monitor", "alert", "autojoin"):
             assert wanted in keys, (wanted, keys)
+        # …AND THE CAPS ARE IN THIS CARD, not in one beside it (#2051). #2055 gave them
+        # a card of their own and the person went looking where they had always been:
+        # «захожу в стягивания, раздел с автостягами, и нету ничего». A setting served,
+        # translated and editable is still missing if it is off the route somebody walks.
+        assert "limit_doom_elite" in keys, sorted(keys)
+        assert "rally_limit.frame" not in titles, titles
         labels = [i["label"] for i in group["items"]]
         assert "autorally.squads" in labels, labels
         assert group["rows"], group

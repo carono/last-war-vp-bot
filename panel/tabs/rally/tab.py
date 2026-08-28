@@ -733,23 +733,33 @@ class RallyTab(PanelTab):
         # phone and the window disagree about what belonged to the automatic mode.
         cards.append(self._web_run_card())
         switches, page = self._web_autojoin_card(), self._web_autorally_card()
+        caps = self._web_limit_card()
         cards.append({"title": "autorally.group",
                       # …AND THE SQUADS THEMSELVES (#1976). They are what a join SPENDS,
                       # so «Присоединиться» could not travel while they could only be
                       # ticked at the machine: a press that sends whatever was last
                       # chosen is the one thing a rally button must not be.
-                      "fields": list(switches["fields"]) + self._web_squad_fields(),
+                      #
+                      # …AND THE SIXTY-EIGHT CAPS, BACK IN THIS CARD (#2051). #2055 gave
+                      # them a card of their own, on the reasoning that sixty-eight of
+                      # anything is a card nobody can find the top of. The person went
+                      # looking for them where they had always been — «захожу в
+                      # стягивания, раздел с автостягами, и нету ничего» — and a setting
+                      # that is served, translated and editable is still MISSING if it is
+                      # not on the route somebody walks to it by. So they are fields of
+                      # «Автостяг» again: one card, one subject, nothing to discover.
+                      "fields": (list(switches["fields"]) + self._web_squad_fields()
+                                 + list(caps["fields"])),
                       "items": list(page["items"]),
-                      "rows": page["rows"]})
+                      "rows": page["rows"],
+                      "note": caps["note"]})
         # …AND THE BANNERS THEMSELVES, which is the whole reason a phone is being held
         # (#1324). The same block the window draws: what is standing, what it is going
         # for, how much room is left and who is already in it, faces and all. Cheap —
         # it reads the model the pushes maintain and asks the game for nothing, which
         # is the rule for everything in a `web_view` (docs/panel-tabs.md).
-        # …AND THE CAPS, as a card of typed numbers rather than a tail of readings
-        # (#2055). After «Автосбор», which is where the person looks for them, and before
-        # the banners, which are what is happening rather than what is allowed.
-        cards.append(self._web_limit_card())
+        # …and the caps are NOT a card of their own any more (#2051): they are fields of
+        # «Автостяг» above, which is the section the person opens to find them.
         cards += self._web_roster_cards()
         return {"cards": cards, "now": __import__("time").time(),
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
