@@ -1414,6 +1414,7 @@
   "vsduel.lord_level": "Alzare il livello dell'Overlord",
   "vsduel.unit_train": "Addestrare unità",
   "vsduel.unit_upgrade": "Migliorare unità",
+  "log.profile.open_failed": "{name} NON è stato aperto: {error}",
   "log.profile.opened": "profilo aperto: {name}",
   "log.profile.client.console": "«{name}»: client su questo desktop, porta {port}",
   "log.profile.client.session": "«{name}»: client nella sessione Windows {user}, porta {port}",

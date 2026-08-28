@@ -1414,6 +1414,7 @@
   "vsduel.lord_level": "Повышать уровень Повелителя",
   "vsduel.unit_train": "Тренировать юниты",
   "vsduel.unit_upgrade": "Повышать юниты",
+  "log.profile.open_failed": "{name} НЕ открыт: {error}",
   "log.profile.opened": "профиль открыт: {name}",
   "log.profile.client.console": "«{name}»: клиент на этом рабочем столе, порт {port}",
   "log.profile.client.session": "«{name}»: клиент в сессии Windows {user}, порт {port}",

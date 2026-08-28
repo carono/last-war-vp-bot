@@ -1414,6 +1414,7 @@
   "vsduel.lord_level": "Monter le niveau du Suzerain",
   "vsduel.unit_train": "Entraîner des unités",
   "vsduel.unit_upgrade": "Améliorer des unités",
+  "log.profile.open_failed": "{name} n'a PAS été ouvert : {error}",
   "log.profile.opened": "profil ouvert : {name}",
   "log.profile.client.console": "« {name} » : client sur ce bureau, port {port}",
   "log.profile.client.session": "« {name} » : client dans la session Windows {user}, port {port}",

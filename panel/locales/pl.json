@@ -1414,6 +1414,7 @@
   "vsduel.lord_level": "Podnosić poziom Władcy",
   "vsduel.unit_train": "Szkolić jednostki",
   "vsduel.unit_upgrade": "Ulepszać jednostki",
+  "log.profile.open_failed": "{name} NIE został otwarty: {error}",
   "log.profile.opened": "profil otwarty: {name}",
   "log.profile.client.console": "«{name}»: klient na tym pulpicie, port {port}",
   "log.profile.client.session": "«{name}»: klient w sesji Windows {user}, port {port}",

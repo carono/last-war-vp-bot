@@ -1414,6 +1414,7 @@
   "vsduel.lord_level": "Subir el nivel del Señor Supremo",
   "vsduel.unit_train": "Entrenar unidades",
   "vsduel.unit_upgrade": "Mejorar unidades",
+  "log.profile.open_failed": "{name} NO se ha abierto: {error}",
   "log.profile.opened": "perfil abierto: {name}",
   "log.profile.client.console": "«{name}»: cliente en este escritorio, puerto {port}",
   "log.profile.client.session": "«{name}»: cliente en la sesión de Windows {user}, puerto {port}",

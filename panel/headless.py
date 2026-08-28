@@ -34,11 +34,14 @@ import sys
 import threading
 import time
 
+from . import i18n as i18nmod
 from . import profile as profilemod
 from . import runtime as runtimemod
 from . import tabs as tabsreg
 from .runtime import autostart as autostartmod
 from .runtime import panel_control as panelctl
+from .runtime import profile_control as profilectl
+from .runtime import provision as provisionmod
 from .runtime import service_control as servicectl
 from .runtime import updates as updatesmod
 from .runtime import web_control as webctl
@@ -91,6 +94,11 @@ class HeadlessPanel:
         self._locks: dict = {}
         #: Profiles this process refused to open because another panel holds them.
         self._held: list = []
+        #: ONE PROFILE PRESS AT A TIME (#2024). With no window there is no Tk thread to
+        #: hand a press to, so `panel/web/api.py::_hand_over` runs it inline on whichever
+        #: thread the request came in on — and two of them arriving together would open,
+        #: close and rename profiles in the same workspace at once.
+        self._press = threading.RLock()
 
     # -- lifecycle ----------------------------------------------------------
     def open(self) -> list:
@@ -141,30 +149,7 @@ class HeadlessPanel:
         # once. It is the profile's own poll now (`panel/runtime/status.py`), so it runs
         # here exactly as it does there.
         for session in self.workspace.sessions:
-            try:
-                session.rt.status.start()
-            except Exception as exc:          # noqa: BLE001 — one profile, not the lot
-                print(f"panel: {session.name}: status poll: {exc}", file=sys.stderr)
-            # …AND THE PROFILE'S OWN LOG, for the same reason (#1984). A line goes into
-            # the sink from any thread and waits in a queue somebody has to drain: the
-            # drain is what writes `panel.log` — the person's record of the session —
-            # and what keeps the queue from growing all night. The window pumped it
-            # every 120 ms and nothing did here, so `panel.log` simply stopped at the
-            # hour this panel last had a window.
-            try:
-                self._pump_log(session)
-            except Exception as exc:          # noqa: BLE001 — the log, never the panel
-                print(f"panel: {session.name}: log pump: {exc}", file=sys.stderr)
-            # …AND THE BEAT (#1994). The lock says a panel process is on this profile;
-            # the beat says it is still ANSWERING, and the hourly check reads both to tell
-            # a working panel from a wedged one (`panel/runtime/autostart.py`). A window
-            # has beaten since #1206 and this had never beaten at all, so every hour the
-            # check saw an account with no panel on it and was one guard away from opening
-            # a second one on top of this process.
-            try:
-                self._beat(session)
-            except Exception as exc:          # noqa: BLE001 — a reading, never the panel
-                print(f"panel: {session.name}: heartbeat: {exc}", file=sys.stderr)
+            self._start_session(session)
         rt = self.workspace.current.rt
         # The remote control and the service link are the WINDOW's in `panel/__main__.py`
         # — one per process, not per profile — and they are this process's here for the
@@ -180,6 +165,14 @@ class HeadlessPanel:
         # process by hand, so «Заглушить» is the only orderly way down.
         panelctl.set_handler(self._restart_now, panelctl.RESTART)
         panelctl.set_handler(self._quit_now, panelctl.QUIT)
+        # …AND THE FOUR ON A PROFILE (#2024). Same hole, one door along: opening,
+        # closing, renaming and deleting a profile are the SHELL's presses
+        # (`panel/runtime/profile_control.py`), the window has registered them since
+        # #1976, and a panel with no window registered nothing — so every one of them
+        # was answered «web.ui.refused» on the front-end that actually runs the panel,
+        # and no profile could be opened from a phone at all. Which accounts are being
+        # farmed is not a knob to lose while the window is being retired.
+        profilectl.set_handler(self._profile_press)
 
     def run(self) -> int:
         opened = self.open()
@@ -203,6 +196,315 @@ class HeadlessPanel:
             pass
         self.shutdown()
         return 0
+
+    # -- one profile, up and down -------------------------------------------
+    def _start_session(self, session) -> None:
+        """Bring one open profile's own systems up — at boot, and on «Открыть» (#2024).
+
+        THE READINGS (#1984). A window polls the client every eight seconds — is it
+        there, does a chunk land, does the server answer — and writes the verdict every
+        front-end draws, feeding the recovery on the way. With no window nothing took
+        them at all: live on 2026-08-26 this panel played for hours while the phone said
+        «клиент игры не запущен», because `ProfileHealth` had never been written once. It
+        is the profile's own poll now (`panel/runtime/status.py`), so it runs here exactly
+        as it does there.
+
+        …AND THE PROFILE'S OWN LOG, for the same reason. A line goes into the sink from
+        any thread and waits in a queue somebody has to drain: the drain is what writes
+        `panel.log` — the person's record of the session — and what keeps the queue from
+        growing all night. The window pumped it every 120 ms and nothing did here, so
+        `panel.log` simply stopped at the hour this panel last had a window.
+
+        …AND THE BEAT (#1994). The lock says a panel process is on this profile; the beat
+        says it is still ANSWERING, and the hourly check reads both to tell a working
+        panel from a wedged one (`panel/runtime/autostart.py`). A window has beaten since
+        #1206 and this had never beaten at all, so every hour the check saw an account
+        with no panel on it and was one guard away from opening a second one on top of
+        this process.
+        """
+        try:
+            session.rt.status.start()
+        except Exception as exc:              # noqa: BLE001 — one profile, not the lot
+            print(f"panel: {session.name}: status poll: {exc}", file=sys.stderr)
+        try:
+            self._pump_log(session)
+        except Exception as exc:              # noqa: BLE001 — the log, never the panel
+            print(f"panel: {session.name}: log pump: {exc}", file=sys.stderr)
+        try:
+            self._beat(session)
+        except Exception as exc:              # noqa: BLE001 — a reading, never the panel
+            print(f"panel: {session.name}: heartbeat: {exc}", file=sys.stderr)
+
+    def _stop_session(self, session, why: str = autostartmod.CLOSED) -> None:
+        """Let go of everything one profile's systems hold, and say why it is going.
+
+        The order matters and is the shutdown's own: the log tail is drained and the file
+        closed FIRST, because on Windows a directory with an open handle in it cannot be
+        renamed or removed and both of those happen right after this on a «Переименовать»
+        or an «Удалить».
+        """
+        rt = session.rt
+        try:
+            rt.tick.disarm("log")
+            rt.log_spool.pump()               # …and the tail, so nothing is lost
+            rt.log.close_file()
+        except Exception:                     # noqa: BLE001 — going down, never a fault
+            pass
+        self._logging.discard(session.name)
+        try:
+            rt.status.stop()
+        except Exception:                     # noqa: BLE001 — going down, never a fault
+            pass
+        try:
+            rt.tick.stop()
+        except AttributeError:
+            pass
+        try:
+            rt.tick.disarm("heartbeat")
+            autostartmod.clear(rt.profiles, session.name, why=why)
+        except Exception:                     # noqa: BLE001 — going down, never a fault
+            pass
+
+    # -- the four presses on a profile ---------------------------------------
+    def _profile_press(self, action: str, name: str, text: str = "") -> bool:
+        """Open, close, rename or delete one profile, with no window (#2024).
+
+        The window's own half is `panel/__main__.py::_profile_press`, and it runs on the
+        Tk thread because every branch of it builds or destroys widgets. There are none
+        here, and no Tk thread to hand the press to either — `panel/web/api.py` runs a
+        press inline when a runtime has no root — so two presses arriving at once are
+        serialised by this process's own lock instead.
+
+        The typed word that guards a rename and a delete is checked by the CALLER, which
+        is the only side that knows what the row said. Nothing here opens a message box:
+        a modal raised for somebody who is not at the machine is a panel that stops. A
+        refusal is a line in a profile's log and a ``False``.
+        """
+        with self._press:
+            if action == profilectl.OPEN:
+                return self._open_profile(name)
+            if action == profilectl.CLOSE:
+                return self._close_profile(name)
+            if action == profilectl.RENAME:
+                return self._rename_profile(name, text)
+            if action == profilectl.DELETE:
+                return self._delete_profile(name)
+        return False
+
+    def _open_profile(self, name: str) -> bool:
+        """Open one more profile beside the ones already running. Creating it if new.
+
+        THE LOCK FIRST, exactly as `open` does it at boot (#1994): a profile another
+        panel process holds is not opened a second time here, because the two would
+        write one `config.json`, drive one daemon and share one client.
+
+        A name with no directory behind it is CREATED, which is what `Workspace.open`
+        has always done and what «Создать» on the phone relies on. A profile made that
+        way has no `daemon_port` of its own and would drive the default profile's client
+        until one is set — `Workspace._warn_client_shared` says so in both profiles'
+        logs, as it does in the window.
+        """
+        name = profilemod.sanitize(name)
+        if not name:
+            return False
+        if self.workspace.get(name) is not None:
+            self.workspace.switch_to(name)
+            return True
+        handle = autostartmod.take_lock(self.workspace.profiles, name)
+        if handle is None:
+            self._say("log.profile.held_elsewhere", name=name)
+            return False
+        self._locks[name] = handle
+        try:
+            session = self.workspace.open(name)
+        except Exception as exc:              # noqa: BLE001 — one profile, not the lot
+            autostartmod.drop_lock(self._locks.pop(name, None))
+            self._say("log.profile.open_failed", name=name,
+                      error=f"{type(exc).__name__}: {exc}")
+            return False
+        self._build_tabs(session)
+        try:
+            session.rt.tick.start()
+        except AttributeError:                # a Tk ticker: the window pumps it
+            pass
+        session.start()
+        self._start_session(session)
+        session.rt.say(profilectl.TAG, "log.profile.opened", name=name)
+        return True
+
+    def _close_profile(self, name: str) -> bool:
+        """Stop one profile and let go of it — its errands, its readings, its lock.
+
+        The last open one is refused, exactly as the workspace refuses it: a panel with
+        no profile open is a panel with nothing to do, and «Закрыть» must not be the way
+        to get there.
+        """
+        name = profilemod.sanitize(name)
+        session = self.workspace.get(name)
+        if session is None:
+            return False
+        if len(self.workspace) <= 1:
+            self._say("log.profile.last_one", name=name)
+            return False
+        self._stop_session(session)
+        if self.workspace.close(name) is None:
+            return False
+        autostartmod.drop_lock(self._locks.pop(name, None))
+        # The web server keeps ONE runtime as its fallback and its log; if that was the
+        # profile just closed, point it at one that is still open (#1313).
+        if self._web:
+            webctl.follow(self.workspace)
+        self._say("log.profile.closed", name=name)
+        return True
+
+    def _rename_profile(self, name: str, newname: str) -> bool:
+        """Rename a profile — closing it first when it is open, and opening it again.
+
+        The window renames the profile it is SHOWING and re-points the one runtime under
+        it; there is no showing page here and every open profile is equally live, so the
+        honest version is the plain one: stop the profile, move the directory, bring it
+        back under the new name. On Windows it is also the only version that works — a
+        directory holding an open `panel.log` cannot be renamed at all.
+        """
+        name = profilemod.sanitize(name)
+        if not name or not str(newname or "").strip():
+            return False
+        reopen = self.workspace.get(name) is not None
+        if reopen and (not self._make_room(name) or not self._close_profile(name)):
+            return False
+        try:
+            newn = self.workspace.profiles.rename(name, newname)
+        except ValueError as exc:
+            self._say("log.profile.rename_failed", name=name, error=self._error_text(exc))
+            if reopen:
+                self._open_profile(name)
+            return False
+        # The hourly autostart names no profile since #1207 — it opens ONE panel with
+        # whatever set the panel itself saved, and that set already knows the new name.
+        # This only sweeps away a per-profile task from #1203, if the machine has one.
+        autostartmod.rename(name, newn)
+        if reopen:
+            self._open_profile(newn)
+        self._say("log.profile.renamed", old=name, new=newn)
+        return True
+
+    def _delete_profile(self, name: str) -> bool:
+        """Delete a profile: everything it is running, then its whole directory.
+
+        The order is the window's and every step of it is load-bearing (#1253): refuse
+        early, keep a profile open, let the daemon go while the link that can reach it is
+        still alive, close the session so nothing holds a file inside the directory, and
+        only then remove it — through the WORKSPACE's unpinned manager, the one allowed
+        to write which profiles are open.
+        """
+        profiles = self.workspace.profiles
+        name = profilemod.sanitize(name)
+        if not name or not profiles.exists(name):
+            self._say("profile.error.missing", name=name)
+            return False
+        if len(profiles.list()) <= 1:
+            self._say("profile.error.last_one")
+            return False
+        note = None
+        if self.workspace.get(name) is not None:
+            if not self._make_room(name):
+                return False
+            # Worked out while the link is alive, SAID once the profile is gone: a line
+            # about the daemon put into the log of the profile being deleted is a line
+            # written into a file that is about to be removed.
+            note = self._let_link_go(name)
+            if not self._close_profile(name):
+                return False
+        if note is not None:
+            self._say(note[0], **note[1])
+        try:
+            now_active = profiles.delete(name)
+        except ValueError as exc:
+            self._say("log.profile.delete_failed", name=name, error=self._error_text(exc))
+            return False
+        left = autostartmod.drop_legacy(name)
+        if left:
+            self._say("log.autostart.leftover", name=name, error=", ".join(left))
+        self._say("log.profile.deleted", name=name, active=now_active)
+        return True
+
+    def _make_room(self, name: str) -> bool:
+        """Make sure something will still be open once ``name`` is not. ``False`` = refuse.
+
+        `Workspace.close` will not close the last open session and is right not to. So
+        the profile that is about to go stops being the only one open: another is opened
+        beside it first. When there is no other this panel may open — every one of them
+        held by a second panel — the honest answer is to say so and do nothing.
+        """
+        if len(self.workspace) > 1:
+            return True
+        profiles = self.workspace.profiles
+        other = next((n for n in profiles.list()
+                      if n != name and not autostartmod.locked(profiles, n)), None)
+        if other is None:
+            self._say("profile.error.no_replacement", name=name)
+            return False
+        self._open_profile(other)
+        return len(self.workspace) > 1
+
+    def _let_link_go(self, name: str):
+        """Ask this profile's daemon to exit — nothing will ever ask it for anything again.
+
+        A daemon deliberately outlives the panel, because a profile CLOSED is a profile
+        that will be opened again. A profile DELETED is not: leaving its link up leaves
+        something holding a client, a game lease and a port that `provision` would then
+        step around for ever. Unless somebody else is on that port — two profiles on one
+        client is a state older installs are still in, and shutting it down from under
+        the other one would take its game with it.
+
+        Returns ``(key, fmt)`` for the caller to say once the profile is gone, or ``None``.
+        """
+        rt = getattr(self.workspace.get(name), "rt", None)
+        if rt is None:
+            return None
+        try:
+            port = rt.daemon_port()
+            others = provisionmod.clients(self.workspace.profiles, exclude=name)
+        except Exception:                     # noqa: BLE001 — a reading, never the delete
+            return None
+        sharing = sorted(n for n, client in others.items() if client.port == port)
+        if sharing:
+            return ("log.profile.link_kept", {"port": port, "others": ", ".join(sharing)})
+        try:
+            if not rt.game.up():
+                return None
+        except Exception:                     # noqa: BLE001 — a reading
+            return None
+
+        def work() -> None:
+            try:
+                rt.game.let_go()
+            except Exception:                 # noqa: BLE001 — a link, not the panel
+                pass
+
+        threading.Thread(target=work, name="panel-link-let-go", daemon=True).start()
+        return ("log.profile.link_stopped", {"port": port})
+
+    def _say(self, key: str, **fmt) -> None:
+        """Say one line in whichever profile is still there to hear it.
+
+        A refusal about a profile that is closed, or about one that has just been
+        deleted, has no log of its own to land in — so it lands in the panel's current
+        one, which is where a person reading this process looks.
+        """
+        rt = getattr(self.workspace.current, "rt", None)
+        try:
+            rt.say(profilectl.TAG, key, **fmt)
+        except Exception:                     # noqa: BLE001 — before there is a log
+            print(f"panel: {key}: {fmt}", file=sys.stderr)
+
+    def _error_text(self, exc: Exception) -> str:
+        """A refusal in the person's language when it named one, its own words if not."""
+        rt = getattr(self.workspace.current, "rt", None)
+        try:
+            return i18nmod.translated(rt.t, exc)
+        except Exception:                     # noqa: BLE001 — a message, never the panel
+            return str(exc)
 
     # -- the profile's own log ----------------------------------------------
     def _pump_log(self, session) -> None:
@@ -289,29 +591,12 @@ class HeadlessPanel:
         self._down = True
         panelctl.set_handler(None, panelctl.RESTART)
         panelctl.set_handler(None, panelctl.QUIT)
+        profilectl.set_handler(None)
         if self._web:
             webctl.stop(quiet=True)
         servicectl.stop()
         for session in list(self.workspace.sessions):
-            try:
-                session.rt.tick.disarm("log")
-                session.rt.log_spool.pump()   # …and the tail, so nothing is lost
-                session.rt.log.close_file()
-            except Exception:                 # noqa: BLE001 — going down, never a fault
-                pass
-            try:
-                session.rt.status.stop()
-            except Exception:                 # noqa: BLE001 — going down, never a fault
-                pass
-            try:
-                session.rt.tick.stop()
-            except AttributeError:
-                pass
-            try:
-                session.rt.tick.disarm("heartbeat")
-                autostartmod.clear(session.rt.profiles, session.name, why=why)
-            except Exception:                 # noqa: BLE001 — going down, never a fault
-                pass
+            self._stop_session(session, why=why)
         self.workspace.shutdown()
         for name in list(self._locks):
             autostartmod.drop_lock(self._locks.pop(name, None))

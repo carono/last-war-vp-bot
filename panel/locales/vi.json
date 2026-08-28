@@ -1414,6 +1414,7 @@
   "vsduel.lord_level": "Nâng cấp của Chúa Tể",
   "vsduel.unit_train": "Huấn luyện binh lính",
   "vsduel.unit_upgrade": "Nâng cấp binh lính",
+  "log.profile.open_failed": "{name} KHÔNG được mở: {error}",
   "log.profile.opened": "đã mở hồ sơ: {name}",
   "log.profile.client.console": "«{name}»: client trên màn hình này, cổng {port}",
   "log.profile.client.session": "«{name}»: client trong phiên Windows {user}, cổng {port}",

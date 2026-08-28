@@ -382,6 +382,135 @@ def test_a_panel_with_no_window_still_takes_the_readings() -> None:
         "the window took its own readings again — one rule, one place"
 
 
+def _second_profile(name: str = "second") -> None:
+    """One more profile on disk, closed, for the presses below to reach for."""
+    os.makedirs(os.path.join(profilemod.PROFILES_DIR, name), exist_ok=True)
+    with open(os.path.join(profilemod.PROFILES_DIR, name, "config.json"),
+              "w", encoding="utf-8") as fh:
+        json.dump({"tabs": {"enabled": [], "known": []},
+                   "watchdog": False, "power": False}, fh)
+
+
+def test_a_windowless_panel_can_open_and_close_a_profile_from_the_phone() -> None:
+    """WHICH ACCOUNTS ARE FARMED was a knob only the window could turn (#2024).
+
+    The four profile presses are the SHELL's (`panel/runtime/profile_control.py`) and the
+    window has registered them since #1976; a panel with no window registered nothing, so
+    `POST /api/screen/press {id: "profiles", action: "open"}` answered
+    `{"ok": false, "reason": "web.ui.refused"}` — on the front-end that actually runs the
+    panel on this machine. The same class as #1984 (no `Schedule.register`, so every gear
+    was empty) and #2010 (a switch on a tab the profile had off): an ability wired to the
+    shell, and the shell that ships has no wire.
+    """
+    from panel.runtime import profile_control as profilectl
+
+    scratch, panel = _panel()
+    _second_profile()
+    try:
+        panel.open()
+        profilectl.set_handler(panel._profile_press)                     # noqa: SLF001
+        api = WebApi(panel.workspace.current.rt)
+
+        status, out = api.dispatch("POST", "/api/screen/press", {},
+                                   {"id": "profiles", "action": profilectl.OPEN,
+                                    "args": {"name": "second"}})
+        assert status == 200 and out.get("ok"), out
+        assert "second" in panel.workspace.names, panel.workspace.names
+        # …and it is a WHOLE profile, not a name in a list: its own lock, so no second
+        # panel can take the account, and its tabs built off its own saved block.
+        assert "second" in panel._locks, panel._locks                    # noqa: SLF001
+        assert panel.workspace.get("second").rt.workspace is panel.workspace
+
+        status, out = api.dispatch("POST", "/api/screen/press", {},
+                                   {"id": "profiles", "action": profilectl.CLOSE,
+                                    "args": {"name": "second"}})
+        assert status == 200 and out.get("ok"), out
+        assert "second" not in panel.workspace.names, panel.workspace.names
+        assert "second" not in panel._locks, panel._locks                # noqa: SLF001
+
+        # The last one open is refused, exactly as the workspace refuses it: a panel with
+        # nothing open is a panel with nothing to do.
+        status, out = api.dispatch("POST", "/api/screen/press", {},
+                                   {"id": "profiles", "action": profilectl.CLOSE,
+                                    "args": {"name": "solo"}})
+        assert status == 200 and not out.get("ok"), out
+        assert panel.workspace.names == ["solo"], panel.workspace.names
+    finally:
+        profilectl.set_handler(None)
+        panel.shutdown()
+        scratch.close()
+
+
+def test_a_profile_another_panel_holds_is_refused_by_the_press_too() -> None:
+    """The instance lock is the kernel's answer to «is somebody on this account» (#1994),
+    and a press from a phone is no more entitled to overrule it than a boot is: the two
+    panels would write one `config.json` and drive one client."""
+    from panel.runtime import profile_control as profilectl
+
+    scratch, panel = _panel()
+    _second_profile()
+    try:
+        panel.open()
+        other = HeadlessPanel(["second"], web=False)
+        try:
+            assert [s.name for s in other.open()] == ["second"]
+            profilectl.set_handler(panel._profile_press)                 # noqa: SLF001
+            assert profilectl.carry_out(profilectl.OPEN, "second") is False, \
+                "a press took a profile a second panel is holding"
+            assert "second" not in panel.workspace.names, panel.workspace.names
+        finally:
+            other.shutdown()
+    finally:
+        profilectl.set_handler(None)
+        panel.shutdown()
+        scratch.close()
+
+
+def test_renaming_and_deleting_reach_the_disk_with_no_window() -> None:
+    """Both close the profile first, because a directory holding an open `panel.log`
+    cannot be renamed or removed on Windows — which is how #1253's delete reported
+    success without having happened."""
+    from panel.runtime import profile_control as profilectl
+
+    scratch, panel = _panel()
+    _second_profile()
+    try:
+        panel.open()
+        profilectl.set_handler(panel._profile_press)                     # noqa: SLF001
+        profiles = panel.workspace.profiles
+
+        assert profilectl.carry_out(profilectl.RENAME, "second", "third") is True
+        assert profiles.exists("third") and not profiles.exists("second"), profiles.list()
+
+        # …and an open one is closed, moved and opened again under its new name.
+        assert profilectl.carry_out(profilectl.OPEN, "third") is True
+        assert profilectl.carry_out(profilectl.RENAME, "third", "fourth") is True
+        assert "fourth" in panel.workspace.names, panel.workspace.names
+        assert profiles.exists("fourth") and not profiles.exists("third"), profiles.list()
+
+        assert profilectl.carry_out(profilectl.DELETE, "fourth") is True
+        assert not profiles.exists("fourth"), profiles.list()
+        assert panel.workspace.names == ["solo"], panel.workspace.names
+        # The last profile there is cannot go: the press is offered nowhere, and refused
+        # here as well.
+        assert profilectl.carry_out(profilectl.DELETE, "solo") is False
+        assert profiles.exists("solo")
+    finally:
+        profilectl.set_handler(None)
+        panel.shutdown()
+        scratch.close()
+
+
+def test_the_windowless_panel_registers_the_profile_presses_at_start() -> None:
+    """A handler nobody registers is the whole bug — pinned in the source, because
+    `start()` also brings the port and the service link up and this test wants neither."""
+    source = (_REPO / "panel" / "headless.py").read_text(encoding="utf-8")
+    assert "profilectl.set_handler(self._profile_press)" in source, \
+        "a panel with no window cannot open a profile"
+    assert "profilectl.set_handler(None)" in source, \
+        "…and goes on claiming it can once it is down"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

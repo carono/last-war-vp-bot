@@ -1414,6 +1414,7 @@
   "vsduel.lord_level": "Derebeyinin seviyesini yükselt",
   "vsduel.unit_train": "Birlik eğit",
   "vsduel.unit_upgrade": "Birlikleri yükselt",
+  "log.profile.open_failed": "{name} AÇILMADI: {error}",
   "log.profile.opened": "profil açıldı: {name}",
   "log.profile.client.console": "«{name}»: bu masaüstündeki istemci, port {port}",
   "log.profile.client.session": "«{name}»: {user} Windows oturumundaki istemci, port {port}",
