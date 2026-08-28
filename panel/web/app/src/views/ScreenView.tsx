@@ -259,7 +259,31 @@ const PAGE_TILES = 30
 function cardName(card: ViewCard): string {
   if (card.title) return t(card.title)
   if (card.head) return card.head
-  return '—'
+  return '\u2014'
+}
+
+/* HOW BIG A CARD IS, for the strip and the summary tile (#2051 follow-up).
+ *
+ * A card is counted by its ITEMS, which is what the count meant when every card had
+ * some. A card made ENTIRELY OF KNOBS has none — «За день, по видам стягов» is
+ * sixty-eight numbers and not one row — so on the summary it drew a heading with
+ * nothing under it and no count beside it, and the person reading that page reported
+ * the caps as GONE. Only a card with nothing else to show is counted by its fields, so
+ * a card that already draws items or readings is left exactly as it was.
+ */
+function tileCount(card: ViewCard): number {
+  const items = (card.items || []).length
+  if (items) return items
+  if ((card.rows || []).length) return 0
+  return (card.fields || []).length
+}
+
+/** One knob as a summary line: what it is called, and what it is set to. */
+function fieldSummary(field: Field): string {
+  const value = field.value
+  if (typeof value === 'boolean') return value ? '\u2713' : '\u2014'
+  if (value === null || value === undefined || value === '') return '\u2014'
+  return String(value)
 }
 
 function Card({
@@ -460,9 +484,7 @@ export function ScreenPage({
               onClick={() => setPart(i + 1)}
             >
               {cardName(card)}
-              {(card.items || []).length ? (
-                <span className="count">{(card.items || []).length}</span>
-              ) : null}
+              {tileCount(card) ? <span className="count">{tileCount(card)}</span> : null}
             </button>
           ))}
         </div>
@@ -482,9 +504,7 @@ export function ScreenPage({
             <button className="tile" key={i} onClick={() => setPart(i + 1)}>
               <div className="head">
                 {cardName(card)}
-                {(card.items || []).length ? (
-                  <span className="count">{(card.items || []).length}</span>
-                ) : null}
+                {tileCount(card) ? <span className="count">{tileCount(card)}</span> : null}
               </div>
               {(card.rows || []).slice(0, 2).map((row, k) => (
                 <div className="kv" key={k}>
@@ -494,6 +514,17 @@ export function ScreenPage({
                   </span>
                 </div>
               ))}
+              {/* …AND A CARD THAT IS NOTHING BUT KNOBS SHOWS ITS FIRST TWO (#2051
+                  follow-up). Otherwise the tile is a heading over blank space, which is
+                  how sixty-eight rally caps read as «список пропал, ничего не вижу». */}
+              {!(card.rows || []).length
+                ? (card.fields || []).slice(0, 2).map((field, k) => (
+                    <div className="kv" key={'f' + k}>
+                      <span className="k">{t(field.label, field.label_fmt)}</span>
+                      <span className="v">{fieldSummary(field)}</span>
+                    </div>
+                  ))
+                : null}
               {card.flow ? (
                 <div className="flow" style={{ color: card.flow.colour || undefined }}>
                   {t(card.flow.key, card.flow.fmt)}
