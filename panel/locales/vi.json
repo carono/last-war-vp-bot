@@ -1523,6 +1523,7 @@
   "web.ui.notify": "Báo cho tôi khi có lỗi",
   "web.ui.log.empty": "chưa có gì được nói",
   "web.ui.offline": "mất liên lạc với bảng điều khiển",
+  "web.ui.route.gone": "liên kết trỏ tới hồ sơ «{name}» — hồ sơ đó không mở trong bảng điều khiển, đang hiển thị «{shown}»",
   "web.ui.now": "ngay bây giờ",
   "web.ui.in": "sau {span}",
   "web.ui.ago": "{span} trước",

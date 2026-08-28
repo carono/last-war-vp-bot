@@ -22,11 +22,21 @@
  * is open. Those four are WHERE somebody is standing — reopen the page without them and
  * you are somewhere else.
  *
- * WHAT IS NOT, and why: the search box, «Показать ещё» and the map's «Наша модель /
- * Экран клиента» (#2018). They are how the page being looked at is DRAWN, not which page
- * it is; putting them in the address makes every keystroke a history entry, so the back
- * button walks a search word letter by letter instead of going back. If one of them ever
- * has to survive a reload, it belongs in storage, not in the history.
+ * …AND THE MAP'S OWN PICTURE, «Наша модель / Экран клиента» (#2018). It is in the
+ * address for the person's own reason: «я смотрел карту клиента, обновил и попал на нашу
+ * модель — тоже плохо». It passes the same test as the four above — it is WHICH picture
+ * is being looked at, not how one is narrowed — and it is chosen once and left, so it
+ * costs the history nothing. It rides as a query inside the fragment (`?map=live`) rather
+ * than as a segment, because it belongs to the open screen and not to the path: a screen
+ * without a map never carries it. Restoring it does start the live reading again, and
+ * that is the point rather than a side effect — the reading exists only while somebody
+ * has this page open (`WorldMap`), so a reload is that person opening it again.
+ *
+ * WHAT IS NOT IN IT, and why: the search box and «Показать ещё». They are how the page in
+ * front of you is NARROWED, not which page it is, and they move letter by letter — put a
+ * search box in the address and the back button walks a word backwards one character at a
+ * time instead of going back where it came from. If one of them ever has to survive a
+ * reload it belongs in storage, never in the history.
  */
 import { useCallback, useEffect, useState } from 'react'
 
@@ -41,6 +51,8 @@ export type Route = {
   screen: string | null
   /** Which card of that screen is open: 0 is the summary, i+1 is card i. */
   part: number
+  /** Which picture a screen that HAS a map is drawing (#2018); ignored by the rest. */
+  map: 'model' | 'live'
 }
 
 const VIEWS: ViewName[] = ['state', 'timers', 'more']
@@ -50,18 +62,27 @@ const VIEWS: ViewName[] = ['state', 'timers', 'more']
  * the panel names its accounts after directories. */
 const NOBODY = '-'
 
-export const HOME: Route = { profile: '', view: 'state', screen: null, part: 0 }
+export const HOME: Route = { profile: '', view: 'state', screen: null, part: 0, map: 'model' }
 
 export function parseRoute(hash: string): Route {
-  const bits = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent)
+  const [path, search] = hash.replace(/^#\/?/, '').split('?')
+  const options = new URLSearchParams(search || '')
+  const map = options.get('map') === 'live' ? 'live' : 'model'
+  const bits = path.split('/').filter(Boolean).map(decodeURIComponent)
   const profile = bits[0] && bits[0] !== NOBODY ? bits[0] : ''
   const rest = bits.slice(1)
   if (rest[0] === 'screen' && rest[1]) {
     const part = Number(rest[2])
-    return { profile, view: 'more', screen: rest[1], part: Number.isFinite(part) && part > 0 ? part : 0 }
+    return {
+      profile,
+      view: 'more',
+      screen: rest[1],
+      part: Number.isFinite(part) && part > 0 ? part : 0,
+      map,
+    }
   }
   const view = VIEWS.includes(rest[0] as ViewName) ? (rest[0] as ViewName) : 'state'
-  return { profile, view, screen: null, part: 0 }
+  return { profile, view, screen: null, part: 0, map: 'model' }
 }
 
 export function routeHash(route: Route): string {
@@ -72,7 +93,10 @@ export function routeHash(route: Route): string {
   } else {
     bits.push(route.view)
   }
-  return '#/' + bits.join('/')
+  // Only what is not the default is written down: an address is read by a person, and a
+  // screen with no map has nothing to say about which picture it draws.
+  const tail = route.screen && route.map === 'live' ? '?map=live' : ''
+  return '#/' + bits.join('/') + tail
 }
 
 /** True when the two name the same place — so a normalising write can be skipped. */
@@ -84,9 +108,12 @@ export function sameRoute(a: Route, b: Route): boolean {
  * The address bar as state.
  *
  * `go(route)` PUSHES — a tap is a step the back button can undo. `go(route, true)`
- * REPLACES, and that is for the panel filling in what the person did not type: the
- * account it fell back to, a screen the profile does not have. Pushing those would mean
- * the back button walked through the app's own corrections.
+ * REPLACES, and that is for two things: the panel filling in what the person did not type
+ * (the account it fell back to, a card index a shorter screen no longer has), and a
+ * switch that redraws the page one is already on rather than moving to another — the
+ * map's picture. Pushing the first would make the back button walk through the app's own
+ * corrections; pushing the second would make it toggle a picture instead of leaving the
+ * screen.
  *
  * The query string is carried across verbatim rather than rebuilt: nothing here puts a
  * token in the address, and nothing here takes one out of a link somebody made.

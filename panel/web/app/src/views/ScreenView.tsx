@@ -364,6 +364,8 @@ export function ScreenPage({
   pollKey,
   part: asked,
   onPart,
+  map,
+  onMap,
 }: {
   id: string
   onBack: () => void
@@ -371,6 +373,9 @@ export function ScreenPage({
   /** Which part of the screen is open: 0 is the summary, i+1 is card i. */
   part: number
   onPart: (part: number) => void
+  /** Which picture the map draws, when this screen has one (#2018, #2050). */
+  map: 'model' | 'live'
+  onMap: (map: 'model' | 'live') => void
 }) {
   const [view, setView] = useState<View | null>(null)
   const [needle, setNeedle] = useState('')
@@ -442,7 +447,7 @@ export function ScreenPage({
       {/* A SCREEN MAY BE A PICTURE (#2018). It is drawn above its cards, which then
           read as the legend of what is on it — and it keeps its own data, so the
           screen's poll below never carries a scene. */}
-      {view?.map ? <WorldMap screen={id} /> : null}
+      {view?.map ? <WorldMap screen={id} mode={map} onMode={onMap} /> : null}
       {sectioned ? (
         <div className="chips">
           <button className={'chip' + (part === 0 ? ' on' : '')} onClick={() => setPart(0)}>

@@ -1523,6 +1523,7 @@
   "web.ui.notify": "Оповещать об ошибках",
   "web.ui.log.empty": "пока ничего не сказано",
   "web.ui.offline": "нет связи с панелью",
+  "web.ui.route.gone": "ссылка вела на профиль «{name}» — он не открыт в панели, показан «{shown}»",
   "web.ui.now": "сейчас",
   "web.ui.in": "через {span}",
   "web.ui.ago": "{span} назад",

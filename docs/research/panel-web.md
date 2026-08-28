@@ -446,19 +446,42 @@ on the right screen, with a cookie, at a clean address. The sign-in box learnt t
 thing: it used to bounce to `location.pathname` and now bounces to
 `pathname + hash`, so being asked for the token does not cost the place you were headed.
 
-**Four things are in it**, and they are the four that answer «where am I»: the account,
+**Four things are in the path**, and they are the four that answer «where am I»: the account,
 the bottom-bar tab, the screen opened out of «Ещё», and which of that screen's cards is
 open (`#/<profile>/state`, `#/<profile>/screen/<id>/<n>`). The card is named by its
 position, because that is what the chip strip is; a screen reopened tomorrow may have
 fewer cards, so a number past the end falls back to the summary rather than drawing a
 blank page.
 
-**Three things are deliberately NOT in it** — the search box, «Показать ещё» and the
-map's «Наша модель / Экран клиента» (#2018). They are how the page in front of you is
-drawn, not which page it is. Put a search box in the address and every keystroke becomes
-a history entry, so the back button walks a word letter by letter instead of going back
+**Five, counting the map's own picture** — «Наша модель / Экран клиента» (#2018) rides as
+a query inside the fragment, `?map=live`. It is in for the person's own reason — «я
+смотрел карту клиента, обновил и попал на нашу модель — тоже плохо» — and it passes the
+same test as the other four: it is WHICH picture is being looked at, not how one is
+narrowed, and it is chosen once and left, so it costs the history nothing. A query rather
+than a segment because it belongs to the open screen: a screen with no map never carries
+it. Restoring it does start the live reading of the client again, and that is the point
+rather than a side effect — that reading exists only while somebody has the page open
+(the loop is in `WorldMap`, not in the panel), so a reload is that person opening it
+again. Switching it REPLACES rather than pushes: the back button should leave the screen,
+not toggle a picture.
+
+**Two things are deliberately NOT in it** — the search box and «Показать ещё». They are
+how the page in front of you is NARROWED, not which page it is, and they move letter by
+letter: put a search box in the address and every keystroke becomes a history entry, so
+the back button walks a word backwards one character at a time instead of going back
 where it came from. If one of them ever has to survive a reload it belongs in storage,
 never in the history.
+
+**A link may name an account this panel has not got**, and it says so rather than
+quietly showing another one. The profile may have been closed at the machine since the
+link was made, or the link may have come from a different computer altogether — and a
+multi-account panel showing one account's numbers under the expectation of another's is
+the one mistake it must never make. So the page falls back to the account the window is
+showing AND draws a line naming both: whose link it was, and what is on screen instead
+(`web.ui.route.gone`). It stands until somebody picks an account on purpose; the fallback
+that raised it does not clear it. Opening the missing profile is not offered, because
+opening one is the window's own doing (`Workspace`) and deliberately not a press the
+phone has (§3.4).
 
 **A tap PUSHES, a correction REPLACES.** Choosing a chip, opening a screen, moving to
 another tab are steps the back button undoes. The panel filling in what the person did

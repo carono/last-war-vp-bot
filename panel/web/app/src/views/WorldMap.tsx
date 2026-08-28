@@ -145,7 +145,18 @@ function ageText(seconds: number | null | undefined): string {
   return Math.floor(total / 60) + ':' + pad(total % 60)
 }
 
-export function WorldMap({ screen }: { screen: string }) {
+/* WHICH PICTURE IS ON is the ADDRESS BAR's, not this component's (#2050). It used to be
+ * state here, so a reload of «Экран клиента» came back on «Наша модель» — the person's
+ * own complaint. It is a prop now, and the page that owns the route hands it back. */
+export function WorldMap({
+  screen,
+  mode,
+  onMode,
+}: {
+  screen: string
+  mode: 'model' | 'live'
+  onMode: (mode: 'model' | 'live') => void
+}) {
   const host = useRef<HTMLDivElement | null>(null)
   const appRef = useRef<Application | null>(null)
   const worldRef = useRef<Container | null>(null)
@@ -160,8 +171,6 @@ export function WorldMap({ screen }: { screen: string }) {
   const [spot, setSpot] = useState<{ x: number; y: number; cell: CoverageCell | null } | null>(null)
   //: Bumped when the application is up, so the paint below runs once there is a stage.
   const [ready, setReady] = useState(0)
-  /* WHICH PICTURE IS ON: the panel's own model, or the CLIENT'S OWN SCREEN (#2018). */
-  const [mode, setMode] = useState<'model' | 'live'>('model')
   const [live, setLive] = useState<LiveView | null>(null)
 
   const load = useCallback(async () => {
@@ -468,10 +477,10 @@ export function WorldMap({ screen }: { screen: string }) {
           «Экран клиента» is what the client is holding around its camera right now, read
           only while this view is on — switching back to the model ends the reading. */}
       <div className="chips">
-        <button className={'chip' + (mode === 'model' ? ' on' : '')} onClick={() => setMode('model')}>
+        <button className={'chip' + (mode === 'model' ? ' on' : '')} onClick={() => onMode('model')}>
           {t('worldview.mode.model')}
         </button>
-        <button className={'chip' + (mode === 'live' ? ' on' : '')} onClick={() => setMode('live')}>
+        <button className={'chip' + (mode === 'live' ? ' on' : '')} onClick={() => onMode('live')}>
           {t('worldview.mode.live')}
         </button>
       </div>

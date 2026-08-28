@@ -1523,6 +1523,7 @@
   "web.ui.notify": "Tell me about errors",
   "web.ui.log.empty": "nothing said yet",
   "web.ui.offline": "no connection to the panel",
+  "web.ui.route.gone": "the link named the profile «{name}» — it is not open in the panel, showing «{shown}»",
   "web.ui.now": "now",
   "web.ui.in": "in {span}",
   "web.ui.ago": "{span} ago",
