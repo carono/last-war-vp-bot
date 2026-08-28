@@ -286,6 +286,35 @@ conclusions. Read the result as:
 Either way the last two steps put the toggle back on, and the ability re-arms it at its
 own next popup regardless.
 
+#### First live attempt, 2026-08-28: blocked on the account having nothing idle
+
+Run against the live client, the whole probe, cost nothing:
+
+```
+post_send_open pressed=1
+post_send_rows rows=0 picked=0 only_ur=0 cheap=0 unread=0 read_ok=0
+LOG "probe: popup read=0, «только UR» on opening = 0, 0 row(s) offered"
+LOG "probe: the popup could not be read at all — nothing below means anything, stopping"
+```
+
+…and the post itself, read a moment later, says why:
+
+```
+secret post: idle=0 non-UR=0 UR=0 out=0 finished=9 tickets=30 price=100 marches=0/11
+```
+
+**Zero idle tasks, so «Мега развертывание» has nothing to offer and its view never
+becomes readable.** The button press lands (`pressed=1`) and there is no popup behind
+it. So (c) stays open, and the probe wants an account with at least one idle task —
+which is what claiming the nine finished ones would produce.
+
+**What this run DOES prove, and it is the half that matters most.** `read_ok=0` is the
+freshness stamp doing exactly its job on a live client: the four numbers beside it read
+`only_ur=0 cheap=0 picked=0`, which without the stamp is indistinguishable from a clean
+popup with nothing selected. The probe said «I could not look» and stopped, instead of
+reasoning from a reading nobody took. That is «не отправлять и сказать почему» happening
+for real, rather than in a unit test.
+
 ## There are more tasks than heroes, and the client says when one is home
 
 A running task's `completionTime` is the game's own millisecond clock, so «wait for a

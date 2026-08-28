@@ -197,6 +197,17 @@ WHILE go == 1 LIMIT 24
             IF picked > 0
                 LOG "sending {picked} UR task(s) before touching the refresh"
                 TAP confirm_batch_dispatch
+                # WHAT ACTUALLY WENT. The press has the last word — it re-reads the
+                # popup and parks -1 when it refused on its own account — so this is
+                # the number to believe, and a refusal leaves the popup standing to
+                # be closed.
+                READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_sent) or 0) INTO sent
+                IF sent < 0
+                    LOG "the send refused itself at the press — nothing went out; see «post_send_refused» for which check it was"
+                    TAP cancel_batch_dispatch
+                ELSE
+                    LOG "sent {sent} task(s); «post_send_done» names each one with its rarity"
+
             ELSE
                 LOG "a UR is idle and the game selected nothing to send it with — no free hero or no march slot"
                 TAP cancel_batch_dispatch
@@ -293,6 +304,13 @@ IF idle > 0
         IF picked > 0
             LOG "sending {picked} of the {rows} idle task(s)"
             TAP confirm_batch_dispatch
+            READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_sent) or 0) INTO sent
+            IF sent < 0
+                LOG "the send refused itself at the press — nothing went out; see «post_send_refused» for which check it was"
+                TAP cancel_batch_dispatch
+            ELSE
+                LOG "sent {sent} task(s); «post_send_done» names each one with its rarity"
+
         ELSE
             LOG "nothing of the {rows} idle task(s) can be sent — no free hero or no march slot"
             TAP cancel_batch_dispatch
