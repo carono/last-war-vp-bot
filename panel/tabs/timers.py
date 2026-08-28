@@ -537,7 +537,7 @@ class TimersTab(PanelTab):
             enabled=timer.enabled, immediate=timer.immediate,
             weekdays=",".join(str(d) for d in timer.weekdays))
         catalogue = self._timer_catalogue.replace(edited)
-        if not self.built():
+        if not self.built:
             # A tab nobody has opened has no widgets to fold in and no grid to redraw,
             # and `_write_timer` does both (`LAZY`). The file is the whole of the state
             # here, so it is written straight out.

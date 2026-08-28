@@ -571,6 +571,40 @@ def test_every_argument_knob_names_a_key_that_exists_everywhere():
         assert not missing, f"{locale.name} lacks {missing[:3]}"
 
 
+def test_a_knob_writes_the_row_of_a_tab_nobody_has_drawn():
+    """The write must land in the file with «Таймеры» unbuilt — and it did not.
+
+    `PanelTab.built` is a PROPERTY; the first version of this called it, so every
+    argument knob answered «unknown» on a live panel while every test passed. The
+    refusal now says why on the debug channel, and this exercises the path the live
+    press takes rather than the source it is written in.
+    """
+    import os
+    import types
+    from panel import timers as timersmod
+    from panel.tabs import timers as timerstab
+
+    with tempfile.TemporaryDirectory() as home:
+        path = os.path.join(home, "timers.json")
+        # The SHIPPED list rather than the template: `sweep_star_servers` is one of
+        # the rows a profile adopts, and the template is the starter set.
+        timersmod.save_catalogue(timersmod.default_catalogue(), path)
+        catalogue = timersmod.load_catalogue(path)
+        rt = types.SimpleNamespace(
+            schedule=types.SimpleNamespace(timer_catalogue=catalogue),
+            profiles=types.SimpleNamespace(timers_json=lambda: path))
+
+        tab = timerstab.TimersTab.__new__(timerstab.TimersTab)
+        tab.rt = rt
+        tab._built = False
+        assert tab.write_args("sweep_star_servers", {"count": 9}) is True
+        assert (timersmod.load_catalogue(path)
+                .by_name("sweep_star_servers").args["count"] == 9)
+        # …and the schedule is holding what was written, not the catalogue it had.
+        assert rt.schedule.timer_catalogue.by_name(
+            "sweep_star_servers").args["count"] == 9
+
+
 def test_the_schedule_registers_the_argument_knobs_itself():
     """Not the «Таймеры» tab: a profile with that tab off still runs the errands, and
     its phone still gets the timers screen (#2010's lesson, in a new place)."""
