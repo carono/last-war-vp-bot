@@ -13464,16 +13464,92 @@ def secret_post_dispatch_open() -> str:
 
 
 def secret_post_dispatch_confirm() -> str:
-    """Confirm the batch dispatch — one `hero.dispatch.batch.start` for every idle task.
+    """Confirm the batch dispatch — but only after reading what is about to go (#2022).
 
-    The camera follows: the game's own handler closes the popup and moves the world view
-    onto the tasks' point. Nothing here can prevent that — it is what the button does —
-    so a recipe that runs this says so out loud.
+    THE VERDICT IS ASKED AT THE MOMENT OF THE PRESS, and it is asked HERE rather than in
+    the recipe. That is the shape the ghost robbery arrived at (#2010,
+    :func:`ghost_recon_steal_press`): a press that decides for itself cannot be sent
+    wrong by a caller that forgot a gate, and a run that took nothing can be read off the
+    stream afterwards. The recipe still asks its own questions first — it wants to close
+    the popup politely and say why — but the guard does not depend on it having done so.
+
+    What is refused, when `__lw_ref_onlyur_want` is 1 (the rule «только UR», on by
+    default):
+
+    * `no_popup` — the popup is not there, or its view cannot be walked. An unreadable
+      popup is never confirmed: «отправить, наверное, правильное» is exactly the
+      failure this exists to stop.
+    * `filter_off` — the game's own «только UR» toggle reads OFF. Whatever the caller
+      believes it set, this is what the game says now.
+    * `rarity_unreadable` — a SELECTED row whose rarity could not be read at all. Said
+      apart from `cheap_selected` because the two want opposite fixes: one is the game
+      offering something the rule does not want, the other is this code not recognising
+      the field it reads.
+    * `cheap_selected` — a selected row below UR. `color` 5 is UR and anything above it
+      counts as UR too; the `cfgId` digits say nothing about rarity and are not looked
+      at (the level and the star live in the config as well, and are logged beside it).
+    * `more_than_ur` — more rows selected than there are idle UR tasks standing. The
+      cross-check that needs no field name at all: whatever a row turns out to be
+      called, there cannot be more UR sent than there are UR. Skipped when nothing has
+      scanned the post yet, because «no reading» is not «zero».
+
+    And whatever happens, the rows are NAMED first — index, rarity, level, star — so a
+    run says what it sent rather than how many. That is the other half of #2010's
+    lesson: the blind runs became diagnosable the moment the press started saying its
+    verdicts out loud.
+
+    The camera follows a real send: the game's own handler closes the popup and moves
+    the world view onto the tasks' point. Nothing here can prevent that — it is what the
+    button does — so a recipe that runs this says so out loud.
     """
-    return ("pcall(function() " + _UI_ROOT + _UI_PRESS +
+    return ("pcall(function() " + _UI_ROOT + _UI_PRESS + _NUM +
+            "local M=DataCenter.ActDispatchTaskDataManager "
+            "local want=tonumber(M.__lw_ref_onlyur_want) if want==nil then want=1 end "
+            "local function refuse(why) M.__lw_ref_sent=-1 "
+            'CS.UnityEngine.Debug.LogError("ACT post_send_refused why="..tostring(why)) end '
+            "local w=UIManager.Instance:GetWindow(UIWindowNames.UIDispatchTaskSuperPopup) "
+            "if w==nil or type(w.View)~='table' then refuse('no_popup') return end "
+            "local v=w.View "
+            "local onlyur=0 local t=v.toggleOnlySelectUR "
+            "if t~=nil then local u=t.unity_uitoggle "
+            "if u~=nil then pcall(function() if u.isOn then onlyur=1 end end) end end "
+            "if onlyur==0 then pcall(function() if v.isOnlySelectUR then onlyur=1 end end) end "
+            "local rows,picked,cheap,unread=0,0,0,0 local said={} "
+            "for _,d in pairs(v.datas or {}) do rows=rows+1 "
+            "if d.selected then picked=picked+1 "
+            "local cfg=nil pcall(function() cfg=d.taskInfo.cfg end) "
+            "if cfg==nil then pcall(function() cfg=d.cfg end) end "
+            "local col,lvl,star=-1,-1,0 "
+            "if cfg~=nil then pcall(function() col=_num(cfg:getValue('color')) end) "
+            "pcall(function() lvl=_num(cfg:getValue('level')) end) "
+            "pcall(function() star=_num(cfg:getValue('is_special')) end) end "
+            "if col<0 then unread=unread+1 end "
+            "if col<5 then cheap=cheap+1 end "
+            "said[#said+1]='#'..tostring(rows)..'/col'..tostring(col)"
+            "..'/lvl'..tostring(lvl)..(star>0 and '/star' or '') "
+            "end end "
+            # NAMED BEFORE JUDGED, so a refusal and a send are read the same way.
+            'CS.UnityEngine.Debug.LogError("ACT post_send_rows rows="..tostring(rows)'
+            '.." picked="..tostring(picked).." only_ur="..tostring(onlyur)'
+            '.." cheap="..tostring(cheap).." unread="..tostring(unread)'
+            '.." want_only_ur="..tostring(want)'
+            '.." rows_selected=["..table.concat(said,",").."]") '
+            "if picked<=0 then refuse('nothing_selected') return end "
+            "if want==1 then "
+            "if onlyur==0 then refuse('filter_off') return end "
+            "if unread>0 then refuse('rarity_unreadable') return end "
+            "if cheap>0 then refuse('cheap_selected') return end "
+            # «No reading» is not «zero»: a post nobody has scanned has no `__lw_ref_ur`
+            # at all, and refusing on that would be refusing on ignorance.
+            "local idleur=tonumber(M.__lw_ref_ur) "
+            "if idleur~=nil and picked>idleur then refuse('more_than_ur') return end "
+            "end "
             "local r=_root(UIWindowNames.UIDispatchTaskSuperPopup) "
             "local hit=_press(r,'ConfirmBtn') or _press(r,'confirmBtn') "
-            'CS.UnityEngine.Debug.LogError("ACT post_send_done pressed="..tostring(hit and 1 or 0)) end)')
+            "M.__lw_ref_sent=(hit and picked or 0) "
+            'CS.UnityEngine.Debug.LogError("ACT post_send_done pressed="..tostring(hit and 1 or 0)'
+            '.." sent="..tostring(hit and picked or 0)'
+            '.." rows_selected=["..table.concat(said,",").."]") end)')
 
 
 def secret_post_batch_read() -> str:
@@ -13486,11 +13562,12 @@ def secret_post_batch_read() -> str:
     why this ability never needs to pick heroes itself.
 
     THIS IS A VERIFICATION AND NOT ONLY A COUNT (#2022). The toggle is the game's, and
-    the game remembers it: once anything unticks it — this ability's own last step used
-    to — it arrives UNTICKED next time, and every «send the UR the refresh just won»
-    afterwards quietly sends the cheap tasks beside it. A whole day of that is a day of
-    marches and slots spent on the things the rule was keeping. So this parks four
-    numbers rather than two:
+    this ability's own last step used to untick it whenever the «send the leftovers»
+    switch was on — which was the default. The press right after sends every SELECTED
+    row, and unticking is what selects them all, so the cheap tasks went out with the
+    UR ones. Whether the untick also survived to the NEXT popup is an open question,
+    named in `docs/research/secret-task-refresh.md`; nothing here assumes either answer.
+    So this parks four numbers rather than two:
 
       * `rows` / `picked` — how many the popup holds and how many are selected;
       * `onlyur` — 1 when the game's own toggle is really on, read rather than assumed;
@@ -13502,14 +13579,29 @@ def secret_post_batch_read() -> str:
         popup's rows could not be read» rather than «the game selected cheap tasks».
         The two want opposite fixes, and one number for both hides which it is.
 
+    …and a fifth that says whether any of the four mean anything: `read_ok`. It is
+    cleared before the walk and set only after a live popup has actually been read, so
+    a read that died leaves 0 rather than the previous run's «all clear». The recipe
+    treats a 0 exactly as it treats a refusal — nothing is sent, and it says why.
+
     Zero selected is not an error — it is «there is nothing here the rule wants sent»,
     and the recipe closes the popup instead of confirming it. A non-zero `cheap`, or an
-    `onlyur` of 0, is the recipe's cue to refuse the send outright.
+    `onlyur` of 0, is the recipe's cue to refuse the send outright — and the PRESS
+    refuses on its own account as well (:func:`secret_post_dispatch_confirm`), so the
+    guard does not rest on the recipe having asked.
     """
-    return ("pcall(function() local M=DataCenter.ActDispatchTaskDataManager " + _NUM +
+    return (
+            # CLEARED FIRST, IN A PCALL OF ITS OWN, and that is not tidiness (#2022). The
+            # numbers below live on the manager between calls, so a read that DIES —
+            # popup gone, view not a table, the manager itself unreachable — would leave
+            # the previous run's «all clear» standing and the next gate would pass on a
+            # reading nobody took. The stamp says «this answer was taken just now»; a 0
+            # is «I could not look», which the recipe treats exactly like a refusal.
+            "pcall(function() DataCenter.ActDispatchTaskDataManager.__lw_ref_read_ok=0 end) "
+            "pcall(function() local M=DataCenter.ActDispatchTaskDataManager " + _NUM +
             "local w=UIManager.Instance:GetWindow(UIWindowNames.UIDispatchTaskSuperPopup) "
-            "local rows,picked,cheap,unread=0,0,0,0 local onlyur=0 "
-            "if w~=nil and type(w.View)=='table' then "
+            "local rows,picked,cheap,unread=0,0,0,0 local onlyur=0 local seen=0 "
+            "if w~=nil and type(w.View)=='table' then seen=1 "
             "local v=w.View "
             # The toggle is read from the Toggle behind it when there is one — that is
             # the thing a click moves — and from the view's own flag otherwise. Either
@@ -13531,25 +13623,29 @@ def secret_post_batch_read() -> str:
             "if col<0 then unread=unread+1 end "
             "if col<5 then cheap=cheap+1 end end end end "
             "M.__lw_ref_rows=rows M.__lw_ref_picked=picked M.__lw_ref_unread=unread "
-            "M.__lw_ref_onlyur=onlyur M.__lw_ref_cheap=cheap "
+            "M.__lw_ref_onlyur=onlyur M.__lw_ref_cheap=cheap M.__lw_ref_read_ok=seen "
             'CS.UnityEngine.Debug.LogError("ACT post_send_rows rows="..tostring(rows)'
             '.." picked="..tostring(picked).." only_ur="..tostring(onlyur)'
-            '.." cheap="..tostring(cheap).." unread="..tostring(unread)) end)')
+            '.." cheap="..tostring(cheap).." unread="..tostring(unread)'
+            '.." read_ok="..tostring(seen)) end)')
 
 
 def secret_post_batch_only_ur() -> str:
     """Put «только UR» back ON, and say whether it had to be put back (#2022).
 
-    The counterpart of :func:`secret_post_batch_all`, and the reason it exists is that
-    the game REMEMBERS the toggle. The operator watched a run untick it and then send
-    cheap tasks together with the UR ones — «отправлены не только UR задания, но и
-    дешевые» — and the untick outlives the run that did it, so every later popup opens
-    with the filter off until something turns it back on.
+    The counterpart of :func:`secret_post_batch_all`. The operator watched a run untick
+    the toggle and then send cheap tasks together with the UR ones — «отправлены не
+    только UR задания, но и дешевые» — and the untick is this ability's own (#2022).
 
-    So the run turns it back on itself, at every popup it opens, before it reads what
-    would be sent. Parks `__lw_ref_onlyur_fixed` = 1 when the toggle was found OFF and
-    had to be restored, which is the honest answer to «who unticks it»: a run that keeps
-    reporting 1 is being unticked by something outside this ability.
+    Whether it also SURVIVES to the next popup is not known: the one recorded live
+    reading says a popup opens with the filter on. Rather than settle that question by
+    guessing, the run turns the toggle back on at EVERY popup it opens, before reading
+    what would be sent — which is right under either answer and costs one call.
+
+    Parks `__lw_ref_onlyur_fixed` = 1 when the toggle was found OFF and had to be
+    restored. That is the standing measurement of «who unticks it»: now that nothing
+    here does, a run that keeps reporting 1 is being unticked by something else, and
+    that is when the research doc gets rewritten.
     """
     return ("pcall(function() local M=DataCenter.ActDispatchTaskDataManager "
             "M.__lw_ref_onlyur_fixed=0 "

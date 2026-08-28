@@ -183,48 +183,108 @@ toggle and every row is selected, which is what the run's last step does for the
 `MsgDefines.DispatchStart = hero.dispatch.start` exists for a single task, and is not
 needed while the popup answers this well.
 
-### …and the toggle is REMEMBERED, which is how cheap tasks got sent for a day (#2022)
+### Who unticks «только UR» — measured, and one claim withdrawn (#2022)
 
-The operator watched a run untick it and then send the cheap tasks together with the UR
-ones — «отправлены не только UR задания, но и дешевые». The question «who unticks it» has
-one answer and it is not the game:
+The operator: «отправлены не только UR задания, но и дешевые, вчера я заметил, что во
+время выполнения скрипт снял галку только UR при мега отправке». Three explanations were
+put up. Only one of them is established, and the first version of this section asserted a
+second as though it were — that is corrected here rather than quietly deleted, because
+the next agent has to be able to tell an exception from an omission.
 
-* **This ability's own last step did.** `dispatch` («Отправлять отряды после») defaulted
-  to on, and its first act was `secret_post_batch_all()` — `toggleOnlySelectUR.
-  unity_uitoggle.isOn = false`. Nothing else in the repository writes that toggle.
-* **The untick outlives the run that made it.** The popup does not arrive with the filter
-  back on: it arrives the way it was left. So the damage is not one send — every LATER
-  «send the UR the refresh just won» (step 4a of the recipe, inside the refresh cycle)
-  opens a popup whose filter is off and confirms whatever is selected, which is every
-  idle row. A day of the errand is a day of marches and task slots spent on the things
-  the rule was explicitly keeping.
-* **Neither the mega refresh nor the game's own list update touches it.** They were
-  suspected first; there is no writer for it in either path, and the shape of the report
-  fits the untick exactly — cheap tasks going out *together with* the UR ones is the
-  filter being off, not a filter that skipped a row.
+**(a) OUR OWN CODE — CONFIRMED, and it explains the whole report on its own.**
+`secret_post_batch_all()` is the only writer of that toggle anywhere in the repository
+(`toggleOnlySelectUR.unity_uitoggle.isOn = false`); it is reached from exactly one button
+(`select_all_batch_dispatch`); and step 7 of `refresh_secret_tasks.md` called that button
+whenever `dispatch == 1`, which is the default and was the default on the live profile.
+The very next press was `confirm_batch_dispatch`, which sends every SELECTED row — and
+unticking the filter is what selects them all. So within ONE run, with nothing else
+involved: the box comes off, the cheap tasks go out. That is the report, sentence for
+sentence. `grep -n "toggleOnlySelectUR\|isOnlySelectUR" tools/ panel/ src/` is the whole
+of the evidence and it fits on one screen.
 
-The fix is in three parts, and the middle one is the point:
+**(b) THE GAME RESETTING IT ON A MEGA REFRESH — nothing supports it, and it is not
+excluded.** No path in this repository writes the toggle from a refresh, and (a) needs no
+help to explain what was seen. It cannot be ruled out without watching the toggle across
+a mega refresh on a live client, which has not been done. It also does not matter to the
+fix: the toggle is re-armed at EVERY popup this ability opens, so a game that resets it
+is answered by the same code as a game that does not.
+
+**(c) THE UNTICK SURVIVING TO THE NEXT POPUP — NOT MEASURED, and the first version of
+this section stated it as fact.** It said «the game REMEMBERS that box», and inferred from
+it that every later «send the UR the refresh just won» in the refresh cycle went out with
+cheap tasks too. That inference was never measured, and the one live reading anybody has
+recorded says the opposite: the block above this one, taken from a real popup, has
+`View.isOnlySelectUR = true` — «already on when the popup opens». The damage may therefore
+have been confined to step 7 of each run rather than spreading through the cycle. **It
+does not change what the fix has to do**, and it is smaller than was claimed. Settling it
+needs a live client: `actions/dev/_t2022_only_ur_probe.md` does it in one run and spends
+nothing.
+
+### What the fix does, and why it does not rest on the answer
 
 1. `only_ur` is a knob of its own, on by default, and `dispatch` no longer unticks
-   anything on its own.
-2. **The toggle is put back on at every popup the run opens** (`force_batch_only_ur` /
-   `secret_post_batch_only_ur`) — the run does not assume it inherited a clean one — and
-   `__lw_ref_onlyur_fixed` says whether it had to be restored. A run that keeps reporting
-   1 is being unticked by something outside this ability, which is the measurement that
-   would reopen the question.
-3. **Nothing is confirmed until the popup has been READ**
-   (`secret_post_batch_read`): the toggle really on (`__lw_ref_onlyur`), no selected row
-   below UR (`__lw_ref_cheap`, off the row's own config `color`, and a row whose colour
-   cannot be read counts as cheap), and no more rows selected than there are idle UR
-   tasks. That last one is the cross-check that needs no field name at all — whatever a
-   row turns out to be called, there cannot be more UR sent than there are UR standing.
-   Any of the three failing cancels the send and says which.
+   anything. Sending the cheap leftovers is still possible — it is what turning `only_ur`
+   off means — but it is now a decision somebody makes rather than the default.
+2. The toggle is put back on at every popup the run opens (`force_batch_only_ur` /
+   :func:`secret_post_batch_only_ur`), so (b) and (c) are both covered whatever their
+   answer turns out to be. `__lw_ref_onlyur_fixed` reports whether it had to be restored,
+   which is the standing measurement: a run that keeps reporting 1 is being unticked by
+   something outside this ability, and that is when this section gets rewritten again.
+3. **The PRESS asks the verdict itself, at the moment it fires**
+   (:func:`secret_post_dispatch_confirm`) — the shape the ghost robbery arrived at in
+   #2010. It refuses `no_popup`, `filter_off`, `rarity_unreadable`, `cheap_selected`,
+   `more_than_ur` and `nothing_selected`, each said by name on the stream. A caller that
+   forgets the gate cannot send cheap tasks; an unreadable popup is never confirmed on
+   the grounds that it was probably fine.
+4. The reading has a freshness stamp (`read_ok`), cleared before the walk and set only
+   after a live popup was really looked at. The numbers live on the manager between
+   calls, so without it a read that died would leave the previous run's «all clear»
+   standing — «we set it» passing itself off as «we checked it», which is the exact
+   failure being fixed.
+5. Every send and every refusal NAMES the rows: `#<n>/col<colour>/lvl<level>[/star]`.
+   Rarity comes from the row's own config — `color` 5 and above is UR, and the `cfgId`
+   digits are not looked at, because they lie about it.
 
-The rule was also unreachable, which is why it went unnoticed: the knobs live on
-«Командный пункт», a tab that is `IN_DEVELOPMENT` and therefore off in a live profile.
-The day's errand is a timer that runs whatever the tab is doing, so the six knobs are
-registered as the errand's arguments (`panel/runtime/errand_args.py`) and drawn by the
-gear on «Таймеры», in the window and on the phone alike.
+### The probe that settles (c), written out because its file is git-ignored
+
+`src/lastwar_bot/actions/dev/_*.md` is ignored on purpose (temporary probes), so the
+steps live here — the same convention #1993 used for its fare probe. It spends nothing:
+no confirm, no refresh, no squad leaves. Run it on a client that is logged in; it needs
+no idle tasks, because the toggle is readable whether or not the popup has rows.
+
+```
+TAP open_secret_post
+TAP open_batch_dispatch
+TAP read_batch_dispatch
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_read_ok) or 0) INTO read_ok
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_onlyur) or 0) INTO on_open
+IF read_ok == 0
+    LOG "the popup could not be read — nothing below means anything"
+    STOP
+TAP select_all_batch_dispatch          # untick
+TAP read_batch_dispatch
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_onlyur) or 0) INTO after_untick
+TAP cancel_batch_dispatch
+TAP open_batch_dispatch                # …and open it again
+TAP read_batch_dispatch
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_onlyur) or 0) INTO reopened
+TAP force_batch_only_ur                # leave the account right, whatever the answer
+TAP cancel_batch_dispatch
+TAP close_secret_post
+```
+
+**`after_untick` is the control and is not optional.** Without it a `reopened` of 1 could
+mean «the game put the toggle back» or «our write never landed», and those are opposite
+conclusions. Read the result as:
+
+| `after_untick` | `reopened` | what it means |
+|---|---|---|
+| 1 | — | the untick never landed; the probe says nothing, fix the write first |
+| 0 | 0 | the untick SURVIVES a reopen — (c) is true, the damage spread through the refresh cycle |
+| 0 | 1 | the popup restores the filter itself — (c) is false, the damage was the one send at the end of each run |
+
+Either way the last two steps put the toggle back on, and the ability re-arms it at its
+own next popup regardless.
 
 ## There are more tasks than heroes, and the client says when one is home
 

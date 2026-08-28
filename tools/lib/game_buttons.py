@@ -598,9 +598,11 @@ BUTTONS: dict[str, Button] = {
         relay=("post_send_rows",),
     ),
     "force_batch_only_ur": Button(
-        # Put «только UR» back on before anything is read or sent. The game REMEMBERS
-        # the toggle, so one untick outlives the run that did it — which is exactly how
-        # a day's marches went out on cheap tasks (#2022).
+        # Put «только UR» back on before anything is read or sent — at EVERY popup the
+        # run opens, so it costs nothing to be right whether or not the game remembers
+        # the toggle between them (#2022; the question is open and named in the research
+        # doc). `__lw_ref_onlyur_fixed` reports whether it had to be restored, which is
+        # the standing measurement of who else touches it.
         lua=_lua_actions.secret_post_batch_only_ur(),
         wait=0.6, label="Put «only UR» back on",
         relay=("post_send_only_ur",),
@@ -619,12 +621,18 @@ BUTTONS: dict[str, Button] = {
         wait=0.6, label="Close the batch dispatch unpressed",
     ),
     "confirm_batch_dispatch": Button(
-        # The press that sends `hero.dispatch.batch.start`. The game's own handler moves
-        # the world camera onto the tasks' point afterwards; that is the button, not a
-        # choice this makes.
+        # The press that sends `hero.dispatch.batch.start` — AFTER reading, itself, what
+        # is about to go (#2022). It refuses an unreadable popup, a filter that is off,
+        # a selected row below UR or one whose rarity it cannot read, and it names every
+        # row with its rarity, level and star either way. The recipe asks the same
+        # questions first so it can close the popup politely; the guard does not depend
+        # on it having done so — the shape `ghost_recon_steal_press` arrived at (#2010).
+        #
+        # The game's own handler moves the world camera onto the tasks' point after a
+        # real send; that is the button, not a choice this makes.
         lua=_lua_actions.secret_post_dispatch_confirm(),
         wait=2.5, label="Send every squad at once",
-        relay=("post_send_done",),
+        relay=("post_send_rows", "post_send_refused", "post_send_done"),
     ),
     # --- the star sprint: the last seconds of a star's countdown (#1294) ------
     # A ripe star lives under two minutes — live, the day's only one was gone before a

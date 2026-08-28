@@ -93,24 +93,36 @@ ARGS mega = 1
 ARGS dispatch = 1
 
 # ONLY UR, AND IT IS CHECKED RATHER THAN ASSUMED (#2022). The dispatch popup has the
-# game's own «только UR» toggle and the game REMEMBERS it: the run's last step used to
-# untick it to send the leftovers, the untick outlived the run, and every later
-# «send the UR the refresh just won» went out with the cheap tasks beside it. The
-# operator watched it happen — «отправлены не только UR задания, но и дешевые» — and
-# the cost is a day of marches and task slots spent on the things the rule was keeping.
+# game's own «только UR» toggle, and the run's last step used to UNTICK it whenever
+# `dispatch` was on — which it is by default. The very next press sends every SELECTED
+# row, and unticking the filter is what selects them all. So within one run: the box
+# came off, the cheap tasks went out. The operator watched exactly that — «отправлены
+# не только UR задания, но и дешевые» — and the cost is marches and task slots spent on
+# the things the rule was keeping.
 #
-# So with this on — and it is on by default — the toggle is put BACK ON at every popup
-# this opens, and no send is confirmed until the popup has been read and answers three
-# ways at once: the toggle is on, no selected row is below UR, and no more rows are
-# selected than there are idle UR tasks. Any of the three failing cancels the send and
-# says which, because a send that goes out wrong cannot be taken back.
+# Whether that untick also SURVIVED to the next popup is not known and is not assumed
+# here: the one live reading anybody has recorded says a popup opens with the filter on
+# (docs/research/secret-task-refresh.md). It does not matter to what follows — the
+# toggle is put BACK ON at every popup this opens, so a game that forgets it and a game
+# that remembers it are answered by the same code.
+#
+# With this on — and it is on by default — no send is confirmed until the popup has been
+# READ and answers at once: the reading really happened, the toggle is on, no selected
+# row is below UR or of unreadable rarity, and no more rows are selected than there are
+# idle UR tasks. Any of them failing cancels the send and says which, because a send
+# that goes out wrong cannot be taken back. The PRESS asks the same questions again on
+# its own account, so a caller that forgets these lines still cannot send cheap tasks.
 #
 # Turning it off is what `dispatch` used to mean on its own: the leftovers go too.
 ARGS only_ur = 1
 
 # 1. Park the rule where the presses can read it — `TAP` takes no arguments — and stamp
-#    the purse the budget is measured from.
-LUA local M=DataCenter.ActDispatchTaskDataManager M.__lw_ref_keep={keep} M.__lw_ref_gold={use_diamonds} M.__lw_ref_budget={diamond_cap} M.__lw_ref_mega_cost=-1 M.__lw_ref_mega_tasks=0 local g=0 pcall(function() g=tonumber(LuaEntry.Player.gold) or 0 end) M.__lw_ref_gold0=g
+#    the purse the budget is measured from. `__lw_ref_onlyur_want` arms the SEND ITSELF:
+#    the questions below are asked so this recipe can close the popup politely and say
+#    what it saw, but the press re-asks them at the moment it fires and refuses on its
+#    own account (#2022, the shape `ghost_recon_steal_press` arrived at in #2010). A
+#    guard that only lives in the recipe is a guard the next caller can forget.
+LUA local M=DataCenter.ActDispatchTaskDataManager M.__lw_ref_keep={keep} M.__lw_ref_gold={use_diamonds} M.__lw_ref_budget={diamond_cap} M.__lw_ref_onlyur_want={only_ur} M.__lw_ref_mega_cost=-1 M.__lw_ref_mega_tasks=0 local g=0 pcall(function() g=tonumber(LuaEntry.Player.gold) or 0 end) M.__lw_ref_gold0=g
 
 # 2. Open the command post, and CLAIM whatever has finished before anything else.
 #    A finished task holds its march slot until its reward is taken — live on a
@@ -153,6 +165,12 @@ WHILE go == 1 LIMIT 24
         READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_cheap) or 0) INTO cheap
         READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_unread) or 0) INTO unread
         READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_onlyur) or 0) INTO only_ur_on
+        # DID THE READING HAPPEN AT ALL? The four numbers above live on the manager
+        # between calls, so a read that died would leave the last run's «all clear»
+        # standing. `read_ok` is cleared before the walk and set only after a live
+        # popup was really looked at — 0 means «I could not look», which is a refusal
+        # and never a pass.
+        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_read_ok) or 0) INTO read_ok
         # …and the third question, which no condition here can ask: a DSL comparison
         # takes a number on the right, never another variable, so «are more rows
         # selected than there are idle UR tasks» is arithmetic done in the game and
@@ -163,6 +181,8 @@ WHILE go == 1 LIMIT 24
         # The three questions, asked of the popup that is about to be confirmed and not
         # of the one that was opened. `send` is 1 only when every one of them answers.
         READ_LUA 1 INTO send
+        IF read_ok == 0
+            READ_LUA 0 INTO send
         IF only_ur == 1
             IF only_ur_on == 0
                 READ_LUA 0 INTO send
@@ -171,7 +191,7 @@ WHILE go == 1 LIMIT 24
             IF overpick > 0
                 READ_LUA 0 INTO send
         IF send == 0
-            LOG "REFUSING the send: «только UR» reads {only_ur_on}, {cheap} of the {picked} selected task(s) are below UR ({unread} of them with no readable rarity at all), and there are only {ur} idle UR — nothing goes out"
+            LOG "REFUSING the send: the popup was read={read_ok}, «только UR» reads {only_ur_on}, {cheap} of the {picked} selected task(s) are below UR ({unread} of them with no readable rarity at all), and there are only {ur} idle UR — nothing goes out"
             TAP cancel_batch_dispatch
         ELSE
             IF picked > 0
@@ -254,8 +274,11 @@ IF idle > 0
     READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_cheap) or 0) INTO cheap
     READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_unread) or 0) INTO unread
     READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_onlyur) or 0) INTO only_ur_on
+    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_read_ok) or 0) INTO read_ok
     READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local p=tonumber(M.__lw_ref_picked) or 0 local u=tonumber(M.__lw_ref_ur) or 0 local d=p-u if d<0 then d=0 end return d end)() INTO overpick
     READ_LUA 1 INTO send
+    IF read_ok == 0
+        READ_LUA 0 INTO send
     IF only_ur == 1
         IF only_ur_on == 0
             READ_LUA 0 INTO send
@@ -264,7 +287,7 @@ IF idle > 0
         IF overpick > 0
             READ_LUA 0 INTO send
     IF send == 0
-        LOG "REFUSING the send: «только UR» reads {only_ur_on}, {cheap} of the {picked} selected task(s) are below UR ({unread} of them with no readable rarity at all), and there are only {ur} idle UR — nothing goes out"
+        LOG "REFUSING the send: the popup was read={read_ok}, «только UR» reads {only_ur_on}, {cheap} of the {picked} selected task(s) are below UR ({unread} of them with no readable rarity at all), and there are only {ur} idle UR — nothing goes out"
         TAP cancel_batch_dispatch
     ELSE
         IF picked > 0
