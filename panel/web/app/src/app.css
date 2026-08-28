@@ -71,12 +71,6 @@ header {
   border-bottom: 1px solid var(--card-edge);
 }
 
-.head-line {
-  display: flex;
-  align-items: center;
-  gap: var(--gap);
-}
-
 .profile {
   font-weight: 650;
   letter-spacing: 0.2px;
@@ -144,24 +138,14 @@ header {
   opacity: 0.85;
 }
 
-select.picker {
-  appearance: none;
-  background: var(--bg-soft);
-  color: var(--ink);
-  border: 1px solid var(--card-edge);
-  border-radius: 10px;
-  padding: 8px 30px 8px 12px;
-  min-height: var(--tap);
-  font: inherit;
-  font-weight: 650;
-  background-image: linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%),
-                    linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
-  background-position: right 14px center, right 9px center;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-}
-
-/* -- the strip of accounts -------------------------------------------------- */
+/* -- the strip of accounts, and the ONLY way between them (#2025) ----------- */
+/*
+   There was a `<select>` in the header as well until the person asked for one control
+   instead of two: «оставь только пилюли с профилями, а вверху дропдаун убери». Its rule
+   and the header line that held it are gone with it — the chips below do the whole job,
+   and each of them carries something a dropdown never could: that account's own light,
+   and the reason for its colour behind a tap.
+*/
 
 .lights {
   display: flex;

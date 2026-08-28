@@ -2063,15 +2063,30 @@ def test_no_field_is_small_enough_to_make_ios_zoom():
 
 
 def test_the_page_carries_a_switcher_when_there_is_more_than_one_account():
-    """The header is a name with one profile open and a picker with two.
+    """ONE switcher, and it is the chips (#2025).
 
-    A NATIVE `<select>`: on a phone that is the operating system's own picker, already
-    thumb-sized and already in the right language, which no custom dropdown here would
-    be.
+    It used to be two — a native `<select>` in the header and the chips under it — and
+    the person asked for one: «оставь только пилюли с профилями, а вверху дропдаун
+    убери». Two controls for one thing is two places to look and two states to keep in
+    step, and the chips are the richer of the two: each carries that account's own light
+    and says, on a tap, WHY it is that colour.
+
+    So this pins BOTH halves: the chips are there and they switch, and the dropdown has
+    not come back.
     """
     app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
-    assert "<select" in app and 'className="profile picker"' in app, \
-        "there is no account selector"
+    # The CLASS and the row it sat in, not the word `select` — this file's own comment
+    # explains what was removed and says the tag's name doing it, and other views have
+    # selects of their own that are nobody's business here.
+    assert 'className="profile picker"' not in app, \
+        "the account dropdown is back beside the chips"
+    assert 'className="head-line"' not in app, "the header line that held it is back"
+    assert "function Lights(" in app and "'chip'" in app, "there are no account chips"
+    # …and a chip is a SWITCH, not only an explanation: the tap moves the page.
+    assert "onPick(light.name)" in app, "a chip no longer switches to that account"
+    css = _css()
+    assert "select.picker" not in css, "the picker's rule outlived the picker"
+    assert ".head-line" not in css, "the header line that held it outlived it too"
     js = _front_end_source()
     assert "/api/profiles" in js, "the page never asks which accounts are open"
     # …and every request carries the account, or the page would be showing one profile

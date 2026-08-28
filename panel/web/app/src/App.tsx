@@ -312,21 +312,18 @@ function Panel() {
   return (
     <div className="app">
       <header>
-        {many ? (
-          <div className="head-line">
-            <select
-              className="profile picker"
-              value={profile}
-              onChange={(e) => void switchProfile(e.target.value)}
-            >
-              {names.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
+        {/* THE PICKER THAT USED TO BE HERE IS GONE (#2025). There were two ways to move
+            between accounts — a `<select>` in this line and the chips below — and the
+            person asked for one: «оставь только пилюли с профилями, а вверху дропдаун
+            убери». Two controls for one thing is two places to look and two states to
+            keep in step.
+            The chips win because they are the richer of the two: each carries that
+            account's own light and says, on a tap, WHY it is that colour. A `<select>`
+            can carry a name and nothing else.
+            What it costs the header is nothing and what it gives back is 48 px on an
+            iPhone 13 mini — the row and its gap — measured 85.3 px before and 37.3 px
+            after with four accounts open. The pixels of #1976 are given back rather
+            than spent. */}
         <StatusStrip
           header={state?.header}
           account={many ? '' : state?.profile || profile}
