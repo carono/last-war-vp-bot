@@ -36,6 +36,7 @@ from ..widgets import NumericEntry, numeric_spinbox
 from .base import PanelTab
 from ..runtime import statevar
 from ..runtime import errand_gear
+from ..runtime import errand_options as errandopts
 
 
 #: How wide one listener's block wants to be, and the gutter between two of them.
@@ -47,6 +48,11 @@ from ..runtime import errand_gear
 #: row of three-character buttons, and «Настройки» beside «Запустить» would be the
 #: widest thing on the tab.
 GEAR_GLYPH = "\u2699"
+
+#: What :meth:`TimersTab._knobs` answers when the schedule has no registry of its own
+#: — a probe, or a boot caught half-way. An empty registry says «this errand carries
+#: nothing», which draws no gear; a missing attribute used to take the whole grid down.
+NO_KNOBS = errandopts.ErrandOptions(None)
 
 TRIGGER_BLOCK_PX = 280
 TRIGGER_GUTTER_PX = 24
@@ -358,7 +364,7 @@ class TimersTab(PanelTab):
             # ⚙ — WHAT THIS ERRAND CARRIES (#2017), and only where it carries anything.
             # The knobs are the owning tab's own variables, so this opens a view of them
             # rather than a copy: what is typed here is what that tab's page shows.
-            if self.rt.schedule.options.has(timer.name):
+            if self._knobs().has(timer.name):
                 ttk.Button(grid, width=3, text=GEAR_GLYPH,
                            command=lambda t=timer: self._open_gear(
                                t.name, self._timer_title(t))).grid(
@@ -406,7 +412,7 @@ class TimersTab(PanelTab):
         # …and the standing orders nobody's catalogue holds, after them (#2017). Same
         # blocks, same grid: a person looking for what runs by itself should not have to
         # know which of the two lists the panel keeps a given watcher in.
-        orders = list(self.rt.schedule.options.orders())
+        orders = list(self._knobs().orders())
         makers = ([lambda t=trig: self._trigger_cell(grid, t) for trig in trigs]
                   + [lambda o=order: self._order_cell(grid, o) for order in orders])
         if not makers:
@@ -470,7 +476,7 @@ class TimersTab(PanelTab):
         # needed this: the squads it may send and the two numbers it obeys were on
         # «Ралли», and this block — the one place that says whether it is even on — had
         # nothing a person could act on.
-        if self.rt.schedule.options.has(trig.name):
+        if self._knobs().has(trig.name):
             ttk.Button(foot, width=3, text=GEAR_GLYPH,
                        command=lambda n=trig.name, w=name: self._open_gear(
                            n, w.cget("text"))).pack(side="right")
@@ -503,12 +509,21 @@ class TimersTab(PanelTab):
         state = ttk.Label(foot, foreground="#888", wraplength=TRIGGER_NAME_PX,
                           justify="left")
         state.pack(side="left")
-        if self.rt.schedule.options.has(order.name):
+        if self._knobs().has(order.name):
             ttk.Button(foot, width=3, text=GEAR_GLYPH,
                        command=lambda n=order.name, w=name: self._open_gear(
                            n, w.cget("text"))).pack(side="right")
         self._order_rows[order.name] = {"switch": var, "state": state}
         return cell
+
+    def _knobs(self):
+        """This profile's errand-knob registry, and never an exception (#2017).
+
+        The gear is decoration on a row: whether an errand carries knobs decides one
+        small button, so a schedule that has no registry — a probe, a boot caught
+        half-way — must cost that button and not the whole grid.
+        """
+        return getattr(self.rt.schedule, "options", None) or NO_KNOBS
 
     def _open_gear(self, errand: str, title: str) -> None:
         """Open one errand's knobs (`panel/runtime/errand_gear.py`)."""
@@ -1123,7 +1138,7 @@ class TimersTab(PanelTab):
         # …and what each standing order is doing, off the owning tab's own words. The
         # switch is repainted too: it can be moved on that tab, or from the phone, and a
         # box here saying the opposite is the two front-ends disagreeing about one state.
-        for order in self.rt.schedule.options.orders():
+        for order in self._knobs().orders():
             row = self._order_rows.get(order.name)
             if row is None:
                 continue

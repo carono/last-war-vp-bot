@@ -418,12 +418,79 @@ def test_a_panel_with_no_window_registers_its_tabs_too():
 
 
 def test_the_schedule_asks_every_tab_for_its_knobs():
-    """A gear on «Таймеры» must work for a page nobody has opened (`LAZY`)."""
-    source = (_REPO / "panel" / "runtime" / "schedule.py").read_text(encoding="utf-8")
-    where = source.split("    def register(self, tab)", 1)[1]
-    assert "tab.errand_options()" in where and "tab.standing_orders()" in where
+    """A gear on «Таймеры» must work for a page nobody has opened (`LAZY`).
+
+    Behaviour rather than a grep of the source: the first version of this test read
+    `register()` for the two calls by name, and went red the moment they moved into a
+    method of their own — while a `register()` that silently registered nothing would
+    have passed it (#2020).
+    """
+    import types
+    from panel.runtime.schedule import Schedule
+
     base = (_REPO / "panel" / "tabs" / "base.py").read_text(encoding="utf-8")
     assert "def errand_options(self)" in base and "def standing_orders(self)" in base
+
+    sched = Schedule.__new__(Schedule)
+    sched.options = errandopts.ErrandOptions(None)
+    sched._handlers, sched._needs_game = {}, set()
+    var = _Var("30")
+    sched.register(types.SimpleNamespace(
+        TRIGGERS=(),
+        errand_options=lambda: {"collect": (
+            errandopts.Option("level_min", "secret.autoloot.level_min",
+                              errandopts.TEXT, get=var.get, set=var.set),)},
+        standing_orders=lambda: (_order(_Var(False)),)))
+    assert sched.options.has("collect")
+    assert [o.name for o in sched.options.orders()] == ["secret_autoloot"]
+
+
+def test_a_tab_that_declares_no_knobs_still_registers():
+    """A caller with neither method is the ordinary case, not a fault.
+
+    This is the fault #2020 found: the guard around the two calls ended in
+    `self._dbg(...)`, and `_dbg` is a LOGGER. So every tab that was not a full
+    `PanelTab` — and every `Schedule` built without the registry — took the whole
+    registration down with a `TypeError`, which is to say the panel's entire schedule,
+    with no window anywhere to say so.
+    """
+    import types
+    from panel.runtime.schedule import Schedule
+
+    sched = Schedule.__new__(Schedule)
+    sched.options = errandopts.ErrandOptions(None)
+    sched._handlers, sched._needs_game = {}, set()
+
+    class _Tab:
+        TRIGGERS = (types.SimpleNamespace(name="t1", handler="go", needs_game=False),)
+
+        def go(self):
+            return None
+
+    tab = _Tab()
+    sched.register(tab)                       # no errand_options, no standing_orders
+    assert sched._handlers["t1"] == tab.go
+
+    # …and a Schedule with no registry at all (a probe) is not a crash either.
+    bare = Schedule.__new__(Schedule)
+    bare._handlers, bare._needs_game = {}, set()
+    bare.register(tab)
+    assert bare._handlers["t1"] == tab.go
+
+    # …nor is a tab whose own declaration throws: it costs that tab's knobs and
+    # nothing else. `_dbg` is a logger here, exactly as it is on a live panel.
+    import logging
+    loud = Schedule.__new__(Schedule)
+    loud.options = errandopts.ErrandOptions(None)
+    loud._handlers, loud._needs_game = {}, set()
+    loud._dbg = logging.getLogger("test.schedule")
+
+    def _boom():
+        raise RuntimeError("no")
+
+    loud.register(types.SimpleNamespace(TRIGGERS=_Tab.TRIGGERS, go=lambda: None,
+                                        errand_options=_boom))
+    assert loud._handlers["t1"] is not None
 
 
 def _run_standalone() -> int:

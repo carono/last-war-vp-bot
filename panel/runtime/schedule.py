@@ -191,16 +191,7 @@ class Schedule:
         data and needs nothing from us. Registration is what makes the trigger
         OFFERED — see :meth:`trigger_config`.
         """
-        # …and its KNOBS, and its standing orders. Both come off the tab's own state,
-        # so a tab nobody has opened still contributes them (`LAZY`) — which is the
-        # whole point: the gear on «Таймеры» must work for a page that was never drawn.
-        try:
-            for errand, options in (tab.errand_options() or {}).items():
-                self.options.register(errand, options)
-            for order in tab.standing_orders() or ():
-                self.options.register_order(order)
-        except Exception as exc:      # noqa: BLE001 — one tab's knobs, never the panel
-            self._dbg("errand options refused: %s: %s" % (type(exc).__name__, exc))
+        self._register_knobs(tab)
         for spec in getattr(tab, "TRIGGERS", ()):
             handler = getattr(spec, "handler", None)
             if not handler:
@@ -208,6 +199,35 @@ class Schedule:
             self._handlers[spec.name] = getattr(tab, handler)
             if getattr(spec, "needs_game", False):
                 self._needs_game.add(spec.name)
+
+    def _register_knobs(self, tab) -> None:
+        """One tab's KNOBS and its standing orders (#2017).
+
+        Both come off the tab's own state, so a tab nobody has opened still contributes
+        them (`LAZY`) — which is the whole point: the gear on «Таймеры» must work for a
+        page that was never drawn.
+
+        Nothing here may stop a registration. A caller that brought no knobs at all is
+        the ordinary case, not a fault, and `_dbg` is a LOGGER — calling it like a
+        function is what broke every `register()` on this path (#2017 → #2020), which
+        is to say the whole schedule: no handler bound, no trigger offered, and the
+        panel silent about it because it runs with no window.
+        """
+        registry = getattr(self, "options", None)
+        if registry is None:                    # a Schedule assembled for one probe
+            return
+        try:
+            declared = getattr(tab, "errand_options", None)
+            for errand, options in ((declared() if declared else None) or {}).items():
+                registry.register(errand, options)
+            orders = getattr(tab, "standing_orders", None)
+            for order in (orders() if orders else None) or ():
+                registry.register_order(order)
+        except Exception as exc:      # noqa: BLE001 — one tab's knobs, never the panel
+            log = getattr(self, "_dbg", None)
+            if log is not None:
+                log.warning("errand options refused: %s: %s",
+                            type(exc).__name__, exc)
 
     def register_gate(self, name: str, gate, record=None) -> None:
         """A gate that decides whether one named errand may run, and what it costs.
