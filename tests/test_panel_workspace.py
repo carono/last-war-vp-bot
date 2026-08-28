@@ -83,11 +83,9 @@ class _Env:
         return wsmod.Workspace(root=None, defaults={})
 
     def settings(self) -> dict:
-        try:
-            with open(profilemod.SETTINGS_FILE, encoding="utf-8") as fh:
-                return json.load(fh)
-        except (OSError, ValueError):
-            return {}
+        # A ROW, NOT A FILE, SINCE #2025 — asked through the panel's own door, so this
+        # helper cannot drift from what the panel itself reads back.
+        return profilemod.panel_settings()
 
     def __exit__(self, *exc):
         (profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE,
@@ -189,8 +187,10 @@ def test_restore_drops_a_profile_that_was_deleted_in_between() -> None:
         first.open("main")
         first.open("gone")
         first.switch_to("main")
-        import shutil
-        shutil.rmtree(os.path.join(profilemod.PROFILES_DIR, "gone"))
+        # THROUGH THE MANAGER, not by removing the directory (#2025): a profile is a ROW
+        # now, and the directory beside it holds the logs and the locks. Taking one
+        # without the other is the half-happened state one database exists to prevent.
+        profilemod.ProfileManager().delete("gone")
 
         again = env.workspace()
         again.restore()
