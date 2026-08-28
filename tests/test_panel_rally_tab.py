@@ -1131,6 +1131,7 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         return
     try:
         from panel.tabs.rally import autorally as autorallymod
+        from panel.runtime import opt_value
 
         _hold_autojoin(tab, False)
         tab._monitor_var.set(True)
@@ -1200,19 +1201,34 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
         assert rows["rally_troops.now"] == "%s / 4000" % dash, rows
         tab.autorally._min_soldiers_var.set("0")
-        # …and EVERY KIND is under it (#1317), «spent/allowed» where there is a cap and a
-        # word where there is none — «3/0» reads like a budget somebody has overspent.
-        kinds = {row["label"]: row["value"] for row in card["rows"]
-                 if row["label"].startswith("rally_limit.type.")}
-        assert kinds, card["rows"]
+        # …and EVERY KIND is on the phone under a card of its own (#1317, #2055). They
+        # were sixty-eight READINGS until #2055 and they are FIELDS now — the one set of
+        # numbers deciding how many squads a day this account spends could be moved only
+        # at the machine, which is a knob nobody can reach once the window is retired.
+        limit_card = tab._web_limit_card()
+        caps = {f["key"]: f for f in limit_card["fields"]}
+        assert caps, limit_card
         for kind in ("doom_elite", "doom_walker", "zombie_boss", "general_trial",
                      "general_trial_elite", "alliance_drill", "zombie_invasion"):
-            assert "rally_limit.type." + kind in kinds, (kind, kinds)
-        assert kinds["rally_limit.type.doom_elite"] == "0/20", kinds
-        # «на золотых оставляем без лимита» — an uncapped kind says the word rather than
-        # «0/0», which reads like a budget nobody may spend (#1317).
-        uncapped = kinds["rally_limit.type.desert_boss"]
-        assert "/" not in uncapped and uncapped.startswith("0 "), uncapped
+            assert "limit_" + kind in caps, (kind, sorted(caps))
+        # The cap is the value that is TYPED; today's count rides on the label as data,
+        # so a kind is one line and not two, and it needs no second key to translate.
+        elite = caps["limit_doom_elite"]
+        assert elite["kind"] == opt_value.NUMBER, elite
+        assert elite["value"] == 20, elite
+        assert elite["label"] == "rally_limit.field", elite
+        assert elite["label_fmt"]["count"] == 0, elite
+        assert elite["label_fmt"]["name"] == rt.t("rally_limit.type.doom_elite"), elite
+        # «на золотых оставляем без лимита» — an uncapped kind is a zero in its own box
+        # rather than a row of words, and the card says what a zero means in its note.
+        assert caps["limit_desert_boss"]["value"] == 0, caps["limit_desert_boss"]
+        assert limit_card.get("note"), limit_card
+        # …and typing one lands through the tab's own setter.
+        assert tab.web_press("set", {"key": "limit_doom_elite", "value": 7}) == {"ok": True}
+        assert tab.autorally.cap_for("doom_elite") == 7
+        assert tab.web_press("set", {"key": "limit_dragon", "value": 7}) == {
+            "error": "unknown"}
+        tab.autorally.set_cap("doom_elite", 20)
 
         # ONE CARD, exactly as the window now draws one group (#1317): the switches and
         # the «Автосбор» block are the same subject — what the bot does by itself — and
