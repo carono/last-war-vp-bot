@@ -146,6 +146,11 @@ class ChatTab(PanelTab):
         # Guards the backlog read against a second press while the first is still
         # in the game: it is one round trip, and two of them race for one link.
         self._backlog_busy = False
+        # What a backlog read brought back before the store could be opened. The store
+        # is keyed by the CHARACTER's uid and the uid is a game read taken off the Tk
+        # thread, so a press from a phone — which reaches this tab before anybody has
+        # looked at it — can finish first. Held here, folded in by `_open_chat_store`.
+        self._backlog_pending: list = []
 
     # -- lifecycle ------------------------------------------------------------
     def ensure_loaded(self) -> None:
@@ -1329,15 +1334,49 @@ class ChatTab(PanelTab):
         return True
 
     def _absorb_backlog(self, records: list) -> None:
-        """Hand the read messages to the pump — on the Tk thread, and say how many."""
+        """Put what was read where it is durable — on the Tk thread, and say how many.
+
+        THE STORE FIRST, the view second, and that order is the whole lesson of the
+        first live run (#2064): the press answered «278 messages of 278 held in 7 rooms»
+        and the store still had nought rows in it. A press off a phone reaches this tab
+        before anybody has LOOKED at it, and until somebody does there is no view, no
+        `build()` and therefore no pump — so records handed to the queue sat in it for
+        ever. Persisting here needs neither.
+        """
         self._backlog_busy = False
-        for record in records:
-            record["_backlog"] = True
-            self._chat_q.put(record)
-        if records:
-            self.say("chat", "log.chat.backlog", n=len(records))
-        else:
+        if not records:
             self.say("chat", "log.chat.backlog_none")
+            return
+        if self._chat_store is None:
+            # Not «no store», but «not open yet»: the uid is being read off the game.
+            # Held rather than dropped — a press that says 278 and keeps none of them
+            # is the worst of the two failures, because it looks like it worked.
+            self._backlog_pending = list(records)
+            self.say("chat", "log.chat.backlog_held", n=len(records))
+            self.ensure_loaded()
+            if self._chat_store is None:
+                self._reopen_chat_store()
+            return
+        self._file_backlog(records)
+
+    def _file_backlog(self, records: list) -> None:
+        """Write the read messages into this character's store, and draw them if drawn.
+
+        `append` is idempotent on the message's own identity, so a second press — or the
+        pump seeing the same record again — adds nothing.
+        """
+        if self._chat_store is None:
+            return
+        for record in records:
+            self._chat_store.append(record)
+        # The views exist only once somebody has looked at the tab. A record queued for
+        # a pump that is not running would wait for ever, and it does not need to: a
+        # view built later pages the same messages back OUT of the store.
+        if self._chat_trees:
+            for record in records:
+                record["_backlog"] = True
+                self._chat_q.put(record)
+        self.say("chat", "log.chat.backlog", n=len(records))
 
     def _dm_append(self, record: dict) -> bool:
         """Append a live DM to the OPEN conversation. True if a full rebuild is needed.
@@ -1658,6 +1697,10 @@ class ChatTab(PanelTab):
         self._chat_count_var.set(self.t("chat.count", n=total))
         if total:
             self.say("chat", "log.chat.history", n=total)
+        # A backlog that came back before the store was open — file it now.
+        pending, self._backlog_pending = self._backlog_pending, []
+        if pending:
+            self._file_backlog(pending)
 
 
 if __name__ == "__main__":

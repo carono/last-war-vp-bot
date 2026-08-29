@@ -199,6 +199,30 @@ def test_history_is_not_news():
         "history still counts as unread"
 
 
+def test_the_store_is_written_even_with_nobody_looking():
+    """The first live run read 278 messages and stored NOUGHT of them (#2064).
+
+    A press off a phone reaches this tab before anybody has opened it: no `build()`,
+    therefore no views and no pump, so records handed to the queue waited in it for
+    ever. The store needs neither, and it is the durable half — so it is written first
+    and the queue is fed only when there is something to draw into.
+    """
+    source = _TAB.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    assert "_file_backlog" in names, "nothing writes the backlog to the store"
+    start = source.index("def _file_backlog")
+    end = source.index("def _dm_append")
+    body = source[start:end]
+    assert "self._chat_store.append(record)" in body, "the backlog is not persisted"
+    assert "if self._chat_trees:" in body, \
+        "records are queued for a pump that may not be running"
+    # …and a backlog that arrives before the store is open is HELD, never dropped:
+    # a press that says 278 and keeps none of them looks exactly like one that worked.
+    assert "_backlog_pending" in source, "an early backlog is dropped"
+    assert '"log.chat.backlog_held"' in source, "an early backlog says nothing"
+
+
 def test_the_statement_is_documented():
     doc = _DSL.read_text(encoding="utf-8")
     assert "### `READ_CHAT" in doc, "READ_CHAT is not in docs/dsl.md"
@@ -208,7 +232,7 @@ def test_the_statement_is_documented():
 
 def test_every_locale_has_the_keys():
     wanted = ("chat.history.load", "log.chat.backlog", "log.chat.backlog_none",
-              "log.chat.backlog_reading")
+              "log.chat.backlog_reading", "log.chat.backlog_held")
     for path in sorted((_REPO / "panel" / "locales").glob("*.json")):
         table = json.loads(path.read_text(encoding="utf-8"))
         missing = [k for k in wanted if k not in table]

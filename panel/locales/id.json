@@ -267,6 +267,7 @@
   "log.chat.ended": "pemantau berakhir",
   "log.chat.history": "riwayat dimuat: {n} pesan",
   "log.chat.backlog": "riwayat dibaca dari klien: {n} pesan",
+  "log.chat.backlog_held": "riwayat dibaca, menunggu penyimpanan karakter terbuka: {n} pesan",
   "log.chat.backlog_none": "klien belum menyimpan riwayat",
   "log.chat.backlog_reading": "membaca riwayat yang disimpan klien…",
   "log.chat.photo_failed": "foto tidak bisa dibuka: {error}",

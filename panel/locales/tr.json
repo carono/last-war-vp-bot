@@ -267,6 +267,7 @@
   "log.chat.ended": "gözcü sona erdi",
   "log.chat.history": "geçmiş yüklendi: {n} ileti",
   "log.chat.backlog": "geçmiş istemciden okundu: {n} mesaj",
+  "log.chat.backlog_held": "geçmiş okundu, karakterin deposunun açılması bekleniyor: {n} mesaj",
   "log.chat.backlog_none": "istemci henüz geçmiş tutmuyor",
   "log.chat.backlog_reading": "istemcinin tuttuğu geçmiş okunuyor…",
   "log.chat.photo_failed": "fotoğraf açılamadı: {error}",

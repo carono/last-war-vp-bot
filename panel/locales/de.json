@@ -267,6 +267,7 @@
   "log.chat.ended": "die Überwachung ist zu Ende",
   "log.chat.history": "Verlauf geladen: {n} Nachrichten",
   "log.chat.backlog": "Verlauf aus dem Client gelesen: {n} Nachrichten",
+  "log.chat.backlog_held": "Verlauf gelesen, warte auf das Öffnen des Charakterspeichers: {n} Nachrichten",
   "log.chat.backlog_none": "der Client hält noch keinen Verlauf",
   "log.chat.backlog_reading": "lese den Verlauf, den der Client hält…",
   "log.chat.photo_failed": "das Foto ließ sich nicht öffnen: {error}",

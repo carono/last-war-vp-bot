@@ -267,6 +267,7 @@
   "log.chat.ended": "trình theo dõi đã kết thúc",
   "log.chat.history": "đã nạp lịch sử: {n} tin nhắn",
   "log.chat.backlog": "đã đọc lịch sử từ ứng dụng: {n} tin nhắn",
+  "log.chat.backlog_held": "đã đọc lịch sử, đang chờ mở kho của nhân vật: {n} tin nhắn",
   "log.chat.backlog_none": "ứng dụng chưa giữ lịch sử nào",
   "log.chat.backlog_reading": "đang đọc lịch sử mà ứng dụng đang giữ…",
   "log.chat.photo_failed": "không mở được ảnh: {error}",

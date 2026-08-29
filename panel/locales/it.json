@@ -267,6 +267,7 @@
   "log.chat.ended": "il monitor è terminato",
   "log.chat.history": "cronologia caricata: {n} messaggi",
   "log.chat.backlog": "cronologia letta dal client: {n} messaggi",
+  "log.chat.backlog_held": "cronologia letta, in attesa dell’apertura dell’archivio del personaggio: {n} messaggi",
   "log.chat.backlog_none": "il client non conserva ancora alcuna cronologia",
   "log.chat.backlog_reading": "lettura della cronologia conservata dal client…",
   "log.chat.photo_failed": "non è stato possibile aprire la foto: {error}",

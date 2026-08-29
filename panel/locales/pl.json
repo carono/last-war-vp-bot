@@ -267,6 +267,7 @@
   "log.chat.ended": "monitor się zakończył",
   "log.chat.history": "wczytano historię: {n} wiadomości",
   "log.chat.backlog": "historia odczytana z klienta: {n} wiadomości",
+  "log.chat.backlog_held": "historia odczytana, czekam na otwarcie bazy postaci: {n} wiadomości",
   "log.chat.backlog_none": "klient nie przechowuje jeszcze historii",
   "log.chat.backlog_reading": "odczytuję historię przechowywaną przez klienta…",
   "log.chat.photo_failed": "nie udało się otworzyć zdjęcia: {error}",

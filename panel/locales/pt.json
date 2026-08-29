@@ -267,6 +267,7 @@
   "log.chat.ended": "o monitor terminou",
   "log.chat.history": "histórico carregado: {n} mensagens",
   "log.chat.backlog": "histórico lido do cliente: {n} mensagens",
+  "log.chat.backlog_held": "histórico lido, à espera da abertura do arquivo da personagem: {n} mensagens",
   "log.chat.backlog_none": "o cliente ainda não guarda histórico",
   "log.chat.backlog_reading": "a ler o histórico que o cliente guarda…",
   "log.chat.photo_failed": "não deu para abrir a foto: {error}",
