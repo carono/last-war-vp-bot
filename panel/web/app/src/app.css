@@ -1036,15 +1036,23 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   content: '';
   position: absolute;
   inset: 0 auto 0 0;
-  width: 46%;
+  width: 40%;
   z-index: -1;
   pointer-events: none;
   background-image: var(--art);
   background-repeat: no-repeat;
-  background-position: left center;
-  /* WHOLE, never cropped: `cover` filled the band and cut the crate and the clock face
-     in half, and half a sprite is not the picture the person asked to see. */
-  background-size: contain;
+  background-position: left 6px center;
+  /* ONE HEIGHT FOR EVERY SPRITE, and that is what stops the column looking random
+     (#2061, «карточки сделаны плохо, не красиво и криво»). The pictures are a coin, a
+     portrait, a ring and a building — with `contain` the round ones filled the band while
+     the wide ones sat as small blots, and thirty of those in a row is the «разнобой» the
+     person saw. Scaled by HEIGHT, they all stand the same size whatever their shape. */
+  background-size: auto 78%;
+  /* AND IT FADES INTO THE BUBBLE INSTEAD OF BEING SLICED BY IT. The bubble's edge cut
+     straight down the middle of a face or a coin — the single worst thing on that screen,
+     and it read as a rendering fault rather than as a design. */
+  -webkit-mask-image: linear-gradient(90deg, #000 50%, transparent 95%);
+  mask-image: linear-gradient(90deg, #000 50%, transparent 95%);
   /* FULL BRIGHTNESS. The picture is the picture — the words are protected by their own
      panel, not by dimming the art down to a stain. */
   opacity: 1;
@@ -1065,10 +1073,12 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
 .item.errand.art .errand-body {
   position: relative;
   z-index: 1;
-  margin-left: 20%;
+  margin-left: 26%;
   padding: 1px 7px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--card) 88%, transparent);
+  /* Rounder and softer than the card it sits on, so it reads as a panel the words ride
+     rather than as a rectangular patch stuck over the picture. */
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 82%, transparent);
   backdrop-filter: blur(3px);
 }
 /* The light palette gets a denser bubble, not a lighter picture: the words are dark
