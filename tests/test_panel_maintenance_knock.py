@@ -19,9 +19,10 @@ What is pinned here:
     two things must not restart one client. Until #2060 the test was «is the server
     answering», which handed away the commonest fault of all: a client that is up,
     answering Windows and unable to get into the game, cured by nobody for 6.9 hours;
-  * «could not ask» is treated as not-playing, deliberately: it is what maintenance looks
-    like from here, and a client the panel cannot talk to for seven minutes is no more
-    use than one at the login screen;
+  * «could not ask» is NOT treated as not-playing (#2060, reversing #1549's reading of
+    it): a VM that will not answer is exactly what our own broken plumbing looks like,
+    and #1268's rule is that ours is fixed and never restarted over. Only the client's
+    own evidence — it answered, with an uptime instead of a clock — is ever acted on;
   * the first knock waits out a GRACE longer than a login takes, so an ordinary start-up
     is never interrupted;
   * after that it is one knock per cooldown — the operator's fifteen minutes;
@@ -95,23 +96,38 @@ def test_a_client_in_the_game_is_never_touched():
     assert r.state(7200.0)["stalled_for"] == 0
 
 
-def test_a_client_another_branch_is_curing_belongs_to_that_branch():
+def test_a_client_another_branch_owns_belongs_to_that_branch():
     """Two things must not restart one client — the rule this module has always kept.
 
-    WHO ELSE HAS IT is the question, and until #2060 this branch asked the wrong one.
-    It handed the client over whenever the server was not answering, which is a much
+    WHO OWNS THE FAULT is the question, and until #2060 this branch asked the wrong one.
+    It handed the client over whenever the SERVER was not answering, which is a much
     bigger set than the one the other branches actually take: no process at all is the
-    watchdog's, and an amber `note` acts on (`no_traffic`, `client_hung`) is `note`'s.
+    watchdog's, and nothing landing in the VM is OURS to fix (#1268).
     """
     r = _r()
     assert r.note_session(False, False, 0.0, idle_sec=AWAY, running=False) is None
     assert r.note_session(False, False, 100_000.0, idle_sec=AWAY, running=False) is None
     r = _r()
-    assert r.note_session(False, False, 0.0, idle_sec=AWAY, deaf=True) is None
-    assert r.note_session(False, False, 100_000.0, idle_sec=AWAY, deaf=True) is None
+    assert r.note_session(False, False, 0.0, idle_sec=AWAY, wiring_bad=True) is None
+    assert r.note_session(False, False, 100_000.0, idle_sec=AWAY, wiring_bad=True) is None
 
 
-def test_a_client_up_and_not_landing_is_knocked_on_rather_than_left_to_nobody():
+def test_our_own_broken_plumbing_is_still_never_restarted_over():
+    """THE OTHER DIRECTION, and the one #1268 paid six pointless relaunches to learn.
+
+    `no_connection` / `client_hung` — a chunk will not land in the client's VM — is a bug
+    of OURS. It is fixed, not restarted over, and widening this branch (#2060) may not
+    quietly buy the knock that boundary. So: same client, same hours, same everything
+    except that the plumbing is the thing that is broken, and nothing is ever said.
+    """
+    r = _r()
+    for t in range(0, 36_000, 300):           # ten hours of it
+        assert r.note_session(False, False, float(t), idle_sec=AWAY,
+                              wiring_bad=True) is None, t
+    assert r.state(36_000.0)["stalled_for"] == 0
+
+
+def test_a_client_up_and_outside_the_game_is_knocked_on_rather_than_left_to_nobody():
     """THE STATE THAT HAD NO CURE AT ALL (#2060), and it is the commonest one.
 
     Live on 2026-08-28: the account was kicked at 23:26, the panel relaunched the game,
@@ -120,7 +136,7 @@ def test_a_client_up_and_not_landing_is_knocked_on_rather_than_left_to_nobody():
     which `note` throws away on purpose (#1268); and this branch cleared its clock on the
     same reading. The gate was held for 24 975 s and not one errand ran.
 
-    A client that is running, is not one of `note`'s ambers and cannot get into the game
+    A client that is running, whose plumbing is fine and which SAYS it is not logged in
     is exactly what the knock exists for, whether or not the server is answering.
     """
     r = _r()
@@ -167,12 +183,30 @@ def test_after_the_first_it_is_one_knock_per_cooldown():
     assert r.state(t + rec.STALLED_COOLDOWN_SEC)["stalled_restarts"] == 2
 
 
-def test_could_not_ask_counts_as_not_playing():
-    """`None` is what maintenance looks like from here — the VM answers nothing."""
+def test_could_not_ask_is_not_evidence_and_is_never_acted_on():
+    """«Мы не смогли спросить» is not «клиент не в игре» (#2060).
+
+    It used to be folded into `False` on the grounds that a client the panel cannot talk
+    to for seven minutes is no more use than one at the login screen. True of the USE and
+    false of the CURE: a VM that will not answer is exactly what our own broken plumbing
+    looks like, and the live case that motivated all of this was one — the pulse said «no
+    window this session can see» while the client took a hand-sent chunk instantly.
+
+    So `None` only ever comes from the client's OWN evidence being absent, and the knock
+    waits for evidence rather than acting on the lack of it.
+    """
     r = _r()
-    r.note_session(None, ONLINE, 0.0, idle_sec=AWAY)
-    said = r.note_session(None, ONLINE, _grace(r), idle_sec=AWAY)
-    assert said is not None and said[0] == rec.ACT_STALLED
+    for t in range(0, 36_000, 300):           # ten hours of «could not ask»
+        assert r.note_session(None, ONLINE, float(t), idle_sec=AWAY) is None, t
+
+
+def test_a_client_that_answered_and_then_went_quiet_keeps_its_clock():
+    """`None` neither knocks NOR clears: the evidence is stale, not contradicted."""
+    r = _r()
+    r.note_session(False, ONLINE, 0.0, idle_sec=AWAY)          # at the login screen
+    assert r.note_session(None, ONLINE, 60.0, idle_sec=AWAY) is None
+    said = r.note_session(False, ONLINE, _grace(r), idle_sec=AWAY)
+    assert said is not None and said[0] == rec.ACT_STALLED, said
 
 
 # ---------------------------------------------------------------------------

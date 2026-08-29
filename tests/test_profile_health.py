@@ -175,6 +175,44 @@ def test_the_maintenance_light_has_words_on_both_front_ends() -> None:
     assert light.state(lambda key, **fmt: key)["text"] == "health.maintenance"
 
 
+def test_a_client_that_says_it_is_not_logged_in_is_named_as_such():
+    """The amber a person cannot read off «нет связи» gets its own word (#2060).
+
+    Same colour, different act: our plumbing is fixed, a client outside the game is
+    knocked on. A person looking at the strip could not tell the two apart before.
+    """
+    said = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.SILENT, in_game=False)
+    assert said.colour == ph.WARN and said.reason == ph.NOT_IN_GAME
+
+
+def test_only_the_clients_own_evidence_counts_never_a_failed_reading():
+    """`None` is «nobody could ask» and stays the plain amber it always was."""
+    unasked = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.SILENT, in_game=None)
+    assert unasked.reason == ph.NO_TRAFFIC
+    playing = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.SILENT, in_game=True)
+    assert playing.reason == ph.NO_TRAFFIC
+
+
+def test_being_outside_the_game_never_takes_a_green_light_away():
+    """Same rule the maintenance narrowing has (#1982): the server answering wins."""
+    said = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.ANSWERING, in_game=False)
+    assert said.colour == ph.OK and said.reason == ph.TRAFFIC
+
+
+def test_the_shut_door_outranks_the_login_screen():
+    """Both are true during maintenance; «the server is shut» is the one that helps."""
+    said = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.SILENT,
+                      maintenance=True, in_game=False)
+    assert said.reason == ph.MAINTENANCE
+
+
+def test_a_client_we_cannot_drive_is_ours_whatever_it_last_said():
+    """Nothing landing outranks it: that amber is our plumbing, and #1268 owns it."""
+    said = ph.verdict(running=True, plumbing=ph.NOT_LANDING, server=ph.SILENT,
+                      in_game=False)
+    assert said.reason == ph.NO_CONNECTION
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

@@ -1038,7 +1038,7 @@ class Recovery:
 
     def note_session(self, playing: "bool | None", talking: bool, now: float,
                      idle_sec: "float | None" = None, running: bool = True,
-                     deaf: bool = False) -> "tuple | None":
+                     wiring_bad: bool = False) -> "tuple | None":
         """The client is up and connected — but is it IN THE GAME? (#1549)
 
         THE STATE NOTHING HAD A CURE FOR. Every other branch in this module is fed by a
@@ -1053,11 +1053,16 @@ class Recovery:
         three values and all three matter:
 
         * ``True``  — in a session. The clock is cleared and nothing is owed.
-        * ``False`` — the login screen, demonstrably. The state this cures.
-        * ``None``  — nobody could ask (the VM will not answer, which is ALSO what
-          maintenance looks like from here). Treated as not-playing, deliberately: a
-          client the panel cannot talk to for seven minutes is no more use than one at
-          the login screen, and the cure is the same knock.
+        * ``False`` — the login screen, demonstrably: asked what time it is, the client
+          handed out its own uptime (#1299). **The only value that is ever acted on.**
+        * ``None``  — nobody could ask. **Not evidence, and never a reason to restart a
+          client** (#2060). It used to be folded into ``False`` on the grounds that a
+          client the panel cannot talk to is no more use than one at the login screen —
+          true of the USE and false of the CURE, because «мы не смогли спросить» is
+          exactly what our own broken plumbing looks like, and #1268's rule is that our
+          plumbing is fixed and never restarted over. It neither knocks nor clears: a
+          client that was demonstrably at the login screen and then went quiet keeps its
+          clock, and the knock waits until the client can be asked again.
 
         **A restart cannot reopen a server, and that is not what it is for.** A client
         left on the maintenance dialog stays there after the door opens; the knock is how
@@ -1065,32 +1070,33 @@ class Recovery:
         rather than whenever somebody notices.
 
         Every gate the other cures have applies here unchanged and in the same order:
-        a client that is GONE is the watchdog's business and one `note` is acting on is
-        `note`'s (``running`` and ``deaf`` say which, #2060), a person at the machine
-        wins, and a kick's wait is not interrupted to knock on a door.
+        a client that is GONE is the watchdog's business and one whose PLUMBING is ours
+        to fix is nobody's to restart (``running`` and ``wiring_bad`` say which, #2060),
+        a person at the machine wins, and a kick's wait is not interrupted to knock.
         """
-        if not running or deaf:
-            # NOT THIS BRANCH'S CLIENT — and the test is now WHO ELSE HAS IT rather than
-            # «is the server answering» (#2060). No process is the watchdog's; an amber
-            # `note` acts on is `note`'s; two things must not restart one client.
+        if not running or wiring_bad:
+            # NOT THIS BRANCH'S CLIENT, and the test is now WHO ELSE OWNS THE FAULT
+            # (#2060). No process at all is the watchdog's. Nothing landing in the VM is
+            # OURS — `CLIENT_HUNG` and `NO_CONNECTION`, the states #1268 forbids
+            # restarting a client over, and the forbidding stands: a chunk that will not
+            # land is a bug of ours to fix, and six pointless relaunches were committed
+            # on purpose to prove it.
             #
-            # It used to ask `if not talking`, which meant «the server is answering», and
-            # that let go of every client the OTHER branches also refuse:
+            # It used to ask `if not talking`, which meant «is the game SERVER answering»
+            # — a far wider net than the one the other branches actually take, so the
+            # intersection belonged to nobody. Live on 2026-08-28: a client up, driveable
+            # and sitting outside the game for 24 975 s with every timer stopped.
             #
-            #   * `no_connection` — a client up and answering Windows while nothing lands.
-            #     `note` throws that reading away on purpose (#1268), so with this branch
-            #     clearing on it as well the state had no cure at all. Live on
-            #     2026-08-28: kicked at 23:26, relaunched, stuck on the Launch scene with
-            #     every game socket in CLOSE_WAIT, and 6.9 HOURS of a held gate with not
-            #     one errand run.
-            #   * `maintenance` — the very state this branch was written for (#1549). It
-            #     was green when that was written and amber since #1982, which quietly
-            #     switched the knock off.
-            #
-            # `talking` is still taken and still drawn by the caller, and it no longer
-            # DECIDES anything here: a client the panel cannot talk to is exactly what
-            # the third value of `playing` already says, and the cure is the same knock.
+            # `talking` is still taken and still drawn by the caller, and it decides
+            # nothing here: whether the SERVER answers is not how this branch tells its
+            # own client from somebody else's — `playing` is.
             self._stalled_clear()
+            return None
+        if playing is None:
+            # NOBODY COULD ASK — and that is not evidence (#2060). Neither knocks nor
+            # clears: a client that was demonstrably at the login screen and then went
+            # quiet keeps the clock it had earned, and nothing is restarted on a silence
+            # that is just as likely to be our own end of the wire.
             return None
         if playing:
             # It is in the game. Whatever this was, it is over — including the count,

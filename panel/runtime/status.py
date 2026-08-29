@@ -96,6 +96,10 @@ class StatusPoll:
         self._session_at = 0.0
         self._session_was = ""
         self._link_gone = 0
+        #: Has «клиент запущен, но в игру не вошёл» been said for the state it is in
+        #: now (#2060). An edge, not a tick: the state lasts as long as a maintenance
+        #: window does, and one line per poll would bury the log it is meant to explain.
+        self._said_not_in_game = False
         #: The last verdict said out loud, so a light that has not moved is a heartbeat
         #: in `debug.log` and a light that HAS is news (:meth:`_note_verdict`).
         self._said_verdict = None
@@ -194,9 +198,17 @@ class StatusPoll:
                 self._said_verdict = ("failed", str(exc)[:80])
                 rt.say("game", "log.game.read_failed", error=str(exc)[:200])
             return Reading(probe=None, health=health)
+        # …AND WHETHER THE CLIENT IS IN THE GAME, in the light itself (#2060). A person
+        # looking at «нет связи» cannot tell our own broken plumbing from a client that
+        # is up, driveable and sitting at the login screen — opposite faults with
+        # opposite acts. Three-valued on purpose: only the client's OWN evidence counts.
+        import game_clock
+
+        playing = (True if session == game_clock.IN_SESSION
+                   else False if session == game_clock.LOGIN_SCREEN else None)
         health = rt.health.update(found, plumbing=lands, server=server,
                                   responding=responding, error=rt.game.error(),
-                                  maintenance=maint == "closed")
+                                  maintenance=maint == "closed", in_game=playing)
         # THE GATE reads the verdict written one line up, so this costs a dict lookup.
         rt.gate.alive()
         # …AND THE VERDICT IS WRITTEN DOWN (#1982 follow-up). The window has printed a
@@ -215,7 +227,7 @@ class StatusPoll:
             self.take_link()
         self._announce_link(health)
         self._announce_maintenance(maint, maint_secs, seen)
-        self._recovery_check(found, health, kicked, session, now)
+        self._recovery_check(found, health, kicked, playing, now)
         # …AND THE OTHER HALF OF A CRASH: the PROCESS going away, which the recovery
         # above deliberately never treats as a fault of the link (#1984 moved this out
         # of the window with everything else — a panel nobody is looking at has to put
@@ -354,8 +366,19 @@ class StatusPoll:
 
     # -- what the readings mean ---------------------------------------------
     def _announce_link(self, health) -> None:
-        """Say it in the log the moment the game stops answering, and when it returns."""
+        """Say it in the log the moment the game stops answering, and when it returns.
+
+        …and NAME the one amber a person cannot read off «нет связи» (#2060): a client
+        that is up and driveable and has not got into the game. Said on its edge, like
+        the closed door below it, because it is a state and not an event.
+        """
         rt = self.rt
+        if health.reason == profile_health.NOT_IN_GAME:
+            if self._said_not_in_game is not True:
+                self._said_not_in_game = True
+                rt.say("game", "log.game.not_in_game")
+        else:
+            self._said_not_in_game = False
         if health.colour == profile_health.OK:
             waited = rt.game.link_wait()
             if waited is not None:
@@ -433,7 +456,7 @@ class StatusPoll:
         except Exception:                     # noqa: BLE001 — a record, never the panel
             rt.dbg("status").error("maintenance sample failed", exc_info=True)
 
-    def _recovery_check(self, found, health, kicked: bool, session: str,
+    def _recovery_check(self, found, health, kicked: bool, playing: "bool | None",
                         now: float) -> None:
         """Restart a client the server has stopped hearing — the other half of a crash.
 
@@ -461,18 +484,16 @@ class StatusPoll:
             self._probe_server(now)
         # …AND THE CLOSED DOOR (#1549). Last, because every branch above it is a fault
         # and this one is not: the client is fine and the server is shut.
-        import game_clock
-
-        playing = (True if session == game_clock.IN_SESSION
-                   else False if session == game_clock.LOGIN_SCREEN else None)
-        # …and it is told WHO ELSE HAS THIS CLIENT (#2060): the watchdog when there is no
-        # process, `note` when the amber is one it acts on. Everything else — a client up
-        # and not landing, a client landing and shut out of the game — is this branch's,
-        # and passing only «is the server answering» left the commonest of them, a
-        # relaunched client stuck at the login screen with dead sockets, cured by nobody.
+        #
+        # It is told WHO ELSE OWNS THE FAULT (#2060): the watchdog when there is no
+        # process, and US when nothing lands in the VM — `CLIENT_HUNG` / `NO_CONNECTION`,
+        # the states #1268 forbids restarting a client over. Passing «is the server
+        # answering» instead left the one state neither branch owned — a client up,
+        # driveable and outside the game — cured by nobody for 6.9 hours.
         self._act_on(rt.recovery.note_session(
             playing, health.colour == profile_health.OK, now, idle_sec=idle,
-            running=getattr(found, "running", False), deaf=deaf))
+            running=getattr(found, "running", False),
+            wiring_bad=health.plumbing == profile_health.NOT_LANDING))
 
     def _act_on(self, said) -> None:
         """Say what the recovery decided, and do it. One door for every decision.

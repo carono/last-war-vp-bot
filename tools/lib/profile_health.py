@@ -42,6 +42,14 @@ Which gives the ladder in :func:`verdict`, and the three amber reasons it can na
                            ours.** Say so, fix it, and never restart a client over it.
 * :data:`NO_TRAFFIC`     — chunks land and the server does not answer. The client is
                            deaf: restart it.
+* :data:`NOT_IN_GAME`    — chunks land, the server does not answer, and the client has
+                           told us ITSELF that it is not logged in: asked what time it
+                           is, it handed out its own uptime instead of a clock
+                           (`game_clock.LOGIN_SCREEN`, #1299). A narrowing of
+                           `NO_TRAFFIC` in the one direction a person cannot see from
+                           «нет связи»: the panel is fine, the client is up, and the
+                           account is sitting outside the game — stuck at login, or
+                           waiting on a door that is shut (#2060).
 * :data:`MAINTENANCE`    — chunks land, the server does not answer, and the client is
                            showing the game's OWN «server under maintenance» message
                            (`tools/lib/game_maintenance.py`). Nothing is broken and
@@ -78,6 +86,7 @@ NO_CLIENT = "no_client"          # red:   there is no client process
 CLIENT_HUNG = "client_hung"      # amber: it is there and it is wedged
 NO_CONNECTION = "no_connection"  # amber: OUR side cannot drive it
 NO_TRAFFIC = "no_traffic"        # amber: we drive it and the server says nothing
+NOT_IN_GAME = "not_in_game"      # amber: it drives fine and says it is not logged in
 MAINTENANCE = "maintenance"      # amber: the server is SHUT — wait, do not fix (#1982)
 TRAFFIC = "traffic"              # green
 
@@ -117,7 +126,8 @@ class Health:
 
 def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
             server: str = SERVER_UNASKED, responding: bool = True,
-            error: str = "", maintenance: bool = False) -> Health:
+            error: str = "", maintenance: bool = False,
+            in_game: "bool | None" = None) -> Health:
     """The one light for one profile, from readings somebody else has already taken.
 
     A pure function of ids: no socket, no round trip, no clock. Everything it judges is
@@ -131,7 +141,12 @@ def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
     4. **the server answered** → green. The only thing that earns it.
     5. **the client is showing the game's own maintenance message** → amber, and it is
        named: the server is shut. Below green on purpose (#1982), see above.
-    6. otherwise → amber. Chunks land, the server has not answered — or has not been
+    6. **the client says it is not logged in** → amber, and it is named too (#2060).
+       ``in_game`` is `game_clock`'s three-valued answer and only ``False`` counts: that
+       is the client's OWN evidence (it answered, with an uptime instead of a clock).
+       ``None`` means nobody could ask, which is not evidence of anything and falls
+       through to the amber below — the two must never be folded together.
+    7. otherwise → amber. Chunks land, the server has not answered — or has not been
        asked yet, which is the same amber: an unasked question is not a green light.
     """
     def made(colour: str, reason: str) -> Health:
@@ -146,6 +161,8 @@ def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
         return made(OK, TRAFFIC)
     if maintenance:
         return made(WARN, MAINTENANCE)
+    if in_game is False:
+        return made(WARN, NOT_IN_GAME)
     return made(WARN, NO_TRAFFIC)
 
 

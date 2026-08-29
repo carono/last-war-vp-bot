@@ -673,15 +673,46 @@ Three branches could have, and each had a reason not to:
 | `Recovery.note_session` (the knock, #1549) | `talking=False` | cleared its own clock, on the grounds that a silent server is `note`'s business |
 
 The knock's gate was the bug. It asked «is the server answering», which is a far bigger
-set than the one the other two branches actually take, so the intersection — **a client
-that is up, answering Windows and unable to get into the game** — belonged to nobody.
-The same gate had also, quietly, switched the knock off for the state it was written for:
-`maintenance` was a green light in #1549 and has been amber since #1982.
+set than the one the other two branches actually take, so the intersection belonged to
+nobody. The same gate had also, quietly, switched the knock off for the state it was
+written for: `maintenance` was a green light in #1549 and has been amber since #1982.
 
-The gate now asks **who else has this client**: `running` (no process ⇒ the watchdog's)
-and `deaf` (`no_traffic` / `client_hung` ⇒ `note`'s). Everything else is the knock's,
-whether or not the server is answering. `talking` is still passed and still drawn, and it
-no longer decides anything here.
+### The new boundary, and why it is NARROWER and not merely different
+
+#1268's rule — **our own plumbing is fixed, never restarted over** — cost six pointless
+relaunches to learn, and the price of a false restart is a person thrown out of the game
+with marches in the air. So the widened branch is pinned to a POSITIVE SIGN of the state
+it cures, not to a timeout and not to a silence:
+
+* **the sign is the client's own evidence.** `game_clock.session_state` asks the client
+  what time it is; one that has not logged in cheerfully hands out its own uptime instead
+  of a clock (#1299). That is `LOGIN_SCREEN`, and it is the ONLY value the knock acts on.
+* **«could not ask» is not evidence.** `CANNOT_TELL` was folded into «not playing» by
+  #1549 on the grounds that a client the panel cannot talk to is no more use than one at
+  the login screen — true of the USE and false of the CURE. It is precisely what our own
+  broken plumbing looks like, and it is what the 2026-08-28 incident actually showed: the
+  pulse said «no window this session can see» while the client took a hand-sent chunk
+  instantly. The knock neither acts on it nor clears its clock.
+* **who owns the fault decides the hand-over**, not who is answering: no process is the
+  watchdog's, and `plumbing == NOT_LANDING` (`no_connection`, `client_hung`) is ours.
+
+| state | plumbing | client says | owner |
+|---|---|---|---|
+| no process | — | — | watchdog |
+| nothing lands in the VM | `not_landing` | — | **nobody restarts it** — ours to fix (#1268) |
+| lands, server silent, in a session | `landing` | `in_session` | `note` (the deaf client) |
+| lands, server silent, could not ask | `landing` | `unknown` | `note` (unchanged) |
+| **lands, server silent, NOT logged in** | `landing` | `login` | **the knock** (#2060) |
+
+### The thresholds, named
+
+`STALLED_GRACE_SEC = 420` (7 min) before the first knock, `STALLED_COOLDOWN_SEC = 900`
+(15 min) between knocks. Neither is new and both are argued rather than picked: 420 s is
+longer than the 300 s `launch_game` waits for the city scene, so an ordinary slow login is
+never interrupted — a two-minute threshold would restart clients that were seconds from
+being in the game — and 900 s is the operator's own number for a wait on something outside
+the machine, which is also what the kick uses. Against them, 24 975 s of a held gate is
+thirty-three missed knocks.
 
 ## 13.3 Why the cause was invisible
 
@@ -698,3 +729,14 @@ written into a closed handle every single time.
 the standalone connector; `panel/runtime/lua_service.py` points it at the profile's own
 debug log. Pinned by `tests/test_link_diagnosis_is_logged.py` — a `print` inside `class
 Daemon` fails it.
+
+## 13.4 …and the state is now NAMED to the person
+
+Amber said «нет связи» for two opposite faults: our plumbing broken (open the log, fix
+the bug) and a client up, driveable and sitting outside the game (wait, or let the knock
+restart it). `profile_health.NOT_IN_GAME` splits them — «клиент запущен, но в игру не
+вошёл» — drawn on «Состояние» by both front-ends out of the one word table, and said once
+on its edge in the log. Same three colours; only the sentence is new. It narrows
+`NO_TRAFFIC` and never green, exactly as the maintenance wording does (#1982), and it
+comes from the same evidence the knock acts on: `in_game=False` only when the CLIENT said
+so, `None` falls through to the plain amber.

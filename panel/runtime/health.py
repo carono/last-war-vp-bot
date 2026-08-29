@@ -45,6 +45,7 @@ _WORDS = {
     profile_health.CLIENT_HUNG: "health.client_hung",
     profile_health.NO_CONNECTION: "health.no_connection",
     profile_health.NO_TRAFFIC: "health.no_traffic",
+    profile_health.NOT_IN_GAME: "health.not_in_game",
     profile_health.MAINTENANCE: "health.maintenance",
 }
 
@@ -84,7 +85,8 @@ class ProfileHealth:
     # -- writing -------------------------------------------------------------
     def update(self, probe, *, plumbing: str = profile_health.PLUMBING_UNASKED,
                server: str = profile_health.SERVER_UNASKED, responding: bool = True,
-               error: str = "", maintenance: bool = False):
+               error: str = "", maintenance: bool = False,
+               in_game: "bool | None" = None):
         """Take one poll's readings and keep the light they make.
 
         ``probe`` is `panel.runtime.game_process.Probe` — whether a client of this
@@ -97,12 +99,17 @@ class ProfileHealth:
         maintenance» message» (`tools/lib/game_maintenance.py`, #1982). It only ever
         NARROWS the amber the light was going to be anyway — nothing broken, nothing to
         fix, wait — so a profile whose server answers stays green with it set.
+
+        ``in_game`` is the same shape and for the same reason (#2060): ``False`` only
+        when the CLIENT said so, ``None`` when nobody could ask. It turns the amber a
+        person cannot read — «нет связи», which is equally what our own broken plumbing
+        looks like — into «клиент запущен, но в игру не вошёл».
         """
         self._client = getattr(probe, "message", None)
         self._health = profile_health.verdict(
             running=bool(getattr(probe, "running", False)), plumbing=plumbing,
             server=server, responding=bool(responding), error=error,
-            maintenance=bool(maintenance))
+            maintenance=bool(maintenance), in_game=in_game)
         self._at = time.time()
         return self._health
 
