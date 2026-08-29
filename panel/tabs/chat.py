@@ -2026,6 +2026,12 @@ class ChatTab(PanelTab):
             return
         self._chat_var.set(on)
         self._toggle_chat()
+        # …AND WRITTEN DOWN. A tick moved at the machine is saved by the binder's own
+        # trace over `persist_vars`; a switch moved from the phone reaches the variable
+        # by a different road, and a monitor left on that a restart forgets is exactly
+        # the silence this switch exists to end. `changed()` is a no-op while a profile
+        # is being applied, so it cannot write a half-loaded block back.
+        self.rt.settings.changed()
 
     def _toggle_chat(self) -> None:
         if self._chat_var.get():
