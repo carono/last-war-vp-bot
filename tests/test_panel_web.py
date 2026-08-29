@@ -2133,6 +2133,15 @@ def test_the_page_carries_one_switcher_and_it_is_the_account_face():
         "the account list is not drawn in the shared modal"
     # …and it still switches, still explains the light, and still lists the closed ones.
     assert "onPick(account.name)" in app, "a row no longer switches to that account"
+    # …AND THE PICK WRITES THE ADDRESS (#2050): the account is in the route, so a reload
+    # comes back to the same one. It goes through `switchProfile`, which is the only
+    # thing on this page allowed to move between accounts, and that goes through `leave`
+    # — the address writer. A pick that set state directly would look identical until
+    # somebody pressed F5 and landed on another account's page.
+    assert "if (name !== profile) switchProfile(name)" in app, \
+        "the account pick does not go through the one mover"
+    assert "const switchProfile = useCallback(" in app and "leave({ profile: name" in app, \
+        "switching an account no longer writes it into the address"
     assert "account.tip" in app, "the light's own sentence was lost with the chips"
     assert "onOpen(account.name)" in app, "a closed profile cannot be opened from the list"
     css = _css()
