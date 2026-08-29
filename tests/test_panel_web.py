@@ -2424,6 +2424,16 @@ def test_a_card_says_whether_it_is_on_by_its_colour_and_switches_in_the_corner()
     # a background now, and a background is the loudest thing on it: a switched-off card
     # at full strength would read as the liveliest of the thirty.
     assert ".item.errand.art.off::before" in css, "a card that is off keeps a lit picture"
+    # THE PICTURE IS FULL-BRIGHTNESS AND THE WORDS RIDE THEIR OWN PANEL (#2061) — «сделай
+    # на полную яркость, перенеси их в левую часть карточки, а текст сделай в пузыре».
+    # Both halves, because either alone is unreadable: a bright sprite under bare text, or
+    # a bubble over a picture faded back to a stain.
+    art = re.search(r"\.item\.errand\.art::before\s*\{[^}]*\}", css)
+    assert art and "opacity: 1" in art.group(0), "the picture is dimmed again"
+    assert "inset: 0 auto 0 0" in art.group(0), "the picture is no longer on the left"
+    bubble = re.search(r"\.item\.errand\.art \.errand-body\s*\{[^}]*\}", css)
+    assert bubble and "background:" in bubble.group(0), "the words have no bubble"
+    assert "margin-left" in bubble.group(0), "the bubble does not clear the picture"
 
 
 def test_the_theme_is_the_panels_own_and_not_an_accounts():

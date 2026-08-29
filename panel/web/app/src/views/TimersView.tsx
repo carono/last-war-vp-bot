@@ -242,16 +242,23 @@ function ErrandBlock({
       className={'item errand' + (icon ? ' art' : '') + (on ? '' : ' off')}
       style={artStyle(icon)}
     >
-      <div className="errand-head">
-        <span className="title">{title}</span>
-        <ErrandSwitch title={title} on={on} onToggle={onToggle} />
+      {/* ONE BUBBLE, NOT FOUR (#2061). The picture is at full brightness on the left, so
+          the words need a panel of their own — and it is a single element around all of
+          them rather than a background on each row: four paddings cost four times the
+          height, and this card's height is fought for (#1999). A card with no picture
+          gets no bubble at all and draws exactly as it did. */}
+      <div className="errand-body">
+        <div className="errand-head">
+          <span className="title">{title}</span>
+          <ErrandSwitch title={title} on={on} onToggle={onToggle} />
+        </div>
+        <p className="muted small facts">
+          {queued ? <span className="pill warn">{t('web.ui.queued')}</span> : null}
+          {facts}
+        </p>
+        <Stat stat={stat} />
+        {acts.length ? <div className="errand-acts">{acts}</div> : null}
       </div>
-      <p className="muted small facts">
-        {queued ? <span className="pill warn">{t('web.ui.queued')}</span> : null}
-        {facts}
-      </p>
-      <Stat stat={stat} />
-      {acts.length ? <div className="errand-acts">{acts}</div> : null}
       {gear.panel}
       {info.panel}
     </div>
