@@ -2480,5 +2480,13 @@
   "web.ui.theme": "Tema",
   "web.ui.theme.system": "Ikut perangkat",
   "web.ui.theme.dark": "Gelap",
-  "web.ui.theme.light": "Terang"
+  "web.ui.theme.light": "Terang",
+  "health.traffic.short": "server menjawab",
+  "health.no_client.short": "tidak ada klien",
+  "health.client_hung.short": "klien macet",
+  "health.no_connection.short": "tidak ada koneksi",
+  "health.no_traffic.short": "tidak ada lalu lintas",
+  "health.not_in_game.short": "tidak di gim",
+  "health.maintenance.short": "pemeliharaan",
+  "health.kicked.short": "terlempar"
 }

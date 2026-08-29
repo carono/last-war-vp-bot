@@ -2480,5 +2480,13 @@
   "web.ui.theme": "Motyw",
   "web.ui.theme.system": "Jak w telefonie",
   "web.ui.theme.dark": "Ciemny",
-  "web.ui.theme.light": "Jasny"
+  "web.ui.theme.light": "Jasny",
+  "health.traffic.short": "serwer odpowiada",
+  "health.no_client.short": "brak klienta",
+  "health.client_hung.short": "klient zawieszony",
+  "health.no_connection.short": "brak połączenia",
+  "health.no_traffic.short": "brak ruchu",
+  "health.not_in_game.short": "poza grą",
+  "health.maintenance.short": "przerwa techniczna",
+  "health.kicked.short": "wyrzucony"
 }

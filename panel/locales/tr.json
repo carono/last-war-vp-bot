@@ -2480,5 +2480,13 @@
   "web.ui.theme": "Tema",
   "web.ui.theme.system": "Cihazdaki gibi",
   "web.ui.theme.dark": "Koyu",
-  "web.ui.theme.light": "Açık"
+  "web.ui.theme.light": "Açık",
+  "health.traffic.short": "sunucu yanıtlıyor",
+  "health.no_client.short": "istemci yok",
+  "health.client_hung.short": "istemci donmuş",
+  "health.no_connection.short": "bağlantı yok",
+  "health.no_traffic.short": "trafik yok",
+  "health.not_in_game.short": "oyunda değil",
+  "health.maintenance.short": "bakım",
+  "health.kicked.short": "atıldı"
 }

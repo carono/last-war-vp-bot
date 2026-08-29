@@ -2480,5 +2480,13 @@
   "web.ui.theme": "Theme",
   "web.ui.theme.system": "As on the phone",
   "web.ui.theme.dark": "Dark",
-  "web.ui.theme.light": "Light"
+  "web.ui.theme.light": "Light",
+  "health.traffic.short": "server answers",
+  "health.no_client.short": "no client",
+  "health.client_hung.short": "client wedged",
+  "health.no_connection.short": "no link",
+  "health.no_traffic.short": "no traffic",
+  "health.not_in_game.short": "not in game",
+  "health.maintenance.short": "maintenance",
+  "health.kicked.short": "kicked out"
 }

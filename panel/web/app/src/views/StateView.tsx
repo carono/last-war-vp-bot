@@ -22,6 +22,39 @@ const LINK_WORDS: Record<string, string> = {
    * happening instead of «трафика нет», which invites somebody to restart things that
    * are not broken. */
   maintenance: 'health.maintenance',
+  /* …and the account taken by another device (#2061): amber, above green, and the one
+   * state whose cure is neither «restart it» nor «fix us» — somebody else is playing. */
+  kicked: 'health.kicked',
+  not_in_game: 'health.not_in_game',
+}
+
+/* THE SAME STATES IN TWO OR THREE WORDS — what goes ON the pill (#2061).
+ *
+ * A pill is a READING, and a reading is short. The sentences above were being drawn
+ * inside it, and the longest of them is 121 characters (`health.not_in_game` in German):
+ * on a 360 px phone that is a lozenge some seven hundred pixels wide, and the page grew a
+ * horizontal scrollbar — the person's report, «желтое сообщение ломает мобильную вёрстку,
+ * появляется прокрутка». It was never only the yellow one: every state here can be long,
+ * and #2060, #1982 and #2061 each added another.
+ *
+ * So the pill wears the short word and the SENTENCE goes under the row, in the paragraph
+ * that already carries the client's own words — where it wraps, because a paragraph
+ * wraps. Nothing is lost: the diagnosis is still on the page, and it is now readable
+ * rather than clipped by a scroll nobody discovers on a phone.
+ *
+ * SPELLED OUT rather than built as `LINK_WORDS[reason] + '.short'`, because a key nobody
+ * can grep for is a key that quietly stops being translated — the same reason `WHERE` in
+ * `App.tsx` is a table (`tests/test_panel_web.py` checks exactly this).
+ */
+const LINK_SHORT: Record<string, string> = {
+  traffic: 'health.traffic.short',
+  no_client: 'health.no_client.short',
+  client_hung: 'health.client_hung.short',
+  no_connection: 'health.no_connection.short',
+  no_traffic: 'health.no_traffic.short',
+  maintenance: 'health.maintenance.short',
+  kicked: 'health.kicked.short',
+  not_in_game: 'health.not_in_game.short',
 }
 
 /* …and WHY nothing is running, which is a different question from what the light says
@@ -187,7 +220,11 @@ export function StateView({
   const toast = useToast()
   const colour = state.game.colour || (state.game.running ? 'warn' : 'bad')
   const reason = state.game.reason || ''
-  const word = t(LINK_WORDS[reason] || 'web.ui.off')
+  // The pill's word and the sentence behind it — see `LINK_SHORT`. A state with no
+  // short form falls back to its sentence, which is what every reason added before this
+  // existed did, and the CSS keeps even that from overflowing.
+  const word = t(LINK_SHORT[reason] || LINK_WORDS[reason] || 'web.ui.off')
+  const why = LINK_SHORT[reason] ? t(LINK_WORDS[reason]) : ''
   const rec = recoveryLine(state.game.recovery || {})
   const powerOn = state.power?.on !== false
   // NOT WHILE THE SWITCH IS OFF: the mark above already says that in the words somebody
@@ -215,6 +252,9 @@ export function StateView({
           <span>{t('web.ui.gamelink')}</span>
           <Pill tone={colour}>{word}</Pill>
         </div>
+        {/* WHY, in the panel's own sentence — under the row rather than inside the pill,
+            so it wraps instead of pushing the page sideways (#2061). */}
+        {why ? <p className="muted small">{why}</p> : null}
         <p className="muted small">{state.game.text || ''}</p>
         <p className="muted small">{t('web.ui.port', { port: state.link.port })}</p>
         {state.link.user ? (

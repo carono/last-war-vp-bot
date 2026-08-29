@@ -2480,5 +2480,13 @@
   "web.ui.theme": "Тема",
   "web.ui.theme.system": "Как на телефоне",
   "web.ui.theme.dark": "Тёмная",
-  "web.ui.theme.light": "Светлая"
+  "web.ui.theme.light": "Светлая",
+  "health.traffic.short": "сервер отвечает",
+  "health.no_client.short": "нет клиента",
+  "health.client_hung.short": "клиент завис",
+  "health.no_connection.short": "нет связи",
+  "health.no_traffic.short": "нет трафика",
+  "health.not_in_game.short": "не в игре",
+  "health.maintenance.short": "техобслуживание",
+  "health.kicked.short": "кикнуло"
 }

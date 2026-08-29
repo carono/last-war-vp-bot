@@ -2409,6 +2409,41 @@ def test_there_is_one_modal_and_every_gear_opens_it():
         "the sheet no longer holds the page still behind it"
 
 
+def test_no_reading_can_push_the_page_sideways():
+    """The yellow line broke the phone's layout (#2061) — and it was a CLASS of line.
+
+    The person's report: «желтое сообщение, что не дотягиваемся, ломает мобильную вёрстку,
+    появляется прокрутка». The link's state was drawn inside a pill, a pill was
+    `white-space: nowrap`, and the longest of those sentences is 121 characters
+    (`health.not_in_game` in German) — some seven hundred pixels on a 360 px phone, and a
+    horizontal scrollbar nobody finds on a touch screen. It was never one string: #1982
+    added the closed door, #2060 the login screen, #2061 the kick, and each is a sentence.
+
+    Both halves are pinned, because either alone comes undone: the pill carries a SHORT
+    word (spelled out, so the locale scan can see the keys), and the pill itself cannot
+    overflow whatever it is handed.
+    """
+    script = _front_end_source()
+    assert "const LINK_SHORT" in script, "the state's pill is a sentence again"
+    for reason in ("traffic", "no_client", "client_hung", "no_connection", "no_traffic",
+                   "maintenance", "kicked", "not_in_game"):
+        assert f"health.{reason}.short" in script, f"{reason} has no short word"
+
+    css = _css()
+    rule = re.search(r"\.pill\s*\{[^}]*\}", css)
+    assert rule, "there is no pill any more"
+    assert "nowrap" not in rule.group(0), "a pill that cannot wrap can push the page"
+    assert "max-width: 100%" in rule.group(0), "a pill may grow wider than the screen"
+
+    # …and every OTHER `nowrap` on the page is clipped rather than allowed to grow: the
+    # status strip, a tile's name, a summary's readings and the bottom bar all cut with
+    # an ellipsis, which is what makes them safe.
+    for block in re.findall(r"[^}]*white-space:\s*nowrap[^}]*\}", css):
+        assert ("overflow: hidden" in block or "text-overflow: ellipsis" in block
+                or "nav .nav" in block or ".mini .bit" in block), \
+            f"a rule may run off the screen: {block.strip()[:90]}"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

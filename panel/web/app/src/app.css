@@ -269,9 +269,18 @@ main {
 
 /* A reading, worn in a colour. Empty and it is not drawn at all: a pill with no word in
    it is a grey blob, and it was the first thing the eye found on this screen. */
+/* A PILL MAY NEVER PUSH THE PAGE SIDEWAYS (#2061). It was `white-space: nowrap`, which
+   is right for «12 стягов» and catastrophic for a sentence: the link's state was drawn
+   in one, the longest of those sentences is 121 characters, and on a 360 px phone the
+   page grew a horizontal scrollbar nobody finds on a touch screen. The words on the
+   pill are short now (`LINK_SHORT` in `StateView.tsx`) — this is the belt AND braces,
+   so the next reading somebody puts in a pill cannot do it again. A short pill still
+   never wraps: there is nothing to wrap. */
 .pill {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
+  min-width: 0;
   padding: 4px 10px;
   border-radius: 999px;
   background: var(--bg-soft);
@@ -279,7 +288,7 @@ main {
   color: var(--ink-soft);
   font-size: 13px;
   font-weight: 600;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .pill:empty { display: none; }
 .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--card-edge)); }

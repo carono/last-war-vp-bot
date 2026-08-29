@@ -2480,5 +2480,13 @@
   "web.ui.theme": "Tema",
   "web.ui.theme.system": "Como o aparelho",
   "web.ui.theme.dark": "Escuro",
-  "web.ui.theme.light": "Claro"
+  "web.ui.theme.light": "Claro",
+  "health.traffic.short": "servidor responde",
+  "health.no_client.short": "sem cliente",
+  "health.client_hung.short": "cliente travado",
+  "health.no_connection.short": "sem ligação",
+  "health.no_traffic.short": "sem tráfego",
+  "health.not_in_game.short": "fora do jogo",
+  "health.maintenance.short": "manutenção",
+  "health.kicked.short": "expulso"
 }

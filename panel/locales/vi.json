@@ -2480,5 +2480,13 @@
   "web.ui.theme": "Giao diện",
   "web.ui.theme.system": "Theo thiết bị",
   "web.ui.theme.dark": "Tối",
-  "web.ui.theme.light": "Sáng"
+  "web.ui.theme.light": "Sáng",
+  "health.traffic.short": "máy chủ trả lời",
+  "health.no_client.short": "không có client",
+  "health.client_hung.short": "client treo",
+  "health.no_connection.short": "không có liên kết",
+  "health.no_traffic.short": "không có lưu lượng",
+  "health.not_in_game.short": "chưa vào game",
+  "health.maintenance.short": "bảo trì",
+  "health.kicked.short": "bị văng"
 }
