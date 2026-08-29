@@ -1395,7 +1395,14 @@ body.modal-open {
 /* «Отправить» IS ONE WORD. The row is three controls on a 360 px phone, and letting
    the button wrap turns it into «Отпр / авить» — the box keeps its width by shrinking
    the field instead, which has a `min-width: 0` for exactly that. */
-.chatbox .go { white-space: nowrap; }
+.chatbox .go {
+  white-space: nowrap;
+  /* …and a word that will not wrap is CLIPPED rather than allowed to grow: a locale
+     whose «Отправить» is three words would otherwise widen the row past the screen and
+     bring back the horizontal scrollbar #2061 removed. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .chatbox input {
   flex: 1 1 auto;
   min-width: 0;

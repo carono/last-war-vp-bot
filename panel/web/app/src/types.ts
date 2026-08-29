@@ -323,6 +323,10 @@ export interface ScreenView {
   /* The chat's channels, for the screen the chat DRAWS (#2064): which ones there are,
      which room each is, and how many messages arrived in one nobody was looking at. */
   rooms?: ChatRoomTab[]
+  /* Is the chat monitor running — the reader child that hears the pushes and files
+     them (#2064)? With it off the history simply stops growing, and the phone must be
+     able to see that and to start it, not only the window. */
+  listening?: boolean
 }
 
 /** One channel of the chat: «Мир», «Альянс», «ЛС» … with its unread count. */

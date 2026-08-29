@@ -294,7 +294,12 @@ class ChatTab(PanelTab):
         #
         # The cards STAY: they are the emoji and sticker picker, and the channel cards
         # are what a front-end that does not know this kind still shows.
+        # WHETHER THE EAR IS OPEN travels too (#2064). Nothing is written down while
+        # the reader child is stopped, so a phone reading a chat with the monitor off is
+        # reading a history that has quietly stopped growing — and until now the only
+        # switch was the window's tick.
         return {"cards": cards, "now": _time.time(), "map": {"kind": "chat"},
+                "listening": bool(self._chat_var.get()),
                 "rooms": [{"type": t, "room": self._chat_room(t),
                            "unread": int(self._chat_unread.get(t, 0))}
                           for t in CHAT_TABS],
@@ -382,6 +387,16 @@ class ChatTab(PanelTab):
         the game does not allow one beside text.
         """
         args = args or {}
+        if action == "listen":
+            # THE EAR ITSELF, from the phone (#2064). Catching the pushes is what keeps
+            # the history growing, and the only switch for it was the window's tick — so
+            # a phone could sit reading a chat that had stopped recording hours ago, with
+            # nothing on the page saying so. This is not a press at the game: it starts
+            # (or stops) this profile's own reader child, exactly as the tick does, on
+            # the thread the tick lives on.
+            want = bool(args.get("on"))
+            self.post(lambda: self._set_listening(want))
+            return {"ok": True}
         if action == "history":
             # The same press the window's «Загрузить историю» is: one read of what the
             # client already holds, folded into the same store.
@@ -451,9 +466,11 @@ class ChatTab(PanelTab):
         **What happens at the bottom of the store is deliberate:** the client itself
         holds only the newest few dozen messages per room, and `READ_CHAT` has already
         taken those, so once the store runs out there is nothing left to read without
-        `ChatRoomRequestHistoryMsg` — a REQUEST TO THE SERVER. That is not made, and the
-        page simply says it has reached the end. Adding it is a conversation with the
-        person, not a decision to be taken inside a scroll handler.
+        `ChatRoomRequestHistoryMsg` — a REQUEST TO THE SERVER. That request exists now,
+        it was asked for and agreed («опрос сервера при прокрутке тоже сделай»), and it
+        is NOT made here: this page only says whether it would still be worth making
+        (`server`, `deep_room`), and the ask itself is a press — `_ask_server_for_older`,
+        one scroll, one request, never a clock.
 
         Answered on an HTTP worker thread, so nothing here touches a widget.
         """
@@ -1990,6 +2007,18 @@ class ChatTab(PanelTab):
         chat_type = self._chat_type_of_view(view)
         if chat_type:
             self._chat_load_older(chat_type)
+
+    def _set_listening(self, on: bool) -> None:
+        """Move the monitor to ``on`` and do what moving it does — on the Tk thread.
+
+        The window's checkbox and the phone's switch are ONE state with two views: this
+        is what both of them move, so neither can start a second reader or leave the
+        other showing the opposite of what is running.
+        """
+        if bool(self._chat_var.get()) == on:
+            return
+        self._chat_var.set(on)
+        self._toggle_chat()
 
     def _toggle_chat(self) -> None:
         if self._chat_var.get():

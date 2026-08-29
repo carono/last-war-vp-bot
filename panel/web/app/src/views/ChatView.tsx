@@ -115,10 +115,12 @@ function sameDay(a: ChatRow, b: ChatRow | undefined): boolean {
 export function ChatView({
   screen,
   rooms,
+  listening,
   pollKey,
 }: {
   screen: string
   rooms: ChatRoomTab[]
+  listening: boolean
   pollKey: number
 }) {
   const toast = useToast()
@@ -387,6 +389,30 @@ export function ChatView({
     }
   }
 
+  /* THE EAR, AS A SWITCH (#2064). Nothing is filed while the monitor is stopped, so a
+     chat that has quietly stopped growing looks exactly like a quiet one — and the only
+     switch used to be the window's tick. Held locally so the chip answers the thumb at
+     once; the screen's own poll brings back what the panel really did, which is what
+     shows a monitor that refused to start. */
+  const [ear, setEar] = useState(listening)
+  useEffect(() => setEar(listening), [listening])
+  const hear = useCallback(
+    async (on: boolean) => {
+      setEar(on)
+      try {
+        const answer = await post<PressAnswer>('/api/screen/press', {
+          id: screen,
+          action: 'listen',
+          args: { on },
+        })
+        if (answer && !answer.ok) setEar(!on)
+      } catch {
+        setEar(!on)
+      }
+    },
+    [screen],
+  )
+
   const openThread = (contact: Contact) => {
     setRoom(contact.room)
     setRows([])
@@ -394,6 +420,9 @@ export function ChatView({
 
   const chips = (
     <div className="chips">
+      <button className={'chip' + (ear ? ' on' : '')} onClick={() => void hear(!ear)}>
+        {t('chat.monitor')}
+      </button>
       {rooms.map((tab) => (
         <button
           key={tab.type}

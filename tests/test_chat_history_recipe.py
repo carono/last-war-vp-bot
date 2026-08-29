@@ -419,6 +419,34 @@ def test_what_arrives_while_reading_history_is_counted_not_thrown_at_the_reader(
         "a new message no longer follows the reader who IS at the bottom"
 
 
+def test_the_ear_is_a_switch_the_phone_can_reach():
+    """A history that has stopped growing looks exactly like a quiet chat (#2064).
+
+    Nothing is filed while the reader child is stopped, and its only switch was the
+    window's tick — so a phone could read a chat that had stopped recording hours before
+    and see nothing saying so. The switch travels, and it is ONE state with two views:
+    both move `_chat_var` through the same `_toggle_chat`, so neither front-end can start
+    a second reader or show the opposite of what is running.
+    """
+    tab = _TAB.read_text(encoding="utf-8")
+    assert '"listening": bool(self._chat_var.get())' in tab, \
+        "the phone is not told whether the monitor is running"
+    assert 'if action == "listen":' in tab, "the phone has no way to start the monitor"
+    assert "def _set_listening(self" in tab, \
+        "the two front-ends do not move one state"
+    assert "self._chat_var.set(on)" in tab and "self._toggle_chat()" in tab, \
+        "the switch moves the tick without doing what moving it does"
+    # …and the window keeps its own tick over the same variable.
+    assert "variable=self._chat_var, command=self._toggle_chat" in tab, \
+        "the window lost the checkbox the phone now mirrors"
+
+    view = _VIEW.read_text(encoding="utf-8")
+    assert "action: 'listen'" in view, "the phone's chip presses nothing"
+    assert "chat.monitor" in view, "the chip has no word on it"
+    assert "useEffect(() => setEar(listening), [listening])" in view, \
+        "the chip never catches up with what the panel really did"
+
+
 # ---------------------------------------------------------------------------
 # a drawn screen draws ITSELF and never its neighbour
 # ---------------------------------------------------------------------------

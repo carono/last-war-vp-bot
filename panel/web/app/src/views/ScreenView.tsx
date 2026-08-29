@@ -530,7 +530,12 @@ export function ScreenPage({
           draws NOTHING and leaves the screen its cards, which is wrong in a way a
           person can see and report, rather than wrong in a way that looks plausible. */}
       {view?.map?.kind === 'chat' ? (
-        <ChatView screen={id} rooms={view.rooms || []} pollKey={pollKey} />
+        <ChatView
+          screen={id}
+          rooms={view.rooms || []}
+          listening={!!view.listening}
+          pollKey={pollKey}
+        />
       ) : view?.map?.kind === 'world' ? (
         <WorldMap screen={id} mode={map} onMode={onMap} />
       ) : null}
