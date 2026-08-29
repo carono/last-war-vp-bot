@@ -46,10 +46,19 @@
 # `armyDead`, `armyCure`), which read 0 on a live account that has certainly fought: they
 # are not the counters the game draws.
 #
-# THE ANSWER lands in one variable, `player_card`, as seven fields separated by « ;; »,
+#   * `uid` and `picVer` — WHO this character is and which upload of their picture is
+#                           current (#2061). The panel draws the player's own avatar in
+#                           the header, and a face is found on disk by
+#                           `md5(f"{uid}_{picVer}")` in the client's own photo cache
+#                           (`tools/lib/player_photos.py`) — a uid alone does not name
+#                           the file. Both are plain fields on the character object;
+#                           there is no head-icon id on it, so a character that never
+#                           uploaded a photo has no picture and the panel draws none.
+#
+# THE ANSWER lands in one variable, `player_card`, as nine fields separated by « ;; »,
 # in this order — a name may contain spaces, so the separator is not one:
 #
-#     Player1;;35;;100000000;;[AL1] Alliance One;;67;;1700000000000;;1600000000000
+#     Player1;;35;;100000000;;[AL1] Alliance One;;67;;1700000000000;;1600000000000;;1000000000000001;;7
 #
 #   * nick            — the character's name.
 #   * level           — the HQ level.
@@ -59,6 +68,8 @@
 #   * stamina         — the energy purse right now.
 #   * stamina_full_ms — when the purse fills up, epoch ms; 0 when it is already full.
 #   * reg_ms          — when the character was registered, epoch ms.
+#   * uid             — the character's own id.
+#   * pic_ver         — which upload of their picture is current; 0 when they have none.
 #
 # EVERY MOMENT IS THE GAME'S CLOCK, not this machine's (docs/research/game-clock.md), so a
 # reader turning one into a date judges it with `tools/lib/game_clock.py` and never with
@@ -69,5 +80,5 @@
 # cheerfully and wrongly (`tools/lib/game_clock.py`), and an empty card is better than a
 # level-1 character with no name. The check is the same round trip, so it is free.
 
-READ_LUA (function() local nowms=0 pcall(function() nowms=UITimeManager.Instance:GetServerTime() end) nowms=math.floor(tonumber(nowms) or 0) if nowms < 1600000000000 then return '' end local P=LuaEntry and LuaEntry.Player if P==nil then return '' end local nick='' pcall(function() nick=tostring(P:GetName() or ''):gsub('%s+',' ') end) local lv=0 pcall(function() lv=math.floor((tonumber(P.level) or 0)+0) end) local pw=0 pcall(function() pw=math.floor((tonumber(P.power) or 0)+0) end) local al='' pcall(function() if P:IsInAlliance() then al=tostring(P:GetFullAllianceName() or ''):gsub('%s+',' ') end end) local st=0 pcall(function() st=math.floor((tonumber(P:GetCurStamina()) or 0)+0) end) local sf=0 pcall(function() sf=math.floor((tonumber(P:GetStaminaFullTime()) or 0)+0) end) local rg=0 pcall(function() rg=math.floor((tonumber(P.regTime) or 0)+0) end) if nick=='' and lv==0 and pw==0 then return '' end return nick..';;'..lv..';;'..pw..';;'..al..';;'..st..';;'..sf..';;'..rg end)() INTO player_card
+READ_LUA (function() local nowms=0 pcall(function() nowms=UITimeManager.Instance:GetServerTime() end) nowms=math.floor(tonumber(nowms) or 0) if nowms < 1600000000000 then return '' end local P=LuaEntry and LuaEntry.Player if P==nil then return '' end local nick='' pcall(function() nick=tostring(P:GetName() or ''):gsub('%s+',' ') end) local lv=0 pcall(function() lv=math.floor((tonumber(P.level) or 0)+0) end) local pw=0 pcall(function() pw=math.floor((tonumber(P.power) or 0)+0) end) local al='' pcall(function() if P:IsInAlliance() then al=tostring(P:GetFullAllianceName() or ''):gsub('%s+',' ') end end) local st=0 pcall(function() st=math.floor((tonumber(P:GetCurStamina()) or 0)+0) end) local sf=0 pcall(function() sf=math.floor((tonumber(P:GetStaminaFullTime()) or 0)+0) end) local rg=0 pcall(function() rg=math.floor((tonumber(P.regTime) or 0)+0) end) local ud='' pcall(function() ud=tostring(P.uid or ''):gsub('%s+','') end) local pv=0 pcall(function() pv=math.floor((tonumber(P.picVer) or 0)+0) end) if nick=='' and lv==0 and pw==0 then return '' end return nick..';;'..lv..';;'..pw..';;'..al..';;'..st..';;'..sf..';;'..rg..';;'..ud..';;'..pv end)() INTO player_card
 LOG "player card: {player_card}"

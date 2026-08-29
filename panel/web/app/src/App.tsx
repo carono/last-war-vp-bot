@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, ping, post, setProfile, Unauthorised } from './api'
 import { useRoute, type Route, type ViewName } from './route'
 import { loadWords, span, t, type Words } from './i18n'
+import { Modal } from './ui/Modal'
 import { ToastHost, useToast } from './ui/Toast'
 import { applyTheme, isTheme, type Theme } from './ui/theme'
 import { ActionsView } from './views/ActionsView'
@@ -12,9 +13,9 @@ import { ScreenPage } from './views/ScreenView'
 import { StateView } from './views/StateView'
 import { TimersView } from './views/TimersView'
 import type {
+  Account,
   ActionRow,
   Header,
-  Light,
   LogLine,
   Profiles,
   OrderRow,
@@ -45,40 +46,94 @@ const NAV: { id: ViewName; key: string }[] = [
  * a rename here rather than a list that quietly stops matching. */
 const DEVELOP_SCREEN = 'develop'
 
-/* One light per open account, drawn from the verdict the window's status poll already
- * made (`panel/runtime/health.py`). The words are said by the PANEL, in each account's
- * own language, and arrive ready: nothing here formats a sentence, because a browser
- * wording a reading is the second copy of it. */
-function Lights({
-  lights,
+/* THE ACCOUNT, DRAWN AS ITSELF (#2061) — the person's words: «слева выводим иконку
+ * нашего аккаунта, внутри нее указываем уровень, под ней ник аккаунта. Клик по картинке
+ * должен давать модалку, со списком всех доступных аккаунтов с их аватарами, уровнями и
+ * никами».
+ *
+ * IT REPLACES THE CHIPS, and that is the point rather than a side effect. The chips were
+ * themselves a replacement — for a `<select>` the same person asked to remove, «оставь
+ * только пилюли с профилями» (#2025) — and keeping both would put two ways of switching
+ * accounts on one screen, which is the thing that removal was about. What the chips
+ * carried and a dropdown could not is carried here instead: each row in the sheet wears
+ * that account's own light and says, in words, why it is that colour.
+ *
+ * THE FACE IS THE GAME'S OWN. It is the picture the player uploaded, found in the
+ * client's own cache and served by the route every other face on this panel already uses
+ * (`panel/runtime/player_card.py`). A character who never uploaded one has no picture at
+ * all — the client's own object carries no head-icon id — so the tile draws the account's
+ * initial rather than somebody else's art.
+ */
+function AccountFace({ account, size }: { account: Account; size?: 'big' }) {
+  const level = account.level || 0
+  const initial = (account.nick || account.name || '?').trim().slice(0, 1).toUpperCase()
+  return (
+    <span className={'face-badge' + (size === 'big' ? ' big' : '')}>
+      {account.avatar ? (
+        <img className="face-img" src={account.avatar} alt="" />
+      ) : (
+        <span className="face-img face-blank">{initial}</span>
+      )}
+      {/* THE LEVEL IS INSIDE THE PICTURE, which is where the game itself draws it. */}
+      {level > 0 ? <b className="face-level">{level}</b> : null}
+    </span>
+  )
+}
+
+/* The sheet the face opens: every account this panel HAS — the open ones with their own
+ * light, the closed ones out of what was written down while they were open. Tapping an
+ * open one looks at it; tapping a closed one opens it, which is a press the phone already
+ * had on the «Профиль» screen and is played through the same route. */
+function AccountSheet({
+  accounts,
   profile,
   onPick,
+  onOpen,
+  onClose,
 }: {
-  lights: Light[]
+  accounts: Account[]
   profile: string
   onPick: (name: string) => void
+  onOpen: (name: string) => void
+  onClose: () => void
 }) {
   const toast = useToast()
-  if (lights.length < 2) return null
   return (
-    <div className="lights">
-      {lights.map((light) => (
-        <button
-          key={light.name}
-          className={'chip' + (light.name === profile ? ' on' : '')}
-          onClick={() => {
-            // Tap = look at that account AND say why its light is that colour. Both,
-            // because a chip that only explained would be the one thing on the page that
-            // looks like a switch and is not.
-            toast((light.tip || [light.text || '']).join(' · '))
-            if (light.name !== profile) onPick(light.name)
-          }}
-        >
-          <span className={'dot ' + (light.colour || 'warn')} />
-          {light.name}
-        </button>
-      ))}
-    </div>
+    <Modal title={t('web.ui.accounts')} onClose={onClose}>
+      <div className="accounts">
+        {accounts.map((account) => (
+          <button
+            key={account.name}
+            className={'account' + (account.name === profile ? ' on' : '') +
+                       (account.open ? '' : ' shut')}
+            onClick={() => {
+              if (!account.open) {
+                onOpen(account.name)
+                return
+              }
+              // The light's own sentence, said on the way — the chips' one gift, kept.
+              if (account.tip?.length || account.text) {
+                toast((account.tip || [account.text || '']).join(' · '))
+              }
+              onPick(account.name)
+            }}
+          >
+            <AccountFace account={account} size="big" />
+            <span className="account-who">
+              <b className="account-nick">{account.nick || account.name}</b>
+              <span className="muted small">
+                {account.nick ? account.name + ' · ' : ''}
+                {account.open
+                  ? t(account.level ? 'web.ui.accounts.level' : 'web.ui.head.nothing',
+                      { n: account.level })
+                  : t(account.nick ? 'web.ui.accounts.closed' : 'web.ui.accounts.unread')}
+              </span>
+            </span>
+            {account.open ? <span className={'dot ' + (account.colour || 'warn')} /> : null}
+          </button>
+        ))}
+      </div>
+    </Modal>
   )
 }
 
@@ -113,54 +168,42 @@ const WHERE: Record<string, string> = {
   pve: 'web.ui.where.pve',
 }
 
-function StatusStrip({ header, account }: { header?: Header; account?: string }) {
+function StatusStrip({ header }: { header?: Header }) {
   const known = (header?.age ?? -1) >= 0
-  const nick = header?.nick || ''
   const scene = header?.scene || ''
   const win = header?.window || ''
   const depth = header?.depth || 0
   const server = header?.server || 0
   const home = header?.home || 0
-  const level = header?.level || 0
-  /* NOTHING HAS BEEN READ, so the strip SAYS so in words. It does not draw a name-shaped
-   * dash beside a zero of a warzone: a header that shows empty fields reads as «этот
-   * аккаунт has nothing», and a panel that had just started once announced «событие
-   * закрыто · 0 краж» without having asked the game anything at all. */
-  /* THE ACCOUNT'S OWN NAME RIDES THIS LINE when there is only one profile open, and
-   * that is what pays for the strip: with nothing to pick between, the picker's whole row
-   * goes, and the header comes out SHORTER than it was before this existed (37 px against
-   * 43 on an iPhone 13 mini, measured). With several accounts open the picker keeps its
-   * row, because it is a tap target and the one control that must not be cramped. */
-  const who = account ? <span className="profile small">{account}</span> : null
-  if (!known && !nick) {
+  /* NOTHING HAS BEEN READ, so the strip SAYS so in words rather than drawing empty
+   * fields: a panel that had just started once announced «событие закрыто · 0 краж»
+   * without having asked the game anything at all. */
+  /* THE NAME AND THE LEVEL ARE NOT HERE ANY MORE (#2061). They are drawn to the LEFT of
+   * this strip — the level inside the account's own face, the name under it — because the
+   * person asked for that shape, and saying either twice on one line is the duplication
+   * this header has already been cleaned of twice. What is left is WHERE the player is
+   * standing, which is what the strip was always for. */
+  if (!known) {
     return (
       <div className="status">
-        {who}
         <span className="where cold">{t('web.ui.head.nothing')}</span>
       </div>
     )
   }
   return (
     <div className="status">
-      {who}
-      {nick ? <span className="who">{nick}</span> : null}
-      {level > 0 ? <span className="fact">{t('web.ui.head.level', { n: level })}</span> : null}
       {server > 0 ? (
         <span className={'fact' + (home > 0 && home !== server ? ' away' : '')}>
           {t('web.ui.head.server', { n: server })}
         </span>
       ) : null}
-      <span className={'where' + (known ? '' : ' cold')}>
-        {t(known ? WHERE[scene] || 'web.ui.where.unknown' : 'web.ui.head.nothing')}
-      </span>
-      {known && win ? <span className="win">{win}</span> : null}
-      {known && depth > 1 ? (
-        <span className="fact">{t('web.ui.head.stacked', { n: depth - 1 })}</span>
-      ) : null}
+      <span className="where">{t(WHERE[scene] || 'web.ui.where.unknown')}</span>
+      {win ? <span className="win">{win}</span> : null}
+      {depth > 1 ? <span className="fact">{t('web.ui.head.stacked', { n: depth - 1 })}</span> : null}
       {/* WHEN it was read. Silent for the first minute — a reading that fresh is simply
           «now» — and from then on the line carries its own age, because nothing re-takes
           it until something says the player moved. */}
-      {known && (header?.age ?? 0) >= 60 ? (
+      {(header?.age ?? 0) >= 60 ? (
         <span className="fact age">{t('web.ui.ago', { span: span(header?.age || 0) })}</span>
       ) : null}
     </div>
@@ -194,6 +237,8 @@ function Panel() {
    * not a press the phone has. */
   const [stray, setStray] = useState('')
   const [notify, setNotify] = useState(false)
+  /* Whether the account sheet is up. The face in the header is the only way in (#2061). */
+  const [picking, setPicking] = useState(false)
   /* DAY OR NIGHT (#2061). The PANEL's setting and not the browser's — «Цветовая тема,
      это настройка панели, не аккаунта» — so it arrives on `/api/profiles`, which is the
      one answer on this front-end that is about the machine rather than about an account.
@@ -366,8 +411,24 @@ function Panel() {
     [leave, view],
   )
 
-  const names = profiles.profiles || []
-  const many = names.length > 1
+  const accounts = profiles.accounts || []
+  const me = accounts.find((one) => one.name === profile) || { name: profile }
+
+  /* Opening a CLOSED profile is the press the «Профиль» screen already offers, played
+     through the same route — the front-end does not learn a second way to do it. Once
+     the panel has it open the poll brings it back in `accounts`, and the page moves. */
+  const openProfile = useCallback(
+    async (name: string) => {
+      setPicking(false)
+      try {
+        await post('/api/screen/press', { id: 'profiles', action: 'open', args: { name } })
+      } catch {
+        /* the offline mark says so */
+      }
+      switchProfile(name)
+    },
+    [switchProfile],
+  )
 
   return (
     <div className="app">
@@ -384,13 +445,33 @@ function Panel() {
             iPhone 13 mini — the row and its gap — measured 85.3 px before and 37.3 px
             after with four accounts open. The pixels of #1976 are given back rather
             than spent. */}
-        <StatusStrip
-          header={state?.header}
-          account={many ? '' : state?.profile || profile}
-        />
+        {/* THE ACCOUNT IS THE HEADER'S LEFT-HAND SIDE (#2061): its face with its HQ
+            level inside, the character's name under it, and the strip of readings to the
+            right. The chips that used to sit under this line are GONE — see
+            `AccountFace`: one control for one thing, and the sheet the face opens is
+            richer than the chips were. */}
+        <div className="head-row">
+          <button className="head-me" onClick={() => setPicking(true)}
+                  aria-label={t('web.ui.accounts.pick')} title={t('web.ui.accounts.pick')}>
+            <AccountFace account={me} />
+            <span className="head-nick">{me.nick || me.name}</span>
+          </button>
+          <StatusStrip header={state?.header} />
+        </div>
       </header>
 
-      <Lights lights={profiles.lights || []} profile={profile} onPick={switchProfile} />
+      {picking ? (
+        <AccountSheet
+          accounts={accounts.length ? accounts : [{ name: profile, open: true }]}
+          profile={profile}
+          onPick={(name) => {
+            setPicking(false)
+            if (name !== profile) switchProfile(name)
+          }}
+          onOpen={(name) => void openProfile(name)}
+          onClose={() => setPicking(false)}
+        />
+      ) : null}
 
       {stray ? (
         <p className="stray">{t('web.ui.route.gone', { name: stray, shown: profile })}</p>

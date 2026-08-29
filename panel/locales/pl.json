@@ -2489,5 +2489,10 @@
   "health.no_traffic.short": "brak ruchu",
   "health.not_in_game.short": "poza grą",
   "health.maintenance.short": "przerwa techniczna",
-  "health.kicked.short": "wyrzucony"
+  "health.kicked.short": "wyrzucony",
+  "web.ui.accounts": "Konta",
+  "web.ui.accounts.pick": "Wybierz konto",
+  "web.ui.accounts.closed": "zamknięty",
+  "web.ui.accounts.unread": "nigdy nie czytane",
+  "web.ui.accounts.level": "HQ {n}"
 }

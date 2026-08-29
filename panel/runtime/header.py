@@ -110,20 +110,34 @@ def parse_place(answer: str) -> dict:
 
 
 def parse_who(answer: str) -> dict:
-    """The first two fields of `read_player_profile.md`'s line — the name and the level.
+    """The name, the level, and WHO this is — from `read_player_profile.md`'s line.
 
     The rest of that line (power, alliance, energy, registration) belongs to the
     «Профиль» screen, which plays the same scenario for itself; the header takes what it
     draws and invents nothing.
+
+    The last two fields are the character's id and which upload of their picture is
+    current (#2061). They are what finds the AVATAR on disk — a uid alone does not name
+    the file — and they are read here rather than asked for separately because the
+    header was playing this scenario already. Neither leaves the panel: what travels to
+    the front-end is a link into `/api/avatar` (`panel/runtime/player_card.py`).
+
+    A line written before those fields existed simply has none, and answers `0`/`""`,
+    which draws as an account with no face.
     """
     parts = [chunk.strip() for chunk in str(answer or "").split(FIELD_SEP)]
     if len(parts) < 2 or not any(parts[:2]):
         return {}
-    try:
-        level = int(parts[1])
-    except (TypeError, ValueError):
-        level = 0
-    return {"nick": parts[0], "level": level}
+
+    def number(raw: str) -> int:
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
+
+    return {"nick": parts[0], "level": number(parts[1]),
+            "uid": parts[7] if len(parts) > 7 else "",
+            "pic_ver": number(parts[8]) if len(parts) > 8 else 0}
 
 
 class StatusHeader:
@@ -135,6 +149,12 @@ class StatusHeader:
         # sleeping, and nothing here has a clock of its own to disagree with the route's.
         self._clock = clock
         self._who: dict = {}
+        #: The player's own face, as a link — worked out ONCE per reading, on the worker
+        #: thread that took it. Finding a photo walks a few thousand md5 sums the first
+        #: time a character is asked about (`tools/lib/player_photos.py`), and `state()`
+        #: is called by every poll of every open page: that is the one place it may not
+        #: happen.
+        self._avatar = ""
         self._where: dict = {}
         self._who_at = 0.0               # when each half was read, 0 = never
         self._where_at = 0.0
@@ -163,6 +183,11 @@ class StatusHeader:
         out = {
             "nick": str(self._who.get("nick") or ""),
             "level": int(self._who.get("level") or 0),
+            # THE FACE, as a link and never as bytes or as an id (#2061). Empty for a
+            # character who never uploaded a photo: the client's own object carries no
+            # head-icon id, so «no picture» is the honest answer and the page draws the
+            # account's initial rather than somebody else's art.
+            "avatar": self._avatar,
             "scene": str(self._where.get("scene") or ""),
             "window": str(self._where.get("window") or ""),
             "depth": int(self._where.get("depth") or 0),
@@ -289,3 +314,19 @@ class StatusHeader:
         self._who = who
         self._who_at = self._clock()
         self._who_want = False
+        # …AND IT IS WRITTEN DOWN (#2061), so this account can be drawn in the picker
+        # with its name, its level and its face even when its profile is closed or
+        # belongs to another window. One row per profile in the one database, written on
+        # a reading that was happening anyway — see `panel/runtime/player_card.py`.
+        try:
+            from . import player_card as cardmod
+
+            cardmod.remember(getattr(self._rt, "store", None), who.get("nick", ""),
+                             who.get("level", 0), who.get("uid", ""),
+                             who.get("pic_ver", 0), self._clock())
+            # …and the face is resolved HERE, on this worker, for the reason the
+            # attribute's own note gives: the lookup is thousands of md5 sums the first
+            # time and a dictionary hit ever after.
+            self._avatar = cardmod.face_link(who.get("uid", ""), who.get("pic_ver", 0))
+        except Exception:                     # noqa: BLE001 — a note, never the reading
+            pass

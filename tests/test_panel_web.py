@@ -2062,31 +2062,37 @@ def test_no_field_is_small_enough_to_make_ios_zoom():
                 assert int(size) >= 16, f"a field is set to {size}px:\n{rule}"
 
 
-def test_the_page_carries_a_switcher_when_there_is_more_than_one_account():
-    """ONE switcher, and it is the chips (#2025).
+def test_the_page_carries_one_switcher_and_it_is_the_account_face():
+    """ONE way between accounts, and since #2061 it is the face in the header.
 
-    It used to be two — a native `<select>` in the header and the chips under it — and
-    the person asked for one: «оставь только пилюли с профилями, а вверху дропдаун
-    убери». Two controls for one thing is two places to look and two states to keep in
-    step, and the chips are the richer of the two: each carries that account's own light
-    and says, on a tap, WHY it is that colour.
+    The history is the point, because each step removed a SECOND control rather than
+    adding a first: a native `<select>` went when the person asked «оставь только пилюли с
+    профилями, а вверху дропдаун убери» (#2025), and the chips went when they asked for
+    «иконку нашего аккаунта… клик по картинке должен давать модалку, со списком всех
+    доступных аккаунтов» (#2061). Two controls for one thing is two places to look and
+    two states to keep in step.
 
-    So this pins BOTH halves: the chips are there and they switch, and the dropdown has
-    not come back.
+    What the chips carried and a dropdown could not — each account's own light and the
+    sentence behind it — is carried by the sheet, so nothing was traded away for the
+    picture. All of that is pinned here, and so is the absence of what was removed.
     """
     app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
-    # The CLASS and the row it sat in, not the word `select` — this file's own comment
-    # explains what was removed and says the tag's name doing it, and other views have
-    # selects of their own that are nobody's business here.
-    assert 'className="profile picker"' not in app, \
-        "the account dropdown is back beside the chips"
+    assert 'className="profile picker"' not in app, "the account dropdown is back"
     assert 'className="head-line"' not in app, "the header line that held it is back"
-    assert "function Lights(" in app and "'chip'" in app, "there are no account chips"
-    # …and a chip is a SWITCH, not only an explanation: the tap moves the page.
-    assert "onPick(light.name)" in app, "a chip no longer switches to that account"
+    assert "function Lights(" not in app, "the chips are back beside the face"
+    assert "function AccountFace(" in app and "function AccountSheet(" in app, \
+        "the header has no account face and no sheet behind it"
+    # THE SHEET IS THE ONE MODAL (#2061, «модалки да, переиспользуем»), never a second.
+    assert "<Modal title={t('web.ui.accounts')}" in app, \
+        "the account list is not drawn in the shared modal"
+    # …and it still switches, still explains the light, and still lists the closed ones.
+    assert "onPick(account.name)" in app, "a row no longer switches to that account"
+    assert "account.tip" in app, "the light's own sentence was lost with the chips"
+    assert "onOpen(account.name)" in app, "a closed profile cannot be opened from the list"
     css = _css()
     assert "select.picker" not in css, "the picker's rule outlived the picker"
     assert ".head-line" not in css, "the header line that held it outlived it too"
+    assert ".face-level" in css, "the level is not drawn inside the face"
     js = _front_end_source()
     assert "/api/profiles" in js, "the page never asks which accounts are open"
     # …and every request carries the account, or the page would be showing one profile
@@ -2094,6 +2100,44 @@ def test_the_page_carries_a_switcher_when_there_is_more_than_one_account():
     assert "function withProfile(" in js and "profile=" in js
     assert "JSON.stringify({ profile," in js, \
         "a POST does not say which account it is for"
+
+
+def test_every_account_the_panel_has_is_offered_open_or_closed():
+    """«Список ВСЕХ доступных аккаунтов» — including the ones that are not running.
+
+    An open profile answers out of its live header; a closed one out of what was written
+    down the last time it was open (`panel/runtime/player_card.py`), which is a row in the
+    one database (#2025) and needs neither a client nor a profile to be opened. A profile
+    nobody has ever read draws as its own name with no face — the honest answer, and one
+    press from being filled in.
+
+    Никаких настоящих идентификаторов: the card below is invented, as every fixture in
+    this repository is (`CLAUDE.md`).
+    """
+    import os, tempfile
+    from panel.runtime import player_card as cardmod
+    from panel.runtime import store as storemod
+
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        store = storemod.Store(os.path.join(home, storemod.DB_FILE), "closed_one")
+        try:
+            cardmod.remember(store, "Player1", 35, "1000000000000001", 7, now=1.0)
+            assert cardmod.recall(store)["nick"] == "Player1"
+        finally:
+            store.close()
+        # …and it is readable again with no profile opened and no client running.
+        again = cardmod.recall_for(home, "closed_one")
+        assert again["nick"] == "Player1" and again["level"] == 35, again
+        assert cardmod.recall_for(home, "never_opened") == {}
+        # The live profile is drawn from its header rather than from any of that.
+        rows = {row["name"]: row for row in api.profiles()["accounts"]}
+        assert "test" in rows and rows["test"]["open"] is True, rows
+    # …and a face is a LINK or nothing — never a uid, and never bytes in the payload.
+    assert cardmod.face_link("", 0) == ""
+    for row in rows.values():
+        assert "uid" not in row, "the character's id must not leave the panel"
+        assert str(row.get("avatar", "")).startswith(("", "/api/avatar")), row
 
 
 def test_the_layout_is_mobile_first_and_not_a_squeezed_desktop():

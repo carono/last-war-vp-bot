@@ -237,7 +237,56 @@ class WebApi:
                 # `/api/state` because this is the one answer that is not about a
                 # profile. Switching accounts therefore cannot make the page change
                 # colour halfway through a sentence.
-                "theme": self.theme()}
+                "theme": self.theme(),
+                # EVERY ACCOUNT THIS PANEL HAS, with the face, the level and the name the
+                # person knows it by (#2061) — the picker is an avatar and a modal now,
+                # and the person asked for «список всех доступных аккаунтов», which is
+                # every profile and not only the ones that happen to be running.
+                "accounts": self._accounts()}
+
+    def _accounts(self) -> list:
+        """The account list behind the header's avatar: open ones and closed ones.
+
+        AN OPEN PROFILE DRAWS FROM THE LIVE HEADER — its own reading of the character,
+        with its light beside it. A CLOSED one draws from what was written down the last
+        time it WAS open (`panel/runtime/player_card.py`): there is one database for every
+        account since #2025, so its name, level and face are a row away and cost neither a
+        profile to open nor a client to run.
+
+        A profile that has never been open under this version has no card yet and draws as
+        its own name with no face — the honest answer, and one press from being filled in,
+        because opening it is a press the phone already has (the «Профиль» screen).
+        """
+        from ..runtime import player_card as cardmod
+
+        live = {}
+        for name, rt in self.sessions():
+            head = {}
+            try:
+                head = rt.header.state()
+            except Exception:                # noqa: BLE001 — a reading, never the page
+                head = {}
+            live[name] = {"name": name, "open": True,
+                          "nick": str(head.get("nick") or ""),
+                          "level": int(head.get("level") or 0),
+                          "avatar": str(head.get("avatar") or ""),
+                          **self._light(rt)}
+        try:
+            everything = list(self.rt.profiles.list())
+        except Exception:                    # noqa: BLE001 — a reading, never the page
+            everything = list(live)
+        out = []
+        for name in everything:
+            if name in live:
+                out.append(live[name])
+                continue
+            card = cardmod.recall_for(profilemod.PROFILES_DIR, name)
+            out.append({"name": name, "open": False,
+                        "nick": str(card.get("nick") or ""),
+                        "level": int(card.get("level") or 0),
+                        "avatar": cardmod.face_link(card.get("uid", ""),
+                                                    card.get("pic_ver", 0))})
+        return out
 
     # -- the palette (#2061) -------------------------------------------------
     @staticmethod

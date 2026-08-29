@@ -180,6 +180,121 @@ header {
   opacity: 0.85;
 }
 
+/* -- the account, and the ONE way between accounts (#2061) ------------------
+   «Слева выводим иконку нашего аккаунта, внутри нее указываем уровень, под ней ник
+   аккаунта.» So the header is two columns: the account on the left — face, level inside
+   it, name under it — and the strip of readings on the right, which wraps under the face
+   rather than pushing the page sideways. */
+.head-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* The face is a BUTTON: it opens the sheet of accounts, so it is thumb-sized, and its
+   own column is exactly as wide as the picture. */
+.head-me {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  min-height: var(--tap);
+}
+.head-nick {
+  /* Clear of the level badge, which hangs off the bottom-right of the picture. */
+  margin-top: 4px;
+  max-width: 84px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.head-row .status { flex: 1 1 auto; padding-top: 4px; }
+
+/* THE LEVEL IS INSIDE THE PICTURE, where the game itself draws it. A ring rather than a
+   corner badge: at 38 px a corner number is unreadable, and this is the size the header
+   can spare. */
+.face-badge {
+  position: relative;
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+}
+.face-badge.big { width: 46px; height: 46px; }
+.face-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-soft);
+  border: 1px solid var(--card-edge);
+}
+/* No picture is the honest answer for a character who never uploaded one — the client
+   keeps no head-icon id for the player themselves — so the tile draws their initial and
+   never somebody else's art. */
+.face-blank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-soft);
+  font-weight: 700;
+  font-size: 15px;
+}
+.face-level {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--card-edge);
+  color: var(--ink);
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 700;
+}
+
+/* -- the sheet the face opens: every account this panel has ----------------- */
+.accounts { display: flex; flex-direction: column; gap: 6px; }
+.account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.account.on { border-color: var(--accent); }
+/* A profile that is not open: dimmed like a switched-off card, and pressing it OPENS it
+   rather than switching to something that is not there. */
+.account.shut { opacity: 0.62; border-style: dashed; }
+.account-who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.account-nick {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account .dot { flex: 0 0 auto; }
+
 /* -- the strip of accounts, and the ONLY way between them (#2025) ----------- */
 /*
    There was a `<select>` in the header as well until the person asked for one control
