@@ -420,9 +420,6 @@ export function ChatView({
 
   const chips = (
     <div className="chips">
-      <button className={'chip' + (ear ? ' on' : '')} onClick={() => void hear(!ear)}>
-        {t('chat.monitor')}
-      </button>
       {rooms.map((tab) => (
         <button
           key={tab.type}
@@ -437,6 +434,11 @@ export function ChatView({
           {tab.unread ? <span className="count">{tab.unread}</span> : null}
         </button>
       ))}
+      {/* …and the ear LAST: the channels are what a thumb reaches for, and a row that
+          scrolls sideways must not open on anything else. */}
+      <button className={'chip' + (ear ? ' on' : '')} onClick={() => void hear(!ear)}>
+        {t('chat.monitor')}
+      </button>
     </div>
   )
 
