@@ -1030,7 +1030,10 @@ body.modal-open { overflow: hidden; }
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-height: 34px;
+  /* A ROW INSIDE THE TILE, never a control of its own: the finger-wide minimum belongs
+     to `.squad`, which carries `min-height: var(--tap)`. A `min-height` here read as a
+     26-px button to the audit that measures them (tests/test_panel_web.py). */
+  height: 34px;
 }
 .squad-faces img { width: 30px; height: 30px; object-fit: contain; }
 /* No picture is the honest answer for a hero nobody could name — the slot's number. */

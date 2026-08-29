@@ -115,6 +115,56 @@ def icon_path(hero_id: int, weapon_grade: int | None = None,
     return path if os.path.exists(path) else None
 
 
+# ---------------------------------------------------------------------------
+# Serving one icon to the panel's web front-end (#2062).
+#
+# The squad picker draws the player's OWN heroes, and the stem it draws them by is read
+# out of the live client rather than looked up here (`actions/read_squad_heroes.md`):
+# the `heroId -> resName` table above is eyeball-confirmed and always will be partial,
+# so it is the FALLBACK for an id the game would not name, never the source of truth.
+#
+# The same contract every other picture route keeps (`tools/lib/monster_icons.py`): a
+# machine that has never run `tools/extract_hero_icons.py` answers `None` for every
+# lookup, and the picker draws the squad's number instead of a broken image.
+
+def name_for(stem: str, size: str = "small") -> str:
+    """The file name the phone may ask for, or ``""`` when there is nothing on disk.
+
+    ``stem`` is the icon's resName, with or without the ``hero_icon_`` prefix — the live
+    read hands over whichever the game's own config column holds.
+    """
+    clean = str(stem or "").strip()
+    if not clean:
+        return ""
+    if not clean.startswith("hero_icon_"):
+        clean = "hero_icon_" + clean
+    name = clean + ".png"
+    return name if file_named(name, size) else ""
+
+
+def file_named(name: str, size: str = "small") -> "str | None":
+    """A bare file name back into a path inside the icon folder, or ``None``.
+
+    The same three checks `monster_icons.file_named` makes and for the same reason: the
+    route is reachable from a phone, so the name must be a plain name, carry the one
+    suffix this folder holds, and land INSIDE the folder. ``small`` is tried first and
+    ``big`` after it, because a squad picker wants the small art and an installation
+    that extracted only one of the two sets should still draw faces.
+    """
+    clean = str(name or "").strip()
+    if not clean or clean != os.path.basename(clean) or clean.startswith("."):
+        return None
+    if os.path.splitext(clean)[1].lower() != ".png":
+        return None
+    order = ("small", "big") if size != "big" else ("big", "small")
+    for folder in order:
+        root = os.path.abspath(os.path.join(ICON_ROOT, folder))
+        full = os.path.abspath(os.path.join(root, clean))
+        if os.path.dirname(full) == root and os.path.isfile(full):
+            return full
+    return None
+
+
 if __name__ == "__main__":
     print(f"{'heroId':>8}  {'grade':>5}  icon")
     for hid in SEEN_IDS:

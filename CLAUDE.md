@@ -419,6 +419,35 @@ out. Anything else a screenless corner of the panel needs on the move goes the s
 way. **And it is not only a convenience: pressing it is MANDATORY after every fix —
 see «A fix that has not restarted the panel has not been delivered» below.**
 
+## A control that exists twice is written once
+
+**Binding, and it is how the panel stops growing a second version of every widget.** When
+the same thing is chosen on several screens, it is ONE reusable control declared by each
+site — never markup copied into each one. Two sites that draw the same choice differently
+are two things a person has to learn, and the day one of them grows a feature the other
+silently has not.
+
+**«Какие отряды» is the worked example, and it is the person's own decision (#2062)**, in
+their words: «Новый виджет, там, где у нас выбор чекбоксов наших 4х отрядов, делаем
+отдельным виджетом, должны быть 4 картинки в ряд с нашими героями, именно те, что в игре у
+данного игрока, они меняются в зависимости от героев в отряде, клик по картинке должен
+включать и отключать этот отряд, выключенный делаем серым. **Везде где есть выбор отрядов
+вставляем этот виджет и берем за правило**». So a field says `kind = "squads"`
+(`panel/runtime/squad_picker.py`) and the front-end draws the player's own four squads with
+the heroes standing in them — the rally auto-join, its gear on «Таймеры», the manual rally,
+the golden-zombie hunt and the treasure dig, and whatever asks next. The details a caller
+needs are in [`docs/panel-tabs.md`](docs/panel-tabs.md), «Picking squads is ONE widget».
+
+Two things that rule does NOT relax:
+
+* **Read once, then listen.** A squad's composition is read on first need and when a page's
+  «Обновить» asks, never on a clock — there is no event behind it, and a picture is not
+  worth a background question at the game.
+* **Never a stand-in picture.** A hero the live config would not name draws the squad's
+  NUMBER, not a face that belongs to somebody else's hero. The same contract every other
+  picture route keeps, and the reason the icons are a link into `/api/heroicon` rather than
+  a guess in the code.
+
 ## A fix that has not restarted the panel has not been delivered
 
 **Also binding, on every agent, with no exceptions, and it is not a suggestion.** The

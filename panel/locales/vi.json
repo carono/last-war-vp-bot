@@ -715,6 +715,7 @@
   "secrettasks.hidden": "bị bộ lọc ẩn: {n}",
   "secrettasks.hidden_label": "Đã ẩn",
   "secrettasks.shown_label": "Hiển thị",
+  "squads.pick.one": "Đội {n}",
   "squads.title": "Đội quân:",
   "squads.strip": "{squads} · thể lực {stamina}",
   "squads.item": "{index} — {state}",

@@ -715,6 +715,7 @@
   "secrettasks.hidden": "скрыто фильтрами: {n}",
   "secrettasks.hidden_label": "Скрыто",
   "secrettasks.shown_label": "Показано",
+  "squads.pick.one": "Отряд {n}",
   "squads.title": "Отряды:",
   "squads.strip": "{squads} · стамина {stamina}",
   "squads.item": "{index} — {state}",

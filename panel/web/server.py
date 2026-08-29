@@ -371,6 +371,9 @@ def _make_handler(server: WebServer):
             if path == "/api/monstericon":
                 self._monstericon(query)
                 return
+            if path == "/api/heroicon":
+                self._heroicon(query)
+                return
             if path.startswith("/api/"):
                 self._api("GET", path, query, {})
                 return
@@ -486,6 +489,23 @@ def _make_handler(server: WebServer):
             def resolve():
                 import monster_icons
                 return monster_icons.file_named(_one(query.get("icon")))
+
+            self._picture(query, resolve)
+
+        def _heroicon(self, query: dict) -> None:
+            """Serve one hero's portrait, out of `results/hero_icons`.
+
+            The sixth of the same shape and for the same reasons (#2062): the pictures are
+            the game's own art extracted onto THIS machine, they are identical for every
+            profile, and the name is checked by `hero_icons_map.file_named` rather than
+            trusted. A machine that has not run the extractor answers 404 for every one of
+            them and the squad picker draws the squad's number instead of a face — which
+            is the honest answer, not a fault.
+            """
+            def resolve():
+                import hero_icons_map
+
+                return hero_icons_map.file_named(_one(query.get("icon")))
 
             self._picture(query, resolve)
 

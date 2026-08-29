@@ -715,6 +715,7 @@
   "secrettasks.hidden": "masquées par les filtres : {n}",
   "secrettasks.hidden_label": "Masquées",
   "secrettasks.shown_label": "Affichées",
+  "squads.pick.one": "Escouade {n}",
   "squads.title": "Escouades :",
   "squads.strip": "{squads} · endurance {stamina}",
   "squads.item": "{index} — {state}",

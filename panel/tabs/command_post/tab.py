@@ -38,6 +38,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ...runtime import game_process
+from ...runtime import squad_picker
 from ...runtime import opt_value
 from ...runtime import store
 from ...runtime.paths import TOOLS
@@ -1629,8 +1630,36 @@ class CommandPostTab(PanelTab):
                                       "pid": int(chest.point_id or 0),
                                       "x": int(chest.x or 0), "y": int(chest.y or 0)}}],
             })
+        # WHICH SQUAD DIGS, ON THE PHONE TOO (#2062). Both presses on this card spend it
+        # — «Отработать сейчас» and every row's own «Копать» — and until now it could be
+        # chosen only at the machine, which is a press decided by a knob the presser
+        # cannot see (#2010). It is the picker every other page draws: this player's own
+        # squads, with the heroes standing in them, one of them picked.
+        fields = [squad_picker.field(self.rt, "treasure_squad", "squads.title",
+                                     [self._treasure_squad()], single=True,
+                                     squads=TREASURE_SQUADS)]
         return {"title": "cmdpost.tab.treasure", "rows": rows, "items": items,
-                "empty": "cmdpost.treasure.empty"}
+                "fields": fields, "empty": "cmdpost.treasure.empty"}
+
+    def _treasure_squad(self) -> int:
+        """The squad the digging page is set to — the window's own box, read once."""
+        page = self._by_key.get("treasure")
+        var = getattr(page, "_squad_var", None) if page is not None else None
+        return _int(var.get(), TREASURE_SQUADS[0]) if var is not None else TREASURE_SQUADS[0]
+
+    def _set_treasure_squad(self, value) -> "dict | None":
+        """Pick it, in the window's own variable — a SETTING, and it presses nothing."""
+        picked = squad_picker.chosen_from(value)
+        wanted = picked[0] if len(picked) == 1 else 0
+        if wanted not in TREASURE_SQUADS:
+            return {"error": "unknown"}
+        page = self._by_key.get("treasure")
+        var = getattr(page, "_squad_var", None) if page is not None else None
+        if var is None:
+            return {"error": "unknown"}
+        var.set(wanted)
+        self.rt.settings.changed()
+        return {"ok": True, "squad": wanted}
 
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить» re-reads the stores by repainting; no game, no press.
@@ -1648,6 +1677,8 @@ class CommandPostTab(PanelTab):
             page = self._by_key.get("tasks")
             answer = (page.web_set(key, args.get("value"))
                       if page is not None else None)
+            if answer is None and key == "treasure_squad":
+                answer = self._set_treasure_squad(args.get("value"))
             if answer is None:
                 answer = self._web_press_ghost(key, args.get("value"))
             return answer if answer is not None else {"error": "unknown"}

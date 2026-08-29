@@ -715,6 +715,7 @@
   "secrettasks.hidden": "disembunyikan filter: {n}",
   "secrettasks.hidden_label": "Disembunyikan",
   "secrettasks.shown_label": "Ditampilkan",
+  "squads.pick.one": "Regu {n}",
   "squads.title": "Pasukan:",
   "squads.strip": "{squads} · stamina {stamina}",
   "squads.item": "{index} — {state}",

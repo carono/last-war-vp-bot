@@ -715,6 +715,7 @@
   "secrettasks.hidden": "ocultas por los filtros: {n}",
   "secrettasks.hidden_label": "Ocultas",
   "secrettasks.shown_label": "Mostradas",
+  "squads.pick.one": "Escuadrón {n}",
   "squads.title": "Escuadrones:",
   "squads.strip": "{squads} · vigor {stamina}",
   "squads.item": "{index} — {state}",

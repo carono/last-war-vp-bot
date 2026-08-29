@@ -1221,6 +1221,62 @@ The shape that works:
   «Присоединяться сам (поручение «Автостяг»)» is the standing order — and the Timers row
   says «та же галка, что на вкладке «Ралли»».
 
+## Picking squads is ONE widget, everywhere (#2062)
+
+**A rule, not a suggestion**, and it is the person's own decision in their words: «Новый
+виджет, там, где у нас выбор чекбоксов наших 4х отрядов, делаем отдельным виджетом,
+должны быть 4 картинки в ряд с нашими героями, именно те, что в игре у данного игрока,
+они меняются в зависимости от героев в отряде, клик по картинке должен включать и
+отключать этот отряд, выключенный делаем серым. Везде где есть выбор отрядов вставляем
+этот виджет и берем за правило».
+
+So: **anywhere a person chooses which squad or squads something spends, the field declares
+`kind = "squads"` and nothing draws its own row of boxes.** The panel's side is
+`panel/runtime/squad_picker.py` and the control is
+`panel/web/app/src/ui/SquadPicker.tsx` — four tiles in a row, the heroes standing in each
+squad, grey when it is switched off.
+
+```python
+from ...runtime import squad_picker
+
+def web_view(self) -> dict:
+    return {"cards": [{"title": "tab.mything",
+                       "fields": [squad_picker.field(self.rt, "squads", "squads.title",
+                                                     self._chosen())]}]}
+
+def web_press(self, action, args) -> dict:
+    if action == "set" and args.get("key") == "squads":
+        self._choose(squad_picker.chosen_from(args.get("value")))   # «1,3» -> [1, 3]
+        return {"ok": True}
+```
+
+* **The value is the slots that are ON**, comma-joined — the whole list, never a diff.
+  `squad_picker.chosen_from` parses whatever a front-end sent.
+* **`single=True`** for a place that picks ONE (the golden-zombie hunt, the treasure dig):
+  the same control, and a click moves the choice instead of clearing it.
+* **`squads=`** when the slots are not 1..4 (the treasure page digs with 1..3).
+* **It owns no value.** Like the gear on «Таймеры», a picker is a VIEW of whatever
+  variable the tab already kept — see «One state, several places that draw it» above.
+
+**The faces are read ONCE and never polled.** A squad's composition changes when the
+player rearranges it, which announces itself to nobody, so `actions/read_squad_heroes.md`
+runs on first need and then only when a page's «Обновить» asks — the rule this repository
+works to (`CLAUDE.md`, «Read once, then LISTEN»). The picker never blocks a `web_view`: it
+answers with what it has and asks for a reading in the background.
+
+**It degrades honestly and never guesses a face.** The `heroId → icon` table is encrypted
+on disk (`docs/research/hero-icons.md`), so the stem is read out of the LIVE client's own
+config and the repository's ten confirmed ids are the fallback. When neither can name a
+hero — or the machine never ran `tools/extract_hero_icons.py` — the tile draws the squad's
+NUMBER and its state. A picture that belongs to somebody else's hero is worse than no
+picture, and the same rule the monster and errand icons keep.
+
+**Where it is drawn today** (a new site joins this list rather than inventing its own):
+the rally auto-join and the gear on its «Таймеры» row, the manual rally form, the
+golden-zombie hunt on «События», and the treasure dig on «Командный пункт» — which is the
+one that had no way in at all from the phone, so a press that spends a squad was decided
+by a knob only the window could show (#2010).
+
 ## The knobs an errand carries — the gear on «Таймеры» (#2017)
 
 A standing order is never only a switch. «Автолут ★» spends the day's five robberies at

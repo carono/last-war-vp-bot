@@ -68,6 +68,7 @@ from ..base import PanelTab
 from . import model as modelmod
 from ...runtime import statevar
 from ...runtime import errand_options as errandopts
+from ...runtime import squad_picker
 
 #: How a state looks in the window. A glyph is not a word — it needs no translating and
 #: is the same in every language, which is why these three are literals and the sentence
@@ -637,6 +638,23 @@ class EventsTab(PanelTab):
             except tk.TclError:            # the window is going away
                 pass
         return modelmod.squad_of(self._squad)
+
+    def _set_golden_squad(self, wanted: int) -> dict:
+        """Pick the squad the hunt sends — a SETTING, and it presses nothing (#2062).
+
+        The window's drop-down and the phone's picker are two drawings of one value, so
+        both end here and the tab is saved by its own trace.
+        """
+        if wanted not in modelmod.GOLDEN_SQUADS:
+            return {"error": "unknown"}
+        self._squad = wanted
+        if self._squad_var is not None:
+            try:
+                self._squad_var.set(str(wanted))
+            except tk.TclError:             # the window is going away
+                pass
+        self.rt.settings.changed()
+        return {"ok": True, "squad": wanted}
 
     def approach(self) -> bool:
         """Is the fast approach on? The widget while the tab is drawn, the saved value else."""
@@ -1301,7 +1319,6 @@ class EventsTab(PanelTab):
             {"label": "events.golden.seen", "value": modelmod.seen(gold)},
             {"label": "events.golden.speed", "value": modelmod.speed(gold)},
             {"label": "events.golden.today", "value": modelmod.tally(self.today())},
-            {"label": "events.golden.squad", "value": str(self.squad())},
             {"label": "events.golden.approach",
              "value": self.t("events.golden.approach."
                              + ("on" if self.approach() else "off"))},
@@ -1310,10 +1327,15 @@ class EventsTab(PanelTab):
             {"label": "events.golden.said",
              "value": self.t(self._step_said) if self._step_said else "—"},
         ]}
+        # WHICH SQUAD GOES, AS THE PICKER EVERY OTHER PAGE DRAWS (#2062) — the player's
+        # own four with the heroes standing in them, and one of them picked, because the
+        # hunt sends one. It replaces a button that WALKED the slots: «Отряд 3» is one
+        # touch here and was three there, and neither said what was standing in it.
+        gcard["fields"] = [squad_picker.field(
+            self.rt, modelmod.GOLDEN_SQUAD_KEY, "squads.title", [self.squad()],
+            single=True)]
         if gold.can_attack and not self._golden_running:
             gcard["actions"] = [{"id": "hunt_golden", "label": "events.golden.hunt"},
-                                {"id": "squad_next",
-                                 "label": "events.golden.squad.next"},
                                 {"id": "approach_toggle",
                                  "label": "events.golden.approach.toggle"}]
             gcard["actions"] += [{"id": action, "label": key}
@@ -1474,19 +1496,12 @@ class EventsTab(PanelTab):
                 return {"error": "closed"}
             return {"ok": self.attack() if action == "attack_codename" else self.daily()}
         if action == "squad_next":
-            # Picking the squad is a SETTING, not a press at the game: it changes what
-            # the next hunt sends and nothing else. One button that walks the slots
-            # rather than four that look alike — the row above says which one is on, and
-            # the window's drop-down and this agree because both read `squad()`.
+            # THE BUTTON THAT WALKED THE SLOTS, kept for the page a phone already has
+            # open (#2062). The card draws the picker now — one touch, and the faces say
+            # which squad it is — and both ends write the same setting.
             slots = list(modelmod.GOLDEN_SQUADS)
             wanted = slots[(slots.index(self.squad()) + 1) % len(slots)]
-            self._squad = wanted
-            if self._squad_var is not None:
-                try:
-                    self._squad_var.set(str(wanted))
-                except tk.TclError:         # the window is going away
-                    pass
-            return {"ok": True, "squad": wanted}
+            return self._set_golden_squad(wanted)
         if action == "approach_toggle":
             # A setting, like the squad: it changes how the next hunt travels and
             # presses nothing at the game.
@@ -1527,6 +1542,14 @@ class EventsTab(PanelTab):
                 self._train_tickets = number
                 self._train_knob_saved()
                 return {"ok": True, "tickets": self._train_tickets}
+            if key == modelmod.GOLDEN_SQUAD_KEY:
+                # ONE SQUAD, and the picker sends the list it drew (#2062). A press
+                # naming none is refused rather than silently sending squad 1 — the hunt
+                # has to send something, and inventing which is not the panel's call.
+                picked = squad_picker.chosen_from(raw)
+                if len(picked) != 1:
+                    return {"error": "unknown"}
+                return self._set_golden_squad(picked[0])
             if key == modelmod.TRAIN_BUY_KEY:
                 self._train_buy = bool(raw)
                 self._train_knob_saved()

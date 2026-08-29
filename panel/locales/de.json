@@ -715,6 +715,7 @@
   "secrettasks.hidden": "durch Filter verborgen: {n}",
   "secrettasks.hidden_label": "Verborgen",
   "secrettasks.shown_label": "Angezeigt",
+  "squads.pick.one": "Trupp {n}",
   "squads.title": "Truppen:",
   "squads.strip": "{squads} · Ausdauer {stamina}",
   "squads.item": "{index} — {state}",

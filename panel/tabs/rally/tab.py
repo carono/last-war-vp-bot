@@ -72,6 +72,7 @@ import rally_kinds                                                    # noqa: E4
 import rally_kinds as rallykinds                                      # noqa: E402
 from ...runtime import statevar
 from ...runtime import errand_options as errandopts
+from ...runtime import squad_picker
 from ...runtime import monster_art as monsterart
 
 # ---------------------------------------------------------------------------
@@ -820,10 +821,8 @@ class RallyTab(PanelTab):
                  "min": RALLY_LEVEL_MIN, "max": RALLY_LEVEL_MAX},
                 {"key": "run_repeats", "label": "rally_tab.repeats",
                  "kind": opt_value.NUMBER, "value": self._repeats(), "min": 1},
-            ] + [{"key": f"run_squad_{squad}", "label": f"rally_tab.squad.{squad}",
-                  "kind": opt_value.SWITCH,
-                  "value": bool(self._squad_vars[squad].get())}
-                 for squad in RALLY_SQUADS],
+            ] + [squad_picker.field(self.rt, "run_squads", "squads.title",
+                                    self._selected_squads())],
             # The status line the window draws under the buttons — data, and the only
             # way a phone can tell a run that is walking the map from one that stopped.
             "rows": [{"label": "rally_tab.frame", "value": self._status_var.get() or "—"}],
@@ -834,16 +833,19 @@ class RallyTab(PanelTab):
         }
 
     def _web_squad_fields(self) -> list:
-        """One switch per squad — the SAME boxes «Автосбор» draws in the window.
+        """THE PICKER — the player's own four squads, with the heroes standing in them.
 
-        Not a second copy: each field writes the page's own variable, so a squad ticked
-        from a bus is ticked at the machine, is saved by the same trace, and is the list
-        `join_rally` is handed — `AutoRally.join_squads`.
+        Not a second copy: it writes the page's own variables, so a squad switched off
+        from a bus is switched off at the machine, is saved by the same trace, and is the
+        list `join_rally` is handed — `AutoRally.join_squads`.
+
+        FOUR CHECKBOXES NUMBERED 1..4 IS WHAT THIS USED TO BE (#2062). The person asked
+        for the faces instead — «именно те, что в игре у данного игрока» — and for the
+        same control everywhere squads are picked, so there is one widget and every site
+        declares it (`panel/runtime/squad_picker.py`).
         """
-        return [{"key": f"squad_{squad}", "label": f"rally_tab.squad.{squad}",
-                 "kind": opt_value.SWITCH,
-                 "value": bool(self.autorally._squad_vars[squad].get())}
-                for squad in RALLY_SQUADS]
+        return [squad_picker.field(self.rt, "squads", "squads.title",
+                                   self.autorally.join_squads())]
 
     def _web_roster_cards(self) -> list:
         """The live block, as the phone draws it: a card per banner (#1324).
@@ -1199,6 +1201,11 @@ class RallyTab(PanelTab):
                 if not self.autorally.set_cap(kind, raw):
                     return {"error": "unknown"}
                 return {"ok": True}
+            if key == "squads":
+                # THE PICKER SENDS A LIST, not a box (#2062): «1,3» is every slot that is
+                # on, so the write is the whole list and never a diff the panel has to
+                # guess at.
+                return self._web_press_join_squads(raw)
             return self._web_press_switch(key, bool(raw))
         if action in ("launch", "stop"):
             # The window's own two buttons under the manual form. `_launch` refuses an
@@ -1247,6 +1254,10 @@ class RallyTab(PanelTab):
         if action != "refresh":
             return {"error": "unknown"}
         self.rt.squads.refresh_async()
+        # …AND THE FACES (#2062). A squad's composition changes when the player
+        # rearranges it and announces itself to nobody, so «Обновить» is the event: the
+        # picker is read here and never on a clock (`CLAUDE.md`, «Read once, then LISTEN»).
+        squad_picker.reader(self.rt).refresh_async()
         # The same two things «Обновить» gets at the machine: where the squads are, and
         # how much of the day is spent (#1317). Asked HERE and not in `web_view`, which
         # the phone polls — a VM read per poll is a read a banner pays for.
@@ -1267,12 +1278,13 @@ class RallyTab(PanelTab):
         Read off this tab's own variables, which are made in `__init__` — the gear has to
         work for a tab nobody has opened (`LAZY`).
         """
-        squads = tuple(errandopts.Option(
-            "squad_%d" % squad, "autorally.squad", errandopts.SWITCH,
-            label_fmt={"n": squad},
-            get=(lambda s=squad: bool(self.autorally._squad_vars[s].get())),
-            set=(lambda on, s=squad: self.set_join_squad(s, on)))
-            for squad in RALLY_SQUADS)
+        # ONE PICKER AND NOT FOUR SWITCHES (#2062): the gear draws the same control the
+        # page does — the player's own squads, with the heroes standing in them — and
+        # writes the same list through the same setter.
+        squads = (errandopts.Option(
+            "squads", "squads.title", errandopts.SQUADS,
+            get=(lambda: self.autorally.join_squads()),
+            set=self._set_join_squads),)
         # …and WHICH BANNERS it is for (#2017). Sixty-eight switches is a great many for
         # one window, and the person said so and asked for them anyway: «нужны,
         # переключатели мы позже переделаем». The reason is the same one that put the
@@ -1329,6 +1341,12 @@ class RallyTab(PanelTab):
         self.remember({"autorally": {"squads": self.autorally.join_squads()}})
         self.rt.settings.changed()
         return True
+
+    def _set_join_squads(self, value) -> None:
+        """The gear's own write: the whole list, through the one setter (#2062)."""
+        want = set(squad_picker.chosen_from(value))
+        for squad in RALLY_SQUADS:
+            self.set_join_squad(squad, squad in want)
 
     def set_join_number(self, key: str, value) -> bool:
         """The soldier floor or the day's ceiling. A non-number is REFUSED, never 0.
@@ -1391,6 +1409,17 @@ class RallyTab(PanelTab):
         self._sync_capture()
         return {"ok": True}
 
+    def _web_press_join_squads(self, value) -> dict:
+        """The whole of «which squads the auto-join may spend», as the picker sent it.
+
+        Through the one setter (#2017): the card, the gear on «Таймеры» and the window's
+        own boxes are three drawings of one list, so they write once.
+        """
+        want = set(squad_picker.chosen_from(value))
+        for squad in RALLY_SQUADS:
+            self.set_join_squad(squad, squad in want)
+        return {"ok": True}
+
     def _web_press_run(self, key: str, value) -> dict:
         """One of the manual form's four choices, written into the window's own box.
 
@@ -1416,14 +1445,12 @@ class RallyTab(PanelTab):
             (self._level_var if key == "level" else self._repeats_var).set(str(number))
             self.rt.settings.changed()
             return {"ok": True}
-        if key.startswith("squad_"):
-            try:
-                squad = int(key.split("_", 1)[1])
-            except (TypeError, ValueError):
-                return {"error": "unknown"}
-            if squad not in RALLY_SQUADS:
-                return {"error": "unknown"}
-            self._squad_vars[squad].set(bool(value))
+        if key == "squads":
+            # The manual form's own list, from the same picker the automatic side draws
+            # (#2062) — the window's four boxes, written in one press.
+            want = set(squad_picker.chosen_from(value))
+            for squad in RALLY_SQUADS:
+                self._squad_vars[squad].set(squad in want)
             self.rt.settings.changed()
             return {"ok": True}
         return {"error": "unknown"}

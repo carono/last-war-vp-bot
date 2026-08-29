@@ -237,6 +237,18 @@ export interface ViewItem {
   options_title?: string
 }
 
+/* ONE SQUAD ON THE PICKER (#2062) — the slot, whether it is on, and the faces standing
+ * in it. `faces` are links into `/api/heroicon`, empty when this machine has no picture
+ * for any of that squad's heroes, and then the tile draws the slot's number instead of a
+ * face that belongs to somebody else's hero. `state` is what the squad is doing, in the
+ * panel's own word (`squads.kind.*`) — a caption, never a gate. */
+export interface SquadSlot {
+  n: number
+  on: boolean
+  faces?: string[]
+  state?: string
+}
+
 export interface Field {
   key: string
   label: string
@@ -244,13 +256,19 @@ export interface Field {
      (#2017). Data, filled in by the panel, never a second key to translate. */
   label_fmt?: Record<string, unknown>
   hint?: string
-  kind: 'switch' | 'number' | 'text' | 'choice'
+  kind: 'switch' | 'number' | 'text' | 'choice' | 'squads'
   value: string | number | boolean
   min?: number
   max?: number
   /* `value` is the id the panel knows; `text` is what that choice calls ITSELF — data,
    * like a player's name, never a key to translate. */
   options?: { value: string; text: string }[]
+  /* `squads` ONLY (#2062): the four slots as the panel drew them, and whether exactly
+   * one of them may be picked (the golden-zombie hunt sends one; the rally auto-join
+   * spends as many as it is given). The value is the slots that are on, joined by
+   * commas — «1,3». */
+  squads?: SquadSlot[]
+  single?: boolean
 }
 
 export interface ViewCard {

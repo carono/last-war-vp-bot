@@ -32,12 +32,16 @@ errand it is drawing.
 """
 from __future__ import annotations
 
-from . import opt_value
+from . import opt_value, squad_picker
 
 #: The controls a front-end knows how to draw — `opt_value`'s, and for its reason: the
 #: web renders these four and nothing else.
 SWITCH, NUMBER, TEXT, CHOICE = (opt_value.SWITCH, opt_value.NUMBER,
                                 opt_value.TEXT, opt_value.CHOICE)
+#: …and the fifth, which is a control rather than a type (#2062): «which of my squads».
+#: It is drawn as the player's own four squads with the faces standing in them, and its
+#: value is the slots that are on — see :mod:`panel.runtime.squad_picker`.
+SQUADS = squad_picker.KIND
 
 
 class Option:
@@ -49,12 +53,12 @@ class Option:
     """
 
     __slots__ = ("key", "label_key", "label_fmt", "kind", "low", "high", "hint_key",
-                 "setting", "_get", "_set", "options")
+                 "setting", "_get", "_set", "options", "single")
 
     def __init__(self, key: str, label_key: str, kind: str = NUMBER, *,
                  get=None, set=None,          # noqa: A002 — the words the callers want
                  setting: str = "", low=None, high=None, hint_key: str = "",
-                 options=(), label_fmt=None) -> None:
+                 options=(), label_fmt=None, single: bool = False) -> None:
         self.key = key
         self.label_key = label_key
         #: What goes into the label's placeholders — «Отряд {n}». The four squads of the
@@ -72,6 +76,10 @@ class Option:
         #: DRAWN (:meth:`choices`), never at registration: a knob registered at boot
         #: outlives every language switch after it.
         self.options = tuple(options or ())
+        #: For `SQUADS`: is exactly one slot picked, or several? The golden-zombie hunt
+        #: sends ONE squad and the rally auto-join spends as many as it is given, and
+        #: the same control draws both (#2062).
+        self.single = bool(single)
 
     # -- the value ----------------------------------------------------------
     def read(self, rt):
@@ -83,6 +91,8 @@ class Option:
                 return opt_value.get(rt, self.setting)
         except Exception:                    # noqa: BLE001 — a reading, never the panel
             pass
+        if self.kind == SQUADS:
+            return ""
         return "" if self.kind in (TEXT, NUMBER) else False
 
     def write(self, rt, value) -> bool:
@@ -114,6 +124,12 @@ class Option:
     # -- how a front-end draws it -------------------------------------------
     def as_field(self, rt) -> dict:
         """The knob as the web's `Field` — the same shape «Настройки» sends."""
+        if self.kind == SQUADS:
+            # THE FACES, not a value the caller has to know how to draw (#2062). The
+            # knob still lives where it lived: what is read here is the owner's own list
+            # of slots, and what is drawn is this player's own heroes standing in them.
+            return squad_picker.field(rt, self.key, self.label_key, self.read(rt),
+                                      single=self.single, hint_key=self.hint_key)
         field = {"key": self.key, "label": self.label_key,
                  "kind": self.kind, "value": self.read(rt)}
         if self.label_fmt:
@@ -157,6 +173,10 @@ def _as_kind(kind: str, value):
     `int("")` would turn it into a 0 — which, for «минимальный уровень», is every level
     there is (`panel/tabs/secret_tasks/autoloot.py`).
     """
+    if kind == SQUADS:
+        # The slots that are ON, as the picker sent them — «1,3». Normalised here so an
+        # owner never has to parse a phone's idea of a list.
+        return ",".join(str(s) for s in squad_picker.chosen_from(value))
     if kind == SWITCH:
         if isinstance(value, str):
             return value.strip().lower() in ("1", "true", "yes", "on")

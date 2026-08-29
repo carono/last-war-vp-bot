@@ -715,6 +715,7 @@
   "secrettasks.hidden": "hidden by filters: {n}",
   "secrettasks.hidden_label": "Hidden",
   "secrettasks.shown_label": "Shown",
+  "squads.pick.one": "Squad {n}",
   "squads.title": "Squads:",
   "squads.strip": "{squads} · stamina {stamina}",
   "squads.item": "{index} — {state}",

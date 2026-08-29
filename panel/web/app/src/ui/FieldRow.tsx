@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { t } from '../i18n'
 import { pressWord } from './press'
+import { SquadPicker } from './SquadPicker'
 import { SwitchRow } from './SwitchRow'
 import { useToast } from './Toast'
 import type { Field, PressAnswer } from '../types'
@@ -51,6 +52,11 @@ export function FieldRow({
     window.setTimeout(after, 400)
   }
 
+  if (field.kind === 'squads') {
+    /* «Which of my squads» is ONE control everywhere it is asked (#2062) — the player's
+       own squads, with the heroes standing in them. */
+    return <SquadPicker field={field} send={(key, value) => send(key, value)} after={after} />
+  }
   if (field.kind === 'choice') {
     return (
       <div className="field">

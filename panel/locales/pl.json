@@ -715,6 +715,7 @@
   "secrettasks.hidden": "ukryte przez filtry: {n}",
   "secrettasks.hidden_label": "Ukryte",
   "secrettasks.shown_label": "Pokazane",
+  "squads.pick.one": "Oddział {n}",
   "squads.title": "Oddziały:",
   "squads.strip": "{squads} · wytrzymałość {stamina}",
   "squads.item": "{index} — {state}",
