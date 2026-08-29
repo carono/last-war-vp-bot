@@ -642,3 +642,59 @@ Pinned by `tests/test_panel_lease_regain.py`: the retry happens once, only for t
 refusal, a hook that raises leaves the original refusal to be reported, a lease that is
 somebody else's leaves the dead token in place, and every context the runner builds
 carries the hook.
+
+# 13. The diagnosis had nowhere to go, and the state had no cure (#2060)
+
+Recorded live on 2026-08-28/29. One profile held its errand gate for **24 975 s (6.9
+hours)** with every timer stopped and nothing in the log that said why.
+
+## 13.1 What actually happened
+
+* 23:26 — the account was kicked («вход с другого устройства»). The panel did the right
+  thing and relaunched the game.
+* The new client came up and **stuck on the `Launch` scene**: it never logged in, and
+  every socket it had on the game port sat in `CLOSE_WAIT`.
+* The link pulse froze: `misses` stopped at 45, `last_ok_age` grew to 6.9 hours, and
+  `probe_error` still held the sentence stamped at 23:26:24 — «no window this session can
+  see». Meanwhile the client was perfectly takeable by hand: `main_thread_tid` and
+  `learn_safe_rip` answered in about two seconds, `GameAssembly` was where it should be,
+  and one chunk pushed through the daemon door landed at once and reset the pulse.
+
+So the process was healthy, the VM was reachable, and the account was outside the game.
+
+## 13.2 Why nothing cured it
+
+Three branches could have, and each had a reason not to:
+
+| branch | reading | why it stood down |
+|---|---|---|
+| watchdog | no process | the process was up |
+| `Recovery.note` | `no_connection` | thrown away on purpose (#1268): our wiring, not the client's — restarting over it is six pointless relaunches |
+| `Recovery.note_session` (the knock, #1549) | `talking=False` | cleared its own clock, on the grounds that a silent server is `note`'s business |
+
+The knock's gate was the bug. It asked «is the server answering», which is a far bigger
+set than the one the other two branches actually take, so the intersection — **a client
+that is up, answering Windows and unable to get into the game** — belonged to nobody.
+The same gate had also, quietly, switched the knock off for the state it was written for:
+`maintenance` was a green light in #1549 and has been amber since #1982.
+
+The gate now asks **who else has this client**: `running` (no process ⇒ the watchdog's)
+and `deaf` (`no_traffic` / `client_hung` ⇒ `note`'s). Everything else is the knock's,
+whether or not the server is answering. `talking` is still passed and still drawn, and it
+no longer decides anything here.
+
+## 13.3 Why the cause was invisible
+
+`tools/lua_daemon.py` names every refused attach and every lost probe — and said it with
+`print`. That was right while this module was a process of its own with a supervisor
+reading its stdout. Since #1911 the panel holds the VM in-process and is started
+detached: it has no stdout, so those sentences went nowhere.
+
+The measured result: **859 identical lines** of «45 probes in a row … attaching again»
+across the 6.9 hours, and not one word of why, while the reading that named the cause was
+written into a closed handle every single time.
+
+`Daemon` now says its diagnosis through one door, `Daemon.say`, defaulting to stdout for
+the standalone connector; `panel/runtime/lua_service.py` points it at the profile's own
+debug log. Pinned by `tests/test_link_diagnosis_is_logged.py` — a `print` inside `class
+Daemon` fails it.
