@@ -1228,7 +1228,41 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         detail = elite["detail"]
         assert rt.t("rally_group.today") in detail, detail
         assert rt.t("rally_group.limit") in detail, detail
-        assert str(len(rally_kinds.GROUP_MEMBERS["doom_elite"])) in detail, detail
+        assert str(len(rally_kinds.kinds_in_group(
+            "doom_elite", rally_kinds.RALLY_ORDER))) in detail, detail
+        # …AND ONLY THE KINDS A RALLY CAN BE RAISED ON ARE IN IT (#2055). «Исключить
+        # монстров, на которые нельзя делать стягивания (простые зомби и т.д.)»: the
+        # horde, the raiders, the sandworms and the airship pay no participation reward
+        # in the game's own table, so they are drawn nowhere — including the wolf that
+        # shares the Blood Night elite's portrait and would otherwise sit in this group.
+        assert "limit_bloodnight_alpha_wolf" not in caps, sorted(caps)
+        every = {k for tile in limit_card["items"]
+                 for f in tile["options"] for k in [f["key"]]
+                 if f["key"].startswith("limit_")}
+        for gone in ("limit_zombie_horde", "limit_zombie_raider", "limit_sky_predator"):
+            assert gone not in every, sorted(every)
+        assert "limit_doom_elite" in every, sorted(every)
+        # …and «Событийные» is the player's own list — the Golden line and the Vanguard
+        # instructors, said in those words (#2055).
+        events = tiles["rally_group.event"]
+        event_caps = {f["key"] for f in events["options"]}
+        for wanted in ("limit_golden_defender", "limit_golden_striker",
+                       "limit_golden_annihilator", "limit_general_trial"):
+            assert wanted in event_caps, sorted(event_caps)
+        # THE GROUP'S OWN SWITCH (#2055): «включено/выключено» per group, which is the
+        # auto-join's per-kind filter written over the whole group and never a copy of it.
+        assert caps["gon_doom_elite"]["kind"] == opt_value.SWITCH, caps["gon_doom_elite"]
+        assert caps["gon_doom_elite"]["value"] is True, caps["gon_doom_elite"]
+        assert tab.web_press("set", {"key": "gon_doom_elite", "value": False}) == {"ok": True}
+        assert "doom_elite" in tab.autorally._kinds_off
+        assert "giant_crocodile" in tab.autorally._kinds_off
+        off_tile = {i["label"]: i for i in tab._web_limit_card()["items"]}
+        off_caps = {f["key"]: f for f in off_tile["rally_group.doom_elite"]["options"]}
+        assert off_caps["gon_doom_elite"]["value"] is False, off_caps["gon_doom_elite"]
+        assert rt.t("rally.state.off") in off_tile["rally_group.doom_elite"]["detail"]
+        assert tab.web_press("set", {"key": "gon_doom_elite", "value": True}) == {"ok": True}
+        assert "doom_elite" not in tab.autorally._kinds_off
+        assert tab.web_press("set", {"key": "gon_dragons", "value": True}) == {"error": "unknown"}
         # A press on the GROUP writes every kind in it; one on a kind writes that kind.
         assert tab.web_press("set", {"key": "gcap_doom_elite", "value": 5}) == {"ok": True}
         assert tab.autorally.cap_for("doom_elite") == 5

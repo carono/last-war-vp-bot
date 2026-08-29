@@ -2439,6 +2439,8 @@
   "rally_group.other": "Other monsters",
   "rally_group.cap": "Rallies a day for the group",
   "rally_group.cap.hint": "One number for the whole group — it is written onto every kind in it. 0 means no cap.",
+  "rally_group.on": "Auto-join this group",
+  "rally_group.on.hint": "One switch for the whole group — written onto every kind in it.",
   "rally_group.today": "Today",
   "rally_group.limit": "Cap",
   "rally_group.kinds": "Kinds",

@@ -1048,7 +1048,15 @@ class RallyTab(PanelTab):
         that actually stops the joining — and typing one sets every kind in the group.
         """
         limits, counts = rallylimits.read(self.rt)
-        kinds = list(limits.types())
+        # …AND ONLY THE KINDS A RALLY CAN BE RAISED ON (#2055). «Исключить монстров, на
+        # которые нельзя делать стягивания (простые зомби и т.д.)» — the zombie horde,
+        # the raiders, the sandworms and the airship carry no participation reward in the
+        # game's own table, which is what «нельзя стягивать» looks like in the config
+        # (`tools/lib/rally_kinds.py`). They are dropped from what is DRAWN and from
+        # nothing else: their caps and their switches are still whatever this profile
+        # made them, so a kind wrongly named here costs a row on a screen and never a
+        # banner.
+        kinds = rallykinds.rallyable(limits.types())
         items = []
         for group in rallykinds.GROUPS:
             mine = rallykinds.kinds_in_group(group, kinds)
@@ -1064,7 +1072,19 @@ class RallyTab(PanelTab):
             # so in words only when they ALL are.
             capped = [c for c in caps if c > 0]
             cap = _common(capped)
+            # THE GROUP'S OWN SWITCH, ABOVE ITS OWN CEILING (#2055): «у каждой группы
+            # общие настройки, включено/выключено, лимит стягов». It is the auto-join's
+            # own per-kind filter written over every kind of the group at once — never a
+            # second copy of it — and it reads as ON while any kind of the group is,
+            # because a group with one kind left ticked is still being joined.
+            live = [k for k in mine if k not in self.autorally._kinds_off]
             fields = [{
+                "key": "gon_" + group,
+                "label": "rally_group.on",
+                "kind": opt_value.SWITCH,
+                "value": bool(live),
+                "hint": "rally_group.on.hint",
+            }, {
                 "key": "gcap_" + group,
                 "label": "rally_group.cap",
                 "kind": opt_value.NUMBER,
@@ -1090,7 +1110,8 @@ class RallyTab(PanelTab):
                 # and keeps its label for the tooltip, and a phone has no tooltips — «20
                 # 20 4» says nothing. The words are the panel's own keys, put together
                 # here exactly as every other composed reading on this screen is.
-                "detail": "%s %d · %s %s · %s %d" % (
+                "detail": "%s · %s %d · %s %s · %s %d" % (
+                    self.t(_switch(bool(live))),
                     self.t("rally_group.today"), spent,
                     self.t("rally_group.limit"),
                     str(cap) if cap > 0 else self.t("rally_day.unlimited"),
@@ -1151,10 +1172,22 @@ class RallyTab(PanelTab):
             # the number the person actually thinks in. It writes every kind in the group
             # through the same setter a single cap uses, so the group and its members can
             # never mean two different things.
+            # …AND THE GROUP'S OWN SWITCH (#2055), which is the auto-join's per-kind
+            # filter and not a second copy of it: every kind of the group goes through
+            # `set_join_kind`, the same call the sixty-eight boxes and the gear on
+            # «Таймеры» make.
+            if key.startswith("gon_"):
+                group = key[len("gon_"):]
+                mine = rallykinds.kinds_in_group(group, rallykinds.RALLY_ORDER)
+                if not mine:
+                    return {"error": "unknown"}
+                for kind in mine:
+                    self.set_join_kind(kind, bool(raw))
+                return {"ok": True}
             if key.startswith("gcap_"):
                 group = key[len("gcap_"):]
                 limits, _counts = rallylimits.read(self.rt)
-                mine = rallykinds.kinds_in_group(group, list(limits.types()))
+                mine = rallykinds.kinds_in_group(group, rallykinds.rallyable(limits.types()))
                 if not mine:
                     return {"error": "unknown"}
                 for kind in mine:
@@ -1251,7 +1284,7 @@ class RallyTab(PanelTab):
             "kind_%s" % kind, "rally_limit.type.%s" % kind, errandopts.SWITCH,
             get=(lambda k=kind: k not in self.autorally._kinds_off),
             set=(lambda on, k=kind: self.set_join_kind(k, on)))
-            for kind in rally_kinds.KIND_ORDER)
+            for kind in rally_kinds.RALLY_ORDER)
         return {self.AUTOJOIN_TRIGGER: squads + (
             errandopts.Option("min_soldiers", "rally_troops.min", errandopts.NUMBER,
                               hint_key="rally_troops.hint",

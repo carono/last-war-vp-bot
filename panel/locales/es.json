@@ -2439,6 +2439,8 @@
   "rally_group.other": "Otros monstruos",
   "rally_group.cap": "Concentraciones al día para el grupo",
   "rally_group.cap.hint": "Un número para todo el grupo: se escribe en cada uno de sus tipos. 0 significa sin límite.",
+  "rally_group.on": "Unirse automáticamente a este grupo",
+  "rally_group.on.hint": "Un interruptor para todo el grupo: se aplica a todas sus especies.",
   "rally_group.today": "Hoy",
   "rally_group.limit": "Límite",
   "rally_group.kinds": "Tipos",

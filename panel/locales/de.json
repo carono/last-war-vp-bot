@@ -2439,6 +2439,8 @@
   "rally_group.other": "Andere Monster",
   "rally_group.cap": "Sammlungen pro Tag für die Gruppe",
   "rally_group.cap.hint": "Eine Zahl für die ganze Gruppe — sie wird auf jede Art darin geschrieben. 0 heißt kein Limit.",
+  "rally_group.on": "Dieser Gruppe automatisch beitreten",
+  "rally_group.on.hint": "Ein Schalter für die ganze Gruppe — gilt für alle ihre Arten.",
   "rally_group.today": "Heute",
   "rally_group.limit": "Limit",
   "rally_group.kinds": "Arten",

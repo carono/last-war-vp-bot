@@ -2439,6 +2439,8 @@
   "rally_group.other": "Autres monstres",
   "rally_group.cap": "Ralliements par jour pour le groupe",
   "rally_group.cap.hint": "Un seul nombre pour tout le groupe — il est écrit sur chacun de ses types. 0 signifie sans limite.",
+  "rally_group.on": "Rejoindre automatiquement ce groupe",
+  "rally_group.on.hint": "Un seul interrupteur pour tout le groupe — appliqué à toutes ses espèces.",
   "rally_group.today": "Aujourd'hui",
   "rally_group.limit": "Plafond",
   "rally_group.kinds": "Types",

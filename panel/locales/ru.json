@@ -2439,6 +2439,8 @@
   "rally_group.other": "Другие монстры",
   "rally_group.cap": "Стягов за день на группу",
   "rally_group.cap.hint": "Одно число на всю группу — записывается во все её виды. 0 — без лимита.",
+  "rally_group.on": "Автостяг по этой группе",
+  "rally_group.on.hint": "Один переключатель на всю группу — записывается во все её виды.",
   "rally_group.today": "Сегодня",
   "rally_group.limit": "Лимит",
   "rally_group.kinds": "Видов",

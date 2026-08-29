@@ -2439,6 +2439,8 @@
   "rally_group.other": "Diğer canavarlar",
   "rally_group.cap": "Grup için günlük seferberlik",
   "rally_group.cap.hint": "Tüm grup için tek bir sayı — içindeki her türe yazılır. 0, sınır yok demektir.",
+  "rally_group.on": "Bu gruba otomatik katıl",
+  "rally_group.on.hint": "Tüm grup için tek anahtar — grubun bütün türlerine yazılır.",
   "rally_group.today": "Bugün",
   "rally_group.limit": "Sınır",
   "rally_group.kinds": "Tür",

@@ -2439,6 +2439,8 @@
   "rally_group.other": "Monster lain",
   "rally_group.cap": "Rally per hari untuk grup",
   "rally_group.cap.hint": "Satu angka untuk seluruh grup — ditulis ke setiap jenis di dalamnya. 0 berarti tanpa batas.",
+  "rally_group.on": "Ikut otomatis grup ini",
+  "rally_group.on.hint": "Satu sakelar untuk seluruh grup — berlaku untuk semua jenisnya.",
   "rally_group.today": "Hari ini",
   "rally_group.limit": "Batas",
   "rally_group.kinds": "Jenis",

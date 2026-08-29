@@ -2439,6 +2439,8 @@
   "rally_group.other": "Quái khác",
   "rally_group.cap": "Số lần tập kết mỗi ngày cho nhóm",
   "rally_group.cap.hint": "Một con số cho cả nhóm — được ghi vào mọi loại trong nhóm. 0 nghĩa là không giới hạn.",
+  "rally_group.on": "Tự động tham gia nhóm này",
+  "rally_group.on.hint": "Một công tắc cho cả nhóm — áp dụng cho mọi loại trong nhóm.",
   "rally_group.today": "Hôm nay",
   "rally_group.limit": "Giới hạn",
   "rally_group.kinds": "Loại",

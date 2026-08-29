@@ -75,3 +75,46 @@ that question. Anything of the sort has to come off a live banner instead.
 
 Nothing was sent, nothing was changed, and the client was not driven: three
 `READ_LUA` steps against `LocalController`, all inside the panel's own scenario player.
+
+## Finding 5 — what stands in for «a rally cannot be raised on this» (#2055)
+
+Finding 4 above is still true: no column of `lw_world_monster` SAYS that. What was read
+next, on the same table and by the same means (`actions/dev/_t2055_rally_cfg.md`, two
+`READ_LUA` steps, nothing sent), is the reward a rally pays the people who JOIN it:
+
+| column | boss name keys carrying it |
+| --- | --- |
+| `participate_reward` | **47 of 68** |
+| `restricted_Reward` | 47, the same split |
+| `excess_Reward`, `effect_reward`, `stage` | nil on every row |
+| `army2`, `call_time`, `call_rate`, `time_limit`, `recommendType` | one row each — not this question |
+| `alliance_boss_gift` | 47 rows, a DIFFERENT 47: set on `cl_7_victim`, nil on `crimson_guard` |
+
+A monster nobody can join a rally on has no participation reward to name, and the split
+is exactly the one the player describes as «простые зомби и т.д.»: the nil side is the
+zombie horde and the raiders, the roaming season beasts (`mutant_beast`, `crimson_legion`,
+`bloodnight_alpha_wolf`), the sandworms, the glacieradons, the summoned mummies, the
+airship, the oni general and the oniwagon; the rewarded side is the whole Doom Elite line
+across six seasons, the Golden three, every seasonal boss and the zombie boss.
+
+It agrees with what this machine has actually joined — the day's counts hold
+`doom_elite`, `shadow_destroyer` and the fallback, all on the rewarded side, and nothing
+on the nil side has ever been counted in any profile here.
+
+**The list is `rally_kinds.NO_RALLY_KINDS`, and it hides a kind from what the panel DRAWS
+and from nothing else.** The auto-join's own filter is `kinds_off` and its ceiling is the
+profile's own number; neither is touched, so a kind named here by mistake costs a row on a
+screen and never a banner.
+
+Two kinds it drops are worth saying out loud, because they look wrong until the column is
+read: **`desert_boss` — «Золотой вожак»** — is on the nil side and is therefore not one of
+the Golden ones a rally goes out on, and **`bloodnight_alpha_wolf`** is too, although
+#2051's portrait rule had put it in the elite group. Both keep their caps.
+
+## The groups, as the player named them (#2055)
+
+«Роковая элита» is Finding 1's line, read off `special == 0` and the portrait beside it.
+«Событийные» is a list, in the player's own words — «событийные - это золотые боссы,
+Инструкторы Авангарда» — with the Alliance Exercise and the Zombie Invasion kept beside
+them at their own word, because the two are events as much as the rest and there is
+nothing in the boss census to read any of it off (Finding 4). Everything left is «Другие».

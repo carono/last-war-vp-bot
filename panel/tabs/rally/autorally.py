@@ -273,8 +273,13 @@ class AutoRallyPage:
             for block in range(columns):
                 tr(ttk.Label(grid), head).grid(row=0, column=block * 4 + col,
                                                sticky="w", padx=(0, 6))
-        per = (len(rally_kinds.KIND_ORDER) + columns - 1) // columns
-        for n, kind in enumerate(rally_kinds.KIND_ORDER):
+        # THE KINDS A RALLY CAN BE RAISED ON, and no others (#2055): the horde, the
+        # raiders, the sandworms and the airship pay no participation reward in the
+        # game's own table, so no banner ever goes out on one and a row for it is a row
+        # nobody can act on. The vocabulary keeps them — this only stops DRAWING them.
+        drawn = rally_kinds.RALLY_ORDER
+        per = (len(drawn) + columns - 1) // columns
+        for n, kind in enumerate(drawn):
             block, line = n // per, n % per + 1
             var = statevar.boolean(self.rt.root, kind not in self._kinds_off)
             self._kind_vars[kind] = var

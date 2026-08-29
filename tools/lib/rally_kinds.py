@@ -207,6 +207,11 @@ GROUP_OTHER = "other"
 GROUPS = (GROUP_DOOM_ELITE, GROUP_EVENT, GROUP_OTHER)
 
 #: The kinds of each of the two named groups; everything else is `other`.
+#:
+#: «Событийные» IS THE PLAYER'S OWN LIST and not a column of anything (#2055): «событийные
+#: - это золотые боссы, Инструкторы Авангарда», with the Alliance Exercise and the Zombie
+#: Invasion kept beside them at their own word — the two are events as much as the rest,
+#: and there is nothing in the boss census to read any of it off.
 GROUP_MEMBERS: dict = {
     GROUP_DOOM_ELITE: (
         "doom_elite",                 # special = 0, six seasons of name keys
@@ -215,14 +220,76 @@ GROUP_MEMBERS: dict = {
         "bloodnight_alpha_wolf",      # shares the Blood Night elite's portrait
     ),
     GROUP_EVENT: (
+        "desert_boss",                # the Golden line, in the player's own words
+        "golden_defender",
+        "golden_striker",
+        "golden_annihilator",
+        "general_trial",              # «Инструкторы Авангарда», activity = 107
+        "general_trial_elite",
+        "general_trial_forces",
         "alliance_drill",             # AllyDrillDataManager
         "zombie_invasion",            # the invasion's own lists
         "invading_zombies",
-        "general_trial",              # activity = 107
-        "general_trial_elite",
-        "general_trial_forces",
     ),
 }
+
+# ------------------------------------------------------------ what cannot be rallied --
+#
+# «Исключить монстров, на которые нельзя делать стягивания (простые зомби и т.д.)»
+# (#2055). #2051 looked for a column SAYING that and there is none; what there is, read
+# the same way on the same table, is the reward a rally pays the people who JOIN it:
+#
+#     `participate_reward` is set on 47 of the 68 boss name keys and nil on 21.
+#
+# A monster nobody can join a rally on has no participation reward to name, and the split
+# is exactly the one the player describes: the zombie horde and the raiders, the roaming
+# season beasts, the sandworms and the airship are the nil side, while the whole Doom
+# Elite line, the Golden three, every seasonal boss and the zombie boss carry one. It
+# agrees with what this machine has actually joined — `doom_elite`, `shadow_destroyer`
+# and the fallback, all on the rewarded side — and nothing on the nil side has ever been
+# counted here.
+#
+# THIS HIDES A KIND FROM THE PANEL'S LISTS AND CHANGES NO JOIN. The auto-join's own filter
+# is `kinds_off` and its cap is the profile's own number; both are untouched, so a kind
+# named here by mistake is a row missing from a screen, never a banner refused.
+NO_RALLY_KINDS: frozenset = frozenset({
+    "blood_night_oni_legion",
+    "bloodnight_alpha_wolf",
+    "crimson_legion",
+    "desert_boss",
+    "general_trial_forces",
+    "giant_devouring_flower",
+    "giant_glacieradon",
+    "giant_sandworm",
+    "glacieradon",
+    "large_sandworm",
+    "mummies_summoned_by_0",
+    "mutant_beast",
+    "mutant_raider",
+    "night_army",
+    "oni_general",
+    "sky_predator",
+    "small_sandworm",
+    "wandering_oniwagon",
+    "zombie_horde",
+    "zombie_raider",
+})
+
+
+def can_rally(kind: str) -> bool:
+    """Whether a rally can be raised on this kind at all (`participate_reward`)."""
+    return str(kind or "") not in NO_RALLY_KINDS
+
+
+def rallyable(kinds) -> list:
+    """The given kinds with the un-ralliable ones dropped, order kept."""
+    return [k for k in kinds if can_rally(k)]
+
+
+#: :data:`KIND_ORDER` with those dropped — what every list of kinds the panel DRAWS is
+#: built from. The vocabulary itself keeps them: a banner that somehow arrives for one is
+#: still counted under its own name rather than the fallback.
+RALLY_ORDER: tuple = tuple(k for k in KIND_ORDER if can_rally(k))
 
 
 def group_of(kind: str) -> str:

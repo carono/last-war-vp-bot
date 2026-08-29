@@ -2439,6 +2439,8 @@
   "rally_group.other": "Inne potwory",
   "rally_group.cap": "Zbiórek dziennie dla grupy",
   "rally_group.cap.hint": "Jedna liczba dla całej grupy — zapisuje się w każdym jej rodzaju. 0 oznacza brak limitu.",
+  "rally_group.on": "Automatyczne dołączanie do tej grupy",
+  "rally_group.on.hint": "Jeden przełącznik dla całej grupy — zapisywany we wszystkich jej rodzajach.",
   "rally_group.today": "Dziś",
   "rally_group.limit": "Limit",
   "rally_group.kinds": "Rodzajów",
