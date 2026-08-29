@@ -391,11 +391,27 @@ def test_the_phone_reads_the_store_before_it_reaches_the_game():
     assert "chat.history_end" in text, "nothing tells the reader the history has ended"
 
 
+def test_what_arrives_while_reading_history_is_counted_not_thrown_at_the_reader():
+    """Both halves of the person's second rule, and they are opposite behaviours.
+
+    At the bottom: a new message appends and the view follows it. Up in the history:
+    the message still goes in — scrolling down must find it in place — but the view
+    stays put and a counter says how many are below.
+    """
+    text = _VIEW.read_text(encoding="utf-8")
+    assert "if (!glued.current) setUnseen((n) => n + added.length)" in text, \
+        "nothing counts what arrived while the reader was up in the history"
+    assert "chat.new_below" in text, "the reader is never told there is anything below"
+    assert "if (glued.current) el.scrollTop = el.scrollHeight" in text, \
+        "a new message no longer follows the reader who IS at the bottom"
+
+
 def test_every_locale_has_the_keys():
     wanted = ("chat.history.load", "log.chat.backlog", "log.chat.backlog_none",
               "log.chat.backlog_reading", "log.chat.backlog_held",
               "chat.older_from_game", "chat.history_end", "chat.deep_busy",
-              "chat.deep_failed", "log.chat.deep_asking", "log.chat.deep_done")
+              "chat.deep_failed", "log.chat.deep_asking", "log.chat.deep_done",
+              "chat.new_below")
     for path in sorted((_REPO / "panel" / "locales").glob("*.json")):
         table = json.loads(path.read_text(encoding="utf-8"))
         missing = [k for k in wanted if k not in table]

@@ -92,6 +92,7 @@
   "chat.load_more": "↑ önceki iletileri göster",
   "chat.older_from_game": "↑ oyundan daha eski mesajları iste",
   "chat.history_end": "geçmişin tamamı bu — sunucuda daha eskisi yok",
+  "chat.new_below": "↓ {n} yeni mesaj",
   "chat.deep_busy": "oyundan daha eski mesajlar zaten isteniyor",
   "chat.deep_failed": "oyun daha eski mesaj isteğine yanıt vermedi",
   "log.chat.deep_asking": "sunucudan elimdekilerden daha eski mesajları istiyorum",

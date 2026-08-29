@@ -92,6 +92,7 @@
   "chat.load_more": "↑ show earlier messages",
   "chat.older_from_game": "↑ ask the game for earlier messages",
   "chat.history_end": "that is the whole history — the server has nothing earlier",
+  "chat.new_below": "↓ {n} new message(s)",
   "chat.deep_busy": "already asking the game for earlier messages",
   "chat.deep_failed": "the game did not answer the request for earlier messages",
   "log.chat.deep_asking": "asking the server for messages older than the ones held",

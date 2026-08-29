@@ -136,6 +136,11 @@ export function ChatView({
   //: The ask is in the game right now — a round trip, so it is shown rather than
   //: hidden: the button says it and stays disabled until the answer lands.
   const [deep, setDeep] = useState(false)
+  //: How many messages have arrived while the reader was NOT at the bottom. They are
+  //: put in place immediately — the list is a conversation, not a feed — but the view
+  //: is not dragged down under a thumb that is reading history; this is what says they
+  //: are there, and pressing it goes to them.
+  const [unseen, setUnseen] = useState(0)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<string | null>(null)
@@ -183,6 +188,7 @@ export function ChatView({
     setMore(false)
     setServer(false)
     setDeepRoom('')
+    setUnseen(0)
     void draw()
   }, [draw])
 
@@ -221,6 +227,10 @@ export function ChatView({
           const seen = new Set(prev.map((r) => r.id))
           const added = fresh.filter((r) => !seen.has(r.id))
           if (!added.length) return prev
+          // NOT AT THE BOTTOM = do not drag them there. The rows go in either way —
+          // scrolling down must find them already in place — and the counter is what
+          // tells the reader something arrived while they were up in the history.
+          if (!glued.current) setUnseen((n) => n + added.length)
           return [...prev, ...added].sort((a, b) => a.ts - b.ts)
         })
       } catch {
@@ -406,6 +416,7 @@ export function ChatView({
             const el = pane.current
             if (!el) return
             glued.current = atBottom()
+            if (glued.current && unseen) setUnseen(0)
             if (el.scrollTop >= REACH) return
             // THE STORE FIRST, ALWAYS. Only a scroll that finds it spent reaches the
             // game, which is the person's own rule: «если у нас нет сообщений».
@@ -461,6 +472,22 @@ export function ChatView({
             <p className="muted small">{t('chat.empty')}</p>
           )}
         </div>
+        {/* WHAT ARRIVED WHILE YOU WERE READING HISTORY. It sits between the pane and
+            the box, says how many, and takes you to them — the view is never dragged
+            down under a thumb that did not ask to go there. */}
+        {unseen ? (
+          <button
+            className="go wide"
+            onClick={() => {
+              const el = pane.current
+              if (el) el.scrollTop = el.scrollHeight
+              glued.current = true
+              setUnseen(0)
+            }}
+          >
+            {t('chat.new_below', { n: unseen })}
+          </button>
+        ) : null}
         {/* THE BOX IS AT THE BOTTOM, which is the half of «как в телеграм» a person
             feels first. Two sends and one box: words, and the coordinate in them. */}
         <div className="chatbox">

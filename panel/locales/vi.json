@@ -92,6 +92,7 @@
   "chat.load_more": "↑ xem tin nhắn trước đó",
   "chat.older_from_game": "↑ hỏi trò chơi các tin nhắn cũ hơn",
   "chat.history_end": "đó là toàn bộ lịch sử — máy chủ không có gì cũ hơn",
+  "chat.new_below": "↓ {n} tin nhắn mới",
   "chat.deep_busy": "đang hỏi trò chơi các tin nhắn cũ hơn",
   "chat.deep_failed": "trò chơi không trả lời yêu cầu tin nhắn cũ hơn",
   "log.chat.deep_asking": "hỏi máy chủ những tin nhắn cũ hơn số đang giữ",
