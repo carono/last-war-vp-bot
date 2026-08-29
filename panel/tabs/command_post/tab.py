@@ -38,6 +38,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ...runtime import game_process
+from ...runtime import errand_options as errandopts
 from ...runtime import squad_picker
 from ...runtime import opt_value
 from ...runtime import store
@@ -1434,6 +1435,19 @@ class CommandPostTab(PanelTab):
     # over, so «Ограбить всех» is one recipe played whole — the order of work `CLAUDE.md`
     # states, finished rather than excepted.
     WEB_SCREEN = True
+
+    def errand_options(self) -> dict:
+        """The digging squad, on the gear of the `treasure_auto` row too (#2062/#2017).
+
+        The order that spends it is a LISTENER, and it goes on running whether or not
+        anybody opens this tab — so its knob has to be reachable from the page that lists
+        the standing orders, not only from the page holding the chests (#2010). One value:
+        the gear writes the same variable this tab's own picker does.
+        """
+        return {"treasure_auto": (errandopts.Option(
+            "treasure_squad", "squads.title", errandopts.SQUADS, single=True,
+            get=(lambda: [self._treasure_squad()]),
+            set=self._set_treasure_squad),)}
 
     def web_view(self) -> "dict | None":
         """The three pages as three cards. Reads FILES, never the game.
