@@ -599,3 +599,29 @@ one block of overrides and not a second stylesheet.
 **The window has no such switch and is not getting one.** Tk is being retired
 (`docs/research/panel-service-and-spa-plan.md`) and new work goes into the web only
 (`CLAUDE.md`).
+
+## 7. One modal, and nobody writes a second one (#2061)
+
+**The person's decision, in their words: «Модалки да, переиспользуем и берем за правило».**
+It is a rule rather than a preference, and it has three halves:
+
+1. **Parameters behind a gear open as a modal** — a sheet over the page — everywhere:
+   errands, listeners, standing orders, the rally groups' caps, and whatever grows a gear
+   next. The shape was asked for a task earlier, in the same person's words: «сделай, чтобы
+   при клике на шестеренку открывалась модалка с параметрами, а не коллапс, это везде»
+   (#2051).
+2. **The collapse is not used any more.** Unfolding the block downwards opens the knobs
+   INSIDE the list they belong to: the row being edited slides under the thumb, everything
+   under it jumps, and on a phone the form lands wherever the scroll happened to be.
+3. **There is exactly one component and it is reused, never forked** —
+   `panel/web/app/src/ui/Modal.tsx`, written for the rally cards (`56ba8e6b`) and reused by
+   «Таймеры» (#2061) rather than copied. It closes three ways — the ✕, the dark outside it,
+   and Esc for whoever is at a keyboard — and `body.modal-open` holds the page still behind
+   it, so the gesture is learnt once and behaves the same wherever it is met.
+
+**If the one modal does not fit a new place, improve it and say what changed.** A second
+sheet with its own margins and its own way of dismissing is what this rule exists to
+prevent; six months on there is no way to tell such a thing from an accident.
+
+`tests/test_panel_web.py` pins both ends of it: the front-end defines exactly one modal
+component, and every file that draws a gear renders into that one.

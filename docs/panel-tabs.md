@@ -1275,4 +1275,29 @@ is every tile on the map (#1256).
   draws one field wherever it is drawn — a tab screen's knob and a gear's are the same
   control over the same `Field`, differing only in which route it posts to.
 
-Pinned by `tests/test_panel_errand_options.py`.
+### …and on the phone they open in ONE modal, which nobody re-writes
+
+**The person's decision, in their words: «Модалки да, переиспользуем и берем за правило»**
+(#2061), after having asked for the shape itself a task earlier: «сделай, чтобы при клике
+на шестеренку открывалась модалка с параметрами, а не коллапс, это везде» (#2051).
+
+So, for every gear in the web front-end — an errand's, a listener's, a standing order's,
+a rally group's, and whatever grows one next:
+
+* it opens a **modal**, a sheet over the page. Never a collapse that unfolds the block
+  downwards: that slides the row being edited away under the thumb and jumps everything
+  below it, which on a phone means the knobs land wherever the scroll happened to be;
+* it opens **the one component**, `panel/web/app/src/ui/Modal.tsx` — written for the rally
+  cards in `56ba8e6b` and reused by the errands page since #2061. It closes three ways (the
+  ✕, the dark outside it, Esc) and holds the page still behind itself, so the gesture is
+  learnt once;
+* **a second modal is not written.** If the one there is does not fit a new place, improve
+  it and say what changed. A fork with its own margins and its own way of closing is
+  indistinguishable from an accident by the time anybody notices.
+
+A tab does not build any of this: it declares `options` (or `options_title`) on an item and
+the renderer draws the gear and the sheet (`views/ScreenView.tsx`, `useItemGear`). Nothing
+in a tab may name a modal, and nothing in the front-end may define a second one.
+
+Pinned by `tests/test_panel_errand_options.py`, and the one-modal half by
+`tests/test_panel_web.py`.

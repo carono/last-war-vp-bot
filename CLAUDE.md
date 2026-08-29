@@ -242,6 +242,37 @@ def web_press(self, action, args) -> dict:
     return {"ok": self.rt.play_async("heal_units", tag="web")}
 ```
 
+### The knobs open in ONE modal, and nobody writes a second one
+
+**Binding, and it is the person's decision rather than anybody's taste**, in their words:
+**«Модалки да, переиспользуем и берем за правило»** (#2061), after the same person had
+already asked for the shape once: «сделай, чтобы при клике на шестеренку открывалась
+модалка с параметрами, а не коллапс, это везде» (#2051).
+
+Three sentences, and each is a separate prohibition:
+
+1. **Parameters behind a gear open as a MODAL** — a sheet over the page. Everywhere:
+   errands, listeners, standing orders, the rally caps, and whatever grows a gear next.
+2. **A collapse that unfolds the block downwards is not used any more.** It opens INSIDE
+   the list it belongs to, so the row being edited slides away under a thumb and
+   everything below it jumps; on a phone the knobs land wherever the scroll happened to
+   be.
+3. **No second modal is written.** There is exactly one component —
+   `panel/web/app/src/ui/Modal.tsx` — and every gear renders into it. It closes three
+   ways (the ✕, the dark outside it, Esc), it holds the page still behind itself, and a
+   person learns that gesture once.
+
+**If the one modal does not fit a new place, IMPROVE IT — never fork it**, and say what
+changed. A second sheet with its own margins and its own way of closing is the thing this
+rule exists to prevent, and it is indistinguishable from an accident six months later.
+
+It is a worked example of the rule its neighbour states — «A control that exists twice is
+written once». The component was written for the rally cards (`56ba8e6b`, #2051/#2055) and
+the errands page reuses that one rather than growing its own (#2061); the reuse went the
+same way round the other time, and either direction is right as long as there is only one.
+`tests/test_panel_web.py` fails on a second modal component and on a gear that renders
+anything but this one.
+
 ### A press travels only when the ability is a scenario
 
 `web_press` runs what `rt.actions` / `rt.play_async` runs and nothing else. Where a tab

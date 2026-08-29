@@ -2368,6 +2368,47 @@ def test_the_theme_is_the_panels_own_and_not_an_accounts():
     assert "[data-theme='light']" in css, "there is only one palette"
 
 
+def test_there_is_one_modal_and_every_gear_opens_it():
+    """«Модалки да, переиспользуем и берем за правило» — the person's rule (#2061).
+
+    Three things it forbids, and each has its own quiet way back in:
+
+    * a SECOND modal component, written because the first one did not quite fit. Two
+      sheets with two sets of margins and two ways of dismissing are one gesture a person
+      has to learn twice — and six months on there is no telling such a thing from an
+      accident. The rule is to improve the one there is;
+    * a gear that opens something else. Every file that draws a ⚙ must render into
+      `ui/Modal.tsx`;
+    * the COLLAPSE coming back (#2051): knobs unfolding inside the list push the row
+      being edited under the thumb and jump everything below it.
+
+    Checked as text because that is what makes it cheap enough to run on every change.
+    """
+    modal = (_APP_SRC / "ui" / "Modal.tsx").read_text(encoding="utf-8")
+    assert "export function Modal(" in modal, "the one modal is not where it lives"
+
+    # ONE definition, across the whole front-end.
+    defined = [path for path in sorted(_APP_SRC.rglob("*.tsx"))
+               if re.search(r"export function \w*Modal\w*\(|export const \w*Modal\w* =",
+                            path.read_text(encoding="utf-8"))]
+    assert [p.name for p in defined] == ["Modal.tsx"], \
+        f"a second modal component: {[p.name for p in defined]}"
+
+    # …and every gear renders into it. The gear is a sign, so it is found by the sign.
+    for path in sorted(_APP_SRC.rglob("*.tsx")):
+        text = path.read_text(encoding="utf-8")
+        if "\u2699" not in text and "⚙" not in text:
+            continue
+        assert "from '../ui/Modal'" in text or "from './ui/Modal'" in text, \
+            f"{path.name} draws a gear and does not open the one modal"
+        assert "<Modal" in text, f"{path.name} imports the modal and opens something else"
+
+    # The sheet's own rules live in one place too — a fork would need its own.
+    css = _css()
+    assert css.count(".modal-back") >= 1 and "body.modal-open" in css, \
+        "the sheet no longer holds the page still behind it"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
