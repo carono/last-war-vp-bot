@@ -141,9 +141,27 @@ def main() -> int:
 
     ev = lua_client.get_evaluator()
 
-    # Install the single class-level hook (idempotent). No need to open the chat
-    # window -- onParseServerData fires regardless of UI state.
-    ev.run(_INSTALL_LUA, marker=MARKER, settle=1.5)
+    # THE EAR MUST OUTLIVE A BUSY GAME (#2064). The panel holds the client's Lua VM and
+    # hands it out one caller at a time, so a scenario in the middle of a run makes this
+    # read fail -- and every such failure used to leave the process, because it was one
+    # unguarded call. The panel logged «монитор завершён» and stopped recording, which
+    # is indistinguishable from a quiet chat. So a failure is a WAIT, never an exit: the
+    # hook is (re)installed whenever it is not known to be in, and a drain that raises
+    # only costs the seconds until the next one.
+    installed = False
+
+    def _install() -> bool:
+        """Put the class-level hook in. Idempotent in the game, and safe to retry."""
+        try:
+            # No need to open the chat window -- onParseServerData fires regardless.
+            ev.run(_INSTALL_LUA, marker=MARKER, settle=1.5)
+            return True
+        except Exception as exc:            # noqa: BLE001 -- a busy VM, not a bug
+            print(f"# chat_reader: hook not installed ({exc}); retrying",
+                  file=sys.stderr, flush=True)
+            return False
+
+    installed = _install()
 
     print(f"# chat_reader: capturing for {args.seconds or '∞'}s",
           file=sys.stderr, flush=True)
@@ -155,7 +173,21 @@ def main() -> int:
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(args.interval)
-            lines = ev.run(_DRAIN_LUA, marker=MARKER, settle=1.2)
+            if not installed:
+                installed = _install()
+                if not installed:
+                    continue
+            try:
+                lines = ev.run(_DRAIN_LUA, marker=MARKER, settle=1.2)
+            except Exception as exc:        # noqa: BLE001 -- a busy VM, not a bug
+                # A read that could not be made is one drain missed, not the end of the
+                # recording: the buffer it drains is in the game and keeps filling. A
+                # client that went away takes the hook with it, so the next round puts
+                # it back before reading again.
+                print(f"# chat_reader: drain failed ({exc}); waiting",
+                      file=sys.stderr, flush=True)
+                installed = False
+                continue
             for ln in (lines or []):
                 rec = _parse_record_line(ln)
                 # Routable? Not an optimistic seqId-less echo of my own send? Both

@@ -419,6 +419,24 @@ def test_what_arrives_while_reading_history_is_counted_not_thrown_at_the_reader(
         "a new message no longer follows the reader who IS at the bottom"
 
 
+def test_a_busy_game_does_not_end_the_recording():
+    """The ear died on a busy VM, and dying is what made it invisible (#2064).
+
+    The panel holds the client's Lua VM and hands it out one caller at a time, so a
+    scenario in the middle of a run makes the reader's drain fail. That call was
+    unguarded, so the failure ended the PROCESS: the panel wrote «монитор завершён»,
+    the tick went off and nothing was recorded until somebody noticed — and a gap in a
+    chat history looks exactly like a quiet hour. A missed drain must cost seconds.
+    """
+    src = (_REPO / "tools" / "chat_reader.py").read_text(encoding="utf-8")
+    assert "def _install()" in src, "the hook cannot be put back after a client went away"
+    assert "installed = _install()" in src, "the hook is never installed"
+    assert "except Exception as exc:        # noqa: BLE001 -- a busy VM, not a bug" in src, \
+        "a drain that fails still ends the recording"
+    assert "installed = False\n                continue" in src, \
+        "a failed drain neither re-installs the hook nor waits for the next round"
+
+
 def test_the_ear_is_a_switch_the_phone_can_reach():
     """A history that has stopped growing looks exactly like a quiet chat (#2064).
 
