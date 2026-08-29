@@ -259,6 +259,24 @@ def test_scrolling_up_reads_the_store_and_never_the_game():
     assert "el.scrollTop += el.scrollHeight - held.current" in view,         "the prepend is not compensated"
 
 
+def test_a_lone_history_on_disk_names_its_own_character():
+    """A phone opening the chat on a freshly started panel showed NOTHING (#2064).
+
+    Paging needs to know whose history it is, and the tab learns that from the game the
+    first time somebody opens it — which on a fresh panel nobody has. A profile that has
+    ever collected chat holds one `chat_history_<uid>.db`, and where there is exactly one
+    the character is not a guess. Two or more is left unanswered on purpose: a chat drawn
+    under the wrong character's name is worse than an empty page.
+    """
+    source = _TAB.read_text(encoding="utf-8")
+    assert "def _only_history_on_disk" in source, "a lone history does not name itself"
+    start = source.index("def _only_history_on_disk")
+    body = source[start:source.index("def _web_when")]
+    assert "len(found) != 1" in body, "several characters are answered by a guess"
+    assert 'self._chat_uid or "") or self._only_history_on_disk()' in source, \
+        "the read store does not fall back to the history on disk"
+
+
 def test_a_coordinate_in_a_message_is_a_link_on_the_phone_too():
     """Chat is where places arrive, and the window has made them clickable for years."""
     tab = _TAB.read_text(encoding="utf-8")

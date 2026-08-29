@@ -492,7 +492,7 @@ class ChatTab(PanelTab):
         """
         if self._chat_store is not None:
             return self._chat_store
-        uid = str(self._chat_uid or "")
+        uid = str(self._chat_uid or "") or self._only_history_on_disk()
         if not uid:
             return None
         if self._read_store is not None and self._read_store_uid == uid:
@@ -504,6 +504,31 @@ class ChatTab(PanelTab):
         except Exception:                      # noqa: BLE001 — no store is an empty page
             self._read_store = None
         return self._read_store
+
+    def _only_history_on_disk(self) -> str:
+        """The character a lone history file belongs to, when there is exactly one.
+
+        A phone opening this screen on a freshly started panel has no `chat_uid` yet:
+        the tab remembers it once it has read the game, and until somebody opens the tab
+        nothing has. A profile that has ever collected chat holds a
+        `chat_history_<uid>.db` beside its log, and when there is exactly ONE of them
+        the character is not a guess — it is the only answer the disk has.
+
+        TWO OR MORE IS NOT ANSWERED HERE. A person who has played several characters on
+        one account would be shown whichever file sorted first, and a chat drawn under
+        the wrong character's name is worse than an empty page. Then the screen stays
+        empty until the tab has asked the game who is logged in.
+        """
+        import glob
+
+        try:
+            found = glob.glob(os.path.join(self.rt.profiles.dir(), "chat_history_*.db"))
+        except Exception:                      # noqa: BLE001 — no directory, no history
+            return ""
+        if len(found) != 1:
+            return ""
+        stem = os.path.basename(found[0])
+        return stem[len("chat_history_"):-len(".db")]
 
     def _web_when(self, ts: float) -> str:
         """A short «when» for a contact row — the time today, the date before that."""

@@ -262,6 +262,8 @@ height is measured before the rows go in and the same distance is added back to
 `scrollTop` — and a new message pulls the view down only when the reader was already at
 the bottom, exactly as the window's own view behaves.
 
+Whose history is being paged is the tab's own `chat_uid`, read live from the game and remembered in its saved block. A freshly started panel has neither, and asking the game who is logged in is exactly what a page of history must not cost — so where the profile holds exactly ONE `chat_history_<uid>.db` that file names its own character and is opened read-only. Two or more is left unanswered: a chat drawn under the wrong character's name is worse than an empty page.
+
 A bubble carries the message's own `serverTime` as its stamp, and only «which day is
 this» is judged against now (`tools/lib/game_clock.py`); an un-synced clock names the
 date outright rather than guessing «вчера». Coordinates in the words are links, marked
