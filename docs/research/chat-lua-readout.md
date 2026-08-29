@@ -203,6 +203,32 @@ C:\Python312\python.exe tools\extract_chat_assets.py
   built-in head frame with no uploaded avatar has no cached file and simply renders
   nickname-only.
 
+### Keeping the ear open (#2064)
+
+The reader child is what turns a push into a stored message, so everything about the
+history rests on it being UP. Three things were wrong with that and all three are fixed:
+
+* **It could only be started from the window.** The switch is on the phone now — the chat
+  screen carries `listening`, `web_press("listen", {"on": …})` moves it, and both
+  front-ends move the one variable through `_toggle_chat`, so neither can start a second
+  reader. Measured live: a press on an unopened tab logged «монитор запущен (pid …)» and
+  «история загружена: 1432 сообщений».
+* **It did not come back with the panel.** The tab is `EAGER`: a reader listening for
+  messages that will not wait for somebody to click a tab is exactly what the flag is
+  for. Two halves were needed — the boot re-reads the saved tick, and a switch moved from
+  the PHONE now writes the profile (`rt.settings.changed()`), which the binder's trace
+  over `persist_vars` only does for a control moved at the machine. Before that fix the
+  profile faithfully said `chat_monitor: false` while a reader was running, so every
+  restart came up deaf.
+* **A busy game killed it.** The panel holds the client's Lua VM and hands it out one
+  caller at a time, so a scenario mid-run makes the drain fail; the call was unguarded
+  and the process left. Observed repeatedly: a monitor started and «монитор завершён»
+  seven to forty seconds later, always with a scenario running. A failed drain is now one
+  missed round — the hook is re-installed on the next one, because a client that went
+  away takes the hook with it. Why it stopped is written to `<out>.log` beside the
+  capture: the panel drops the reader's stderr on purpose (its stdout is the JSONL
+  stream), so that file is the only copy a panel-spawned run leaves.
+
 ### Panel history & lazy-load
 
 The panel persists chat to a **per-character** SQLite store,
