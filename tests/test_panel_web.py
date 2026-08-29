@@ -2317,10 +2317,14 @@ def test_a_card_says_whether_it_is_on_by_its_colour_and_switches_in_the_corner()
     """
     script = _front_end_source()
     assert "errand-switch" in script, "the errand's switch is not its own control"
-    assert "'item errand' + (on ? '' : ' off')" in script, \
+    assert "(on ? '' : ' off')" in script, \
         "an errand that is off is drawn exactly like one that is on"
     css = _css()
     assert ".item.errand.off" in css, "nothing colours a card that is switched off"
+    # …AND ITS PICTURE GOES OFF WITH IT (#2061). The card wears the game's own sprite as
+    # a background now, and a background is the loudest thing on it: a switched-off card
+    # at full strength would read as the liveliest of the thirty.
+    assert ".item.errand.art.off::before" in css, "a card that is off keeps a lit picture"
 
 
 def test_the_theme_is_the_panels_own_and_not_an_accounts():
