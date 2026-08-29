@@ -256,8 +256,8 @@ Every page comes off `/api/screen/data?kind=page` — `web_data` in `panel/tabs/
 answered from **this profile's own SQLite store on an HTTP worker thread**, forty rows at
 a time with `more` saying whether anything is above. Nothing on that path touches the
 game, so a thumb flicking upwards cannot become a stream of questions to the server; when
-the store runs out the page says so rather than reaching for
-`ChatRoomRequestHistoryMsg`. The scroll is held in place across a prepend — the pane's
+the store runs out the page says so, and only THEN is the server asked (below). The
+scroll is held in place across a prepend — the pane's
 height is measured before the rows go in and the same distance is added back to
 `scrollTop` — and a new message pulls the view down only when the reader was already at
 the bottom, exactly as the window's own view behaves.
@@ -270,6 +270,50 @@ date outright rather than guessing «вчера». Coordinates in the words are 
 server-side by `panel/web/coordlinks.py` so `tools/lib/coords.py` stays the one parser.
 Photographs ride `/api/chatsprite?photo=<uid>&ver=<n>`; a tap opens the full-size copy in
 the panel's one modal.
+
+### Asking the SERVER for history older than the client holds
+
+Everything above reads a copy that already exists. When a person keeps scrolling past
+the end of both — the panel's store and the client's own per-room list — the words they
+are looking for are on the server, and that is the one reading in the chat that costs a
+round trip. The person asked for it in these words: «Опрос сервера при прокрутке тоже
+сделай, если у нас нет сообщений» (#2064).
+
+**The call.** `ChatManager2.Instance.Ctrl:ChatRoomRequestHistoryMsg(roomId, sort)` —
+`Chat.Controller.ChatController`, reached through `package.loaded` (there is no global
+`ChatController`, and `Chat.ChatInterface` is a loaded module too). `debug.getlocal`
+names the parameters `self, roomId, sort`; the source is `ChatController.lua:528-541`.
+
+| what | measured live, 2026-08-29, on the world room |
+|---|---|
+| `sort = 0` | the BACKWARDS direction — 100 messages per call: the room held 47, then 148, then 248, `GetFirstMsgServerTime()` walking back 1787963199672 → 1787949750850 |
+| `sort = 1` | brings nothing at all — the forward direction with the client already at «now» |
+| the cursor | belongs to the CLIENT: every call means «what lies before the oldest I hold», so a second call fetches the slice before the first and never the same one twice |
+| the end | `roomData:GetIsChatHistoryEnd()` — the server's «that is all there was», remembered by the client per room. It answers with NO VALUE rather than `false` while the end has not been reached, so read it into a local before doing anything with it |
+
+**The recipe** is `src/lastwar_bot/actions/fetch_chat_history.md`: it reads how many the
+client holds, asks (only if the end does not already stand), waits, reads the count and
+the end flag back, and finishes with the ordinary `READ_CHAT` — so what the server sent
+travels home through the one decoder everything else uses and lands in the same store
+under the same identity. `limit` is 400 rather than the backlog's 40 for a reason:
+`READ_CHAT` answers with the newest `limit` of each room, and a smaller number would
+fetch the slice and then leave it unread.
+
+**The rules the person set for it** are kept in `panel/tabs/chat.py::_ask_server_for_older`
+rather than in the front-end, because that is where they cannot be forgotten: the store
+is always read first (the phone reaches this only once a page has said `more: false`),
+the ask rides a person's SCROLL and never a clock, `_deep_busy` holds the room for the
+length of the round trip so one scroll makes one request, and `_history_end` is the
+panel's copy of the game's per-room end — once it stands the page stops offering the
+reading at all. The phone shows both states: a button that says it is asking and is
+disabled while it does, and a line saying the history has ended when there is nothing
+left to press.
+
+Measured end to end through the phone's own door (`POST /api/screen/press`,
+`action: older`): **8.7 s** for the first ask, `got: 92`, then 100, 100, 61 on the ones
+after it — each one further back, none of them the same slice. The world history the
+store could page went from 46 messages to 400 across ten pages, back to the previous
+afternoon.
 
 ### Emoji / sticker picker
 
@@ -285,10 +329,9 @@ message, not an `attachmentId` on a text post.
 
 ## Open follow-ups
 
-- **On-demand backlog.** Reading the full on-screen history without waiting for
-  live traffic needs the C#-side ChatView scroll data source, or a hook on the
-  message-**cell** bind (re-binds as you scroll). Neither was reached from Lua in
-  this pass — the cell-bind hook is the recommended next step.
+- ~~**On-demand backlog.**~~ Answered twice over (#2064): `READ_CHAT` reads the copy
+  the client holds, and `fetch_chat_history` asks the server for what lies before it.
+  Neither needed the C#-side scroll data source or a cell-bind hook.
 - **`getMessageParam`** takes an argument we didn't supply (returned nil bare);
   worth mapping for rich-message rendering.
 - **`post` / `type` catalogue** — only `post=611` (attachment) sampled so far.

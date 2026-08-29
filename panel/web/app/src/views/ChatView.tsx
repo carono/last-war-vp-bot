@@ -8,12 +8,21 @@
  * screen says it is DRAWN (`map: {kind: "chat"}`) and this is what draws it, through the
  * same door the world map goes through (#2018).
  *
- * SCROLLING UP READS THE DATABASE AND NEVER THE GAME. Every page comes off
- * `/api/screen/data?kind=page`, which is this profile's own SQLite history answered on
- * an HTTP worker thread (`panel/tabs/chat.py::web_data`). No round trip, so a thumb
- * flicking upwards cannot turn a gesture into a poll — the panel's «read once, then
- * LISTEN» rule holds by construction. Going deeper than the store would mean asking the
- * SERVER for history, which is not done: the top of the list simply stops offering more.
+ * SCROLLING UP READS THE DATABASE FIRST, AND THE GAME ONLY WHEN THE DATABASE IS SPENT.
+ * Every page comes off `/api/screen/data?kind=page`, which is this profile's own SQLite
+ * history answered on an HTTP worker thread (`panel/tabs/chat.py::web_data`). No round
+ * trip, so a thumb flicking upwards cannot turn a gesture into a poll — the panel's
+ * «read once, then LISTEN» rule holds by construction.
+ *
+ * WHEN THE STORE RUNS OUT the panel asks the SERVER, once, for the slice above it
+ * (the person's words: «Опрос сервера при прокрутке тоже сделай, если у нас нет
+ * сообщений»). The rules that ask obeys are the person's own and they are kept on the
+ * panel's side (`chat.py::_ask_server_for_older`): the store is always read first, the
+ * request rides a SCROLL and never a clock, one scroll makes one request, the slice is
+ * never asked for twice — the cursor is the client's own — and «there is nothing
+ * earlier» is remembered per room. This side shows the two states a person has to be
+ * able to tell apart: a reading is on its way (the button says so and is disabled), or
+ * the history has ended (a line says so and there is no button left to press).
  *
  * THE SCROLL MUST NOT JUMP when older messages arrive above what is being read. The
  * pane's height is measured BEFORE the prepend and the same distance is added back to
@@ -62,6 +71,18 @@ interface Page {
   more: boolean
   room: string
   type: string
+  /** Is there still a point in asking the GAME for what lies above the store. */
+  server?: boolean
+  /** The room such an ask would name — a channel does not name its own. */
+  deep_room?: string
+}
+
+/** What the deep read answers with (`chat.py::_ask_server_for_older`). */
+interface Deep {
+  ok?: boolean
+  got?: number
+  end?: boolean
+  reason?: string
 }
 
 interface Contact {
@@ -108,6 +129,13 @@ export function ChatView({
   const [rows, setRows] = useState<ChatRow[]>([])
   const [more, setMore] = useState(false)
   const [busy, setBusy] = useState(false)
+  //: Is the SERVER still worth asking for what lies above the store, and which room
+  //: such an ask would name. Both come off the page the panel just served.
+  const [server, setServer] = useState(false)
+  const [deepRoom, setDeepRoom] = useState('')
+  //: The ask is in the game right now — a round trip, so it is shown rather than
+  //: hidden: the button says it and stays disabled until the answer lands.
+  const [deep, setDeep] = useState(false)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<string | null>(null)
@@ -143,6 +171,8 @@ export function ChatView({
       glued.current = true
       setRows(page.rows || [])
       setMore(!!page.more)
+      setServer(!!page.server)
+      setDeepRoom(String(page.deep_room || ''))
     } catch {
       /* the tick says so */
     }
@@ -151,6 +181,8 @@ export function ChatView({
   useEffect(() => {
     setRows([])
     setMore(false)
+    setServer(false)
+    setDeepRoom('')
     void draw()
   }, [draw])
 
@@ -208,6 +240,8 @@ export function ChatView({
       const page = await get<Page>(link(rows[0].ts))
       const above = page.rows || []
       setMore(!!page.more)
+      setServer(!!page.server)
+      setDeepRoom(String(page.deep_room || ''))
       if (above.length) {
         const seen = new Set(rows.map((r) => r.id))
         setRows((prev) => [...above.filter((r) => !seen.has(r.id)), ...prev])
@@ -220,6 +254,51 @@ export function ChatView({
       setBusy(false)
     }
   }, [busy, more, rows, link])
+
+  /** The slice ABOVE the store — the one reading in this screen that costs a round trip.
+   *
+   *  Ordered the way the person asked for it: the store is spent (`more` is false)
+   *  BEFORE this can run at all, the ask is one press, and what comes back is read out
+   *  of the database like every other page — the panel has already filed it by the time
+   *  it answers. An answer of «nothing arrived» closes the room for good, so a thumb
+   *  that keeps going up asks nobody a second time. */
+  const deeper = useCallback(async () => {
+    const el = pane.current
+    if (deep || busy || more || !server) return
+    setDeep(true)
+    held.current = el ? el.scrollHeight : 0
+    try {
+      const answer = await post<Deep>('/api/screen/press', {
+        id: screen,
+        action: 'older',
+        args: { type, room: room || deepRoom },
+      })
+      if (!answer || !answer.ok) {
+        setServer(false)
+        held.current = 0
+        if (answer && answer.reason) toast(t(answer.reason))
+        return
+      }
+      if (answer.end) setServer(false)
+      if (!answer.got) {
+        held.current = 0
+        return
+      }
+      const page = await get<Page>(link(rows.length ? rows[0].ts : undefined))
+      const above = page.rows || []
+      setMore(!!page.more)
+      if (above.length) {
+        const seen = new Set(rows.map((r) => r.id))
+        setRows((prev) => [...above.filter((r) => !seen.has(r.id)), ...prev])
+      } else {
+        held.current = 0
+      }
+    } catch {
+      held.current = 0
+    } finally {
+      setDeep(false)
+    }
+  }, [deep, busy, more, server, screen, type, room, deepRoom, rows, link, toast])
 
   useLayoutEffect(() => {
     const el = pane.current
@@ -327,13 +406,23 @@ export function ChatView({
             const el = pane.current
             if (!el) return
             glued.current = atBottom()
-            if (el.scrollTop < REACH && more && !busy) void older()
+            if (el.scrollTop >= REACH) return
+            // THE STORE FIRST, ALWAYS. Only a scroll that finds it spent reaches the
+            // game, which is the person's own rule: «если у нас нет сообщений».
+            if (more && !busy) void older()
+            else if (!more && server && !deep && !busy) void deeper()
           }}
         >
           {more ? (
             <button className="go wide" disabled={busy} onClick={() => void older()}>
               {t('chat.load_more')}
             </button>
+          ) : server ? (
+            <button className="go wide" disabled={deep} onClick={() => void deeper()}>
+              {deep ? t('chat.deep_busy') : t('chat.older_from_game')}
+            </button>
+          ) : rows.length ? (
+            <div className="chatday">{t('chat.history_end')}</div>
           ) : null}
           {rows.length ? (
             rows.map((row, i) => (

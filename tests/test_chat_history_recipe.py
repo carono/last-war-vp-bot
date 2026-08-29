@@ -45,6 +45,8 @@ import chat_records                                          # noqa: E402
 from lastwar_bot import script_engine as se                  # noqa: E402
 
 _RECIPE = _REPO / "src" / "lastwar_bot" / "actions" / "read_chat_history.md"
+_DEEP = _REPO / "src" / "lastwar_bot" / "actions" / "fetch_chat_history.md"
+_VIEW = _REPO / "panel" / "web" / "app" / "src" / "views" / "ChatView.tsx"
 _TAB = _REPO / "panel" / "tabs" / "chat.py"
 _DSL = _REPO / "docs" / "dsl.md"
 
@@ -314,9 +316,86 @@ def test_the_statement_is_documented():
         "the doc does not say what the statement refuses to ask"
 
 
+# ---------------------------------------------------------------------------
+# the deeper read — the one place the chat talks to the SERVER (#2064)
+# ---------------------------------------------------------------------------
+def test_the_deep_read_is_a_recipe_of_its_own():
+    text = _DEEP.read_text(encoding="utf-8")
+    assert "ARGS room" in text, "the deep read does not declare the room it names"
+    assert "ChatRoomRequestHistoryMsg" in text, "it does not make the request"
+    assert "READ_CHAT" in text, "it asks and then never reads what arrived"
+    body, _merged = se.prepare_source(text, {"room": "country_1", "limit": 40})
+    prog = se.parse_text(body)
+    assert prog, "the recipe does not parse"
+
+
+def test_the_deep_read_asks_backwards_only():
+    """`sort = 1` brought nothing live; asking with it would be a round trip for none."""
+    text = _DEEP.read_text(encoding="utf-8")
+    call = [ln for ln in text.splitlines() if "ChatRoomRequestHistoryMsg" in ln
+            and not ln.lstrip().startswith("#")]
+    assert call, "nothing in the body makes the request"
+    for line in call:
+        assert '", 0)' in line.replace(" ,", ","), \
+            f"the request is not the backwards one: {line.strip()[:90]}"
+
+
+def test_the_deep_read_is_gated_on_the_end_the_game_remembers():
+    text = _DEEP.read_text(encoding="utf-8")
+    assert "GetIsChatHistoryEnd" in text, \
+        "nothing reads the game's own «that is all there was»"
+    assert "history_end" in text, "the recipe answers with no end flag"
+
+
+def test_the_panel_keeps_the_person_s_rules_for_the_ask():
+    """Store first, a person's scroll, one at a time, and the end remembered."""
+    text = _TAB.read_text(encoding="utf-8")
+    assert "_ask_server_for_older" in text, "the press has nowhere to land"
+    assert "_deep_busy" in text, "nothing stops one scroll making several requests"
+    assert "_history_end" in text, "«there is nothing earlier» is not remembered"
+    tree = ast.parse(text)
+    fn = [n for n in ast.walk(tree)
+          if isinstance(n, ast.FunctionDef) and n.name == "_ask_server_for_older"]
+    assert fn, "the method is gone"
+    body = ast.dump(fn[0])
+    assert "fetch_chat_history" in body, "the ask does not play the recipe"
+    assert "arm(" not in body and "after(" not in body, \
+        "the ask is on a clock — it must ride a person's scroll and nothing else"
+
+
+def test_a_silent_answer_ends_the_room_only_the_second_time():
+    """The game does not always set its own end flag — measured live on the world room.
+
+    So silence is read as the end too, and the reason it takes TWO of them is that one
+    empty answer is also what a reply slower than the recipe's wait looks like.
+    """
+    text = _TAB.read_text(encoding="utf-8")
+    assert "_deep_empty" in text, "an empty answer is not counted at all"
+    assert 'self._deep_empty.get(room, 0) >= 2' in text, \
+        "one slow reply can close a room's history for the rest of the session"
+
+
+def test_the_page_says_whether_the_server_is_worth_asking():
+    text = _TAB.read_text(encoding="utf-8")
+    assert '"server": bool(asked)' in text, \
+        "the page does not tell the front-end whether an ask is still worth making"
+
+
+def test_the_phone_reads_the_store_before_it_reaches_the_game():
+    """The scroll handler must exhaust `more` before it can call the deep read."""
+    text = _VIEW.read_text(encoding="utf-8")
+    assert "deeper()" in text, "the phone cannot ask at all"
+    assert "if (more && !busy) void older()" in text, "the store is no longer read first"
+    assert "else if (!more && server && !deep && !busy) void deeper()" in text, \
+        "the game is asked without the store having run out"
+    assert "chat.history_end" in text, "nothing tells the reader the history has ended"
+
+
 def test_every_locale_has_the_keys():
     wanted = ("chat.history.load", "log.chat.backlog", "log.chat.backlog_none",
-              "log.chat.backlog_reading", "log.chat.backlog_held")
+              "log.chat.backlog_reading", "log.chat.backlog_held",
+              "chat.older_from_game", "chat.history_end", "chat.deep_busy",
+              "chat.deep_failed", "log.chat.deep_asking", "log.chat.deep_done")
     for path in sorted((_REPO / "panel" / "locales").glob("*.json")):
         table = json.loads(path.read_text(encoding="utf-8"))
         missing = [k for k in wanted if k not in table]

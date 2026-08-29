@@ -175,6 +175,20 @@ class ChatTab(PanelTab):
         # thread, so a press from a phone — which reaches this tab before anybody has
         # looked at it — can finish first. Held here, folded in by `_open_chat_store`.
         self._backlog_pending: list = []
+        # THE ROOMS THE SERVER HAS SAID ARE FINISHED (#2064). The game remembers this
+        # per room itself (`GetIsChatHistoryEnd`), and this is the panel's copy of that
+        # answer, so a thumb that keeps travelling upwards past the end asks nobody.
+        self._history_end: set = set()
+        # One deep read at a time, per room: the ask is a game round trip and a scroll
+        # can fire several times before the first has answered.
+        self._deep_busy: set = set()
+        # HOW MANY ASKS IN A ROW BROUGHT NOTHING, per room. The game does not always
+        # set its own end flag — measured live on the world room, which kept answering
+        # «nothing» with `GetIsChatHistoryEnd()` still unset — so silence is read as the
+        # end too, but only the SECOND one in a row: a single empty answer is also what
+        # a slow reply inside the recipe's wait looks like, and one of those must not
+        # close the history for the rest of the session.
+        self._deep_empty: dict = {}
 
     # -- lifecycle ------------------------------------------------------------
     def ensure_loaded(self) -> None:
@@ -366,6 +380,12 @@ class ChatTab(PanelTab):
             # The same press the window's «Загрузить историю» is: one read of what the
             # client already holds, folded into the same store.
             return {"ok": self._load_backlog()}
+        if action == "older":
+            # THE ONE PLACE THE CHAT TALKS TO THE SERVER (#2064). A person's thumb has
+            # travelled past everything this profile has on disk and past everything the
+            # client is holding, and the words they are looking for are on the server.
+            return self._ask_server_for_older(str(args.get("room") or "").strip(),
+                                              str(args.get("type") or ""))
         if action == "set":
             # The picker's own «в какой канал» — remembered for as long as the screen is
             # being looked at, and checked against the rooms this tab has actually seen.
@@ -472,8 +492,14 @@ class ChatTab(PanelTab):
                 more = bool(rows) and store.has_older(chat_type, rows[0].get("ts", 0))
         except Exception:                      # noqa: BLE001 — a bad page is an empty one
             return {"rows": [], "more": False, "room": room, "type": chat_type}
+        # WHICH ROOM a deeper read would name, and whether it is still worth naming.
+        # Resolved from what was just served rather than from the drawn tab: this
+        # answers on an HTTP thread, and the tab may never have been looked at.
+        asked = room or (str(rows[-1].get("room_id") or "").strip() if rows else "")
         return {"rows": [self._web_row(r) for r in rows], "more": more,
-                "room": room, "type": chat_type}
+                "room": room, "type": chat_type,
+                "server": bool(asked) and asked not in self._history_end,
+                "deep_room": asked}
 
     #: A store opened for READING alone, off the Tk thread. Kept apart from
     #: `_chat_store` — that one belongs to the drawn tab and is closed with it.
@@ -1610,6 +1636,120 @@ class ChatTab(PanelTab):
 
         threading.Thread(target=work, daemon=True).start()
         return True
+
+    #: How many messages of EACH room the deep read carries home. Bigger than the
+    #: backlog's forty on purpose: the whole point of asking the server is what lies
+    #: BELOW the forty the client was holding, and `READ_CHAT` answers with the newest
+    #: `limit` of every room — anything smaller would fetch the slice and then throw it
+    #: away unread.
+    DEEP_LIMIT = 400
+
+    def _deep_room(self, room: str, chat_type: str, store) -> str:
+        """Which room a deeper read may name — and never one the store has not seen.
+
+        A press names its room, exactly as sending does, so this is what stops a phone
+        naming a room the panel never opened. A channel needs no name at all: it is the
+        room its newest message is in.
+        """
+        if room:
+            try:
+                return room if store.recent_room(room, 1) else ""
+            except Exception:                  # noqa: BLE001 — an unreadable store
+                return ""
+        try:
+            rows = store.recent(chat_type, 1)
+        except Exception:                      # noqa: BLE001 — a closed store is empty
+            return ""
+        return str(rows[-1].get("room_id") or "").strip() if rows else ""
+
+    def _ask_server_for_older(self, room: str, chat_type: str) -> dict:
+        """Ask the SERVER for the slice above what the store and the client both hold.
+
+        THE ONE PLACE IN THE CHAT THAT TALKS TO THE SERVER (#2064), and every rule the
+        person set for it is kept here rather than in the front-end:
+
+        * **The store first, always.** This is reached only when paging the database has
+          said `more: false` — the phone asks for it, it never offers itself.
+        * **A person's scroll, never a clock.** It is a press, and nothing arms it.
+        * **One scroll, one request.** `_deep_busy` holds the room for the length of the
+          round trip, so a thumb that fires the handler three times asks once.
+        * **Never twice for the same slice.** The cursor belongs to the CLIENT — the
+          request means «what lies before the oldest I hold» — so a second ask fetches
+          the slice before the first.
+        * **«There is no more» is remembered.** The game keeps that per room and the
+          recipe reads it back; `_history_end` is the panel's copy, and the page stops
+          offering the reading once it stands.
+
+        Answered on the HTTP worker thread — a game round trip must not sit on the
+        thread that draws — and it BLOCKS that one worker for the length of the ask, so
+        the phone can page the moment the answer says how many arrived.
+        """
+        if chat_type not in CHAT_TABS:
+            return {"error": "unknown"}
+        store = self._store_for_reading()
+        if store is None:
+            return {"ok": False, "reason": "chat.no_room"}
+        room = self._deep_room(room, chat_type, store)
+        if not room:
+            return {"ok": False, "reason": "chat.no_room"}
+        if room in self._history_end:
+            return {"ok": False, "reason": "chat.history_end", "end": True, "got": 0}
+        if room in self._deep_busy:
+            return {"ok": False, "reason": "chat.deep_busy"}
+        self._deep_busy.add(room)
+        self.say("chat", "log.chat.deep_asking")
+        records: list = []
+        ended = False
+        try:
+            outcome = self.rt.actions.play("fetch_chat_history",
+                                           {"room": room, "limit": self.DEEP_LIMIT},
+                                           human=True, tag="chat")
+            got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+            ended = str(got.get("history_end") or "0") in ("1", "1.0")
+            raw = got.get("chat") or "[]"
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, list):
+                records = [r for r in parsed if isinstance(r, dict)]
+        except Exception as exc:                # noqa: BLE001 — a failed ask, not a dead tab
+            self.say("chat", "log.error", error=exc)
+            return {"ok": False, "reason": "chat.deep_failed"}
+        finally:
+            self._deep_busy.discard(room)
+        before = self._store_count(store)
+        for record in records:
+            try:
+                store.append(record)
+            except Exception:                  # noqa: BLE001 — a lost row, not a dead panel
+                pass
+        added = max(0, self._store_count(store) - before)
+        if added:
+            self._deep_empty.pop(room, None)
+        else:
+            self._deep_empty[room] = self._deep_empty.get(room, 0) + 1
+        # THE END IS REMEMBERED PER ROOM, and it is reached two ways: the game's own
+        # flag, or two asks in a row that brought nothing. Either way the page stops
+        # offering the reading and no further scroll can spend a round trip on it.
+        if ended or self._deep_empty.get(room, 0) >= 2:
+            self._history_end.add(room)
+            ended = True
+        # The DRAWN tab, if anybody is looking at one: the same records through the same
+        # door the backlog uses, so the window shows what the phone just fetched.
+        if self._chat_trees and records:
+            self.post(lambda: self._file_backlog(list(records)))
+        self.say("chat", "log.chat.deep_done", n=added)
+        # `end` is what the front-end stops on — and it is the REMEMBERED end, not
+        # «this one ask was empty»: the first empty answer leaves the button in place,
+        # so a person can ask again rather than be told the history has finished
+        # because one reply was slow.
+        return {"ok": True, "got": added, "end": bool(ended), "room": room}
+
+    @staticmethod
+    def _store_count(store) -> int:
+        """How many rows the store holds, or 0 when it cannot say."""
+        try:
+            return int(store.count())
+        except Exception:                      # noqa: BLE001 — an unreadable store
+            return 0
 
     def _absorb_backlog(self, records: list, uid: str = "") -> None:
         """Put what was read where it is durable — on the Tk thread, and say how many.
