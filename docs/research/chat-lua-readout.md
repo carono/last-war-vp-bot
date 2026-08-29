@@ -243,6 +243,32 @@ appended to the conversation only when it belongs to the peer currently open, an
 otherwise bumps that contact's unread count. This is DM-only — world/alliance/
 national rooms are still one stream per tab.
 
+### The phone draws the same history as a conversation
+
+The web front-end does not list the chat — it **draws** it (#2064). The tab's screen
+says `map: {kind: "chat"}`, the same door the world map goes through, and
+`panel/web/app/src/views/ChatView.tsx` paints a pane that reads oldest-at-the-top with
+the box to answer in underneath: «интерфейс чата как в телеграм». The channel cards are
+still sent and are marked `drawn`, so a front-end that does not know the kind still
+shows the newest messages as an ordinary list.
+
+Every page comes off `/api/screen/data?kind=page` — `web_data` in `panel/tabs/chat.py`,
+answered from **this profile's own SQLite store on an HTTP worker thread**, forty rows at
+a time with `more` saying whether anything is above. Nothing on that path touches the
+game, so a thumb flicking upwards cannot become a stream of questions to the server; when
+the store runs out the page says so rather than reaching for
+`ChatRoomRequestHistoryMsg`. The scroll is held in place across a prepend — the pane's
+height is measured before the rows go in and the same distance is added back to
+`scrollTop` — and a new message pulls the view down only when the reader was already at
+the bottom, exactly as the window's own view behaves.
+
+A bubble carries the message's own `serverTime` as its stamp, and only «which day is
+this» is judged against now (`tools/lib/game_clock.py`); an un-synced clock names the
+date outright rather than guessing «вчера». Coordinates in the words are links, marked
+server-side by `panel/web/coordlinks.py` so `tools/lib/coords.py` stays the one parser.
+Photographs ride `/api/chatsprite?photo=<uid>&ver=<n>`; a tap opens the full-size copy in
+the panel's one modal.
+
 ### Emoji / sticker picker
 
 The send box has an emoji/sticker picker (the "😊" button). It is drawn entirely

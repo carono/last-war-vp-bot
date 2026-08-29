@@ -51,6 +51,24 @@ try:
 except Exception:       # noqa: BLE001 — inline pictures are optional, chat is not
     _PIL_OK = False
 
+def _coord_parts(text: str):
+    """The coordinate marks for one piece of chat prose, or ``None`` for none of them.
+
+    The marking lives in `panel/web/coordlinks.py` because `tools/lib/coords.py` is the
+    one parser this repository has and a second one written in JavaScript would be a
+    second answer to «is this a place». Imported lazily and guarded: this tab is a Tk
+    tab first, and a window that never serves a page must not pay for the web package.
+    """
+    try:
+        from ..web import coordlinks
+    except Exception:                       # noqa: BLE001 — a link, never the message
+        return None
+    try:
+        return coordlinks.parts(text)
+    except Exception:                       # noqa: BLE001
+        return None
+
+
 #: A photo in a message is written as this token by the reader child.
 _PHOTO_TOK = re.compile(r"\[photo:(\d+)\]")
 
@@ -178,9 +196,28 @@ class ChatTab(PanelTab):
 
     def on_profile_switch(self) -> None:
         """A different account is a different chat: bounce the reader, drop what is on
-        screen and re-open the store under the new character."""
+        screen and re-open the store under the new character.
+
+        THE TAIL OF THIS METHOD HAD BEEN LOST since #1221: the lines that close the
+        store, forget the character and start the reader again had drifted below a
+        `return` at the end of `_web_messages`, where they were unreachable. So a
+        profile switch stopped the reader and cleared the widgets and then went on
+        paging the PREVIOUS account's history out of a store that was never closed.
+        """
         self._stop_chat()
         self._clear_chat()
+        if self._chat_store is not None:
+            self._chat_store.close()
+            self._chat_store = None
+        if self._read_store is not None:
+            self._read_store.close()
+            self._read_store = None
+            self._read_store_uid = ""
+        self._chat_uid = ""
+        if self._loaded:
+            self._load_chat_history()
+        if self._chat_var.get():
+            self._start_chat()
     # -- the phone ------------------------------------------------------------
     #
     # Reading AND answering. It was the reading alone while sending was a tool the tab
@@ -210,7 +247,10 @@ class ChatTab(PanelTab):
             rows = self._web_messages(chat_type)
             if not rows and chat_type not in ("world", "alliance", "dm"):
                 continue                       # a quiet corner is not worth a card
-            card = {"title": f"chat.tab.{chat_type}", "items": rows,
+            # `drawn`: a front-end that knows this screen is a CONVERSATION draws the
+            # channel itself and skips this card; one that does not still shows the
+            # newest messages as a list (#2064).
+            card = {"title": f"chat.tab.{chat_type}", "items": rows, "drawn": True,
                     "empty": "chat.empty", "flow": self._web_flow()}
             if chat_type != "dm" and self._chat_room(chat_type):
                 # No room, no box: a card that has never had a message has nowhere to
@@ -551,6 +591,17 @@ class ChatTab(PanelTab):
                     parts[-1]["v"] += str(value)
                 else:
                     parts.append({"t": "text", "v": str(value)})
+        # A COORDINATE IN A MESSAGE IS A LINK, on the phone as in the window (#1982).
+        # Chat is where places actually arrive — a rally target, a treasure, a base to
+        # hit — so the same marker the rest of the web panel uses runs over the words
+        # here, and the browser draws what it is handed rather than parsing anything
+        # itself. `tools/lib/coords.py` stays the one parser in this repository.
+        for part in parts:
+            if part["t"] != "text":
+                continue
+            marks = _coord_parts(part["v"])
+            if marks is not None:
+                part["parts"] = marks
         return parts, photo
 
     def _web_messages(self, chat_type: str) -> list:
@@ -583,15 +634,6 @@ class ChatTab(PanelTab):
                                     "args": {"type": chat_type, "room": room}}]
             out.append(item)
         return out
-
-        if self._chat_store is not None:
-            self._chat_store.close()
-            self._chat_store = None
-        self._chat_uid = ""
-        if self._loaded:
-            self._load_chat_history()
-        if self._chat_var.get():
-            self._start_chat()
 
     def panic(self) -> None:
         self._was_watching = bool(self._chat_var.get())

@@ -223,6 +223,72 @@ def test_the_store_is_written_even_with_nobody_looking():
     assert '"log.chat.backlog_held"' in source, "an early backlog says nothing"
 
 
+def test_the_phone_draws_the_conversation_and_skips_the_listing():
+    """The chat screen is DRAWN, and the front-end that knows it drops the cards.
+
+    A conversation is not a card of rows (#2064). The tab says `map: {kind: "chat"}`
+    and marks the channel cards `drawn`, so the renderer that understands the kind
+    paints the pane and skips them — and one that does not still shows the newest
+    messages as a list rather than nothing at all.
+    """
+    tab = _TAB.read_text(encoding="utf-8")
+    assert '"map": {"kind": "chat"}' in tab, "the chat screen is not drawn"
+    assert '"drawn": True' in tab, "the channel cards are not marked as already drawn"
+    view = (_REPO / "panel" / "web" / "app" / "src" / "views" / "ChatView.tsx")
+    assert view.exists(), "the phone has no chat view"
+    screen = (_REPO / "panel" / "web" / "app" / "src" / "views"
+              / "ScreenView.tsx").read_text(encoding="utf-8")
+    assert "view?.map?.kind === 'chat'" in screen, "the chat kind is not dispatched"
+    assert "!(view?.map && c.drawn)" in screen, "a drawn card is still listed below"
+
+
+def test_scrolling_up_reads_the_store_and_never_the_game():
+    """Paging upwards is `web_data`, and nothing on that path may ask the game.
+
+    This is the «read once, then LISTEN» rule as it applies to a gesture: a thumb
+    flicking up a chat must not be able to turn itself into a stream of questions to
+    the server. The page comes off this profile's own SQLite history, and going deeper
+    than the store would mean `ChatRoomRequestHistoryMsg` — which is not sent.
+    """
+    view = (_REPO / "panel" / "web" / "app" / "src" / "views"
+            / "ChatView.tsx").read_text(encoding="utf-8")
+    assert "kind=page" in view, "the phone does not page the store"
+    assert "ChatRoomRequestHistoryMsg" not in view, "the phone asks the server"
+    # …and the scroll does not jump when the page lands above what is being read.
+    assert "useLayoutEffect" in view and "held.current" in view,         "the pane does not hold the reader's place when older messages arrive"
+    assert "el.scrollTop += el.scrollHeight - held.current" in view,         "the prepend is not compensated"
+
+
+def test_a_coordinate_in_a_message_is_a_link_on_the_phone_too():
+    """Chat is where places arrive, and the window has made them clickable for years."""
+    tab = _TAB.read_text(encoding="utf-8")
+    assert "def _coord_parts" in tab, "chat prose is not marked for coordinates"
+    assert "coordlinks.parts(text)" in tab,         "the marking does not go through the panel's one parser"
+
+
+def test_a_profile_switch_closes_the_store_it_was_reading():
+    """The tail of `on_profile_switch` had drifted below a `return` (#1221, fixed #2064).
+
+    Everything after it was unreachable, so switching accounts stopped the reader and
+    cleared the widgets and then went on paging the PREVIOUS character's history out of
+    a store nobody had closed.
+    """
+    tree = ast.parse(_TAB.read_text(encoding="utf-8"))
+    body = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "on_profile_switch":
+            body = node
+    assert body is not None, "the tab does not answer a profile switch"
+    said = ast.dump(body)
+    assert "_chat_store" in said and "_read_store" in said,         "a profile switch leaves the old character's store open"
+    # …and nothing unreachable is left behind a `return` anywhere in the tab.
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for i, stmt in enumerate(node.body[:-1]):
+            assert not isinstance(stmt, ast.Return),                 f"{node.name} has statements after its return"
+
+
 def test_the_statement_is_documented():
     doc = _DSL.read_text(encoding="utf-8")
     assert "### `READ_CHAT" in doc, "READ_CHAT is not in docs/dsl.md"

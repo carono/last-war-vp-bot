@@ -299,6 +299,10 @@ export interface ViewCard {
   actions?: ViewAction[]
   fields?: Field[]
   note?: string
+  /* ALREADY DRAWN BY THE PICTURE ABOVE (#2064). A screen that is DRAWN rather than
+     listed still sends its cards, so a front-end that does not know that kind shows
+     something; one that does draws the picture and skips these. */
+  drawn?: boolean
 }
 
 export interface Screen {
@@ -316,6 +320,16 @@ export interface ScreenView {
      `/api/screen/data`, because a scene of thirty thousand objects may not ride the
      screen's poll (`panel/tabs/base.py::web_data`). */
   map?: { kind: string }
+  /* The chat's channels, for the screen the chat DRAWS (#2064): which ones there are,
+     which room each is, and how many messages arrived in one nobody was looking at. */
+  rooms?: ChatRoomTab[]
+}
+
+/** One channel of the chat: «Мир», «Альянс», «ЛС» … with its unread count. */
+export interface ChatRoomTab {
+  type: string
+  room: string
+  unread: number
 }
 
 export interface PressAnswer {

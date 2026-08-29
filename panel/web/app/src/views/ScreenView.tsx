@@ -8,6 +8,7 @@ import { FieldRow } from '../ui/FieldRow'
 import { Modal } from '../ui/Modal'
 import { firstPlace, Marked, useJump } from '../ui/Coord'
 import { WorldMap } from './WorldMap'
+import { ChatView } from './ChatView'
 import type { Field, PressAnswer, ScreenView as View, ViewAction, ViewCard, ViewItem } from '../types'
 
 /* ONE RENDERER FOR EVERY TAB'S SCREEN.
@@ -488,7 +489,11 @@ export function ScreenPage({
     if (held.current) window.scrollTo(0, held.current)
   }, [view])
 
-  const cards = view?.cards || []
+  /* A SCREEN THAT IS DRAWN sends its cards all the same, so a front-end that does not
+     know the kind still shows something. This one does know it, so the cards the picture
+     replaces are dropped and only what it does NOT draw is left (#2064: the chat's own
+     emoji and sticker grids stay, the channel listings go). */
+  const cards = (view?.cards || []).filter((c) => !(view?.map && c.drawn))
   /* WHICH CARD THE ADDRESS ASKED FOR, once the cards are known (#2050). A card is named
    * by its position, and a screen reopened tomorrow may have fewer of them — a warzone
    * that closed, a list that emptied — so a number past the end falls back to the
@@ -520,7 +525,11 @@ export function ScreenPage({
       {/* A SCREEN MAY BE A PICTURE (#2018). It is drawn above its cards, which then
           read as the legend of what is on it — and it keeps its own data, so the
           screen's poll below never carries a scene. */}
-      {view?.map ? <WorldMap screen={id} mode={map} onMode={onMap} /> : null}
+      {view?.map?.kind === 'chat' ? (
+        <ChatView screen={id} rooms={view.rooms || []} pollKey={pollKey} />
+      ) : view?.map ? (
+        <WorldMap screen={id} mode={map} onMode={onMap} />
+      ) : null}
       {sectioned ? (
         <div className="chips">
           <button className={'chip' + (part === 0 ? ' on' : '')} onClick={() => setPart(0)}>

@@ -1299,3 +1299,96 @@ body.modal-open {
   filter: grayscale(1) brightness(1.12) contrast(0.72);
   opacity: 0.5;
 }
+
+/* -- THE CHAT AS A CONVERSATION (#2064) ---------------------------------------
+   «Интерфейс чата как в телеграм, внизу окно ввода сообщения и сортировка от старых к
+   новым». So: a pane that scrolls on its own with the newest at the bottom, bubbles
+   that lean to the side that said them, and the box to answer in pinned under it where
+   a thumb already is. The pane takes what the viewport has left rather than a fixed
+   height — a phone in landscape and a desktop window are the same markup. */
+.chat { display: flex; flex-direction: column; gap: 8px; }
+
+.chatpane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: min(62vh, 640px);
+  min-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  border: 1px solid var(--card-edge);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.chatpane .go.wide { align-self: stretch; }
+.chat .back.thread { align-self: flex-start; }
+
+.chatday {
+  align-self: center;
+  margin: 6px 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: var(--bg-soft);
+}
+
+.bubble {
+  max-width: 82%;
+  margin-right: auto;
+  padding: 7px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  word-break: break-word;
+}
+/* WHAT I SAID LEANS THE OTHER WAY, which is the whole of «whose message is this» at a
+   glance — the name is not repeated on one's own lines for the same reason. */
+.bubble.mine {
+  margin-right: 0;
+  margin-left: auto;
+  border-color: var(--accent);
+  background: linear-gradient(180deg, #223049, #1a2333);
+}
+.bubble .who { font-size: 12px; font-weight: 600; color: var(--accent); }
+.bubble .said { white-space: pre-wrap; }
+.bubble .stamp { display: block; text-align: right; font-size: 11px; }
+
+/* An emoji or a sticker is the picture it is on both front-ends, never a `[e:E006]`. */
+.chat-sprite { height: 20px; vertical-align: -4px; }
+
+.bubble .shot { display: block; padding: 0; border: 0; background: none; }
+.bubble .shot img { max-width: 100%; border-radius: 10px; }
+.shot-big { max-width: 100%; border-radius: 10px; }
+
+.chatbox { display: flex; gap: 6px; align-items: center; }
+.chatbox input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 8px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  color: var(--ink);
+}
+
+/* One private conversation on the list: who, the last thing said, and when. */
+.contact {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  min-height: var(--tap);
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid var(--card-edge);
+  border-radius: 11px;
+  background: var(--bg-soft);
+  color: var(--ink);
+}
+.contact .who { font-weight: 600; }
+.contact .last { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contact .stamp { grid-column: 2; grid-row: 1; }
+.contact .count { grid-column: 2; grid-row: 2; justify-self: end; }
