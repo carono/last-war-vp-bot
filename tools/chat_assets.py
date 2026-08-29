@@ -162,6 +162,44 @@ def sprite_link(path: str) -> "str | None":
     return "/api/chatsprite?sprite=" + _url.quote(f"{folder}/{os.path.basename(path)}")
 
 
+def photo_link(uid, pic_ver, big: bool = False) -> "str | None":
+    """One chat PHOTO as the phone asks for it, or None if it is not cached here.
+
+    The same route the sprites travel on (`/api/chatsprite`) and deliberately not a
+    second one — the person's rule, and the reason is the one every picture route here
+    keeps: a link rather than bytes, and a name that is RESOLVED rather than trusted.
+    A photo is named by the pair that identifies it in the game (`uid` + the `[photo:N]`
+    number), never by a path, so nothing a message carries can point the route at a file
+    of its own choosing.
+
+    `big` asks for the full-size copy the client caches beside the thumbnail — what a
+    tap opens. It falls back to the thumbnail when the client never downloaded one.
+    """
+    import urllib.parse as _url
+
+    if not photo_path(uid, pic_ver, big=big):
+        if not big:
+            return None
+        if not photo_path(uid, pic_ver):
+            return None
+        big = False
+    q = {"photo": str(uid), "ver": str(pic_ver)}
+    if big:
+        q["big"] = "1"
+    return "/api/chatsprite?" + _url.urlencode(q)
+
+
+def photo_named(uid, pic_ver, big: bool = False) -> "str | None":
+    """Resolve a photo the way `sprite_named` resolves a sprite: by name, never a path."""
+    uid = str(uid or "").strip()
+    ver = str(pic_ver or "").strip()
+    # Both halves are digits in the game and nothing else may be tried: this is the one
+    # place a value off the wire becomes part of a filename.
+    if not uid.isdigit() or not ver.isdigit():
+        return None
+    return photo_path(uid, ver, big=bool(big))
+
+
 def emoji_catalogue() -> list:
     """Every inline emoji that has a sprite on disk, in config order.
 

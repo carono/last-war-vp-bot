@@ -85,6 +85,7 @@
   "chat.contacts": "Contacts",
   "chat.contacts.empty": "no conversations yet",
   "chat.count": "{n} messages",
+  "chat.day.yesterday": "Yesterday",
   "chat.dm.pick": "← pick a contact",
   "chat.hint": "TCP-leg only: DMs, gifts, shares. World/alliance broadcast (TLS WSS) is not captured.",
   "chat.history.load": "Load history",

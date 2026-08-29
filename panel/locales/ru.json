@@ -85,6 +85,7 @@
   "chat.contacts": "Контакты",
   "chat.contacts.empty": "диалогов пока нет",
   "chat.count": "{n} сообщений",
+  "chat.day.yesterday": "Вчера",
   "chat.dm.pick": "← выберите контакт",
   "chat.hint": "Только TCP: личные сообщения, подарки, шары. Broadcast (world/alliance) идёт по TLS WSS — не перехватывается.",
   "chat.history.load": "Загрузить историю",

@@ -85,6 +85,7 @@
   "chat.contacts": "Kontak",
   "chat.contacts.empty": "belum ada percakapan",
   "chat.count": "{n} pesan",
+  "chat.day.yesterday": "Kemarin",
   "chat.dm.pick": "← pilih satu kontak",
   "chat.hint": "Hanya jalur TCP: pesan pribadi, hadiah, bagikan. Siaran dunia dan aliansi (TLS WSS) tidak tertangkap.",
   "chat.history.load": "Muat riwayat",

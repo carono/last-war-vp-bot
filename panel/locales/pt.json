@@ -85,6 +85,7 @@
   "chat.contacts": "Contatos",
   "chat.contacts.empty": "ainda não há conversas",
   "chat.count": "{n} mensagens",
+  "chat.day.yesterday": "Ontem",
   "chat.dm.pick": "← escolha um contato",
   "chat.hint": "Só a via TCP: mensagens privadas, presentes, compartilhamentos. A transmissão de mundo e aliança (TLS WSS) não é captada.",
   "chat.history.load": "Carregar histórico",

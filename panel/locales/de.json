@@ -85,6 +85,7 @@
   "chat.contacts": "Kontakte",
   "chat.contacts.empty": "noch keine Gespräche",
   "chat.count": "{n} Nachrichten",
+  "chat.day.yesterday": "Gestern",
   "chat.dm.pick": "← wähle einen Kontakt",
   "chat.hint": "Nur die TCP-Strecke: Direktnachrichten, Geschenke, geteilte Ziele. Der Welt- und Allianz-Rundfunk (TLS WSS) wird nicht mitgelesen.",
   "chat.history.load": "Verlauf laden",

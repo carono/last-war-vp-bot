@@ -85,6 +85,7 @@
   "chat.contacts": "Danh bạ",
   "chat.contacts.empty": "chưa có cuộc trò chuyện nào",
   "chat.count": "{n} tin nhắn",
+  "chat.day.yesterday": "Hôm qua",
   "chat.dm.pick": "← chọn một người",
   "chat.hint": "Chỉ nhánh TCP: tin nhắn riêng, quà, chia sẻ. Kênh phát thế giới và liên minh (TLS WSS) không bắt được.",
   "chat.history.load": "Tải lịch sử",

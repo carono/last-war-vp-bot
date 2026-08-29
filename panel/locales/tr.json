@@ -85,6 +85,7 @@
   "chat.contacts": "Kişiler",
   "chat.contacts.empty": "henüz konuşma yok",
   "chat.count": "{n} ileti",
+  "chat.day.yesterday": "Dün",
   "chat.dm.pick": "← bir kişi seç",
   "chat.hint": "Yalnız TCP ayağı: özel iletiler, armağanlar, paylaşımlar. Dünya ve ittifak yayını (TLS WSS) yakalanmaz.",
   "chat.history.load": "Geçmişi yükle",

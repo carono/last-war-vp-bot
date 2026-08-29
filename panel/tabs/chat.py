@@ -54,6 +54,12 @@ except Exception:       # noqa: BLE001 — inline pictures are optional, chat is
 #: A photo in a message is written as this token by the reader child.
 _PHOTO_TOK = re.compile(r"\[photo:(\d+)\]")
 
+# The game writes its own rich text into chat — `<color=#fd5454>…</color>` around
+# an alliance tag or a place name in a system announcement. Tk shows it as the tags
+# it is; a browser would eat `<color=…>` as an unknown element and swallow the words
+# inside it. Stripped to the words, so the phone reads the sentence and never markup.
+_RICH_TAG = re.compile(r"</?(?:color|size|b|i|u)(?:=[^>]*)?>", re.IGNORECASE)
+
 # The chat sub-tabs, in order. `system` is on the list: the bucket was always carried,
 # so those messages were counted and shown nowhere.
 CHAT_TABS: tuple = ("world", "alliance", "national", "dm", "other", "system")
@@ -219,10 +225,19 @@ class ChatTab(PanelTab):
                 ]
             cards.append(card)
         cards += self._web_picker_cards()
-        # The backlog read is a press, and it belongs on BOTH front-ends: a phone that
-        # opens a chat nobody has spoken in yet would otherwise see nothing at all,
-        # with no way to ask for what the client is already holding (#2064).
-        return {"cards": cards, "now": _time.time(),
+        # THE CHAT IS DRAWN, NOT LISTED (#2064). A conversation is not a card of rows:
+        # it reads oldest-at-the-top with the box at the bottom, it opens on the newest
+        # message, and scrolling up brings in older ones — «в игре именно такой
+        # механизм». So the screen says what it is and the front-end draws it, through
+        # the same door the world map goes through (#2018), and the messages travel on
+        # `/api/screen/data` rather than on the screen's own poll.
+        #
+        # The cards STAY: they are the emoji and sticker picker, and the channel cards
+        # are what a front-end that does not know this kind still shows.
+        return {"cards": cards, "now": _time.time(), "map": {"kind": "chat"},
+                "rooms": [{"type": t, "room": self._chat_room(t),
+                           "unread": int(self._chat_unread.get(t, 0))}
+                          for t in CHAT_TABS],
                 "actions": [{"id": "history", "label": "chat.history.load"}]}
 
     #: Which channel the phone's picker sends into. Not a per-profile setting — it is
@@ -354,6 +369,190 @@ class ChatTab(PanelTab):
             payload["server"] = str(srv)
         return {"ok": self._chat_send(payload, coords.fmt(x, y, srv), room=room)}
 
+    #: How many messages one scroll-up brings in. A screenful and a bit, so the reader
+    #: never sees the end of what was fetched.
+    WEB_PAGE = 40
+
+    def web_data(self, kind: str, args: dict) -> "dict | None":
+        """The chat itself — a page of it, read from the STORE and never from the game.
+
+        THIS IS WHERE THE «read once, then LISTEN» RULE IS KEPT for scrolling. Paging
+        upwards asks this profile's own SQLite history and nothing else: no round trip,
+        no question to the server, nothing that a person scrolling fast could turn into
+        a poll. The game is asked exactly once, by «Загрузить историю», when a person
+        presses it.
+
+        **What happens at the bottom of the store is deliberate:** the client itself
+        holds only the newest few dozen messages per room, and `READ_CHAT` has already
+        taken those, so once the store runs out there is nothing left to read without
+        `ChatRoomRequestHistoryMsg` — a REQUEST TO THE SERVER. That is not made, and the
+        page simply says it has reached the end. Adding it is a conversation with the
+        person, not a decision to be taken inside a scroll handler.
+
+        Answered on an HTTP worker thread, so nothing here touches a widget.
+        """
+        args = args or {}
+        if kind == "contacts":
+            store = self._store_for_reading()
+            if store is None:
+                return {"contacts": []}
+            try:
+                contacts = store.dm_contacts(self._chat_uid)
+            except Exception:                  # noqa: BLE001 — a closed store is empty
+                return {"contacts": []}
+            out = []
+            for c in contacts:
+                room = str(c.get("room") or "")
+                out.append({"room": room,
+                            "who": str(c.get("name") or c.get("peer_uid") or "?"),
+                            "uid": str(c.get("peer_uid") or ""),
+                            "text": str(c.get("last_text") or ""),
+                            "ts": float(c.get("last_ts") or 0.0),
+                            "when": self._web_when(float(c.get("last_ts") or 0.0)),
+                            "mine": bool(c.get("last_mine")),
+                            "unread": int(self._dm_unread.get(room, 0))})
+            return {"contacts": out}
+        if kind != "page":
+            return None
+        chat_type = str(args.get("type") or "world")
+        room = str(args.get("room") or "").strip()
+        limit = max(1, min(200, int(args.get("limit") or self.WEB_PAGE)))
+        before = args.get("before")
+        store = self._store_for_reading()
+        if store is None:
+            return {"rows": [], "more": False, "room": room, "type": chat_type}
+        try:
+            if room:
+                rows = (store.older_room(room, float(before), limit) if before
+                        else store.recent_room(room, limit))
+                more = bool(rows) and store.has_older_room(room, rows[0].get("ts", 0))
+            else:
+                rows = (store.older(chat_type, float(before), limit) if before
+                        else store.recent(chat_type, limit))
+                more = bool(rows) and store.has_older(chat_type, rows[0].get("ts", 0))
+        except Exception:                      # noqa: BLE001 — a bad page is an empty one
+            return {"rows": [], "more": False, "room": room, "type": chat_type}
+        return {"rows": [self._web_row(r) for r in rows], "more": more,
+                "room": room, "type": chat_type}
+
+    #: A store opened for READING alone, off the Tk thread. Kept apart from
+    #: `_chat_store` — that one belongs to the drawn tab and is closed with it.
+    _read_store = None
+    _read_store_uid = ""
+
+    def _store_for_reading(self):
+        """The history to page through, opened without asking the game anything.
+
+        A phone opening the chat on a freshly started panel must see the messages that
+        are already on disk. `_chat_store` is opened by the drawn tab, and resolving
+        WHICH character it belongs to costs a game round trip — which is exactly what a
+        page of history must not cost. So the character last read (`chat_uid`, kept in
+        this tab's own saved block) names the file, and it is opened read-only here on
+        the HTTP thread. No widget, no game, no round trip.
+        """
+        if self._chat_store is not None:
+            return self._chat_store
+        uid = str(self._chat_uid or "")
+        if not uid:
+            return None
+        if self._read_store is not None and self._read_store_uid == uid:
+            return self._read_store
+        try:
+            self._read_store = chathistmod.ChatHistoryStore(
+                self.rt.profiles.chat_db(uid))
+            self._read_store_uid = uid
+        except Exception:                      # noqa: BLE001 — no store is an empty page
+            self._read_store = None
+        return self._read_store
+
+    def _web_when(self, ts: float) -> str:
+        """A short «when» for a contact row — the time today, the date before that."""
+        import game_clock
+
+        if not ts:
+            return ""
+        stamp = time.localtime(ts)
+        today = time.localtime(game_clock.now_ms() / 1000.0)
+        if (stamp.tm_year, stamp.tm_yday) == (today.tm_year, today.tm_yday):
+            return time.strftime("%H:%M", stamp)
+        return time.strftime("%d.%m.%Y", stamp)
+
+    def _web_row(self, record: dict) -> dict:
+        """One message as the phone draws it — a bubble, with its own time on it.
+
+        THE TIME IS THE GAME'S, and getting that wrong is a mistake this repository has
+        made before: a stamp in the game's milliseconds compared against the machine's
+        seconds put readings hours out. `record["ts"]` is the message's own `serverTime`
+        — already the game's clock — and the only thing judged against «now» is which
+        DAY it belongs to, so that «сегодня» means the game's today and not the phone's.
+        `tools/lib/game_clock.py` is what answers for now, and when it has never been
+        synced the label simply carries the full date instead of guessing.
+        """
+        import game_clock
+
+        ts = float(record.get("ts") or 0.0)
+        stamp = time.localtime(ts) if ts else None
+        now_ms = game_clock.now_ms()
+        today = time.localtime(now_ms / 1000.0)
+        when = time.strftime("%H:%M", stamp) if stamp else ""
+        day = ""
+        if stamp:
+            same = (stamp.tm_year, stamp.tm_yday) == (today.tm_year, today.tm_yday)
+            yesterday = (stamp.tm_year, stamp.tm_yday) == (today.tm_year,
+                                                           today.tm_yday - 1)
+            if not same:
+                # «Вчера» only when the game's own clock has actually been read; an
+                # un-synced clock names the date outright rather than guessing a
+                # relation to a «now» nobody has measured.
+                day = ("chat.day.yesterday" if (yesterday and game_clock.synced())
+                       else time.strftime("%d.%m.%Y", stamp))
+        parts, photo = self._web_parts(record)
+        room = str(record.get("room_id") or "")
+        return {"id": "%s|%s|%s" % (room, record.get("seq_id") or "",
+                                    record.get("sender_uid") or ""),
+                "ts": ts, "when": when, "day": day,
+                "who": str(record.get("sender_name") or "?"),
+                "uid": str(record.get("sender_uid") or ""),
+                "alliance": str(record.get("alliance") or ""),
+                "mine": bool(record.get("is_mine")),
+                "room": room, "parts": parts, "photo": photo}
+
+    def _web_parts(self, record: dict) -> tuple:
+        """Split one message into what the phone draws: text, sprites, and a photograph.
+
+        The same split the window's `tk.Text` gets (`chat_assets.segments`), so an emoji
+        and a sticker are the picture they are on both front-ends rather than a
+        `[e:E006]` on one of them. A PHOTOGRAPH is not a segment: it is the message, and
+        it is carried beside the text with the pair that names it, so a tap can ask for
+        the full-size copy.
+        """
+        import chat_assets
+
+        text = _RICH_TAG.sub("", str(record.get("msg") or ""))
+        photo = None
+        m = _PHOTO_TOK.search(text)
+        if m:
+            uid = str(record.get("sender_uid") or "")
+            small = chat_assets.photo_link(uid, m.group(1))
+            if small:
+                photo = {"small": small,
+                         "big": chat_assets.photo_link(uid, m.group(1), big=True)}
+            text = (text[:m.start()] + text[m.end():]).strip()
+        parts = []
+        for kind, value in chat_assets.segments(text):
+            if kind == "image":
+                link = chat_assets.sprite_link(value)
+                if link:
+                    parts.append({"t": "img", "v": link})
+                    continue
+                kind = "token"
+            if kind in ("text", "token") and str(value):
+                if parts and parts[-1]["t"] == "text":
+                    parts[-1]["v"] += str(value)
+                else:
+                    parts.append({"t": "text", "v": str(value)})
+        return parts, photo
+
     def _web_messages(self, chat_type: str) -> list:
         """The newest messages of one type, oldest first — as the window shows them.
 
@@ -414,11 +613,17 @@ class ChatTab(PanelTab):
 
     # -- persistence ----------------------------------------------------------
     def config(self) -> dict:
-        return {"chat_monitor": bool(self._chat_var.get())}
+        # The character whose history this is, remembered (#2064). Not game data — it is
+        # WHICH FILE to open, and remembering it is what lets a fresh panel show the
+        # messages it already has without asking the game who is logged in. The game
+        # remains the authority: the next read overwrites it.
+        return {"chat_monitor": bool(self._chat_var.get()),
+                "chat_uid": str(self._chat_uid or "")}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         self._chat_var.set(bool(raw.get("chat_monitor", False)))
+        self._chat_uid = str(raw.get("chat_uid") or "")
 
     def persist_vars(self) -> list:
         return [self._chat_var]

@@ -451,12 +451,22 @@ def _make_handler(server: WebServer):
             trusted. The person decided the phone gets the picker rather than a list of
             ids, and a picker is sprites.
 
-            PHOTOGRAPHS ARE NOT HERE. A chat photo is somebody's own picture in a cache
-            this machine happens to hold; the phone draws those from the link the message
-            carries, and this route cannot name that folder at all.
+            PHOTOGRAPHS TRAVEL HERE TOO since #2064, and they are the reason the
+            resolver matters rather than an exception to it. A chat photo is somebody
+            else's picture in a cache this machine happens to hold, and the person
+            decided the phone shows them — enlarged on a tap, as the game does. It is
+            this route and never a second one, and a photo is named by the PAIR that
+            identifies it in the game (the sender's uid and the `[photo:N]` number),
+            resolved by `chat_assets.photo_named`. Never a path: this is the one place
+            a value that came off the wire would become part of a filename, so both
+            halves must be digits or nothing is served.
             """
             def resolve():
                 import chat_assets
+                photo = _one(query.get("photo"))
+                if photo:
+                    return chat_assets.photo_named(photo, _one(query.get("ver")),
+                                                   big=bool(_one(query.get("big"))))
                 return chat_assets.sprite_named(_one(query.get("sprite")))
 
             self._picture(query, resolve)

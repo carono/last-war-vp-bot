@@ -85,6 +85,7 @@
   "chat.contacts": "Kontakty",
   "chat.contacts.empty": "jeszcze nie ma rozmów",
   "chat.count": "{n} wiadomości",
+  "chat.day.yesterday": "Wczoraj",
   "chat.dm.pick": "← wybierz kontakt",
   "chat.hint": "Tylko odnoga TCP: wiadomości prywatne, prezenty, udostępnienia. Rozgłos światowy i sojuszu (TLS WSS) nie jest przechwytywany.",
   "chat.history.load": "Wczytaj historię",
