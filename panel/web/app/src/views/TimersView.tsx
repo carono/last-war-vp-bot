@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, type CSSProperties, type ReactNode } from 'react'
 import { post } from '../api'
 import { span, t, when } from '../i18n'
 import { FieldRow } from '../ui/FieldRow'
@@ -90,15 +90,32 @@ function useAbout(title: string, about?: string) {
   }
 }
 
-/* THE GAME'S OWN PICTURE FOR AN ERRAND (#2019), beside its name.
+/* THE GAME'S OWN PICTURE FOR AN ERRAND (#2019), and since #2061 it is the CARD'S
+ * BACKGROUND rather than a stamp beside the name — the person's words: «картинка должна
+ * быть большая и фоном, чтобы аккуратно была на карточке».
  *
  * A link and not a blob: the panel sends `/api/errandicon?icon=…` and the browser fetches
- * each sprite once, exactly as it already does for a player's face. A machine that has
- * not extracted the art sends nothing and the block draws as it always did — the picture
- * is a help, never a thing the row depends on. */
-function ErrandIcon({ src }: { src?: string }) {
-  if (!src) return null
-  return <img className="errand-icon" src={src} alt="" aria-hidden="true" />
+ * each sprite once, exactly as it already does for a player's face. The URL rides a
+ * custom property because the SIZE, the position, the fade and the scrim over it are
+ * decisions of the stylesheet, not of this component — it hands over one string and
+ * nothing else.
+ *
+ * A machine that has not extracted the art (or an errand the client has no sprite for —
+ * three of thirty-six, `tools/data/errand_icons.json`) sends nothing, the card gets no
+ * `art` class, and it draws exactly as a card drew before this existed. That is the
+ * honest answer: a plain card, never a broken frame or a grey block where a picture
+ * failed.
+ *
+ * IT COSTS NO HEIGHT. The picture is painted by two pseudo-elements taken out of the
+ * flow, so a card is the size its text makes it, which is the size it was (#1999,
+ * 5daa8eb2 — the compactness was fought for and a background is not a reason to give it
+ * back). Measured on an emulated iPhone 15 over the live list: 35 cards, min 93 px,
+ * average 159 px, max 241 px, before and after. */
+function artStyle(icon?: string): CSSProperties | undefined {
+  if (!icon) return undefined
+  // `url("…")` rather than the bare link: a sprite name is the game's own file name and
+  // may hold anything a file name may hold.
+  return { ['--art' as string]: 'url("' + icon + '")' } as CSSProperties
 }
 
 /* THE SWITCH, AND IT IS THE TOP-RIGHT CORNER OF THE CARD (#2061) — the person's words:
@@ -221,9 +238,11 @@ function ErrandBlock({
      by its colour before it is read by its switches, and a small grey box in the corner
      is not a colour. */
   return (
-    <div className={'item errand' + (on ? '' : ' off')}>
+    <div
+      className={'item errand' + (icon ? ' art' : '') + (on ? '' : ' off')}
+      style={artStyle(icon)}
+    >
       <div className="errand-head">
-        <ErrandIcon src={icon} />
         <span className="title">{title}</span>
         <ErrandSwitch title={title} on={on} onToggle={onToggle} />
       </div>

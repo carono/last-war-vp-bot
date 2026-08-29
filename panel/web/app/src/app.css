@@ -879,20 +879,72 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   opacity: 0.62;
 }
 .item.errand.off .title { color: var(--ink-soft); }
+/* …AND THE PICTURE IS SWITCHED OFF WITH IT (#2061). A background is the loudest thing on
+   a card, so a switched-off card wearing a full-strength one would read as the liveliest
+   of the thirty. Greyed and nearly gone — the colour is what says «off» first, and the
+   art must help rather than argue.
+   The scrim goes with it: over a card with no fill of its own, painting the card colour
+   back would be painting a colour the card no longer has. */
+.item.errand.art.off::before { opacity: 0.08; filter: grayscale(1); }
+.item.errand.art.off::after { background: none; }
 
 /* EVERY BLOCK ON «Таймеры» IS THE SAME CARD. */
 .item.errand { gap: 4px; }
 .item.errand .facts { margin: 0; }
 .item.errand .facts .pill { margin-right: 6px; }
-.errand-icon {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 auto;
-  object-fit: contain;
-  /* A sprite that fails to load leaves nothing behind — no broken-image frame in the
-     middle of a row on a machine that has not extracted the art. */
-  background: transparent;
+/* THE PICTURE IS THE CARD'S BACKGROUND (#2061) — «картинка должна быть большая и фоном,
+   чтобы аккуратно была на карточке». It was a 28 px stamp beside the name.
+
+   TWO LAYERS AND NEITHER OF THEM IS IN THE FLOW, so the card is exactly as tall as it
+   was: `::before` is the sprite, `::after` is the scrim that keeps the words readable
+   over it. Both sit under the content and over the card's own colour — that is what
+   `isolation: isolate` plus a negative `z-index` buys, and it is why the text needs no
+   z-index of its own.
+
+   THE SCRIM IS NOT DECORATION. The game's sprites run from near-white (the refresh ring)
+   to near-black (the ghost squads), so «put the picture down and hope» is exactly the
+   thing that fails on one machine's account and not on another's. The picture is faded
+   to a fraction of its own opacity AND the card's own colour is painted back over the
+   text side, fading out towards the picture — so the first two thirds of every line sit
+   on the flat card colour whatever the sprite is, in either palette.
+
+   It is on the RIGHT and bled off the edge, which is where there is room: the switch is
+   the only thing in that corner and the facts line is short. */
+.item.errand.art { position: relative; isolation: isolate; overflow: hidden; }
+.item.errand.art::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 58%;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--art);
+  background-repeat: no-repeat;
+  background-position: right -8% center;
+  background-size: auto 112%;
+  opacity: 0.18;
 }
+.item.errand.art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  /* THE NUMBERS ARE MEASURED, not chosen: three candidates were injected into the live
+     page on an emulated iPhone 15 and read in both palettes against the brightest sprite
+     the list has (the truck's clock face) and the darkest (the ghost squads). This one
+     keeps the card's own colour under the whole of the first line and still leaves
+     nearly half of it at the right edge, so no sprite can spike through. */
+  background: linear-gradient(
+    90deg,
+    var(--card) 40%,
+    color-mix(in srgb, var(--card) 74%, transparent) 68%,
+    color-mix(in srgb, var(--card) 46%, transparent) 100%
+  );
+}
+/* The light palette needs LESS picture, not the same amount: the sprites are drawn for a
+   dark UI, and at the same opacity on white they read as smudges rather than as art. */
+:root[data-theme='light'] .item.errand.art::before { opacity: 0.15; }
 
 /* The live line: the number is the thing, its age is an aside. */
 .stat { margin: 0; }

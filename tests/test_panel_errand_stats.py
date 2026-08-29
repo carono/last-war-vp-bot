@@ -380,7 +380,12 @@ def test_every_row_the_phone_draws_carries_its_picture_and_its_line():
 
     view = (_REPO / "panel" / "web" / "app" / "src" / "views"
             / "TimersView.tsx").read_text(encoding="utf-8")
-    assert "ErrandIcon" in view and "function Stat(" in view
+    # THE PICTURE IS THE CARD'S BACKGROUND since #2061 («картинка должна быть большая и
+    # фоном»), so what is checked is that the card still CARRIES it — the class the
+    # stylesheet paints through and the custom property holding the link — rather than
+    # the name of the 28 px stamp it used to be.
+    assert "artStyle(icon)" in view and "'--art'" in view, "the card carries no picture"
+    assert "function Stat(" in view
     # ONE BLOCK DRAWS ALL THREE (#2050): the timer, the listener and the order are the
     # same card, so the reading is rendered once and handed in three times. It used to
     # be three renderings, and the count that checked for them went on passing at 1 for
