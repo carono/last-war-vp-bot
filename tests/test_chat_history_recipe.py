@@ -371,8 +371,20 @@ def test_a_silent_answer_ends_the_room_only_the_second_time():
     """
     text = _TAB.read_text(encoding="utf-8")
     assert "_deep_empty" in text, "an empty answer is not counted at all"
+    assert 'self._as_int(got.get("held_after"))' in text, \
+        "«did the server send anything» is measured by the store rather than by THIS "\
+        "room's own list — a word in another channel then reads as history arriving"
     assert 'self._deep_empty.get(room, 0) >= 2' in text, \
         "one slow reply can close a room's history for the rest of the session"
+
+
+def test_the_read_grows_with_the_room_it_is_reading():
+    """`READ_CHAT` brings home the NEWEST `limit` of a room and the fetched messages
+    arrive at the OLD end — so a fixed limit stops carrying them across the moment the
+    client holds more than that. Measured live: `got: 100, filed: 0`, three in a row."""
+    text = _TAB.read_text(encoding="utf-8")
+    assert "_deep_hold" in text, "the limit does not follow the room's own list"
+    assert "DEEP_CEILING" in text, "the growing limit has no ceiling"
 
 
 def test_the_page_says_whether_the_server_is_worth_asking():

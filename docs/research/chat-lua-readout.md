@@ -289,7 +289,7 @@ names the parameters `self, roomId, sort`; the source is `ChatController.lua:528
 | `sort = 0` | the BACKWARDS direction — 100 messages per call: the room held 47, then 148, then 248, `GetFirstMsgServerTime()` walking back 1787963199672 → 1787949750850 |
 | `sort = 1` | brings nothing at all — the forward direction with the client already at «now» |
 | the cursor | belongs to the CLIENT: every call means «what lies before the oldest I hold», so a second call fetches the slice before the first and never the same one twice |
-| the end | `roomData:GetIsChatHistoryEnd()` — the server's «that is all there was», remembered by the client per room. It answers with NO VALUE rather than `false` while the end has not been reached, so read it into a local before doing anything with it |
+| the end | `roomData:GetIsChatHistoryEnd()` — the server's «that is all there was», remembered by the client per room. It answers with NO VALUE rather than `false` while the end has not been reached, so read it into a local before doing anything with it. Live it never came up at all: the world room went on answering with a hundred more every time, three days back and still going |
 
 **The recipe** is `src/lastwar_bot/actions/fetch_chat_history.md`: it reads how many the
 client holds, asks (only if the end does not already stand), waits, reads the count and
@@ -310,10 +310,25 @@ disabled while it does, and a line saying the history has ended when there is no
 left to press.
 
 Measured end to end through the phone's own door (`POST /api/screen/press`,
-`action: older`): **8.7 s** for the first ask, `got: 92`, then 100, 100, 61 on the ones
-after it — each one further back, none of them the same slice. The world history the
-store could page went from 46 messages to 400 across ten pages, back to the previous
-afternoon.
+`action: older`): **7–12 s** per ask and a hundred messages each time, each one further
+back, none of them the same slice. The world history the store can page went from 46
+messages to **1040 across 26 pages, back three days**.
+
+**Two things had to be got right before that number was real, and both looked like
+success until they were measured.**
+
+* **«Did the server send anything» must be counted on THAT ROOM's own list**, never by
+  rows landing in the store. Counted by the store, a single word said in the alliance
+  channel while the ask was in flight reads as «the world chat gave us history», and —
+  worse — a slice the store already held reads as «the server has nothing», which is a
+  false end that stops the reading for the rest of the session. The recipe answers with
+  `held_before` / `held_after` for exactly this.
+* **`READ_CHAT`'s limit has to follow the room.** It brings home the NEWEST `limit` of
+  each room and the fetched messages arrive at the OLD end, so a fixed 400 stopped
+  carrying them across the moment the client held more than that: `got: 100, filed: 0`,
+  three asks running, every one of them «successful». The panel now asks for what the
+  room held last time plus room to grow (`_deep_hold`, ceiling 3000) — the same three
+  asks then filed 14, 539 and 102.
 
 ### Emoji / sticker picker
 

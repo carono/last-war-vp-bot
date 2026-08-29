@@ -189,6 +189,12 @@ class ChatTab(PanelTab):
         # a slow reply inside the recipe's wait looks like, and one of those must not
         # close the history for the rest of the session.
         self._deep_empty: dict = {}
+        # HOW MANY THAT ROOM'S LIST HELD at the end of the last ask. `READ_CHAT` brings
+        # home the NEWEST `limit` of each room, and the fetched messages arrive at the
+        # OLD end — so a fixed limit stops carrying them the moment the client holds
+        # more than that, and the ask goes on succeeding while the store gains nothing.
+        # Measured: `got: 100, filed: 0`, three times running.
+        self._deep_hold: dict = {}
 
     # -- lifecycle ------------------------------------------------------------
     def ensure_loaded(self) -> None:
@@ -1644,6 +1650,11 @@ class ChatTab(PanelTab):
     #: away unread.
     DEEP_LIMIT = 400
 
+    #: …and how big it may ever grow. Beyond this the drain costs more than the slice
+    #: is worth, and a person who has read that far back has the messages on file
+    #: already — every earlier ask filed them.
+    DEEP_CEILING = 3000
+
     def _deep_room(self, room: str, chat_type: str, store) -> str:
         """Which room a deeper read may name — and never one the store has not seen.
 
@@ -1701,11 +1712,26 @@ class ChatTab(PanelTab):
         records: list = []
         ended = False
         try:
+            # The limit follows the room's own list: everything it holds, and room for
+            # what this ask is about to add. Capped, because it is also the size of the
+            # drain — a room somebody has paged all afternoon must not turn one press
+            # into a minute of reading.
+            limit = min(self.DEEP_CEILING,
+                        max(self.DEEP_LIMIT, self._deep_hold.get(room, 0) + 200))
             outcome = self.rt.actions.play("fetch_chat_history",
-                                           {"room": room, "limit": self.DEEP_LIMIT},
+                                           {"room": room, "limit": limit},
                                            human=True, tag="chat")
             got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
             ended = str(got.get("history_end") or "0") in ("1", "1.0")
+            # WHAT THE SERVER SENT FOR THIS ROOM, counted by the CLIENT's own per-room
+            # list rather than by rows landing in the store. Measured the hard way: the
+            # store grows by whatever arrived in ANY room while the ask was in flight,
+            # so a single word said in the alliance channel read as «the world chat gave
+            # us something» and the end could never be reached.
+            held_after = self._as_int(got.get("held_after"))
+            gained = held_after - self._as_int(got.get("held_before"))
+            if held_after > 0:
+                self._deep_hold[room] = held_after
             raw = got.get("chat") or "[]"
             parsed = json.loads(raw) if isinstance(raw, str) else raw
             if isinstance(parsed, list):
@@ -1722,7 +1748,7 @@ class ChatTab(PanelTab):
             except Exception:                  # noqa: BLE001 — a lost row, not a dead panel
                 pass
         added = max(0, self._store_count(store) - before)
-        if added:
+        if gained > 0:
             self._deep_empty.pop(room, None)
         else:
             self._deep_empty[room] = self._deep_empty.get(room, 0) + 1
@@ -1741,7 +1767,16 @@ class ChatTab(PanelTab):
         # «this one ask was empty»: the first empty answer leaves the button in place,
         # so a person can ask again rather than be told the history has finished
         # because one reply was slow.
-        return {"ok": True, "got": added, "end": bool(ended), "room": room}
+        return {"ok": True, "got": max(0, gained), "filed": added,
+                "end": bool(ended), "room": room}
+
+    @staticmethod
+    def _as_int(value) -> int:
+        """A scenario variable as a whole number — 0 when it is anything else."""
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return 0
 
     @staticmethod
     def _store_count(store) -> int:
