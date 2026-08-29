@@ -1233,8 +1233,16 @@ The shape that works:
 So: **anywhere a person chooses which squad or squads something spends, the field declares
 `kind = "squads"` and nothing draws its own row of boxes.** The panel's side is
 `panel/runtime/squad_picker.py` and the control is
-`panel/web/app/src/ui/SquadPicker.tsx` — four tiles in a row, the heroes standing in each
-squad, grey when it is switched off.
+`panel/web/app/src/ui/SquadPicker.tsx` — four SQUARE tiles in a row, each carrying the
+face of the hero that squad's own first position holds, grey when it is switched off.
+
+**One face, and it is the first — the shape the person asked for after seeing three**:
+«оставляй спрайт первого героя, сейчас там мешанина, картинки фоном, квадратные» (#2062).
+The picture is the tile's background at full brightness and the name rides a bubble over
+it, because the game's sprites run from near-white to near-black and it is the WORD that
+needs protecting, not the art. «First» is the game's own position 1 (the recipe walks
+`localIndexToHeroDic` by position), and a first hero with no picture leaves the tile
+showing its NUMBER rather than the hero standing behind him.
 
 ```python
 from ...runtime import squad_picker
