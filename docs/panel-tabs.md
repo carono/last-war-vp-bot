@@ -1264,11 +1264,17 @@ runs on first need and then only when a page's «Обновить» asks — the
 works to (`CLAUDE.md`, «Read once, then LISTEN»). The picker never blocks a `web_view`: it
 answers with what it has and asks for a reading in the background.
 
-**It degrades honestly and never guesses a face.** The `heroId → icon` table is encrypted
-on disk (`docs/research/hero-icons.md`), so the stem is read out of the LIVE client's own
-config and the repository's ten confirmed ids are the fallback. When neither can name a
-hero — or the machine never ran `tools/extract_hero_icons.py` — the tile draws the squad's
-NUMBER and its state. A picture that belongs to somebody else's hero is worse than no
+**The faces are the player's own, and the client names them itself.** A formation does
+NOT hold hero ids — its hero list answers with positions — so the read joins
+`localIndexToHeroDic` (position → hero uuid) against `HeroDataManager:GetAllHeroList()`
+(uuid → heroId), and then asks the running client's own config what the portrait is
+called: `lw_hero.appearance` → `lw_hero_appearance.half_icon_path`, which is literally the
+extracted file's stem (`docs/research/hero-icons.md`, #2062). The encrypted on-disk table
+is not needed at all and the repository's ten confirmed ids are only the fallback.
+
+**It degrades honestly and never guesses a face.** When neither the client nor the
+fallback can name a hero — or the machine never ran `tools/extract_hero_icons.py` — the
+tile draws the squad's NUMBER and its state. A picture that belongs to somebody else's hero is worse than no
 picture, and the same rule the monster and errand icons keep.
 
 **Where it is drawn today** (a new site joins this list rather than inventing its own):
