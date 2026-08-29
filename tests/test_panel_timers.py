@@ -1495,6 +1495,55 @@ def test_the_tavern_errand_ships_off_with_an_hourly_fallback():
     assert timer.interval_sec == 3600 and timer.retry_sec == 300
 
 
+def test_the_radar_row_is_retired_out_of_a_profile_that_already_had_it():
+    """«Выполнить задания радара» leaves the clocks, and leaves the PROFILES too (#2061).
+
+    Taking it out of `DEFAULT_TIMERS` is half a removal: a profile's list is its own and
+    outlives the built-ins (#2017), so every account that had ever run kept the row and
+    went on firing it — which is exactly what the live panel did after the code was
+    already without it. The retirement is what reaches the stored list.
+
+    It is also the first retired errand with NOTHING to carry its switch to: the ability
+    is a press on «Чеклист», not a listener, so the successor is empty on purpose and the
+    panel says the row is gone rather than moving a switch nowhere.
+    """
+    import json, tempfile
+    from panel import timers as timersmod
+    from panel.runtime import settings_files
+
+    assert not [t for t in timersmod.DEFAULT_TIMERS if t.name == "do_radar_tasks"], \
+        "the radar's claim-and-help is a checklist press, not a clock"
+    assert timersmod.RETIRED_ERRANDS.get("do_radar_tasks") == "", \
+        "nothing replaced it — an invented successor would switch on the wrong thing"
+    # …and it still knows what it used to run, or the row would be dropped as «nothing to
+    # run» by an older stored entry that leaves the scenario out.
+    assert timersmod.RETIRED_SCENARIOS.get("do_radar_tasks") == ("do_radar_tasks",)
+
+    home = Path(tempfile.mkdtemp())
+    rows = [{"name": "do_radar_tasks", "enabled": True},
+            {"name": "collect_base_resources", "scenario": "collect_base_resources",
+             "enabled": True}]
+    profile = home / "timers.json"
+    profile.write_text(json.dumps(rows), encoding="utf-8")
+    template = home / "template.json"
+    template.write_text(json.dumps(rows), encoding="utf-8")
+    kept = timersmod.TEMPLATE_FILE
+    timersmod.TEMPLATE_FILE = str(template)
+    try:
+        catalogue = timersmod.load_profile_catalogue(str(profile))
+        assert "do_radar_tasks" not in catalogue.names(), catalogue.names()
+        assert "collect_base_resources" in catalogue.names(), catalogue.names()
+        assert catalogue.retired_on == ("do_radar_tasks",), catalogue.retired_on
+        written = [e["name"] for e in settings_files.read(str(profile))]
+        assert "do_radar_tasks" not in written, written
+        # …and a stale template cannot hand it back on the next launch.
+        again = timersmod.load_profile_catalogue(str(profile))
+        assert "do_radar_tasks" not in again.names(), again.names()
+        assert again.retired_on == (), again.retired_on
+    finally:
+        timersmod.TEMPLATE_FILE = kept
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

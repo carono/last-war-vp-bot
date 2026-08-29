@@ -636,6 +636,15 @@ SPLIT_ERRANDS: dict[str, tuple[str, ...]] = {
 #: playing one recipe is two runs over one queue, and the clock was the worse of them.
 RETIRED_ERRANDS: dict[str, str] = {
     "auto_treasure": "treasure_auto",
+    # …and `do_radar_tasks` is the first with NOTHING to carry its switch to (#2061).
+    # The person asked for the row to go — «из таймеров убери таймер выполнить задания
+    # радара, который просто полностью собирает задания, перенеси в чеклист» — and there
+    # is no listener that does the job instead: it is a press on «Чеклист», which is
+    # where it has been all along (`panel/tabs/checklist/model.py`, «radar»). Removing it
+    # from `DEFAULT_TIMERS` alone would have left it in every profile that ever ran,
+    # because a profile's list is its own and outlives the built-ins (#2017) — the row
+    # went on firing on this machine after the code was already without it.
+    "do_radar_tasks": "",
 }
 
 
@@ -646,6 +655,7 @@ RETIRED_ERRANDS: dict[str, str] = {
 #: chance to split it.
 RETIRED_SCENARIOS: dict[str, tuple[str, ...]] = {
     "alliance_upkeep": ("donate_alliance_tech", "collect_alliance_gifts"),
+    "do_radar_tasks": ("do_radar_tasks",),
 }
 
 
