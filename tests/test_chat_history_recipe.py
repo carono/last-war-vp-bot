@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -416,6 +417,44 @@ def test_what_arrives_while_reading_history_is_counted_not_thrown_at_the_reader(
     assert "chat.new_below" in text, "the reader is never told there is anything below"
     assert "if (glued.current) el.scrollTop = el.scrollHeight" in text, \
         "a new message no longer follows the reader who IS at the bottom"
+
+
+# ---------------------------------------------------------------------------
+# a drawn screen draws ITSELF and never its neighbour
+# ---------------------------------------------------------------------------
+def _drawn_kinds() -> dict:
+    """Every `map: {"kind": ...}` a tab hands the phone, by the file that sends it."""
+    found = {}
+    for path in sorted((_REPO / "panel" / "tabs").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for kind in re.findall(r'"map":\s*\{"kind":\s*"([a-z_]+)"', text):
+            found.setdefault(kind, set()).add(path.name)
+    return found
+
+
+def test_two_screens_never_claim_one_drawing():
+    """A kind belongs to ONE tab. Two tabs on one kind is two pages drawn as one."""
+    kinds = _drawn_kinds()
+    assert "chat" in kinds and "world" in kinds, f"the drawn screens moved: {kinds}"
+    doubled = {k: sorted(v) for k, v in kinds.items() if len(v) > 1}
+    assert not doubled, f"one drawing claimed by several tabs: {doubled}"
+    assert kinds["chat"] == {"chat.py"}, f"the chat drawing moved: {kinds['chat']}"
+    assert kinds["world"] == {"worldview.py"}, f"the map drawing moved: {kinds['world']}"
+
+
+def test_the_renderer_matches_every_drawing_by_name():
+    """No «there is a map, so paint the world» fallback.
+
+    That default is what makes two different screens one: any screen sending a kind
+    the front-end does not know would be painted as the world map, and the next drawn
+    screen anybody adds would silently become the map as well.
+    """
+    text = (_REPO / "panel" / "web" / "app" / "src" / "views" / "ScreenView.tsx").read_text(
+        encoding="utf-8")
+    assert "view?.map?.kind === 'chat' ? (" in text, "the chat is not matched by name"
+    assert "view?.map?.kind === 'world' ? (" in text, \
+        "the world map is drawn for ANY map kind — that is the two-screens-in-one bug"
+    assert ") : view?.map ? (" not in text, "the catch-all fallback is back"
 
 
 def test_every_locale_has_the_keys():

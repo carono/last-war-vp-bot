@@ -522,12 +522,16 @@ export function ScreenPage({
         </button>
         <b>{t(view?.title || '')}</b>
       </div>
-      {/* A SCREEN MAY BE A PICTURE (#2018). It is drawn above its cards, which then
-          read as the legend of what is on it — and it keeps its own data, so the
-          screen's poll below never carries a scene. */}
+      {/* A SCREEN MAY DRAW ITSELF INSTEAD OF LISTING (#2018, #2064). `map.kind` NAMES
+          WHICH DRAWING — and every kind is matched by name, never by «there is a map,
+          so paint the world». That default is how two different screens end up as one:
+          a screen sending any other kind would have been painted as the world map, and
+          the next drawn screen added would silently become the map too. An unknown kind
+          draws NOTHING and leaves the screen its cards, which is wrong in a way a
+          person can see and report, rather than wrong in a way that looks plausible. */}
       {view?.map?.kind === 'chat' ? (
         <ChatView screen={id} rooms={view.rooms || []} pollKey={pollKey} />
-      ) : view?.map ? (
+      ) : view?.map?.kind === 'world' ? (
         <WorldMap screen={id} mode={map} onMode={onMap} />
       ) : null}
       {sectioned ? (
