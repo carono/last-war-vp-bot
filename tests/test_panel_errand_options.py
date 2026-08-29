@@ -302,7 +302,7 @@ def test_the_window_draws_the_gear_and_the_orders_too():
 
     web = (_REPO / "panel" / "web" / "app" / "src" / "views"
            / "TimersView.tsx").read_text(encoding="utf-8")
-    assert "function Gear(" in web and "OrderItem" in web
+    assert "function useGear(" in web and "OrderItem" in web
     assert "/api/errand/option" in web and "/api/orders/set" in web
 
 

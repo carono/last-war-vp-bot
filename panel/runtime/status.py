@@ -206,9 +206,15 @@ class StatusPoll:
 
         playing = (True if session == game_clock.IN_SESSION
                    else False if session == game_clock.LOGIN_SCREEN else None)
+        # …AND WHETHER THE ACCOUNT HAS BEEN TAKEN (#2061). The kick was read on every
+        # poll already — the recovery acts on it — and the LIGHT was never told, so a
+        # client whose last server probe answered before the kick showed green while
+        # nothing was arriving at all. It outranks green rather than narrowing amber:
+        # see `tools/lib/profile_health.verdict`.
         health = rt.health.update(found, plumbing=lands, server=server,
                                   responding=responding, error=rt.game.error(),
-                                  maintenance=maint == "closed", in_game=playing)
+                                  maintenance=maint == "closed", in_game=playing,
+                                  kicked=kicked)
         # THE GATE reads the verdict written one line up, so this costs a dict lookup.
         rt.gate.alive()
         # …AND THE VERDICT IS WRITTEN DOWN (#1982 follow-up). The window has printed a

@@ -46,6 +46,7 @@ _WORDS = {
     profile_health.NO_CONNECTION: "health.no_connection",
     profile_health.NO_TRAFFIC: "health.no_traffic",
     profile_health.NOT_IN_GAME: "health.not_in_game",
+    profile_health.KICKED: "health.kicked",
     profile_health.MAINTENANCE: "health.maintenance",
 }
 
@@ -86,7 +87,7 @@ class ProfileHealth:
     def update(self, probe, *, plumbing: str = profile_health.PLUMBING_UNASKED,
                server: str = profile_health.SERVER_UNASKED, responding: bool = True,
                error: str = "", maintenance: bool = False,
-               in_game: "bool | None" = None):
+               in_game: "bool | None" = None, kicked: bool = False):
         """Take one poll's readings and keep the light they make.
 
         ``probe`` is `panel.runtime.game_process.Probe` — whether a client of this
@@ -100,6 +101,13 @@ class ProfileHealth:
         NARROWS the amber the light was going to be anyway — nothing broken, nothing to
         fix, wait — so a profile whose server answers stays green with it set.
 
+        ``kicked`` is «the client is showing the game's own «вход с другого устройства»
+        modal» (`tools/lib/game_kick.py`, #2061), and it is the one reading that OUTRANKS
+        green: a taken account goes on answering out of what it last received, so the
+        probe inside its shelf life would otherwise leave the light green while nothing
+        at all is arriving. The person's words: «состояние зеленым быть не может, т.к.
+        трафика нет».
+
         ``in_game`` is the same shape and for the same reason (#2060): ``False`` only
         when the CLIENT said so, ``None`` when nobody could ask. It turns the amber a
         person cannot read — «нет связи», which is equally what our own broken plumbing
@@ -109,7 +117,7 @@ class ProfileHealth:
         self._health = profile_health.verdict(
             running=bool(getattr(probe, "running", False)), plumbing=plumbing,
             server=server, responding=bool(responding), error=error,
-            maintenance=bool(maintenance), in_game=in_game)
+            maintenance=bool(maintenance), in_game=in_game, kicked=bool(kicked))
         self._at = time.time()
         return self._health
 

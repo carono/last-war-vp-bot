@@ -53,6 +53,9 @@ PREFIXES = {
     "common": "Assets/Main/Sprites/UI/LWCommon/Sprite",
     "alliance": "Assets/Main/Sprites/UI/UILWAlliance",
     "radar": "Assets/Main/Sprites/UI/UIRadarCenter",
+    # The game's «clear devices» screen — the only place in the client with a picture of
+    # a DEVICE, which is what the session kick is about (#2061).
+    "device": "Assets/Main/Sprites/UI/UIDeviceManage",
 }
 
 MAP_PATH = os.path.join(_HERE, "data", "errand_icons.json")

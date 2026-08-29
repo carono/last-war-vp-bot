@@ -2251,6 +2251,96 @@ def test_the_base_stock_left_the_front_page_and_took_its_ear_with_it():
     assert "self.rt.resources.state()" in tab,         "«Профиль» draws no stock — the card moved nowhere and the ear rises for nobody"
 
 
+# ---------------------------------------------------------------------------
+# the cards on «Таймеры» (#2061)
+# ---------------------------------------------------------------------------
+
+
+def test_a_long_name_is_cut_down_and_the_sentence_moves_behind_the_i():
+    """«Слишком длинные названия, сократи… подробное описание вынеси в кнопку i».
+
+    The panel sends both, so the browser words nothing: `title` is the short label where
+    the locale has one and the whole label where it has not, and `about` is the sentence
+    — empty in the second case, which is how the card knows to draw no «i» at all rather
+    than one that opens the title again.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        # The stand-in runtime answers every key with the key (it is what most of this
+        # file wants), and this one test is about what the WORDS come out as — so it
+        # borrows the shipped English table, which is what `panel.i18n.I18n.t` reads.
+        english = i18nmod.load_locale("en")
+        rt.t = lambda key, **fmt: english.get(key, key)
+        rt.schedule.timer_catalogue = timersmod.Catalogue((
+            timersmod.Timer(name="sweep", scenario=("a",), interval_sec=3600,
+                            label_key="timers.item.sweep_star_servers"),
+            timersmod.Timer(name="plain", scenario=("b",), interval_sec=3600,
+                            label_key="timers.item.restart_game"),
+        ))
+        rows = {row["name"]: row for row in api.timers()["timers"]}
+        short = rows["sweep"]
+        assert short["title"] == english["timers.item.sweep_star_servers.short"]
+        assert short["about"] == english["timers.item.sweep_star_servers"]
+        assert short["title"] != short["about"], "the short label is the long one"
+        plain = rows["plain"]
+        assert plain["title"] == english["timers.item.restart_game"]
+        assert plain["about"] == "", "a label with no short form must draw no «i»"
+
+
+def test_the_operators_own_title_is_never_second_guessed():
+    """A row the person named says exactly that, and offers nothing behind an «i»."""
+    with tempfile.TemporaryDirectory() as home:
+        _rt, api = _api(home)
+        row = {r["name"]: r for r in api.timers()["timers"]}["collect"]
+        assert row["title"] == "Collect" and row["about"] == ""
+
+
+def test_the_errands_screen_offers_no_way_to_write_one():
+    """«Из таймеров убери кнопку добавить» — and the editor it opened went with it.
+
+    The ROUTES stay: `/api/timers/save` still answers and the tests above still hold it
+    to the window's own rules, so nothing has to be undone the day a way back in is
+    wanted. What is gone is the button and the form on the phone.
+    """
+    script = _front_end_source()
+    assert "timers.add" not in script, "«Добавить» is back on the errands screen"
+    assert "timers.editor" not in script, "the editor is back on the phone"
+
+
+def test_a_card_says_whether_it_is_on_by_its_colour_and_switches_in_the_corner():
+    """Two of the person's eight (#2061), and each has a way of quietly coming undone.
+
+    * the switch is the card's top-right corner and NOT the whole row — a `SwitchRow`
+      here means a tap meant for the name switches the errand off;
+    * a card that is off is drawn differently. Thirty cards are read by colour long
+      before they are read by switches.
+    """
+    script = _front_end_source()
+    assert "errand-switch" in script, "the errand's switch is not its own control"
+    assert "'item errand' + (on ? '' : ' off')" in script, \
+        "an errand that is off is drawn exactly like one that is on"
+    css = _css()
+    assert ".item.errand.off" in css, "nothing colours a card that is switched off"
+
+
+def test_the_theme_is_the_browsers_own_and_never_reaches_the_panel():
+    """Day or night is the DEVICE's setting (#2061, `docs/research/panel-web.md` §6).
+
+    Not the machine's — one panel is read in a dark bedroom and in a bright office in the
+    same minute — and not the account's, since switching profiles must not change the
+    light in the room. So it lives in `localStorage` and there is nothing about it on the
+    wire: a route would be the beginning of a second copy of it.
+    """
+    script = _front_end_source()
+    assert "prefers-color-scheme" in script, "the theme ignores what the device says"
+    assert "localStorage" in script and "lwvp.theme" in script, \
+        "the theme is not kept in the browser that draws the page"
+    api_src = (_REPO / "panel" / "web" / "api.py").read_text(encoding="utf-8")
+    assert "theme" not in api_src, "the theme has grown a route into the panel"
+    css = _css()
+    assert "[data-theme='light']" in css, "there is only one palette"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

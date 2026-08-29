@@ -1,12 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { get, post } from '../api'
+import { useState, type ReactNode } from 'react'
+import { post } from '../api'
 import { span, t, when } from '../i18n'
 import { FieldRow } from '../ui/FieldRow'
 import { Modal } from '../ui/Modal'
-import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
 import type {
-  ActionRow,
   ErrandStat,
   Field,
   OrderRow,
@@ -15,7 +13,7 @@ import type {
   TriggerRow,
 } from '../types'
 
-/* THE GEAR (#2017). An errand's own knobs, on the row that says whether it is on.
+/* THE GEAR (#2017). An errand's own knobs, on the card that says whether it is on.
  *
  * They lived on the page holding the list the errand spends — the level «Автолут ★»
  * robs at on «Секретки», the squads the auto-join sends on «Ралли» — so this screen,
@@ -23,13 +21,10 @@ import type {
  * and nothing that decides what the switch DOES. The values have not moved: the field
  * writes the owner's own variable (`panel/runtime/errand_options.py`), so the number
  * typed here is the number that page shows, and there is no second copy to disagree.
- *
- * Closed until asked, because most rows have no knobs and a screen of open forms is a
- * screen nobody reads. */
+ */
 /* THE GEAR IS TWO PIECES, because they sit in two places (#2050 follow-up): the button
- * belongs on the head row beside the switch, and the fields it opens belong under the
- * whole block. So the hook hands back both and the block puts each where it goes —
- * rendering them together would mean a form unfolding inside a flex row. */
+ * belongs on the card's row of signs, and the sheet it opens belongs under the whole
+ * block. So the hook hands back both and the block puts each where it goes. */
 function useGear(errand: string, title: string, options: Field[] | undefined, refresh: () => Promise<void>) {
   const [open, setOpen] = useState(false)
   if (!options || !options.length) return { button: null, panel: null }
@@ -41,7 +36,7 @@ function useGear(errand: string, title: string, options: Field[] | undefined, re
         aria-label={t('timers.options')}
         onClick={() => setOpen((was) => !was)}
       >
-        {'\u2699'}
+        {'⚙'}
       </button>
     ),
     /* A SHEET, NOT A COLLAPSE (#2051), in the person's words: «при клике на шестеренку
@@ -63,7 +58,39 @@ function useGear(errand: string, title: string, options: Field[] | undefined, re
   }
 }
 
-/* THE GAME'S OWN PICTURE FOR AN ERRAND (#2019), beside its switch.
+/* THE «i» (#2061), and it exists because the NAME got shorter.
+ *
+ * The person's words: «слишком длинные названия, сократи, должны быть лаконичные, а
+ * подробное описание вынеси в кнопку i». A card's head used to carry the whole sentence
+ * — «Секретки: собирать по созреванию, вскрывать ящики, обновлять и отправлять» — which
+ * is three lines on a phone and the reason thirty cards could not be skimmed. The panel
+ * now sends both (`panel/web/api.py`): the short label as `title` and the sentence as
+ * `about`. An errand whose label has no short form sends an empty `about` and draws no
+ * «i» at all, rather than one that opens the title again.
+ */
+function useAbout(title: string, about?: string) {
+  const [open, setOpen] = useState(false)
+  if (!about) return { button: null, panel: null }
+  return {
+    button: (
+      <button
+        className="go icon"
+        title={t('web.ui.about')}
+        aria-label={t('web.ui.about')}
+        onClick={() => setOpen(true)}
+      >
+        {'ℹ'}
+      </button>
+    ),
+    panel: open ? (
+      <Modal title={title} onClose={() => setOpen(false)}>
+        <p>{about}</p>
+      </Modal>
+    ) : null,
+  }
+}
+
+/* THE GAME'S OWN PICTURE FOR AN ERRAND (#2019), beside its name.
  *
  * A link and not a blob: the panel sends `/api/errandicon?icon=…` and the browser fetches
  * each sprite once, exactly as it already does for a player's face. A machine that has
@@ -72,6 +99,44 @@ function useGear(errand: string, title: string, options: Field[] | undefined, re
 function ErrandIcon({ src }: { src?: string }) {
   if (!src) return null
   return <img className="errand-icon" src={src} alt="" aria-hidden="true" />
+}
+
+/* THE SWITCH, AND IT IS THE TOP-RIGHT CORNER OF THE CARD (#2061) — the person's words:
+ * «чекбокс включения/выключения перемести в правый верхний угол».
+ *
+ * It was a `SwitchRow`, which makes the WHOLE row the target: right for a form, wrong
+ * for a card whose head also holds a picture and a name that may wrap. Here the box is
+ * its own target and the name is not part of it — a tap meant for the title used to
+ * switch the errand off. It keeps `--tap` and carries the errand's name as its
+ * `aria-label`, so nothing is lost to somebody reading the page aloud. */
+function ErrandSwitch({ title, on, onToggle }: {
+  title: string
+  on: boolean
+  onToggle: (want: boolean) => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+  /* The LABEL is the target and the box is what is drawn: a checkbox 28 px tall is
+     under half a fingertip, and every other control on this front-end is `--tap`. */
+  return (
+    <label className="errand-switch">
+    <input
+      type="checkbox"
+      checked={on}
+      disabled={busy}
+      aria-label={title}
+      title={title}
+      onChange={async (e) => {
+        const want = e.target.checked
+        setBusy(true)
+        try {
+          await onToggle(want)
+        } finally {
+          setBusy(false)
+        }
+      }}
+    />
+    </label>
+  )
 }
 
 /* ONE LIVE LINE UNDER THE BLOCK (#2019) — «+377 023 ждёт сбора», «12 стягов сегодня».
@@ -102,29 +167,29 @@ function Stat({ stat }: { stat?: ErrandStat | null }) {
  * A timer, a listener and a standing order are the same thing to whoever is reading the
  * page: something that runs by itself, with a switch, a picture, a line saying what it
  * is waiting for and a reading of what it has brought in. They were drawn by three
- * near-identical functions and laid out two different ways — the listeners as small
- * cards in a grid, the errands as full-width rows one under another — so the same fact
- * was told in two shapes on one screen. Now there is one block and one grid.
+ * near-identical functions and laid out two different ways, so the same fact was told in
+ * two shapes on one screen. Now there is one block and one grid.
  *
- * WHAT MAKES IT SMALLER IS THE HEAD ROW, not a smaller font. Every block used to end in
- * a `foot` of its own holding one or two buttons; the buttons are on the head row now,
- * beside the switch, so each block loses a whole row and the gap under it — thirty-odd
- * blocks on this screen, so it is the one change worth making.
+ * THE CARD IS THREE ROWS AND THE ORDER OF THEM IS THE POINT (#2061): the name with its
+ * switch in the corner, what it is waiting for and what it has brought in, and — last —
+ * the signs that ACT: «i», «⚙», «▶». The buttons used to sit on the head row beside the
+ * switch, and at 280 px (the narrowest a card gets in the grid) three of them and a
+ * switch left the name about thirty pixels. They are one short row of their own now, and
+ * a card with nothing to press does not draw it.
  *
- * The two buttons are SIGNS rather than words, exactly as the gear already was: «⚙» and
- * «▶», each with the panel's own sentence on it as a title and as an aria-label. A
- * «Запустить» spelled out is half the width of a card on a phone, and this is the one
- * screen where every card carries one.
+ * The buttons are SIGNS rather than words: «ⓘ», «⚙» and «▶», each with the panel's own
+ * sentence on it as a title and as an aria-label. A «Запустить» spelled out is half the
+ * width of a card on a phone, and this is the one screen where every card carries one.
  *
  * What a TIMER keeps that a listener has not: its schedule, its next firing and its last
  * result on the fact line, and the «▶» that plays it now. What it does NOT get back is
  * «Изменить / Дублировать / Удалить» — the person removed those from this screen
- * (bfb8418d) and they stay removed; the editor is still what «+» opens, and the window
- * still has all three.
+ * (bfb8418d) and they stay removed; the window still has all three.
  */
 function ErrandBlock({
   icon,
   title,
+  about,
   on,
   onToggle,
   facts,
@@ -137,6 +202,7 @@ function ErrandBlock({
 }: {
   icon?: string
   title: string
+  about?: string
   on: boolean
   onToggle: (want: boolean) => Promise<void>
   facts: string
@@ -148,170 +214,39 @@ function ErrandBlock({
   run?: ReactNode
 }) {
   const gear = useGear(errand, title, options, refresh)
+  const info = useAbout(title, about)
+  const acts = [info.button, gear.button, run].filter(Boolean)
+  /* A CARD THAT IS OFF LOOKS OFF (#2061) — «когда чекбокс выключен, вся карточка должна
+     менять цвет, чтобы было видно, что она выключена». A screen of thirty cards is read
+     by its colour before it is read by its switches, and a small grey box in the corner
+     is not a colour. */
   return (
-    <div className="item errand">
+    <div className={'item errand' + (on ? '' : ' off')}>
       <div className="errand-head">
         <ErrandIcon src={icon} />
-        <SwitchRow title={title} on={on} onChange={onToggle} />
-        {gear.button}
-        {run}
+        <span className="title">{title}</span>
+        <ErrandSwitch title={title} on={on} onToggle={onToggle} />
       </div>
       <p className="muted small facts">
         {queued ? <span className="pill warn">{t('web.ui.queued')}</span> : null}
         {facts}
       </p>
       <Stat stat={stat} />
+      {acts.length ? <div className="errand-acts">{acts}</div> : null}
       {gear.panel}
+      {info.panel}
     </div>
   )
 }
 
 /* The errands and, under them, the standing orders — the same two lists in the same
- * order the window's «Таймеры» tab draws them in. The listeners are a grid: one column
- * on a phone, two once the page is wide enough, decided by the stylesheet rather than by
- * a breakpoint somebody has to keep in step with the window's own thresholds. */
+ * order the window's «Таймеры» tab draws them in. They are a grid: one column on a
+ * phone, two once the page is wide enough, decided by the stylesheet rather than by a
+ * breakpoint somebody has to keep in step with the window's own thresholds. */
 
 function weekdayNames(days: number[]): string {
   const names = (t('timers.weekday.names') || '').split(',').map((w) => w.trim())
   return days.map((d) => names[d - 1] || String(d)).join(', ')
-}
-
-/* THE WHOLE ENTRY of an errand, and not only its schedule (#1976). The window has had
- * an editor since it had a Timers tab, and the phone had the period and the weekdays —
- * so the steps, the args and the title could be read on a phone and written only at the
- * machine. That was a divergence with a reason («a phone that could rewrite a scenario
- * by a mistyped character is not a remote control»), and the person has ended it: the
- * web is the front-end, so it gets the whole function.
- *
- * Nothing is written until Save, exactly as in the window's dialog: «4», «40», «400» on
- * the way to «4000» are three schedules nobody asked for. The panel refuses the same
- * four things the dialog does — no name, a name another row answers to, no steps, args
- * that are not a JSON object — and says so with the same keys, so a refusal reads the
- * same whichever front-end asked. */
-function TimerEditor({
-  row,
-  onDone,
-  onCancel,
-}: {
-  row: TimerRow | null
-  onDone: () => Promise<void>
-  onCancel: () => void
-}) {
-  const [name, setName] = useState(row?.name || '')
-  const [title, setTitle] = useState(row?.custom_title || '')
-  const [every, setEvery] = useState(String(row?.interval_sec ?? 3600))
-  const [retry, setRetry] = useState(String(row?.retry_sec ?? 300))
-  const [days, setDays] = useState((row?.weekdays || []).join(','))
-  const [args, setArgs] = useState(
-    row && row.args && Object.keys(row.args).length ? JSON.stringify(row.args) : '',
-  )
-  const [steps, setSteps] = useState((row?.steps || []).join('\n'))
-  const [problem, setProblem] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [scripts, setScripts] = useState<ActionRow[]>([])
-  const [pick, setPick] = useState('')
-
-  /* The picker: every scenario this profile has, appended as a step — the thirty-odd
-   * recipes are no more memorable on a phone than at the machine. Asked once, when an
-   * editor opens, and never on the poll. */
-  useEffect(() => {
-    void (async () => {
-      try {
-        setScripts((await get<{ actions?: ActionRow[] }>('/api/actions')).actions || [])
-      } catch {
-        /* a picker that could not be filled is a box the person types into */
-      }
-    })()
-  }, [])
-
-  const save = async () => {
-    setBusy(true)
-    try {
-      const answer = await post<PressAnswer>('/api/timers/save', {
-        name,
-        original: row?.name || '',
-        title,
-        interval_sec: every,
-        retry_sec: retry,
-        weekdays: days,
-        args,
-        steps,
-      })
-      if (!answer.ok) {
-        setProblem(
-          answer.error === 'unknown' ? t('web.ui.unknown') : t(answer.reason, answer.fmt),
-        )
-        return
-      }
-      await onDone()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const field = (key: string, value: string, set: (v: string) => void, numeric = false) => (
-    <div className="field grow">
-      <label className="muted small" htmlFor={key + '-' + (row?.name || 'new')}>
-        {t(key)}
-      </label>
-      <input
-        id={key + '-' + (row?.name || 'new')}
-        type={numeric ? 'number' : 'text'}
-        inputMode={numeric ? 'numeric' : undefined}
-        value={value}
-        onChange={(e) => set(e.target.value)}
-      />
-    </div>
-  )
-
-  return (
-    <div className="editor">
-      <div className="row wrap">
-        {field('timers.editor.name', name, setName)}
-        {field('timers.editor.title', title, setTitle)}
-      </div>
-      <div className="row wrap">
-        {field('timers.editor.interval', every, setEvery, true)}
-        {field('timers.editor.retry', retry, setRetry, true)}
-        {field('timers.editor.weekdays', days, setDays)}
-      </div>
-      <div className="row wrap">{field('timers.editor.args', args, setArgs)}</div>
-      <p className="muted small">{t('timers.editor.steps_hint')}</p>
-      <textarea
-        className="steps"
-        rows={6}
-        spellCheck={false}
-        value={steps}
-        onChange={(e) => setSteps(e.target.value)}
-      />
-      <div className="row wrap">
-        <select className="grow" value={pick} onChange={(e) => setPick(e.target.value)}>
-          <option value="">{t('timers.editor.pick')}</option>
-          {scripts.map((script) => (
-            <option key={script.name} value={script.name}>
-              {script.name + ' — ' + script.title}
-            </option>
-          ))}
-        </select>
-        <button
-          className="go"
-          disabled={!pick}
-          onClick={() => setSteps((was) => (was.trim() ? was.replace(/\s*$/, '\n') : '') + pick)}
-        >
-          {t('timers.editor.add_step')}
-        </button>
-      </div>
-      {problem ? <p className="bad small">{problem}</p> : null}
-      <div className="foot">
-        <button className="go" onClick={onCancel}>
-          {t('timers.editor.cancel')}
-        </button>
-        <button className="go" disabled={busy} onClick={() => void save()}>
-          {t('timers.editor.save')}
-        </button>
-      </div>
-    </div>
-  )
 }
 
 function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh: () => Promise<void> }) {
@@ -344,6 +279,7 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
     <ErrandBlock
       icon={row.icon}
       title={row.title}
+      about={row.about}
       on={row.enabled}
       onToggle={async (want) => {
         await post('/api/timers/set', { name: row.name, enabled: want })
@@ -357,6 +293,7 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
       refresh={refresh}
       run={
         <button
+          key="run"
           className="go icon"
           title={t('web.ui.run')}
           aria-label={t('web.ui.run')}
@@ -372,7 +309,7 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
             }
           }}
         >
-          {'\u25B6'}
+          {'▶'}
         </button>
       }
     />
@@ -395,6 +332,7 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
     <ErrandBlock
       icon={row.icon}
       title={row.title}
+      about={row.about}
       on={row.enabled}
       onToggle={async (want) => {
         await post('/api/triggers/set', { name: row.name, enabled: want })
@@ -422,6 +360,7 @@ function OrderItem({ row, refresh }: { row: OrderRow; refresh: () => Promise<voi
     <ErrandBlock
       icon={row.icon}
       title={row.title}
+      about={row.about}
       on={row.enabled}
       onToggle={async (want) => {
         await post('/api/orders/set', { name: row.name, enabled: want })
@@ -436,6 +375,12 @@ function OrderItem({ row, refresh }: { row: OrderRow; refresh: () => Promise<voi
   )
 }
 
+/* THERE IS NO «ДОБАВИТЬ» ON THIS SCREEN (#2061) — the person's words: «из таймеров убери
+ * кнопку добавить». The editor it opened went with it: an errand written on a phone is
+ * a scenario name and a schedule typed with a thumb, and every row worth having is in
+ * the catalogue already (`panel/timers.py`). The ROUTES are untouched — `/api/timers/save`
+ * still answers, and `tests/test_panel_web.py` still holds it to the window's own rules —
+ * so nothing has to be undone the day the person wants a way back in. */
 export function TimersView({
   timers,
   triggers,
@@ -449,31 +394,8 @@ export function TimersView({
   now: number
   refresh: () => Promise<void>
 }) {
-  const [adding, setAdding] = useState(false)
   return (
     <>
-      <div className="foot">
-        <span />
-        <button className="go" onClick={() => setAdding(true)}>
-          {t('timers.add')}
-        </button>
-      </div>
-      {adding ? (
-        <div className="item">
-          <TimerEditor
-            row={null}
-            onCancel={() => setAdding(false)}
-            onDone={async () => {
-              setAdding(false)
-              await refresh()
-            }}
-          />
-        </div>
-      ) : null}
-      {/* THE SAME GRID THE LISTENERS ARE IN — one column on a phone, two once there is
-          room, decided by the stylesheet. The errands used to be full-width rows under
-          it, which is what made two lists of the same thing look like two kinds of
-          thing. */}
       <div className="tiles">
         {timers.map((row) => (
           <TimerItem key={row.name} row={row} now={now} refresh={refresh} />

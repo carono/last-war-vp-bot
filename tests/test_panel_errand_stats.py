@@ -352,8 +352,16 @@ def test_with_nothing_extracted_there_are_no_pictures_and_no_broken_links():
 
 
 def test_an_errand_with_no_picture_asks_for_none():
-    assert errand_icons.stem_for("restart_game") == ""
-    assert errand_icons.name_for("restart_game") == ""
+    """Every errand in the catalogue has one since #2061 — this is about the rest.
+
+    The map answered `""` for three of the shipped errands until the person reported
+    «не все картинки есть»; they have pictures now (the refresh ring, the bar's beer and
+    the game's own device icon). What must still answer `""` is a name nobody has mapped
+    — a row somebody adds tomorrow — because the alternative is a block whose picture
+    404s on every poll of the page.
+    """
+    assert errand_icons.stem_for("no_such_errand") == ""
+    assert errand_icons.name_for("no_such_errand") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +381,12 @@ def test_every_row_the_phone_draws_carries_its_picture_and_its_line():
     view = (_REPO / "panel" / "web" / "app" / "src" / "views"
             / "TimersView.tsx").read_text(encoding="utf-8")
     assert "ErrandIcon" in view and "function Stat(" in view
-    assert view.count("<Stat stat=") == 3, "a timer, a listener and an order each"
+    # ONE BLOCK DRAWS ALL THREE (#2050): the timer, the listener and the order are the
+    # same card, so the reading is rendered once and handed in three times. It used to
+    # be three renderings, and the count that checked for them went on passing at 1 for
+    # two releases — so the thing counted is what actually differs now.
+    assert view.count("<Stat stat=") == 1, "the card draws the reading in one place"
+    assert view.count("stat={row.stat}") == 3, "a timer, a listener and an order each"
     assert "timers.stat.age" in view, "the age is drawn beside the number"
 
 

@@ -4,8 +4,12 @@
     "The stems are the client's own file names, extracted by tools/extract_errand_icons.py",
     "into results/errand_icons/ (git-ignored — the art never leaves the machine that owns",
     "the game). An errand that is not named here draws no picture at all, which is the",
-    "honest answer: a wrong icon is worse than none, and there is no icon in this client",
-    "that means «перезапустить клиент» or «бесплатный герой в таверне»."
+    "honest answer: a wrong icon is worse than none.",
+    "The last three were the gap the person reported as «не все картинки есть» (#2061), and",
+    "none of them has an icon MEANING what the errand does — the client has no «restart me»",
+    "sprite — so each borrows the picture of the thing it is about: the refresh ring for the",
+    "client restart, the bar's own beer for the tavern's free pull, and the device icon off",
+    "the game's «clear devices» screen for the kick, which IS «вход с другого устройства»."
   ],
   "icons": {
     "collect_base_resources": "itemResourceBox",
@@ -40,6 +44,9 @@
     "firework_collect": "zyf_yanhua_icon1",
     "firework_watch": "zyf_yanhua_icon1",
     "leaderboard_collect": "zyf_guqiwuruqin_paihang",
-    "inventory_refresh": "cfm_beibao_tubiao_yizhuangbei"
+    "inventory_refresh": "cfm_beibao_tubiao_yizhuangbei",
+    "restart_game": "icon_shuaxinquan",
+    "tavern_free_pull": "Common_icon_beer",
+    "session_kick": "lyt_yunying_qingchushebei_diannao"
   }
 }

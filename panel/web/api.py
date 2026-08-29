@@ -606,6 +606,13 @@ class WebApi:
             rows.append({
                 "name": timer.name,
                 "title": self._timer_title(rt, timer),
+                # …AND THE SENTENCE THE NAME WAS CUT OUT OF (#2061). The person's words:
+                # «слишком длинные названия, сократи, должны быть лаконичные, а подробное
+                # описание вынеси в кнопку i». A card's head is two or three words and the
+                # rest lives behind the «i» — empty where the label has no short form, and
+                # then the card draws no «i» at all rather than one that says the title
+                # again.
+                "about": self._timer_about(rt, timer),
                 "enabled": bool(item.get("enabled")),
                 "interval_sec": int(item.get("interval_sec") or timer.interval_sec),
                 # The wait after a FAILED run (#1127), so the phone can say why the
@@ -654,12 +661,14 @@ class WebApi:
                 "time": time.time()}
 
     def _timer_title(self, rt, timer) -> str:
-        """What the row is called — the operator's own words, or the built-in key."""
+        """What the row is CALLED — short, because it is a card's head (#2061)."""
         if timer.title:
             return timer.title
-        if timer.label_key:
-            return rt.t(timer.label_key)
-        return timer.name
+        return _short(rt, timer.label_key) or timer.name
+
+    def _timer_about(self, rt, timer) -> str:
+        """…and what the «i» beside it opens — the whole sentence, or nothing."""
+        return "" if timer.title else _about(rt, timer.label_key)
 
     def set_timer(self, name: str, enabled: bool,
                   profile: str | None = None) -> dict:
@@ -916,6 +925,7 @@ class WebApi:
             rows.append({
                 "name": trig.name,
                 "title": self._trigger_title(rt, trig),
+                "about": self._trigger_about(rt, trig),
                 "enabled": bool(trig.enabled),
                 # «сразу, без очереди» (#1288) — the window's row has this box, so the
                 # phone has it: a control a person can read but not move is the
@@ -939,7 +949,8 @@ class WebApi:
         # once it is switched on — so they are drawn among them, with the same switch
         # and the reading their own tab shows under the box.
         orders = [{"name": order.name,
-                   "title": rt.t(order.label_key),
+                   "title": _short(rt, order.label_key) or order.name,
+                   "about": _about(rt, order.label_key),
                    "enabled": order.enabled(),
                    "state": order.state_text(),
                    "hint": order.hint_key,
@@ -959,12 +970,14 @@ class WebApi:
             pass
 
     def _trigger_title(self, rt, trig) -> str:
-        """What the listener is called — the operator's own words, or the built-in key."""
+        """What the listener is CALLED — short, for the same reason (#2061)."""
         if trig.title:
             return trig.title
-        if trig.label_key:
-            return rt.t(trig.label_key)
-        return trig.name
+        return _short(rt, trig.label_key) or trig.name
+
+    def _trigger_about(self, rt, trig) -> str:
+        """…and the whole sentence behind its «i», or nothing."""
+        return "" if trig.title else _about(rt, trig.label_key)
 
     def set_trigger(self, name: str, enabled: bool,
                     profile: str | None = None) -> dict:
@@ -1939,6 +1952,36 @@ class _Saved:
 
     def opt_bool(self, key: str) -> bool:
         return bool(self.opt(key))
+
+
+#: The suffix a SHORT label lives under (#2061). A key that has one is drawn on the card
+#: and the key itself becomes what the «i» opens; a key that has not is drawn whole and
+#: gets no «i». So shortening a label is adding one string to eleven locale files, and
+#: nothing in either front-end has to be told about it.
+SHORT_SUFFIX = ".short"
+
+
+def _short(rt, label_key: str) -> str:
+    """What a card calls this errand: its short label if there is one, else its label."""
+    if not label_key:
+        return ""
+    said = rt.t(label_key + SHORT_SUFFIX)
+    # `I18n.t` answers with the KEY when nothing is under it — the panel's own «a screen
+    # full of `secret.tasks.left` is a bug report» rule — so that is what «no short form»
+    # looks like here.
+    if said and said != label_key + SHORT_SUFFIX:
+        return said
+    return rt.t(label_key)
+
+
+def _about(rt, label_key: str) -> str:
+    """The whole sentence behind the «i», or `""` when the card already says it all."""
+    if not label_key:
+        return ""
+    said = rt.t(label_key + SHORT_SUFFIX)
+    if not said or said == label_key + SHORT_SUFFIX:
+        return ""
+    return rt.t(label_key)
 
 
 def _answer(result: dict) -> tuple:

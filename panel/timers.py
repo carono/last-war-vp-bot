@@ -437,36 +437,14 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         enabled=False,
         label_key="timers.item.send_trucks",
     ),
-    Timer(
-        name="do_radar_tasks",
-        scenario=("do_radar_tasks",),
-        # Half an hour. The board hands out errands on its own clock all day, and the
-        # part this recipe does is two messages and a three-second wait — cheap enough
-        # to look often, and there is nothing to gain from looking oftener than an
-        # errand ripens.
-        interval_sec=1800,
-        # A failure here means the client was not answering: the presses themselves
-        # no-op on an empty board, so five minutes is soon enough.
-        retry_sec=300,
-        enabled=False,
-        # THE DUEL DAY LIVES HERE, in the row's arguments, and not in the recipe. Claiming
-        # is what scores on the day the radar belongs to, so a week's errands claimed on
-        # that one day are worth far more than the same errands claimed as they ripen —
-        # and the board has a CEILING that stops handing out new ones when it is full. So
-        # a person who hoards sets `claim` to 0 for the week and back to 1 on the day, and
-        # `keep_free` is how much room the hoard is told to leave.
-        #
-        # `duel_day` is the other way of saying it, and the better one for a clock: name
-        # the weekday the radar scores on (1 = Monday … 7 = Sunday) and the recipe asks
-        # the GAME which weekday it is on — the server's day, not this machine's — and
-        # decides for itself, every run, with no hand on the row. It ships at 0 («not
-        # given») on purpose: WHICH day is a fact about the player's season and warzone,
-        # the client does not expose it (`docs/research/radar.md`), and a number written
-        # here would be one account's week presented as everyone's. On the season this
-        # was written in it is 1, and `docs/game/daily_cycle.md` says why.
-        args={"claim": 1, "help": 1, "duel_day": 0, "keep_free": 5},
-        label_key="timers.item.do_radar_tasks",
-    ),
+    # «ВЫПОЛНИТЬ ЗАДАНИЯ РАДАРА» IS NOT A ROW HERE ANY MORE (#2061) — the person's
+    # words: «из таймеров убери таймер выполнить задания радара, который просто полностью
+    # собирает задания, перенеси в чеклист». It claims what the board has ripened and runs
+    # the errands that need no march: a thing a person does when they think of it, not a
+    # thing worth a clock of its own beside `radar_full_cycle`, which already picks its own
+    # mode from the game's weekday. The ability did not move — it is one recipe
+    # (`actions/do_radar_tasks.md`) and «Чеклист» has pressed it since the checklist had
+    # blind rows (`panel/tabs/checklist/model.py`, «radar»), which is where it lives now.
     Timer(
         name="radar_full_cycle",
         scenario=("radar_full_cycle",),

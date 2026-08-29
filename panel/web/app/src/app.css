@@ -20,12 +20,53 @@
   --ok: #3ecf7a;
   --warn: #f0b429;
   --bad: #f2555a;
+  --line: #232c3a;
   --radius: 14px;
   --gap: 10px;
   --pad: 14px;
   --tap: 44px;
   color-scheme: dark;
 }
+
+/* -- THE OTHER THEME (#2061) --------------------------------------------------
+   «Нужно переключение дневной/ночной темы». It is the same page in another palette:
+   every colour on this front-end is one of the variables above, so a theme is this
+   block and nothing else — no second stylesheet to keep in step and no component that
+   knows which one is on.
+
+   WHOSE SETTING IS IT? The DEVICE's, and that is the whole answer (see
+   `docs/research/panel-web.md`). It is neither the machine's — one panel is read from a
+   phone in a dark room and from a monitor in a bright office at the same minute — nor
+   the account's, since switching profiles must not change the light in the room. So it
+   lives in the browser that draws it (`localStorage`, `App.tsx`), it starts from what
+   the phone itself says (`prefers-color-scheme`), and nothing about it reaches the panel
+   or the profile.
+
+   The few colours that are not variables — a gradient, the log's paper, the sheet a
+   toast is on — are named again here rather than made into four more variables nobody
+   would think to use. */
+:root[data-theme='light'] {
+  --bg: #f5f7fb;
+  --bg-soft: #e9eef6;
+  --card: #ffffff;
+  --card-edge: #d2dae7;
+  --line: #d2dae7;
+  --ink: #161d29;
+  --ink-soft: #5a6779;
+  --accent: #1f6feb;
+  --ok: #17864a;
+  --warn: #9a6400;
+  --bad: #c62a30;
+  color-scheme: light;
+}
+:root[data-theme='light'] .go,
+:root[data-theme='light'] .gate button {
+  background: linear-gradient(180deg, #ffffff, #eef2f9);
+  color: var(--ink);
+}
+:root[data-theme='light'] .log { background: #ffffff; }
+:root[data-theme='light'] .toast { background: #ffffff; color: var(--ink); }
+:root[data-theme='light'] .worldmap-canvas { background: #eef2f7; }
 
 * { box-sizing: border-box; }
 
@@ -789,10 +830,50 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   gap: 8px;
   min-width: 0;
 }
-.errand-head .switch-row { flex: 1 1 auto; min-width: 0; }
-/* EVERY BLOCK ON «Таймеры» IS THE SAME CARD, and its buttons live on this row rather
-   than in a `foot` of their own: a row per block over thirty-odd blocks is the height
-   this screen was spending to say nothing. */
+/* THE NAME TAKES THE ROW AND THE SWITCH TAKES THE CORNER (#2061). The name is short now
+   — the sentence it was cut out of is behind the «i» — so it fits beside a picture and a
+   switch at the narrowest a card gets (280 px). */
+.errand-head .title { flex: 1 1 auto; min-width: 0; font-size: 14px; }
+
+/* «Чекбокс включения/выключения перемести в правый верхний угол» (#2061). The LABEL is
+   the tap target, thumb-tall like everything else here; the box inside it is the same
+   46×28 pill every switch on this front-end draws. It is deliberately NOT a
+   `.switch-row` any more: that makes the whole row the target, which is right for a form
+   and wrong for a card whose name is beside it — a tap meant for the title switched the
+   errand off. */
+.errand-switch {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: var(--tap);
+  padding-left: 4px;
+  cursor: pointer;
+}
+
+/* THE SIGNS THAT ACT, ON A ROW OF THEIR OWN — «ⓘ», «⚙», «▶». They were on the head row
+   beside the switch, and at 280 px three of them plus the switch left the name about
+   thirty pixels. A card with nothing to press draws no row at all. */
+.errand-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* A CARD THAT IS OFF LOOKS OFF (#2061) — «когда чекбокс выключен, вся карточка должна
+   менять цвет». Thirty cards are read by colour long before they are read by switches,
+   and a small grey box in the corner is not a colour. Dimmed rather than greyed out: the
+   card is still readable and still pressable — its «▶» plays the errand once whether or
+   not the schedule is on — so it must not look disabled. */
+.item.errand.off {
+  background: var(--bg-soft);
+  border-color: color-mix(in srgb, var(--card-edge) 60%, transparent);
+}
+.item.errand.off .title,
+.item.errand.off .stat b { color: var(--ink-soft); font-weight: 600; }
+.item.errand.off .errand-icon { opacity: 0.55; }
+
+/* EVERY BLOCK ON «Таймеры» IS THE SAME CARD. */
 .item.errand { gap: 4px; }
 .item.errand .facts { margin: 0; }
 .item.errand .facts .pill { margin-right: 6px; }

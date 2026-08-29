@@ -21,7 +21,7 @@
     "general_trial_forces": "zyf_sangshitiaozhan_tanke_icon",
     "giant_crocodile": "zyf_S6_eyu_datouxiang",
     "giant_devouring_flower": "zyf_S6_shirenhua_datouxiang",
-    "giant_glacieradon": "zyf_BOSS_touxiang_7.png",
+    "giant_glacieradon": "zyf_BOSS_touxiang_7",
     "giant_sandworm": "mjc_S3_touxiang_jushachong",
     "glacieradon": "world_monster_boss_godzilla",
     "golden_annihilator": "mjc_S3_bossjudian_datouxiang",
@@ -62,5 +62,10 @@
     "zombie_boss": "sj_shengdanboss_guaiwuruqin_touxiang",
     "zombie_horde": "sj_shijiesouguai_boss",
     "zombie_raider": "zyf_BOSS_sangshibus2"
-  }
+  },
+  "_comment": [
+    "A stem named here whose bundle this machine has never downloaded stays missing until",
+    "the screen that uses it is opened in the game and the extractor is run again — the panel",
+    "then draws that card with no picture, which is the same answer as «no art extracted»."
+  ]
 }

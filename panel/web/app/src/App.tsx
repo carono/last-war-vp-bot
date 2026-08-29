@@ -3,6 +3,7 @@ import { get, ping, setProfile, Unauthorised } from './api'
 import { useRoute, type Route, type ViewName } from './route'
 import { loadWords, span, t, type Words } from './i18n'
 import { ToastHost, useToast } from './ui/Toast'
+import { applyTheme, readTheme, saveTheme, type Theme } from './ui/theme'
 import { ActionsView } from './views/ActionsView'
 import { LoginView } from './views/LoginView'
 import { LogView } from './views/LogView'
@@ -193,6 +194,10 @@ function Panel() {
    * not a press the phone has. */
   const [stray, setStray] = useState('')
   const [notify, setNotify] = useState(false)
+  /* DAY OR NIGHT (#2061). The browser's own setting, kept in the browser: `ui/theme.ts`
+     says why it is neither the machine's nor the account's. Applied here so that a
+     choice made on «Ещё» is on the page before the next paint. */
+  const [theme, setTheme] = useState<Theme>(readTheme)
   const [tickCount, setTickCount] = useState(0)
   const logAt = useRef(0)
   const notifyRef = useRef(false)
@@ -287,6 +292,17 @@ function Panel() {
       setOffline(true)
     }
   }, [announce, go, profile, refreshTimers])
+
+  useEffect(() => {
+    applyTheme(theme)
+    // …and «как на телефоне» means exactly that: a device that darkens at sunset darkens
+    // this page with it, without anybody reopening the app.
+    const media = window.matchMedia?.('(prefers-color-scheme: light)')
+    if (theme !== 'system' || !media) return
+    const follow = () => applyTheme('system')
+    media.addEventListener('change', follow)
+    return () => media.removeEventListener('change', follow)
+  }, [theme])
 
   // The poll: quick while somebody is looking, slow while the phone is in a pocket.
   useEffect(() => {
@@ -432,7 +448,15 @@ function Panel() {
             refresh={refreshTimers}
           />
         ) : (
-          <MoreView screens={screens} onOpen={(id) => leave({ ...route, view: 'more', screen: id, part: 0, map: 'model' })} />
+          <MoreView
+            screens={screens}
+            onOpen={(id) => leave({ ...route, view: 'more', screen: id, part: 0, map: 'model' })}
+            theme={theme}
+            onTheme={(want) => {
+              saveTheme(want)
+              setTheme(want)
+            }}
+          />
         )}
       </main>
 

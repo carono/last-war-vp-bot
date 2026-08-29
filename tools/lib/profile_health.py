@@ -50,6 +50,14 @@ Which gives the ladder in :func:`verdict`, and the three amber reasons it can na
                            «нет связи»: the panel is fine, the client is up, and the
                            account is sitting outside the game — stuck at login, or
                            waiting on a door that is shut (#2060).
+* :data:`KICKED`         — chunks land and the client is showing the game's own «вход с
+                           другого устройства» modal (`tools/lib/game_kick.py`, key
+                           `E100083`). **The one reason that outranks green** (#2061):
+                           the account is being played somewhere else, this client is
+                           off the server, and the last probe that answered says nothing
+                           about now. Restarting is not the cure either — a kick has an
+                           author, so `panel/runtime/recovery.py` leaves it alone — but
+                           the light may not say «всё хорошо» while nothing arrives.
 * :data:`MAINTENANCE`    — chunks land, the server does not answer, and the client is
                            showing the game's OWN «server under maintenance» message
                            (`tools/lib/game_maintenance.py`). Nothing is broken and
@@ -87,6 +95,7 @@ CLIENT_HUNG = "client_hung"      # amber: it is there and it is wedged
 NO_CONNECTION = "no_connection"  # amber: OUR side cannot drive it
 NO_TRAFFIC = "no_traffic"        # amber: we drive it and the server says nothing
 NOT_IN_GAME = "not_in_game"      # amber: it drives fine and says it is not logged in
+KICKED = "kicked"                # amber: the account was taken by another device (#2061)
 MAINTENANCE = "maintenance"      # amber: the server is SHUT — wait, do not fix (#1982)
 TRAFFIC = "traffic"              # green
 
@@ -127,7 +136,7 @@ class Health:
 def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
             server: str = SERVER_UNASKED, responding: bool = True,
             error: str = "", maintenance: bool = False,
-            in_game: "bool | None" = None) -> Health:
+            in_game: "bool | None" = None, kicked: bool = False) -> Health:
     """The one light for one profile, from readings somebody else has already taken.
 
     A pure function of ids: no socket, no round trip, no clock. Everything it judges is
@@ -138,15 +147,24 @@ def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
     1. **no client process** → red. Nothing else can be true or false about it.
     2. **a chunk does not land, and the window is hung** → amber, the client is wedged.
     3. **a chunk does not land** → amber, and it is OUR fault until proven otherwise.
-    4. **the server answered** → green. The only thing that earns it.
-    5. **the client is showing the game's own maintenance message** → amber, and it is
+    4. **the client is showing the game's own «вход с другого устройства» modal** →
+       amber, and it is named (#2061). **Above green, and it is the only narrowing that
+       is** — the person's words: «состояние зеленым быть не может, т.к. трафика нет».
+       A kicked client has been taken off the server: it goes on drawing, its getters
+       answer out of what they last received and its sends return `true` while nothing
+       arrives (`tools/lib/game_kick.py`), so a probe that answered before the kick is
+       still inside its shelf life and green means «somebody else is playing this
+       account». Maintenance and «not logged in» sit BELOW green because there a green
+       light is a client that is demonstrably talking; here it is a stale reading.
+    5. **the server answered** → green. The only thing that earns it.
+    6. **the client is showing the game's own maintenance message** → amber, and it is
        named: the server is shut. Below green on purpose (#1982), see above.
-    6. **the client says it is not logged in** → amber, and it is named too (#2060).
+    7. **the client says it is not logged in** → amber, and it is named too (#2060).
        ``in_game`` is `game_clock`'s three-valued answer and only ``False`` counts: that
        is the client's OWN evidence (it answered, with an uptime instead of a clock).
        ``None`` means nobody could ask, which is not evidence of anything and falls
        through to the amber below — the two must never be folded together.
-    7. otherwise → amber. Chunks land, the server has not answered — or has not been
+    8. otherwise → amber. Chunks land, the server has not answered — or has not been
        asked yet, which is the same amber: an unasked question is not a green light.
     """
     def made(colour: str, reason: str) -> Health:
@@ -157,6 +175,8 @@ def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
         return made(BAD, NO_CLIENT)
     if plumbing == NOT_LANDING:
         return made(WARN, CLIENT_HUNG if not responding else NO_CONNECTION)
+    if kicked:
+        return made(WARN, KICKED)
     if server == ANSWERING:
         return made(OK, TRAFFIC)
     if maintenance:

@@ -199,6 +199,38 @@ def test_being_outside_the_game_never_takes_a_green_light_away():
     assert said.colour == ph.OK and said.reason == ph.TRAFFIC
 
 
+def test_a_kicked_client_is_never_green() -> None:
+    """The one narrowing that OUTRANKS green (#2061), and why it has to.
+
+    The person's words: «когда выкинуло из игры, состояние светится зеленым, только по
+    доп сообщению можно понять, что был кик, состояние зеленым быть не может, т.к.
+    трафика нет». A taken account goes on drawing, its getters answer out of what they
+    last received and its sends return `true` while nothing arrives — so the server probe
+    that answered a minute BEFORE the kick is still inside its shelf life, and the light
+    stayed green while somebody else played the account.
+
+    Maintenance and «not logged in» sit below green because there a green light means a
+    client that is demonstrably talking. Here it means a stale reading.
+    """
+    said = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.ANSWERING, kicked=True)
+    assert said.colour == ph.WARN and said.reason == ph.KICKED
+
+
+def test_the_kick_does_not_hide_a_client_we_cannot_drive_at_all() -> None:
+    """It is a narrowing of what is BELOW it, never of the two faults above it."""
+    hung = ph.verdict(running=True, plumbing=ph.NOT_LANDING, responding=False, kicked=True)
+    assert hung.reason == ph.CLIENT_HUNG
+    gone = ph.verdict(running=False, kicked=True)
+    assert gone.colour == ph.BAD and gone.reason == ph.NO_CLIENT
+
+
+def test_the_kick_light_has_words_on_both_front_ends() -> None:
+    light = ProfileHealth()
+    light.update(_Probe(True), plumbing=ph.LANDING, server=ph.ANSWERING, kicked=True)
+    state = light.state(lambda key, **fmt: key)
+    assert state["colour"] == ph.WARN and state["text"] == "health.kicked"
+
+
 def test_the_shut_door_outranks_the_login_screen():
     """Both are true during maintenance; «the server is shut» is the one that helps."""
     said = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.SILENT,

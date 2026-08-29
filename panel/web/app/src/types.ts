@@ -108,6 +108,9 @@ export interface ErrandStat {
 export interface TimerRow {
   name: string
   title: string
+  /* THE SENTENCE THE SHORT NAME WAS CUT OUT OF (#2061) — what the «i» on the card opens.
+     Empty when the label has no short form, and then no «i» is drawn. */
+  about?: string
   enabled: boolean
   immediate?: boolean
   interval_sec: number
@@ -134,6 +137,9 @@ export interface TimerRow {
 export interface TriggerRow {
   name: string
   title: string
+  /* THE SENTENCE THE SHORT NAME WAS CUT OUT OF (#2061) — what the «i» on the card opens.
+     Empty when the label has no short form, and then no «i» is drawn. */
+  about?: string
   enabled: boolean
   immediate?: boolean
   poll?: boolean
@@ -152,6 +158,9 @@ export interface TriggerRow {
 export interface OrderRow {
   name: string
   title: string
+  /* THE SENTENCE THE SHORT NAME WAS CUT OUT OF (#2061) — what the «i» on the card opens.
+     Empty when the label has no short form, and then no «i» is drawn. */
+  about?: string
   enabled: boolean
   state?: string
   hint?: string

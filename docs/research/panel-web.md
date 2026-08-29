@@ -564,3 +564,32 @@ C:\Python312\python.exe tests\test_panel_web.py
 
 covers the routes, the token, the traversal, the log numbering and the words — with no
 display and no game.
+
+## 6. Day or night — whose setting a theme is (#2061)
+
+The person asked for «переключение дневной/ночной темы», and the only question worth
+answering first was WHERE the answer lives. This panel keeps a setting in one of two
+places, and a theme belongs to neither:
+
+* **not the machine's** (`profiles/settings.json`, beside the port, the language and the
+  autostart). One panel is read from a phone in a dark bedroom and from the monitor
+  standing next to the game in a bright room, in the same minute. A machine-wide answer
+  makes those two readers fight over one value;
+* **not the account's.** Switching profiles must not change the light in the room, and a
+  person with four accounts open would have to set the same thing four times.
+
+So it is the **browser's**, kept in that browser's own `localStorage` and never sent to
+the panel: no route, no field on a profile, nothing to keep in step. `panel/web/app/src/
+ui/theme.ts` holds it and `app.css` holds the palette — every colour on this front-end is
+one of the variables in `:root`, so the light theme is one block of overrides rather than
+a second stylesheet.
+
+Three answers rather than two, and the default is the third: **«как на телефоне»** follows
+`prefers-color-scheme`, so a device that darkens at sunset darkens this page with it, and
+a person who wants one theme regardless says so on «Ещё».
+
+**The window has no such switch and is not getting one.** That is not a divergence to
+argue about — Tk is being retired (`docs/research/panel-service-and-spa-plan.md`) and new
+work goes into the web only (`CLAUDE.md`). A theme is also the one setting that could not
+be mirrored honestly: the window has one look, and the phone reading it is a different
+device with a different room around it.
