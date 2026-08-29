@@ -1355,8 +1355,20 @@ class ChatTab(PanelTab):
             return
         if self._chat_store is None and uid:
             # The character is known — the read resolved it on its own thread — so the
-            # store can simply be opened, here, before anything is filed into it.
-            self._open_chat_store(uid)
+            # store is opened here, before anything is filed into it.
+            #
+            # DIRECTLY, and never through `_open_chat_store`: that one resets the whole
+            # tab as well, and half of what it touches is made in `build()`. On a tab
+            # nobody has looked at there are no widgets, so it raised inside a posted
+            # callback and took the backlog with it in complete silence — the third
+            # version of one bug (#2064), and every version of it looked like success
+            # in the log.
+            try:
+                self._chat_store = chathistmod.ChatHistoryStore(
+                    self.rt.profiles.chat_db(uid))
+                self._chat_uid = uid
+            except Exception as exc:      # noqa: BLE001 — a bad store, not a dead tab
+                self.say("chat", "log.error", error=exc)
         if self._chat_store is None:
             # Not «no store», but «no character»: the game could not say who is logged
             # in. Held rather than dropped — a press that says 279 and keeps none of
@@ -1367,6 +1379,18 @@ class ChatTab(PanelTab):
             self.ensure_loaded()
             return
         self._file_backlog(records)
+
+    def _set_chat_count(self, n: int) -> None:
+        """The «N messages» line, when there is one to write it on.
+
+        `build()` runs when somebody first LOOKS at a tab, and this tab is now reached
+        without that — a press off the phone, and the store opening behind it. A bare
+        `self._chat_count_var` there is an `AttributeError` inside a posted callback,
+        which is silent (#2064).
+        """
+        var = getattr(self, "_chat_count_var", None)
+        if var is not None:
+            var.set(self.t("chat.count", n=n))
 
     def _file_backlog(self, records: list) -> None:
         """Write the read messages into this character's store, and draw them if drawn.
@@ -1675,7 +1699,7 @@ class ChatTab(PanelTab):
             self._chat_store.close()
             self._chat_store = None
         self._chat_uid = char_uid or ""
-        self._chat_count_var.set(self.t("chat.count", n=0))
+        self._set_chat_count(0)
         if not char_uid:
             self._refresh_dm_contacts()      # empties the sidebar too
             return
@@ -1703,7 +1727,7 @@ class ChatTab(PanelTab):
             self._rebuild_chat_view(chat_type)
 
         self._refresh_dm_contacts()
-        self._chat_count_var.set(self.t("chat.count", n=total))
+        self._set_chat_count(total)
         if total:
             self.say("chat", "log.chat.history", n=total)
         # A backlog that came back before the store was open — file it now.
