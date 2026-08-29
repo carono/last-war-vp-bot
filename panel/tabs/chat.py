@@ -111,6 +111,13 @@ class ChatTab(PanelTab):
     #: comes off when this tab's abilities are proven live and said so in
     #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
     IN_DEVELOPMENT = True
+    #: THE EAR MUST BE UP WITHOUT ANYBODY LOOKING (#2064). The monitor is a switch a
+    #: person leaves ON, and what it starts is a reader listening for messages that will
+    #: not wait for somebody to click the tab: left lazy, a restart quietly stopped
+    #: recording until the tab (or the phone's chat screen) was next opened, and a gap
+    #: in a chat history looks exactly like a quiet hour. This is the case the flag was
+    #: written for — and it costs a profile that has the tab off precisely nothing.
+    EAGER = True
     PREFERRED_SIZE = "1000x760"
     LOCALE_NS = ("chat",)
     NEEDS = frozenset({"daemon", "children"})
