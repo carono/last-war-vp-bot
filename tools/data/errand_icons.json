@@ -5,16 +5,16 @@
     "into results/errand_icons/ (git-ignored — the art never leaves the machine that owns",
     "the game). An errand that is not named here draws no picture at all, which is the",
     "honest answer: a wrong icon is worse than none.",
-    "THE TAVERN NAMES THE BUILDING ITSELF (#2061, «выведи картинку здания таверны»): the",
-    "beer mug that stood here was a stand-in and the person asked for the building. The",
-    "client has no small ICON for a building — its own art is the 3D model — so this is",
-    "the flat picture from the building's own help screen, and it appears once that screen",
-    "has been opened in the game and the extractor run again. Until then the card draws no",
-    "picture, which is what «no stand-in» costs and is the same contract every other",
-    "missing sprite keeps.",
-    "The other two borrowed pictures stay by the person's decision: the refresh ring for",
-    "the client restart (the client has no «restart me» sprite at all) and the device icon",
-    "off the game's own «clear devices» screen for the kick, which IS «вход с другого",
+    "THE TAVERN DRAWS THE TAVERN (#2061, «выведи картинку здания таверны» / «ищи сам спрайт",
+    "с таверной»). A base building has no icon anywhere in the UI, and the help screen that",
+    "holds a flat picture of one is in a bundle this machine has never downloaded — but the",
+    "texture beside the building's MODEL turned out not to be an unwrapped UV sheet: the",
+    "client ships a rendered isometric picture of each building on transparency. That is the",
+    "tavern, at the level this account's art is drawn for, and it needs nothing opened in",
+    "the game.",
+    "The other two borrowed pictures stay by the person's decision: the refresh ring for the",
+    "client restart (the client has no «restart me» sprite at all) and the device icon off",
+    "the game's own «clear devices» screen for the kick, which IS «вход с другого",
     "устройства»."
   ],
   "icons": {
@@ -52,7 +52,7 @@
     "leaderboard_collect": "zyf_guqiwuruqin_paihang",
     "inventory_refresh": "cfm_beibao_tubiao_yizhuangbei",
     "restart_game": "icon_shuaxinquan",
-    "tavern_free_pull": "shuoming_jiuguanshuoming_01",
+    "tavern_free_pull": "jiuguan_D",
     "session_kick": "lyt_yunying_qingchushebei_diannao"
   }
 }

@@ -57,13 +57,25 @@ PREFIXES = {
     # a DEVICE, which is what the session kick is about (#2061).
     "device": "Assets/Main/Sprites/UI/UIDeviceManage",
     # …and the building-helper screens, which hold the game's own PICTURE of each
-    # building — the tavern among them (#2061, «выведи картинку здания таверны»). The
-    # client has no small icon for a building: its own art is the 3D model, and this is
-    # the one place a flat picture of the thing exists.
+    # building. Its bundles are downloaded only when somebody opens that screen in the
+    # game, so a machine may simply not have them.
     "helper": "Assets/Main/Sprites/UI/LWUIBuildingHelper",
+    # …AND THE BUILDINGS' OWN ART (#2061, «ищи сам спрайт с таверной»). A base building
+    # has no icon anywhere in the UI — but the texture beside its model is not the
+    # unwrapped UV sheet one expects: the client ships a RENDERED isometric picture of
+    # each building, on transparency, and that is the picture of the thing. It is what
+    # the tavern draws.
+    # Broad on purpose: the buildings' art is filed under several trees (a season's
+    # increment, the environment models), and the name filter is what narrows it.
+    "model": "Assets/_Art_LastWar",
 }
 
 MAP_PATH = os.path.join(_HERE, "data", "errand_icons.json")
+
+#: The longest side a saved picture may have. The errands' own sprites are 40–120 px; a
+#: building's rendered art is nearly a thousand, and the card that draws it is 150 px
+#: tall on a phone.
+MAX_SIDE = 256
 
 
 def wanted_stems(extra=()) -> set:
@@ -119,7 +131,10 @@ def main(argv=None) -> int:
             print(f"  ! load failed {real[:12]}: {exc}")
             continue
         for obj in env.objects:
-            if obj.type.name != "Sprite":
+            # A SPRITE OR A TEXTURE. Everything the UI draws is a Sprite; a building's
+            # own rendered picture is a Texture2D beside its model (#2061), and both are
+            # read the same way.
+            if obj.type.name not in ("Sprite", "Texture2D"):
                 continue
             try:
                 data = obj.read()
@@ -133,6 +148,14 @@ def main(argv=None) -> int:
             except Exception as exc:          # noqa: BLE001
                 print(f"  ! image failed for {name}: {exc}")
                 continue
+            # A CARD IS 150 px TALL, and a building's own render is a thousand across —
+            # 685 KB fetched by a phone to draw a thumbnail (#2061). Anything oversized is
+            # shrunk on the way out; the UI sprites are already smaller than the cap and
+            # pass through untouched.
+            if max(image.size) > MAX_SIDE:
+                scale = MAX_SIDE / max(image.size)
+                image = image.resize((max(1, round(image.width * scale)),
+                                      max(1, round(image.height * scale))))
             image.save(args.out / f"{gameres_index.sanitize(name)}.png")
             got.add(name)
             saved += 1
