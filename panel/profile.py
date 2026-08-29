@@ -1078,6 +1078,51 @@ def set_dev_updates(flag: bool) -> None:
     set_panel_settings(data)
 
 
+# -- the colour theme: the PANEL's, not an account's (#2061) ---------------------
+#
+# The person's words, and they settle it: «Цветовая тема, это настройка панели, не
+# аккаунта». It answers the first of `CLAUDE.md`'s two questions the same way the
+# language, the remote-control block and the autostart do — one per MACHINE — so it lives
+# here, in the one database, and a profile switch cannot make the page jump from dark to
+# light halfway through a sentence.
+#
+# It was kept in the browser for a day (`localStorage`) on the argument that a phone in a
+# dark room and a monitor in a bright one are two readers of one panel. That argument is
+# answered rather than ignored: `system` is one of the three values this key holds, and it
+# means «follow whatever device is drawing me» — so a panel set that way still darkens
+# with the phone at sunset, and a panel set to `dark` is dark on every screen it is opened
+# on. What is gone is the second copy of the answer.
+
+#: The key in the panel's own settings, and the three things it may say.
+THEME_KEY = "theme"
+THEMES = ("system", "dark", "light")
+DEFAULT_THEME = "system"
+
+
+def theme() -> str:
+    """Which palette the panel draws in — `system` until somebody chooses."""
+    said = str(ProfileManager._read_settings().get(THEME_KEY, "") or "").strip()
+    return said if said in THEMES else DEFAULT_THEME
+
+
+def set_theme(want: str) -> bool:
+    """Remember it for the whole panel. `False` for a name that is not one of the three.
+
+    A value nobody recognises is REFUSED rather than stored: the front-end turns this
+    into a `data-theme` attribute, and a typo saved here would be a page with no palette
+    at all until somebody found the row in the database.
+    """
+    want = str(want or "").strip()
+    if want not in THEMES:
+        return False
+    data = ProfileManager._read_settings()
+    if str(data.get(THEME_KEY, "") or "") == want:
+        return True
+    data[THEME_KEY] = want
+    set_panel_settings(data)
+    return True
+
+
 # -- the remote control: panel-wide too, for the same reason (#1313) -------------
 #
 # The web front-end is ONE SERVER PER WINDOW answering for every profile that window has

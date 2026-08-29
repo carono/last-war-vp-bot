@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { get, ping, setProfile, Unauthorised } from './api'
+import { get, ping, post, setProfile, Unauthorised } from './api'
 import { useRoute, type Route, type ViewName } from './route'
 import { loadWords, span, t, type Words } from './i18n'
 import { ToastHost, useToast } from './ui/Toast'
-import { applyTheme, readTheme, saveTheme, type Theme } from './ui/theme'
+import { applyTheme, isTheme, type Theme } from './ui/theme'
 import { ActionsView } from './views/ActionsView'
 import { LoginView } from './views/LoginView'
 import { LogView } from './views/LogView'
@@ -194,10 +194,11 @@ function Panel() {
    * not a press the phone has. */
   const [stray, setStray] = useState('')
   const [notify, setNotify] = useState(false)
-  /* DAY OR NIGHT (#2061). The browser's own setting, kept in the browser: `ui/theme.ts`
-     says why it is neither the machine's nor the account's. Applied here so that a
-     choice made on «Ещё» is on the page before the next paint. */
-  const [theme, setTheme] = useState<Theme>(readTheme)
+  /* DAY OR NIGHT (#2061). The PANEL's setting and not the browser's — «Цветовая тема,
+     это настройка панели, не аккаунта» — so it arrives on `/api/profiles`, which is the
+     one answer on this front-end that is about the machine rather than about an account.
+     Held here only to draw it. */
+  const [theme, setTheme] = useState<Theme>('system')
   const [tickCount, setTickCount] = useState(0)
   const logAt = useRef(0)
   const notifyRef = useRef(false)
@@ -260,6 +261,9 @@ function Panel() {
       setProfile(profile)
       const who = await get<Profiles>('/api/profiles')
       setProfiles(who)
+      // The palette follows the panel, not the tab that is open: a poll is what carries
+      // a change made on the machine (or on another phone) to this one.
+      if (isTheme(who.theme)) setTheme(who.theme)
       const names = who.profiles || []
       if (!profile || !names.includes(profile)) {
         // Start on the account the WINDOW is showing, and fall back to it if the one
@@ -452,9 +456,11 @@ function Panel() {
             screens={screens}
             onOpen={(id) => leave({ ...route, view: 'more', screen: id, part: 0, map: 'model' })}
             theme={theme}
+            /* Drawn at once and written for the whole panel — the poll above brings
+               the panel's own answer back a moment later, so a refusal corrects it. */
             onTheme={(want) => {
-              saveTheme(want)
               setTheme(want)
+              void post('/api/theme', { theme: want }).then(() => void tick())
             }}
           />
         )}

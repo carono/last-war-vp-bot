@@ -567,29 +567,35 @@ display and no game.
 
 ## 6. Day or night — whose setting a theme is (#2061)
 
-The person asked for «переключение дневной/ночной темы», and the only question worth
-answering first was WHERE the answer lives. This panel keeps a setting in one of two
-places, and a theme belongs to neither:
+**The person's decision, in their words: «Цветовая тема, это настройка панели, не
+аккаунта».** So the palette is the PANEL's — one answer per machine, stored where the
+language, the remote-control block and the autostart list are stored, which since #2025 is
+the one database (`profiles/panel.db`, the `:panel` scope; `panel/profile.py` holds
+`theme()` / `set_theme()` beside `dev_updates()`).
 
-* **not the machine's** (`profiles/settings.json`, beside the port, the language and the
-  autostart). One panel is read from a phone in a dark bedroom and from the monitor
-  standing next to the game in a bright room, in the same minute. A machine-wide answer
-  makes those two readers fight over one value;
-* **not the account's.** Switching profiles must not change the light in the room, and a
-  person with four accounts open would have to set the same thing four times.
+What that buys, and both halves matter:
 
-So it is the **browser's**, kept in that browser's own `localStorage` and never sent to
-the panel: no route, no field on a profile, nothing to keep in step. `panel/web/app/src/
-ui/theme.ts` holds it and `app.css` holds the palette — every colour on this front-end is
-one of the variables in `:root`, so the light theme is one block of overrides rather than
-a second stylesheet.
+* **switching accounts does not change the colour.** A per-profile answer would have made
+  the page flip from dark to light halfway through a sentence, on the one screen a person
+  uses precisely because they are not at the machine;
+* **there is one answer, not two.** The first cut kept it in the browser that drew the
+  page, on the argument that a phone in a dark room and a monitor in a bright one are two
+  readers of one panel. That argument is answered rather than dropped: one of the three
+  values the panel stores is **«как на телефоне»**, which follows the device's own
+  `prefers-color-scheme` — so a panel set that way still darkens with the phone at sunset,
+  while a panel set to `dark` is dark on every screen it is opened on. What is gone is the
+  second copy of the setting, which is the thing that could disagree.
 
-Three answers rather than two, and the default is the third: **«как на телефоне»** follows
-`prefers-color-scheme`, so a device that darkens at sunset darkens this page with it, and
-a person who wants one theme regardless says so on «Ещё».
+The three values are `system` / `dark` / `light`; anything else is REFUSED at the door
+(`WebApi.set_theme`), because the browser turns this into a `data-theme` attribute and a
+typo stored in the database would be a page with no palette at all. The press names no
+profile — it is the one control on this front-end that is deliberately not about the
+account being looked at — and the value travels back on `/api/profiles`, which is already
+the answer about the machine rather than about an account.
 
-**The window has no such switch and is not getting one.** That is not a divergence to
-argue about — Tk is being retired (`docs/research/panel-service-and-spa-plan.md`) and new
-work goes into the web only (`CLAUDE.md`). A theme is also the one setting that could not
-be mirrored honestly: the window has one look, and the phone reading it is a different
-device with a different room around it.
+Every colour on this front-end is a variable in `:root` (`app.css`), so the light theme is
+one block of overrides and not a second stylesheet.
+
+**The window has no such switch and is not getting one.** Tk is being retired
+(`docs/research/panel-service-and-spa-plan.md`) and new work goes into the web only
+(`CLAUDE.md`).

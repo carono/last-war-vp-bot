@@ -28,6 +28,9 @@ export interface Profiles {
   home?: string
   showing?: string
   lights?: Light[]
+  /* The palette, and it rides THIS answer because it is the PANEL's rather than an
+     account's (#2061) — «Цветовая тема, это настройка панели, не аккаунта». */
+  theme?: string
 }
 
 export interface Recovery {

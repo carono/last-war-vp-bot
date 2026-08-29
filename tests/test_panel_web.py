@@ -2323,20 +2323,43 @@ def test_a_card_says_whether_it_is_on_by_its_colour_and_switches_in_the_corner()
     assert ".item.errand.off" in css, "nothing colours a card that is switched off"
 
 
-def test_the_theme_is_the_browsers_own_and_never_reaches_the_panel():
-    """Day or night is the DEVICE's setting (#2061, `docs/research/panel-web.md` §6).
+def test_the_theme_is_the_panels_own_and_not_an_accounts():
+    """«Цветовая тема, это настройка панели, не аккаунта» — the person's decision (#2061).
 
-    Not the machine's — one panel is read in a dark bedroom and in a bright office in the
-    same minute — and not the account's, since switching profiles must not change the
-    light in the room. So it lives in `localStorage` and there is nothing about it on the
-    wire: a route would be the beginning of a second copy of it.
+    It answers `CLAUDE.md`'s first question the way the language and the remote-control
+    block do — one per MACHINE — so it is stored once, in the one database under the panel
+    scope, and NOT in a profile. Two things go wrong quietly here and both are checked:
+    a copy kept in the browser (then the phone and the machine disagree and neither is
+    authoritative), and a value written into whichever profile happened to be open (then
+    switching accounts changes the colour).
     """
+    import tempfile
+    from panel import profile as profilemod
+
     script = _front_end_source()
-    assert "prefers-color-scheme" in script, "the theme ignores what the device says"
-    assert "localStorage" in script and "lwvp.theme" in script, \
-        "the theme is not kept in the browser that draws the page"
-    api_src = (_REPO / "panel" / "web" / "api.py").read_text(encoding="utf-8")
-    assert "theme" not in api_src, "the theme has grown a route into the panel"
+    assert "localStorage" not in script, "the palette is kept in the browser again"
+    assert "'/api/theme'" in script, "the phone does not write the panel's own setting"
+
+    home = Path(tempfile.mkdtemp())
+    kept_dir, kept_file = profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE
+    profilemod.PROFILES_DIR = str(home)
+    profilemod.SETTINGS_FILE = str(home / "settings.json")
+    try:
+        assert profilemod.theme() == "system", "an unset panel is not dark or light"
+        with tempfile.TemporaryDirectory() as scratch:
+            _rt, api = _api(scratch)
+            assert api.dispatch("POST", "/api/theme", {}, {"theme": "dark"})[0] == 200
+            assert api.profiles()["theme"] == "dark"
+            # …and a name nobody recognises is refused rather than stored: the browser
+            # turns this into a `data-theme`, and a typo would be a page with no palette.
+            status, said = api.dispatch("POST", "/api/theme", {}, {"theme": "chartreuse"})
+            assert status == 404 and said["error"] == "unknown", said
+            assert profilemod.theme() == "dark"
+        # It landed in the PANEL's block, beside the language and the web knobs.
+        assert profilemod.panel_settings().get("theme") == "dark"
+    finally:
+        profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE = kept_dir, kept_file
+
     css = _css()
     assert "[data-theme='light']" in css, "there is only one palette"
 

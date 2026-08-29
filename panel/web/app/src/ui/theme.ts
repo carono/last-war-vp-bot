@@ -1,46 +1,29 @@
 /* DAY OR NIGHT, AND WHOSE SETTING IT IS (#2061).
  *
- * The person asked for «переключение дневной/ночной темы». The question that had to be
- * answered before writing it was WHERE the answer lives, and it is neither of the two
- * places this panel usually keeps things:
+ * The person's decision, in their words: **«Цветовая тема, это настройка панели, не
+ * аккаунта»**. So it is the PANEL's — one answer for the machine, kept where the language
+ * and the remote-control block are kept, which since #2025 is the one database
+ * (`panel/profile.py`, `theme()` / `set_theme()`). Nothing about it is stored in the
+ * browser: this module only APPLIES what the panel answered, and moving it is a press
+ * that names no profile.
  *
- *   * not the MACHINE's (`profiles/settings.json`, beside the port and the language) —
- *     one panel is read from a phone in a dark bedroom and from a monitor in a bright
- *     office in the same minute, and a machine-wide answer makes those two fight;
- *   * not the ACCOUNT's — switching profiles must not change the light in the room.
- *
- * It belongs to the BROWSER that draws the page, so it is kept there and nothing about
- * it travels to the panel: no route, no locale-shaped state, no profile field. What it
- * starts from is what the device itself says (`prefers-color-scheme`), which is the
- * answer a phone on an evening schedule already has.
- *
- * Three choices rather than two, and the third is the default: «как на телефоне» follows
- * the device, so a phone that darkens at sunset darkens this page with it.
+ * IT WAS KEPT IN THE BROWSER'S OWN STORAGE FOR A DAY, on the argument that a phone in a dark room
+ * and a monitor in a bright one are two readers of one panel. That argument is answered
+ * rather than dropped: `system` is one of the three values the panel stores, and it means
+ * «follow whichever device is drawing me» — so a panel set that way still darkens with
+ * the phone at sunset, while a panel set to `dark` is dark on every screen it is opened
+ * on. What is gone is the second copy of the answer.
  */
 
 export type Theme = 'system' | 'dark' | 'light'
 
-const KEY = 'lwvp.theme'
+export const THEMES: Theme[] = ['system', 'dark', 'light']
 
-export function readTheme(): Theme {
-  try {
-    const said = localStorage.getItem(KEY)
-    if (said === 'dark' || said === 'light' || said === 'system') return said
-  } catch {
-    /* a browser with storage switched off simply follows the device */
-  }
-  return 'system'
+export function isTheme(said: unknown): said is Theme {
+  return said === 'system' || said === 'dark' || said === 'light'
 }
 
-export function saveTheme(theme: Theme): void {
-  try {
-    localStorage.setItem(KEY, theme)
-  } catch {
-    /* …and forgets it on the next visit, which is better than not switching at all */
-  }
-}
-
-/** Put the choice on `<html>` — the stylesheet does the rest (`app.css`). */
+/** Put the panel's answer on `<html>` — the stylesheet does the rest (`app.css`). */
 export function applyTheme(theme: Theme): void {
   const dark =
     theme === 'system'

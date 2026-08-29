@@ -53,6 +53,7 @@ import time
 import profile_health
 
 from .. import i18n as i18nmod
+from .. import profile as profilemod
 from .. import timers as timersmod
 from .. import triggers as triggersmod
 from ..runtime import autostart as autostartmod
@@ -228,7 +229,38 @@ class WebApi:
                 "lights": [self._light(rt) for _name, rt in self.sessions()],
                 # Which one the WINDOW is looking at. Shown so a person driving both can
                 # see, from the phone, which account is on screen at the machine.
-                "showing": current or self.rt.profiles.active}
+                "showing": current or self.rt.profiles.active,
+                # THE PALETTE, AND IT RIDES THE PANEL-WIDE ANSWER (#2061). The person's
+                # words: «Цветовая тема, это настройка панели, не аккаунта» — so it is
+                # read out of the panel's own settings, beside the language and the
+                # remote-control block, and it travels on THIS route rather than on
+                # `/api/state` because this is the one answer that is not about a
+                # profile. Switching accounts therefore cannot make the page change
+                # colour halfway through a sentence.
+                "theme": self.theme()}
+
+    # -- the palette (#2061) -------------------------------------------------
+    @staticmethod
+    def theme() -> str:
+        """Which of the three the panel draws in — `panel/profile.py` owns the answer."""
+        try:
+            return profilemod.theme()
+        except Exception:                    # noqa: BLE001 — a colour, never the route
+            return profilemod.DEFAULT_THEME
+
+    @staticmethod
+    def set_theme(want: str) -> dict:
+        """Move it, for the whole panel. A name that is not one of the three is refused.
+
+        No profile is involved on purpose: this is the one press on the front-end that
+        is deliberately not about the account being looked at.
+        """
+        try:
+            if not profilemod.set_theme(want):
+                return {"error": "unknown"}
+        except Exception as exc:             # noqa: BLE001 — a colour, never the route
+            return {"ok": False, "error": str(exc)[:200]}
+        return {"ok": True, "theme": profilemod.theme()}
 
     def _light(self, rt) -> dict:
         """One profile's light, worded in ITS own language — never the browser's.
@@ -1847,6 +1879,10 @@ class WebApi:
                 return _answer(self.game(str(body.get("action") or ""), who))
             if path == "/api/panel":
                 return _answer(self.panel(str(body.get("action") or ""), who))
+            # …and the one press that names no profile (#2061): the palette is the
+            # PANEL's, so `who` is deliberately not passed on.
+            if path == "/api/theme":
+                return _answer(self.set_theme(str(body.get("theme") or "")))
             if path == "/api/power":
                 return _answer(self.power(bool(body.get("on")), who))
             if path == "/api/watchdog":

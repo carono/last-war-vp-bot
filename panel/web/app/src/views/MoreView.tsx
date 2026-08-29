@@ -3,10 +3,10 @@ import type { Screen } from '../types'
 import type { Theme } from '../ui/theme'
 
 /* THE THEME PICKER LIVES HERE (#2061) — «Ещё» is where the things that belong to the
- * front-end itself have always gone, and this one belongs to the front-end more
- * literally than any of them: it is the browser's own setting and never reaches the
- * panel (`ui/theme.ts` says why). Three chips rather than a switch, because there are
- * three answers and the third — «как на телефоне» — is the one most people want. */
+ * whole front-end have always gone, and the palette is one of them: it is the PANEL's
+ * setting, stored once for the machine (`panel/profile.py`), so it does not move when the
+ * account does. Three chips rather than a switch, because there are three answers and the
+ * third — «как на телефоне» — is the one most people want. */
 const THEMES: { id: Theme; key: string }[] = [
   { id: 'system', key: 'web.ui.theme.system' },
   { id: 'dark', key: 'web.ui.theme.dark' },

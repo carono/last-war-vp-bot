@@ -34,13 +34,14 @@
    block and nothing else — no second stylesheet to keep in step and no component that
    knows which one is on.
 
-   WHOSE SETTING IS IT? The DEVICE's, and that is the whole answer (see
-   `docs/research/panel-web.md`). It is neither the machine's — one panel is read from a
-   phone in a dark room and from a monitor in a bright office at the same minute — nor
-   the account's, since switching profiles must not change the light in the room. So it
-   lives in the browser that draws it (`localStorage`, `App.tsx`), it starts from what
-   the phone itself says (`prefers-color-scheme`), and nothing about it reaches the panel
-   or the profile.
+   WHOSE SETTING IS IT? The PANEL's — the person's words: «Цветовая тема, это настройка
+   панели, не аккаунта». So it is stored once for the machine, beside the language and
+   the remote-control block (`panel/profile.py`, the one database since #2025), and it
+   reaches the page on `/api/profiles`: switching accounts cannot change the colour, and
+   a phone and the machine cannot hold two different answers. One of the three values it
+   may hold is «как на телефоне», which follows `prefers-color-scheme` — that is how a
+   panel can still darken with the device at sunset without a second copy of the setting
+   existing anywhere.
 
    The few colours that are not variables — a gradient, the log's paper, the sheet a
    toast is on — are named again here rather than made into four more variables nobody
