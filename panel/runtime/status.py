@@ -465,8 +465,14 @@ class StatusPoll:
 
         playing = (True if session == game_clock.IN_SESSION
                    else False if session == game_clock.LOGIN_SCREEN else None)
+        # …and it is told WHO ELSE HAS THIS CLIENT (#2060): the watchdog when there is no
+        # process, `note` when the amber is one it acts on. Everything else — a client up
+        # and not landing, a client landing and shut out of the game — is this branch's,
+        # and passing only «is the server answering» left the commonest of them, a
+        # relaunched client stuck at the login screen with dead sockets, cured by nobody.
         self._act_on(rt.recovery.note_session(
-            playing, health.colour == profile_health.OK, now, idle_sec=idle))
+            playing, health.colour == profile_health.OK, now, idle_sec=idle,
+            running=getattr(found, "running", False), deaf=deaf))
 
     def _act_on(self, said) -> None:
         """Say what the recovery decided, and do it. One door for every decision.

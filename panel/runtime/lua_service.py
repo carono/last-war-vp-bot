@@ -169,6 +169,13 @@ class LuaService:
         self._log, self._dbg = log, debug
         self._mod = _daemon_module()
         self._daemon = self._mod.Daemon()
+        # …AND ITS DIAGNOSIS GOES INTO THE LOG, NOT INTO A CLOSED HANDLE (#2060). The
+        # `Daemon` says why an attach or a probe failed by printing, which is right for
+        # the standalone connector and worthless here: a panel started detached has no
+        # stdout, so live on 2026-08-28 a profile said «45 probes in a row … attaching
+        # again» 859 times across 6.9 hours while the sentence naming the cause was
+        # thrown away every single time.
+        self._daemon.say = self._relay
         self._ports: dict = {}                    # port -> the listening socket
         self._lock = threading.Lock()
         self._watching = False
@@ -452,6 +459,14 @@ class LuaService:
             return
         self._said = fingerprint
         self._log.say("link", key, **fmt)
+
+    def _relay(self, msg: str) -> None:
+        """One line the `Daemon` wanted to print, put where a person can read it (#2060).
+
+        Warning rather than info: everything it says is a refusal or a hand-over, and the
+        one thing this had to end is a standing failure with no cause anywhere in the log.
+        """
+        self._note_warn("%s", str(msg).replace("[daemon] ", ""))
 
     def _note(self, msg, *args) -> None:
         if self._dbg is not None:

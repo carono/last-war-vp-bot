@@ -14,8 +14,11 @@ becoming the thing this module fears most: a restart loop that eats a healthy ac
 
 What is pinned here:
 
-  * a client that is PLAYING is never touched, and one that is `offline` or `lost`
-    belongs to the branches that already own it — two things must not restart one client;
+  * a client that is PLAYING is never touched, and one ANOTHER BRANCH is curing —
+    no process (the watchdog's) or an amber `note` acts on — belongs to that branch;
+    two things must not restart one client. Until #2060 the test was «is the server
+    answering», which handed away the commonest fault of all: a client that is up,
+    answering Windows and unable to get into the game, cured by nobody for 6.9 hours;
   * «could not ask» is treated as not-playing, deliberately: it is what maintenance looks
     like from here, and a client the panel cannot talk to for seven minutes is no more
     use than one at the login screen;
@@ -92,16 +95,38 @@ def test_a_client_in_the_game_is_never_touched():
     assert r.state(7200.0)["stalled_for"] == 0
 
 
-def test_a_client_the_server_is_not_answering_belongs_to_the_other_branch():
+def test_a_client_another_branch_is_curing_belongs_to_that_branch():
     """Two things must not restart one client — the rule this module has always kept.
 
-    A silent server is `note`'s business (the deaf client, its strikes and its
-    cooldown); this branch is only for a client the panel can talk to that is sitting
-    outside the game.
+    WHO ELSE HAS IT is the question, and until #2060 this branch asked the wrong one.
+    It handed the client over whenever the server was not answering, which is a much
+    bigger set than the one the other branches actually take: no process at all is the
+    watchdog's, and an amber `note` acts on (`no_traffic`, `client_hung`) is `note`'s.
+    """
+    r = _r()
+    assert r.note_session(False, False, 0.0, idle_sec=AWAY, running=False) is None
+    assert r.note_session(False, False, 100_000.0, idle_sec=AWAY, running=False) is None
+    r = _r()
+    assert r.note_session(False, False, 0.0, idle_sec=AWAY, deaf=True) is None
+    assert r.note_session(False, False, 100_000.0, idle_sec=AWAY, deaf=True) is None
+
+
+def test_a_client_up_and_not_landing_is_knocked_on_rather_than_left_to_nobody():
+    """THE STATE THAT HAD NO CURE AT ALL (#2060), and it is the commonest one.
+
+    Live on 2026-08-28: the account was kicked at 23:26, the panel relaunched the game,
+    and the new client stuck on the Launch scene with every game socket in CLOSE_WAIT.
+    The process was up, so the watchdog had nothing to do; the light was `no_connection`,
+    which `note` throws away on purpose (#1268); and this branch cleared its clock on the
+    same reading. The gate was held for 24 975 s and not one errand ran.
+
+    A client that is running, is not one of `note`'s ambers and cannot get into the game
+    is exactly what the knock exists for, whether or not the server is answering.
     """
     r = _r()
     assert r.note_session(False, False, 0.0, idle_sec=AWAY) is None
-    assert r.note_session(False, False, 100_000.0, idle_sec=AWAY) is None
+    said = r.note_session(False, False, _grace(r), idle_sec=AWAY)
+    assert said is not None and said[0] == rec.ACT_STALLED, said
 
 
 # ---------------------------------------------------------------------------

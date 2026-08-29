@@ -140,17 +140,32 @@ class ClientUnreachable(RuntimeError):
     """
 
 
+def _to_stdout(msg: str) -> None:
+    """Where this module's diagnosis goes when it IS a process. See `Daemon.say`."""
+    print(msg, flush=True)
+
+
 class Daemon:
     def __init__(self):
         self._lock = threading.Lock()
         self._ev = None
+        #: WHERE THE DIAGNOSIS GOES (#2060). Every line below that says why an attach or
+        #: a probe did not work used to be a `print`, which was right while this module
+        #: was a process of its own with a log behind its stdout. Since #1911 the panel
+        #: holds the VM in-process and has no stdout at all, so those lines went NOWHERE:
+        #: live on 2026-08-28 a profile logged «45 probes in a row … attaching again»
+        #: 859 times over 6.9 hours and not one word of WHY, while the only reading that
+        #: could have named the cause was being printed into a closed handle.
+        #:
+        #: The panel replaces this with its link logger (`panel/runtime/lua_service.py`).
+        #: A standalone daemon keeps the print, which is what its supervisor reads.
+        self.say = _to_stdout
         #: Has a chunk reached the game lately, and is it time to go and find out
         #: (`tools/lib/daemon_pulse.py`). Every successful run stamps it, so a busy
         #: daemon never probes at all and the guarantee is free while the panel works.
         self.pulse = Pulse()
-        self.lease = Lease(on_expire=lambda owner, held: print(
-            f"[daemon] lease of {owner!r} expired after {held:.0f}s — dropped",
-            flush=True))
+        self.lease = Lease(on_expire=lambda owner, held: self.say(
+            f"[daemon] lease of {owner!r} expired after {held:.0f}s — dropped"))
 
     def _ensure(self):
         # LuaEval is imported here, not at module scope: it drags the il2cpp stack in,
@@ -162,8 +177,7 @@ class Daemon:
             self._ev = LuaEval()
         return self._ev
 
-    @staticmethod
-    def _repin() -> None:
+    def _repin(self) -> None:
         """Follow the pinned client across a restart, without ever crossing sessions.
 
         ``--pid`` / ``LW_GAME_PID`` say WHICH client this daemon serves. That pin is a
@@ -189,15 +203,15 @@ class Daemon:
                 return                                # still there — nothing to do
             same = game_client.session_pids()
         except BaseException as exc:                  # noqa: BLE001 — a best effort
-            print(f"[daemon] could not re-aim the pinned pid: {exc}", flush=True)
+            self.say(f"[daemon] could not re-aim the pinned pid: {exc}")
             return
         if len(same) != 1:
-            print(f"[daemon] pinned pid {pinned} is gone and this session has "
-                  f"{len(same)} clients — leaving the pin alone", flush=True)
+            self.say(f"[daemon] pinned pid {pinned} is gone and this session has "
+                     f"{len(same)} clients — leaving the pin alone")
             return
         os.environ["LW_GAME_PID"] = str(same[0])
-        print(f"[daemon] pinned pid {pinned} is gone — following this session's "
-              f"client to pid {same[0]}", flush=True)
+        self.say(f"[daemon] pinned pid {pinned} is gone — following this session's "
+                 f"client to pid {same[0]}")
 
     def _drop(self):
         if self._ev is not None:
@@ -275,15 +289,15 @@ class Daemon:
             return False
         try:
             if pid is not None:
-                print(f"[daemon] the client at pid {pid} is gone — letting go", flush=True)
+                self.say(f"[daemon] the client at pid {pid} is gone — letting go")
             self._drop()
             self._ensure()
         except BaseException as exc:                  # noqa: BLE001 — it may still be booting
-            print(f"[daemon] no client to attach to yet: {exc}", flush=True)
+            self.say(f"[daemon] no client to attach to yet: {exc}")
             return False
         finally:
             self._lock.release()
-        print(f"[daemon] attached to pid {self.target_pid()}", flush=True)
+        self.say(f"[daemon] attached to pid {self.target_pid()}")
         return True
 
     def run(self, chunk: str, marker, settle: float, early: bool = False,
@@ -382,8 +396,8 @@ class Daemon:
         except BaseException as exc:                  # noqa: BLE001
             self._drop()
             self.pulse.failed(exc)
-            print(f"[daemon] the probe did not reach the client "
-                  f"({self.pulse.misses()} in a row): {exc}", flush=True)
+            self.say(f"[daemon] the probe did not reach the client "
+                     f"({self.pulse.misses()} in a row): {exc}")
             return False
         finally:
             self._lock.release()
@@ -394,8 +408,8 @@ class Daemon:
         # took the chunk and did not run it — a Lua VM that has gone, or a main thread
         # that never came back — and it is as unusable as one that refused the attach.
         self.pulse.failed("the probe was sent and nothing came back")
-        print(f"[daemon] the probe was sent and nothing came back "
-              f"({self.pulse.misses()} in a row)", flush=True)
+        self.say(f"[daemon] the probe was sent and nothing came back "
+                 f"({self.pulse.misses()} in a row)")
         return False
 
     def _verdict(self, exc: BaseException) -> BaseException:

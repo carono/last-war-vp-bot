@@ -1037,7 +1037,8 @@ class Recovery:
                 "for_sec": int(PROBE_OK_HOLD_SEC)}
 
     def note_session(self, playing: "bool | None", talking: bool, now: float,
-                     idle_sec: "float | None" = None) -> "tuple | None":
+                     idle_sec: "float | None" = None, running: bool = True,
+                     deaf: bool = False) -> "tuple | None":
         """The client is up and connected — but is it IN THE GAME? (#1549)
 
         THE STATE NOTHING HAD A CURE FOR. Every other branch in this module is fed by a
@@ -1064,13 +1065,31 @@ class Recovery:
         rather than whenever somebody notices.
 
         Every gate the other cures have applies here unchanged and in the same order:
-        an OFFLINE or LOST client is somebody else's business (the watchdog's, and
-        :meth:`note`'s), a person at the machine wins, and a kick's wait is not
-        interrupted to knock on a door.
+        a client that is GONE is the watchdog's business and one `note` is acting on is
+        `note`'s (``running`` and ``deaf`` say which, #2060), a person at the machine
+        wins, and a kick's wait is not interrupted to knock on a door.
         """
-        if not talking:
-            # Not this branch's client: no process, or a link the server is not
-            # answering. Both have their own cure and two must not restart one client.
+        if not running or deaf:
+            # NOT THIS BRANCH'S CLIENT — and the test is now WHO ELSE HAS IT rather than
+            # «is the server answering» (#2060). No process is the watchdog's; an amber
+            # `note` acts on is `note`'s; two things must not restart one client.
+            #
+            # It used to ask `if not talking`, which meant «the server is answering», and
+            # that let go of every client the OTHER branches also refuse:
+            #
+            #   * `no_connection` — a client up and answering Windows while nothing lands.
+            #     `note` throws that reading away on purpose (#1268), so with this branch
+            #     clearing on it as well the state had no cure at all. Live on
+            #     2026-08-28: kicked at 23:26, relaunched, stuck on the Launch scene with
+            #     every game socket in CLOSE_WAIT, and 6.9 HOURS of a held gate with not
+            #     one errand run.
+            #   * `maintenance` — the very state this branch was written for (#1549). It
+            #     was green when that was written and amber since #1982, which quietly
+            #     switched the knock off.
+            #
+            # `talking` is still taken and still drawn by the caller, and it no longer
+            # DECIDES anything here: a client the panel cannot talk to is exactly what
+            # the third value of `playing` already says, and the cure is the same knock.
             self._stalled_clear()
             return None
         if playing:
