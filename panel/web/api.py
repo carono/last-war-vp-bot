@@ -215,18 +215,6 @@ class WebApi:
         names = [name for name, _rt in self.sessions()]
         return {"profiles": names,
                 "home": self.rt.profiles.active,
-                # ONE LIGHT PER PROFILE — the phone's copy of the tab strip (#1299).
-                # The window puts a colour on each profile's notebook tab so an account
-                # that has stopped playing is visible without opening its page; the
-                # picker is where the same labels live here, so the same colour goes
-                # beside them, with the same words behind a tap.
-                #
-                # FREE: it is the LAST verdict the window's status poll made
-                # (panel/runtime/health.py), not a reading taken here — a phone polling
-                # every two seconds must not walk four socket tables to draw four dots.
-                # A profile nothing has polled yet answers amber, «нечего сказать»,
-                # which is what a tab launched on its own reports too.
-                "lights": [self._light(rt) for _name, rt in self.sessions()],
                 # Which one the WINDOW is looking at. Shown so a person driving both can
                 # see, from the phone, which account is on screen at the machine.
                 "showing": current or self.rt.profiles.active,
@@ -259,6 +247,15 @@ class WebApi:
         """
         from ..runtime import player_card as cardmod
 
+        # ONE LIGHT PER PROFILE, and it rides the account it belongs to (#2061). It used
+        # to be a list of its own beside this one, drawn by the chips under the header;
+        # the chips are gone and the sheet draws the colour on the account's own row, so
+        # a separate `lights` array would be a second copy of one verdict — the person's
+        # rule for today, in their words: «лишнее убирай».
+        #
+        # FREE, as it always was: the LAST verdict the status poll made
+        # (`panel/runtime/health.py`), never a reading taken here — a phone polling every
+        # two seconds must not walk four socket tables to draw four dots.
         live = {}
         for name, rt in self.sessions():
             head = {}
@@ -579,11 +576,32 @@ class WebApi:
         return str(rt.profiles.active)
 
     def _shared_client(self, name: str, rt) -> list:
-        """Which OTHER profiles drive this profile's client — cached like the status.
+        """Which OTHER OPEN profiles drive this profile's client — the alarm, cached.
 
-        Off disk, so it costs a couple of small reads per profile and the state route
-        is polled every two seconds by every phone that has the page open. The cache is
-        the status poll's, for the same reason: a profile's client changes when somebody
+        MEASURED AGAINST WHAT IS OPEN, never against every profile on disk (#2061). The
+        fault this warns about is two panels farming ONE account: the lease makes them
+        take turns, nothing looks broken, and one account's quota is spent on the other's
+        game (#1250, #1252). That needs both of them to be RUNNING. A closed profile
+        whose file happens to name the console is not doing anything to anybody — and on
+        this machine four abandoned profiles name it, so the front page of the account
+        that really owns the desktop carried a red warning about a collision that could
+        not be occurring.
+
+        It is the same rule the phone's own open-refusal already applies, in the same
+        words: «measured against the profiles that are OPEN, never against every one on
+        disk — a profile whose client nobody currently holds is free to take it»
+        (`panel/headless.py::_may_open`). Two readings of one fault must not disagree.
+
+        THE CONFIGURED CLASH IS NOT SWALLOWED, it is drawn where it is FIXED: every row
+        of the «Профиль» screen says which client that profile would take and marks the
+        ones that would collide (:meth:`_profiles_view`), the window's Settings page says
+        it beside the boxes that set it, opening such a profile from a phone is REFUSED
+        with the reason, and the boot writes it into the log. What is gone from the front
+        page is an alarm about something that is not happening.
+
+        Off disk, so it costs a couple of small reads per profile and the state route is
+        polled every two seconds by every phone that has the page open. The cache is the
+        status poll's, for the same reason: a profile's client changes when somebody
         edits it, not between two ticks.
         """
         when, names = self._shared.get(name, (0.0, []))
@@ -591,11 +609,23 @@ class WebApi:
         if now - when < STATUS_TTL_SEC:
             return names
         try:
-            names = provision.sharing_with(rt.profiles, name)
+            open_now = set(self._open_names())
+            names = [other for other in provision.sharing_with(rt.profiles, name)
+                     if other in open_now]
         except Exception:                    # noqa: BLE001 — a reading, never the server
             names = []
         self._shared[name] = (now, names)
         return names
+
+    def _open_names(self) -> list:
+        """Every profile THIS window has open, by name.
+
+        Off :meth:`sessions`, which is where every other answer about «what is open»
+        comes from — a second way of asking would be a second answer waiting to disagree,
+        and this one has to match the account list exactly. A process that is a lone tab
+        rather than a window answers with its own name.
+        """
+        return [name for name, _rt in self.sessions()] or [self._name_of(self.rt)]
 
     def _client_status(self, name: str, rt) -> tuple:
         """Is this profile's client up, and what colour is its link — cached per profile
@@ -1580,12 +1610,23 @@ class WebApi:
                 actions.append({"id": profilectl.DELETE, "label": "profile.delete",
                                 "prompt": "profile.delete.prompt", "value": "",
                                 "args": {"name": name}})
+            # WOULD IT COLLIDE? Two profiles that name one client farm one account
+            # between them (#1250), and this is where a person comes to give one of them
+            # its own session — so the mark belongs on the row rather than on the front
+            # page, which since #2061 warns only about profiles that are open TOGETHER
+            # (:meth:`_shared_client`). Off the same reading both use.
+            try:
+                peers = provision.sharing_with(rt.profiles, name)
+            except Exception:                # noqa: BLE001 — a reading, never the page
+                peers = []
             items.append({
                 "text": name,
                 # WHICH CLIENT this profile drives — the one fact that decides whether it
                 # farms its own account or somebody else's (#1252). A reading here as it
                 # is in the window's own section.
                 "detail": self._profile_client_text(rt, name),
+                "note": (rt.t("web.ui.profile.shares", others=", ".join(peers))
+                         if peers else ""),
                 "pill": ("web.ui.profile.showing" if name == showing
                          else "web.ui.profile.open" if is_open else ""),
                 "actions": actions,

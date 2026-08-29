@@ -2489,5 +2489,6 @@
   "health.no_traffic.short": "tidak ada lalu lintas",
   "health.not_in_game.short": "tidak di gim",
   "health.maintenance.short": "pemeliharaan",
-  "health.kicked.short": "terlempar"
+  "health.kicked.short": "terlempar",
+  "web.ui.profile.shares": "satu klien bersama {others} — beri dia sesi Windows dan port sendiri"
 }

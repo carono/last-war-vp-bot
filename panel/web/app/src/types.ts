@@ -16,13 +16,6 @@ export interface Control {
   confirm?: string
 }
 
-export interface Light {
-  name: string
-  colour: Colour
-  text?: string
-  tip?: string[]
-}
-
 /* ONE ACCOUNT IN THE PICKER (#2061): its face, its HQ level, the name the character
    goes by in the game and the name of the PROFILE that drives it — which are two
    different things and both are drawn. A closed profile has no light and answers out of
@@ -42,7 +35,6 @@ export interface Profiles {
   profiles: string[]
   home?: string
   showing?: string
-  lights?: Light[]
   accounts?: Account[]
   /* The palette, and it rides THIS answer because it is the PANEL's rather than an
      account's (#2061) — «Цветовая тема, это настройка панели, не аккаунта». */

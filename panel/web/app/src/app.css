@@ -304,14 +304,6 @@ header {
    and the reason for its colour behind a tap.
 */
 
-.lights {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 10px var(--pad) 0;
-  scrollbar-width: none;
-}
-.lights::-webkit-scrollbar { display: none; }
 
 .chip {
   display: inline-flex;

@@ -124,7 +124,10 @@ function AccountSheet({
               <span className="muted small">
                 {account.nick ? account.name + ' · ' : ''}
                 {account.open
-                  ? t(account.level ? 'web.ui.accounts.level' : 'web.ui.head.nothing',
+                  ? /* The key that already says «уровень» on this front-end — a second
+                       one of my own making was exactly the duplication this task is
+                       about (#2061). */
+                    t(account.level ? 'web.ui.head.level' : 'web.ui.head.nothing',
                       { n: account.level })
                   : t(account.nick ? 'web.ui.accounts.closed' : 'web.ui.accounts.unread')}
               </span>

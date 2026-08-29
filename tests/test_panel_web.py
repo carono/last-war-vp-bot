@@ -821,12 +821,17 @@ def test_the_page_can_ask_which_accounts_are_open():
 
 
 def test_every_open_account_carries_its_own_light():
-    """The phone's copy of the window's tab strip (#1299).
+    """The phone's copy of the window's tab strip (#1299), on the ACCOUNT it belongs to.
 
     One entry per open account, with the colour and the words already said — and a
     profile nothing has polled yet is RED, never green (#1911): amber means «there is a
     client and no traffic», so it may not double as «nobody has looked», and a light
     that reads «all fine» because nobody looked is what the whole rule exists to stop.
+
+    The light used to travel in a `lights` array of its own, drawn by the chips under the
+    header. The chips are gone (#2061) and the sheet draws the colour on the account's own
+    row, so the array went with them rather than staying as a second copy of one verdict —
+    the person's rule, in their words: «лишнее убирай».
     """
     with tempfile.TemporaryDirectory() as home:
         first, second, _ws = _two_profiles(home)
@@ -835,12 +840,53 @@ def test_every_open_account_carries_its_own_light():
         second.health.update(
             type("_P", (), {"running": True, "message": "running (pid 1)"})(),
             plumbing=ph.LANDING, server=ph.ANSWERING)
-        lights = apimod.WebApi(first).profiles()["lights"]
+        answer = apimod.WebApi(first).profiles()
+        assert "lights" not in answer, "the second copy of the verdict is back"
+        lights = [row for row in answer["accounts"] if row.get("open")]
         assert [light["name"] for light in lights] == ["main", "second"], lights
         assert lights[0]["colour"] == "bad" and lights[0]["reason"] == "no_client", lights
         assert lights[1]["colour"] == "ok", lights
         # …and each of them says WHY, in words, so a tap can explain the colour.
         assert all(light["text"] and light["tip"] for light in lights), lights
+
+
+def test_the_shared_client_alarm_is_about_profiles_that_are_actually_open():
+    """«Убери сообщение, что профиль ведёт тот же клиент, что и _diag1415» (#2061).
+
+    The warning is not junk — two profiles on one client farm ONE account between them,
+    the lease makes them take turns, nothing looks broken, and one account's quota goes
+    on the other's game (#1250, #1252). What was junk was its CONDITION: it read every
+    profile on disk, and four abandoned ones on this machine name the console, so the
+    account that really owns the desktop carried a red alarm about a collision that
+    could not be occurring.
+
+    It measures what is OPEN now — the same rule the phone's own open-refusal already
+    applies, in the same words (`panel/headless.py::_may_open`), because two readings of
+    one fault must not disagree.
+
+    And the configured clash is not swallowed: the «Профиль» screen marks the rows that
+    would collide, which is where a person goes to give one of them its own session.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        first, _second, ws = _two_profiles(home)
+        api = apimod.WebApi(first)
+        # WHAT THE FILES SAY is `provision.sharing_with`'s answer and is not what this
+        # test is about — it is stood in for, so what is left under test is the one thing
+        # that changed: which of those names survives to the front page.
+        kept = apimod.provision.sharing_with
+        apimod.provision.sharing_with = lambda _profiles, _name: ["second", "_diag1415"]
+        try:
+            # Both open, both on the console: a real collision, and it is named.
+            api._shared.clear()
+            assert api._shared_client("main", first) == ["second"], \
+                "a profile that IS open beside this one must still be named"
+            # …and the abandoned one, whose file says the same thing, is not.
+            ws.close("second")
+            api._shared.clear()
+            assert api._shared_client("main", first) == [], \
+                "an abandoned profile on disk still raises the alarm"
+        finally:
+            apimod.provision.sharing_with = kept
 
 
 def test_the_phone_never_makes_a_verdict_of_its_own_about_the_client():

@@ -2489,5 +2489,6 @@
   "health.no_traffic.short": "нет трафика",
   "health.not_in_game.short": "не в игре",
   "health.maintenance.short": "техобслуживание",
-  "health.kicked.short": "кикнуло"
+  "health.kicked.short": "кикнуло",
+  "web.ui.profile.shares": "один клиент с {others} — дайте ему свою сессию Windows и свой порт"
 }

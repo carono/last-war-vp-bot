@@ -2489,5 +2489,6 @@
   "health.no_traffic.short": "không có lưu lượng",
   "health.not_in_game.short": "chưa vào game",
   "health.maintenance.short": "bảo trì",
-  "health.kicked.short": "bị văng"
+  "health.kicked.short": "bị văng",
+  "web.ui.profile.shares": "chung một client với {others} — hãy cho nó phiên Windows và cổng riêng"
 }
