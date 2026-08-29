@@ -139,6 +139,24 @@ def main() -> int:
     if args.out:
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 
+    # WHY IT STOPPED HAS TO SURVIVE THE PARENT (#2064). The panel reads this tool's
+    # stdout as a JSONL stream and drops its stderr on purpose — a traceback folded into
+    # that stream would be parsed as a message — so an ear that dies says nothing but
+    # «монитор завершён». A note goes to stderr for a person running it by hand AND to a
+    # file beside the capture, which is the only copy a panel-spawned run leaves.
+    _notes = None
+    if args.out:
+        try:
+            _notes = open(os.path.abspath(args.out) + ".log", "a", encoding="utf-8")
+        except OSError:
+            _notes = None
+
+    def note(msg: str) -> None:
+        print(f"# chat_reader: {msg}", file=sys.stderr, flush=True)
+        if _notes is not None:
+            _notes.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+            _notes.flush()
+
     ev = lua_client.get_evaluator()
 
     # THE EAR MUST OUTLIVE A BUSY GAME (#2064). The panel holds the client's Lua VM and
@@ -157,14 +175,12 @@ def main() -> int:
             ev.run(_INSTALL_LUA, marker=MARKER, settle=1.5)
             return True
         except Exception as exc:            # noqa: BLE001 -- a busy VM, not a bug
-            print(f"# chat_reader: hook not installed ({exc}); retrying",
-                  file=sys.stderr, flush=True)
+            note(f"hook not installed ({exc}); retrying")
             return False
 
     installed = _install()
 
-    print(f"# chat_reader: capturing for {args.seconds or '∞'}s",
-          file=sys.stderr, flush=True)
+    note(f"capturing for {args.seconds or '∞'}s")
 
     seen: set[tuple] = set()
     out_fh = open(args.out, "a", encoding="utf-8") if args.out else None
@@ -184,8 +200,7 @@ def main() -> int:
                 # recording: the buffer it drains is in the game and keeps filling. A
                 # client that went away takes the hook with it, so the next round puts
                 # it back before reading again.
-                print(f"# chat_reader: drain failed ({exc}); waiting",
-                      file=sys.stderr, flush=True)
+                note(f"drain failed ({exc}); waiting")
                 installed = False
                 continue
             for ln in (lines or []):
@@ -207,10 +222,15 @@ def main() -> int:
                     out_fh.flush()
     except KeyboardInterrupt:
         pass
+    except BaseException as exc:            # noqa: BLE001 -- said, then re-raised
+        note(f"stopped by {type(exc).__name__}: {exc}")
+        raise
     finally:
         if out_fh:
             out_fh.close()
-    print(f"# chat_reader: {total} messages captured", file=sys.stderr, flush=True)
+    note(f"{total} messages captured — leaving")
+    if _notes is not None:
+        _notes.close()
     return 0
 
 
