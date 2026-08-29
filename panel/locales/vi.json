@@ -2490,5 +2490,6 @@
   "health.not_in_game.short": "chưa vào game",
   "health.maintenance.short": "bảo trì",
   "health.kicked.short": "bị văng",
-  "web.ui.profile.shares": "chung một client với {others} — hãy cho nó phiên Windows và cổng riêng"
+  "web.ui.profile.shares": "chung một client với {others} — hãy cho nó phiên Windows và cổng riêng",
+  "web.ui.link.answered": "máy chủ đã trả lời {span} trước"
 }

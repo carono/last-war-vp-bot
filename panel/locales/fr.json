@@ -2490,5 +2490,6 @@
   "health.not_in_game.short": "hors du jeu",
   "health.maintenance.short": "maintenance",
   "health.kicked.short": "éjecté",
-  "web.ui.profile.shares": "un seul client avec {others} — donnez-lui sa propre session Windows et son propre port"
+  "web.ui.profile.shares": "un seul client avec {others} — donnez-lui sa propre session Windows et son propre port",
+  "web.ui.link.answered": "le serveur a répondu il y a {span}"
 }

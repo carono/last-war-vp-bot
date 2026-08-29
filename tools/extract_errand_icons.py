@@ -56,6 +56,11 @@ PREFIXES = {
     # The game's «clear devices» screen — the only place in the client with a picture of
     # a DEVICE, which is what the session kick is about (#2061).
     "device": "Assets/Main/Sprites/UI/UIDeviceManage",
+    # …and the building-helper screens, which hold the game's own PICTURE of each
+    # building — the tavern among them (#2061, «выведи картинку здания таверны»). The
+    # client has no small icon for a building: its own art is the 3D model, and this is
+    # the one place a flat picture of the thing exists.
+    "helper": "Assets/Main/Sprites/UI/LWUIBuildingHelper",
 }
 
 MAP_PATH = os.path.join(_HERE, "data", "errand_icons.json")

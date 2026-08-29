@@ -2490,5 +2490,6 @@
   "health.not_in_game.short": "poza grą",
   "health.maintenance.short": "przerwa techniczna",
   "health.kicked.short": "wyrzucony",
-  "web.ui.profile.shares": "jeden klient wspólnie z {others} — daj mu własną sesję Windows i własny port"
+  "web.ui.profile.shares": "jeden klient wspólnie z {others} — daj mu własną sesję Windows i własny port",
+  "web.ui.link.answered": "serwer odpowiedział {span} temu"
 }

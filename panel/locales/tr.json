@@ -2490,5 +2490,6 @@
   "health.not_in_game.short": "oyunda değil",
   "health.maintenance.short": "bakım",
   "health.kicked.short": "atıldı",
-  "web.ui.profile.shares": "{others} ile aynı istemci — ona kendi Windows oturumunu ve kendi portunu ver"
+  "web.ui.profile.shares": "{others} ile aynı istemci — ona kendi Windows oturumunu ve kendi portunu ver",
+  "web.ui.link.answered": "sunucu {span} önce yanıtladı"
 }

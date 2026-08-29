@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { post } from '../api'
-import { t, when } from '../i18n'
+import { span, t, when } from '../i18n'
 import { Pill } from '../ui/Pill'
 import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
@@ -256,6 +256,16 @@ export function StateView({
           <span>{t('web.ui.gamelink')}</span>
           <Pill tone={colour}>{word}</Pill>
         </div>
+        {/* HOW OLD THE ANSWER IS (#2061) — the person's word for it was «показывай».
+            Green means «the server replied», and that reply has a five-minute shelf
+            life: an answer four seconds old and one four minutes old paint the same
+            dot, so the dot says which it is. Its own line rather than inside the pill
+            — a pill is a reading and a reading may not grow (see `LINK_SHORT`). */}
+        {(state.game.server_age ?? -1) >= 0 ? (
+          <p className="muted small">
+            {t('web.ui.link.answered', { span: span(state.game.server_age || 0) })}
+          </p>
+        ) : null}
         {/* WHY, in the panel's own sentence — under the row rather than inside the pill,
             so it wraps instead of pushing the page sideways (#2061). */}
         {why ? <p className="muted small">{why}</p> : null}

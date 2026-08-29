@@ -2490,5 +2490,6 @@
   "health.not_in_game.short": "tidak di gim",
   "health.maintenance.short": "pemeliharaan",
   "health.kicked.short": "terlempar",
-  "web.ui.profile.shares": "satu klien bersama {others} — beri dia sesi Windows dan port sendiri"
+  "web.ui.profile.shares": "satu klien bersama {others} — beri dia sesi Windows dan port sendiri",
+  "web.ui.link.answered": "server menjawab {span} lalu"
 }

@@ -88,6 +88,10 @@ export interface State {
     colour?: Colour
     reason?: string
     text?: string
+    /* Seconds since the game SERVER last answered, -1 while it never has (#2061). Green
+       rests on that moment and it has a five-minute shelf life, so the colour is drawn
+       with its age beside it. */
+    server_age?: number
     controls?: Control[]
     recovery?: Recovery
   }

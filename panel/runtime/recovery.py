@@ -965,6 +965,16 @@ class Recovery:
             return profile_health.SILENT
         return profile_health.SERVER_UNASKED
 
+    def server_answered_at(self) -> float:
+        """WHEN the game server last answered us — `0.0` if it never has (#2061).
+
+        The light is green because of a moment, and the person asked to see the moment:
+        «показывай» — the age beside the colour. Green has a shelf life of
+        :data:`PROBE_OK_HOLD_SEC`, so «сервер ответил 4 мин назад» is a green a person can
+        judge for themselves, and a silent five minutes stops being invisible.
+        """
+        return float(self._probe_last_ok or 0.0)
+
     def probe_started(self, now: float) -> None:
         """One probe has just been sent. Its deadline runs from here."""
         self._probe_at = now

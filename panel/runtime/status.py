@@ -173,6 +173,10 @@ class StatusPoll:
             found = game_process.profile_probe(rt.settings)
             lands = rt.game.plumbing()
             server = rt.recovery.server_state(now)
+            # …AND WHEN IT LAST ANSWERED (#2061). Green is a statement about a moment
+            # with a five-minute shelf life, and the person asked for the moment to be on
+            # screen beside the colour rather than implied by it.
+            server_at = rt.recovery.server_answered_at()
             # …the one reading that tells a WEDGED client from a bug of ours. Asked only
             # when nothing is landing: it enumerates windows.
             responding = True
@@ -214,7 +218,7 @@ class StatusPoll:
         health = rt.health.update(found, plumbing=lands, server=server,
                                   responding=responding, error=rt.game.error(),
                                   maintenance=maint == "closed", in_game=playing,
-                                  kicked=kicked)
+                                  kicked=kicked, server_at=server_at)
         # THE GATE reads the verdict written one line up, so this costs a dict lookup.
         rt.gate.alive()
         # …AND THE VERDICT IS WRITTEN DOWN (#1982 follow-up). The window has printed a

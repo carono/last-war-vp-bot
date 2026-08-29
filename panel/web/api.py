@@ -434,6 +434,14 @@ class WebApi:
             # person holding it cannot see the log scrolling past.
             "game": {"running": running, "colour": colour, "reason": reason,
                      "text": label,
+                     # HOW OLD THE SERVER'S ANSWER IS (#2061), in seconds, `-1` while it
+                     # has never answered. The person asked for it in one word —
+                     # «показывай» — because green rests on a moment with a five-minute
+                     # shelf life, and a colour cannot carry a moment: an answer four
+                     # seconds old and one four minutes old paint the same dot. Said as a
+                     # number so the page words it in its own language, exactly as the
+                     # header's own age already is.
+                     "server_age": rt.health.state(rt.t).get("server_age", -1),
                      "recovery": rt.recovery.state(time.time()),
                      "controls": game_control.state(
                          running, str((step.fmt.get("name") if step else "") or ""))},

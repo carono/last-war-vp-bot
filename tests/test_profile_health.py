@@ -26,6 +26,7 @@ from __future__ import annotations
 TIER = "ui"        # panel.runtime drags tkinter in — see tools/run_tests.py
 
 import sys
+import time
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -197,6 +198,36 @@ def test_being_outside_the_game_never_takes_a_green_light_away():
     """Same rule the maintenance narrowing has (#1982): the server answering wins."""
     said = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.ANSWERING, in_game=False)
     assert said.colour == ph.OK and said.reason == ph.TRAFFIC
+
+
+def test_the_green_light_says_how_old_its_answer_is() -> None:
+    """«Показывай» — the person's answer to «зелёный живёт 5 минут» (#2061).
+
+    Green means the game SERVER answered, and that answer has a five-minute shelf life
+    (`recovery.PROBE_OK_HOLD_SEC`) — so a colour on its own is a statement about a moment
+    presented as a statement about now. An answer four seconds old and one four minutes
+    old paint the same dot; the age is the difference, and both front-ends draw it.
+
+    Dropping green sooner was NOT asked for and is not done: the threshold stands and
+    becomes honest instead.
+    """
+    light = ProfileHealth()
+    light.update(_Probe(True), plumbing=ph.LANDING, server=ph.ANSWERING,
+                 server_at=time.time() - 243)
+    assert light.colour == ph.OK
+    assert 240 <= light.server_age <= 246, light.server_age
+    assert light.state(lambda key, **fmt: key)["server_age"] > 0
+    # …and the window's tooltip says it in words, off the same vocabulary the phone uses.
+    said = light.lines(lambda key, **fmt: key + (str(sorted(fmt.items())) if fmt else ""))
+    assert any("web.ui.ago" in line for line in said), said
+
+
+def test_a_light_that_never_had_an_answer_says_so_rather_than_guessing() -> None:
+    """`-1` is «never answered», which is not «answered a long time ago»."""
+    light = ProfileHealth()
+    light.update(_Probe(True), plumbing=ph.LANDING, server=ph.SILENT)
+    assert light.server_age == -1.0
+    assert light.state(lambda key, **fmt: key)["server_age"] == -1.0
 
 
 def test_a_kicked_client_is_never_green() -> None:

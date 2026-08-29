@@ -65,6 +65,22 @@ _SERVER_WORDS = {
 }
 
 
+def _span(t, seconds: float) -> str:
+    """«5 мин» — a span in the panel's own words, off the keys the phone already uses.
+
+    One vocabulary for the two front-ends: `web.ui.unit.*` is what the browser says and
+    what this says, so «4 мин назад» reads the same in the window and on the phone.
+    """
+    n = max(0, int(round(seconds)))
+    if n < 60:
+        return t("web.ui.unit.sec", n=n)
+    if n < 3600:
+        return t("web.ui.unit.min", n=int(round(n / 60)))
+    if n < 86400:
+        return t("web.ui.unit.hour", n=int(round(n / 3600)))
+    return t("web.ui.unit.day", n=int(round(n / 86400)))
+
+
 class ProfileHealth:
     """One profile's light: the last verdict, and the readings behind it.
 
@@ -74,7 +90,7 @@ class ProfileHealth:
     is a live bug in this panel (#1295) rather than a theoretical one.
     """
 
-    __slots__ = ("_health", "_client", "_at")
+    __slots__ = ("_health", "_client", "_at", "_server_at")
 
     def __init__(self) -> None:
         self._health = profile_health.unread()
@@ -82,12 +98,16 @@ class ProfileHealth:
         #: second line. `None` until something has read this profile.
         self._client: "Message | None" = None
         self._at = 0.0
+        #: When the game SERVER last answered — `0.0` while it never has. Green rests on
+        #: that moment (#2061), so both front-ends draw its age beside the colour.
+        self._server_at = 0.0
 
     # -- writing -------------------------------------------------------------
     def update(self, probe, *, plumbing: str = profile_health.PLUMBING_UNASKED,
                server: str = profile_health.SERVER_UNASKED, responding: bool = True,
                error: str = "", maintenance: bool = False,
-               in_game: "bool | None" = None, kicked: bool = False):
+               in_game: "bool | None" = None, kicked: bool = False,
+               server_at: float = 0.0):
         """Take one poll's readings and keep the light they make.
 
         ``probe`` is `panel.runtime.game_process.Probe` — whether a client of this
@@ -114,6 +134,7 @@ class ProfileHealth:
         looks like — into «клиент запущен, но в игру не вошёл».
         """
         self._client = getattr(probe, "message", None)
+        self._server_at = float(server_at or 0.0)
         self._health = profile_health.verdict(
             running=bool(getattr(probe, "running", False)), plumbing=plumbing,
             server=server, responding=bool(responding), error=error,
@@ -142,6 +163,16 @@ class ProfileHealth:
         return self._health.colour
 
     @property
+    def server_age(self) -> float:
+        """Seconds since the server last answered — `-1.0` while it never has (#2061).
+
+        The reading GREEN rests on, and the one a colour cannot carry: an answer four
+        minutes old and one four seconds old paint the same dot. Both front-ends draw it,
+        and neither works it out for itself.
+        """
+        return time.time() - self._server_at if self._server_at else -1.0
+
+    @property
     def read_at(self) -> float:
         """When the last verdict was made; ``0.0`` while nothing has read this profile."""
         return self._at
@@ -166,8 +197,14 @@ class ProfileHealth:
         said.append(f"{t('health.tip.game')}: {client}")
         said.append(f"{t('health.tip.plumbing')}: "
                     f"{t(_PLUMBING_WORDS.get(health.plumbing, 'health.unasked'))}")
-        said.append(f"{t('health.tip.server')}: "
-                    f"{t(_SERVER_WORDS.get(health.server, 'health.unasked'))}")
+        # …AND HOW LONG AGO IT ANSWERED (#2061). The window has the same right to it as
+        # the phone: green rests on a moment with a five-minute shelf life, and the
+        # tooltip is where this front-end says WHICH READING decided the colour.
+        answered = t(_SERVER_WORDS.get(health.server, "health.unasked"))
+        age = self.server_age
+        if age >= 0:
+            answered += " · " + t("web.ui.ago", span=_span(t, age))
+        said.append(f"{t('health.tip.server')}: {answered}")
         if health.error:
             said.append(f"{t('health.tip.error')}: {health.error}")
         return said
@@ -181,4 +218,8 @@ class ProfileHealth:
         return {"colour": self._health.colour,
                 "reason": self._health.reason,
                 "text": i18nmod.translated(t, self.message()),
+                # HOW OLD THE ANSWER IS (#2061) — a number of seconds, worded by whoever
+                # draws it. Green has a five-minute shelf life, so a light with no age on
+                # it is a statement about a moment presented as a statement about now.
+                "server_age": round(self.server_age, 1),
                 "tip": self.lines(t)}
