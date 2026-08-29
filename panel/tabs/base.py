@@ -441,10 +441,44 @@ class PanelTab:
     # is handed its block and hands the same one back, so a save that happens while it
     # is undrawn writes what was on disk rather than a screenful of defaults.
     def restore(self, raw: dict) -> None:
-        """Give the tab its saved block: applied now if drawn, kept for `realize` if not."""
+        """Give the tab its saved block — and APPLY it, drawn or not (#2063).
+
+        THE STATE IS NOT THE DRAWING, and the whole of #2063 is that the two had been
+        run together. `restore` used to hand an undrawn tab its block and apply nothing,
+        so until somebody LOOKED at the tab its own attributes were the defaults its
+        `__init__` gave them — while the block on disk said something else. Anything
+        reading a tab's state without drawing it therefore read a lie: the gear on
+        «Таймеры» drew `train_tickets = 0` over a profile that says `1`, and the first
+        knob moved on that card wrote the defaults of its neighbours down beside it
+        (`panel/tabs/events/tab.py::_train_knob_saved` saves all three). That is
+        «поменял значение, а оно сбросилось на предыдущее», live.
+
+        `LAZY` IS UNTOUCHED (#1215). Nothing here draws, builds, realizes or asks the
+        game anything: `apply_config` is the one method that has always been callable
+        with no widgets — a panel with no window runs every tab through it with
+        `parent is None` — and this is that same call, at the moment the block arrives
+        instead of at the moment somebody opens the page. `build()` still waits for a
+        look, and so does everything that costs a read.
+
+        A TAB THAT REFUSES IS ONE TAB. An `apply_config` that reaches for a widget it
+        only makes in `build()` raises here and is said on the debug channel; `realize`
+        applies the same block again when the tab is finally drawn, so nothing is lost
+        by the refusal — but the knobs of THAT tab go on reading defaults, and the log
+        is the only way anybody finds out which one it is.
+        """
         self._saved_config = dict(raw or {})
         if self._built:
             self.apply_config(self._saved_config)
+            return
+        try:
+            self.apply_config(self._saved_config)
+        except Exception as exc:            # noqa: BLE001 — one tab, never the panel
+            try:
+                self.rt.dbg("tabs").warning(
+                    "%s: saved block not applied while undrawn: %s: %s",
+                    self.ID, type(exc).__name__, exc, exc_info=True)
+            except Exception:               # noqa: BLE001 — a log, never the panel
+                pass
 
     def stored_config(self) -> dict:
         """What the profile writes for this tab — its widgets, or the block it was given.

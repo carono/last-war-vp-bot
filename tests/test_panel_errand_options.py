@@ -696,6 +696,103 @@ def test_a_tab_that_declares_no_knobs_still_registers():
     assert loud._handlers["t1"] is not None
 
 
+def _undrawn_card(saved, *, refuses=False):
+    """A `LAZY` tab whose state is made in `apply_config`, handed a block and NOT drawn.
+
+    The shape of every card behind a gear: an attribute per knob, restored from the
+    profile's block. `panel/tabs/events/tab.py` is the live one.
+    """
+    import types
+
+    from panel.tabs import base as basemod
+
+    said = []
+
+    class _Card(basemod.PanelTab):
+        ID = "cardtest"
+        LAZY = True
+
+        def __init__(self, rt, parent) -> None:
+            super().__init__(rt, parent)
+            self.tickets = 0
+            self.carriage = 1
+            self.drawn = 0
+
+        def build(self) -> None:
+            self.drawn += 1
+
+        def config(self) -> dict:
+            return {"tickets": self.tickets, "carriage": self.carriage}
+
+        def apply_config(self, raw) -> None:
+            if refuses:
+                raise RuntimeError("this one only exists after build()")
+            raw = raw if isinstance(raw, dict) else {}
+            self.tickets = int(raw.get("tickets", 0))
+            self.carriage = int(raw.get("carriage", 1))
+
+    logger = types.SimpleNamespace(warning=lambda *a, **k: said.append(a))
+    rt = types.SimpleNamespace(dbg=lambda _c="panel": logger)
+    tab = _Card(rt, None)
+    tab.restore(saved)
+    return tab, said
+
+
+def test_a_knob_of_a_tab_nobody_opened_reads_the_saved_value_and_not_the_default():
+    """The state arrives with the BLOCK, not with the drawing (#2063).
+
+    Live: `train_tickets` was `1` in `panel.db` and the gear on «Таймеры» drew `0`,
+    because the tab that owns it had never been looked at and its attributes were still
+    the ones `__init__` gave them. A knob is a VIEW of the owner's value, so a view of
+    a default is a second answer to the one question the register exists to have one
+    answer to.
+    """
+    tab, _said = _undrawn_card({"tickets": 3, "carriage": 2})
+    assert tab.tickets == 3 and tab.carriage == 2, \
+        "an undrawn tab must hold what the profile says, not what __init__ guessed"
+    knob = errandopts.Option("tickets", "x", errandopts.NUMBER,
+                             get=lambda: tab.tickets, set=lambda v: None)
+    assert knob.read(None) == 3
+
+
+def test_the_saved_block_reaches_an_undrawn_tab_without_drawing_it():
+    """…and `LAZY` is untouched by that (#1215).
+
+    A page used to draw fifteen tabs so that one could be read, and the cure was to
+    wait for a look. Applying a block is not a look: nothing here builds, and the
+    promise that a tab nobody opened costs nothing has to survive the fix.
+    """
+    tab, _said = _undrawn_card({"tickets": 3})
+    assert tab.built is False, "restoring a block must not mark the tab as drawn"
+    assert tab.drawn == 0, "restoring a block must not build anything"
+
+
+def test_a_neighbour_knob_does_not_write_the_default_over_the_restored_one():
+    """The second symptom the person reported: «сбрасываются на предыдущие».
+
+    A card saves all of its knobs together (`_train_knob_saved`), so while the others
+    read defaults, moving ONE of them wrote the defaults of the rest into the profile.
+    """
+    tab, _said = _undrawn_card({"tickets": 3, "carriage": 2})
+    tab.carriage = 4                        # the neighbour a person just moved
+    tab.remember({"tickets": tab.tickets, "carriage": tab.carriage})
+    assert tab.stored_config()["tickets"] == 3, \
+        "moving one knob must not write another's default down"
+    assert tab.stored_config()["carriage"] == 4
+
+
+def test_a_tab_that_cannot_take_its_block_undrawn_is_said_and_never_a_crash():
+    """One tab's `apply_config` reaching for a widget must not take the boot with it.
+
+    It is SAID, because the knobs of that tab go on reading defaults and the log is
+    the only way anybody finds out which tab it is — and `realize` applies the same
+    block again the moment somebody opens it.
+    """
+    tab, said = _undrawn_card({"tickets": 3}, refuses=True)
+    assert tab.tickets == 0, "the refusing tab keeps its defaults"
+    assert said, "a refused block must be said on the debug channel"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

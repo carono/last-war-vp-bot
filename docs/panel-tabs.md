@@ -170,6 +170,37 @@ thought at all:
 | **the phone** | `web_view` / `web_press` go through the runtime, which DRAWS the tab before asking it. The phone must not see less than the window. |
 | **the lifecycle** | `panic`, `resume`, `on_profile_switch`, `on_language_change` and `shutdown` are NOT called on an undrawn tab. It started nothing and holds nothing, and it reads what it needs when it is first shown. |
 
+### The state arrives with the BLOCK, not with the drawing (#2063)
+
+`restore()` applies the saved block **whether or not the tab is drawn** — and it did not
+until #2063, which is a live bug worth the paragraph. An undrawn tab held whatever
+`__init__` guessed while the profile on disk said something else, so anything reading a
+tab's state without drawing it read a default and called it the truth. The gear on
+«Таймеры» drew `train_tickets = 0` over a profile that says `1`, and because a card saves
+all of its knobs together, moving ONE of them wrote its neighbours' defaults down beside
+it. From the person's side that is «поменял значение, а оно сбросилось на предыдущее».
+
+**Nothing about `LAZY` changed.** `build()` still waits for a look, and so does every read
+that costs the game anything. `apply_config` has always had to work with no widgets — a
+panel with no window runs every tab through it with `parent is None` — and this is that
+same call, made when the block arrives instead of when somebody opens the page. Applying
+every tab's block for a real profile was measured at **3.5 ms for nineteen tabs**, and
+none of them was built by it.
+
+**So the trap, and it is the one the next tab author walks into:** the contract «a knob
+works for a tab nobody has drawn» (`errand_options`) is broken the moment a value is made
+in `apply_config` over state that only `build()` creates. `__init__` makes the state,
+`build()` only draws it — and `apply_config` may write to that state and to widgets it
+checks for, never to widgets it assumes.
+
+A tab whose `apply_config` genuinely cannot run undrawn raises, is said on the debug
+channel (`[tabs] <id>: saved block not applied while undrawn`) and is applied again at
+`realize` — nothing is lost except that ITS knobs go on reading defaults until somebody
+opens it. **«Командный пункт» is the one such tab today**: its four pages ARE widgets, made
+in `build()`, and its state lives on them. It declares no errand knobs and no standing
+order, so nothing behind a gear depends on it; a tab that did would have to move that
+state into `__init__` instead.
+
 So the rule of thumb is the one the duel already followed: **`__init__` makes the state,
 `build()` only draws it.** `VsDuelTab` makes every variable, default and key of its week
 in `__init__` and lays the six day frames out in `build()`; the plan its scenarios read
