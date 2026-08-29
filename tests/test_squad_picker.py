@@ -138,6 +138,33 @@ def test_one_squad_where_one_is_picked():
     assert [tile["n"] for tile in field["squads"]] == [1, 2, 3]
 
 
+def test_only_the_first_hero_is_drawn_and_nobody_stands_in_for_him():
+    """ONE face per tile, the game's own first, and no understudy (#2062).
+
+    The person looked at three portraits crowded into a tile and asked for one: «оставляй
+    спрайт первого героя, сейчас там мешанина». So a squad answers with at most one link,
+    and when the hero in position 1 has no picture the answer is «no picture» rather than
+    the hero standing behind him — a tile is read as «this is who leads that squad».
+    """
+    assert squad_picker.FACES == 1
+
+    class _Named(dict):
+        pass
+
+    rt = _RT(READING)
+    reader = squad_picker.reader(rt)
+    reader.read()
+    # Both heroes of squad 1 were read; the tile is offered at most one of them.
+    assert reader.latest()[1] == [(50001, "Hero_One"), (50002, "Hero_Two")]
+    assert len(reader.faces(1)) <= 1
+
+    # The first hero has no picture, the second would have had one: the answer is neither.
+    rt2 = _RT("squad=1 heroes=99999999:,50002:Hero_Two")
+    reader2 = squad_picker.reader(rt2)
+    reader2.read()
+    assert reader2.faces(1) == []
+
+
 def test_a_hero_nobody_can_name_draws_no_face():
     """No picture is the honest answer; a stand-in face is the forbidden one."""
     rt = _RT("squad=1 heroes=99999999:")

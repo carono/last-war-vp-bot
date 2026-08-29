@@ -48,9 +48,16 @@ KIND = "squads"
 #: The slots the game gives a player. Four, and the panel has never had a reason to ask.
 SQUADS = (1, 2, 3, 4)
 
-#: How many faces one squad may show. A squad holds up to five heroes plus a drone slot;
-#: a phone draws four pictures in a row, so a squad's own row of faces is kept short.
-FACES = 3
+#: How many faces one squad shows. ONE — the person looked at three of them side by side
+#: and called it what it was: «в виджете героев оставляй спрайт первого героя, сейчас там
+#: мешанина» (#2062). Three portraits inside a tile a quarter of a phone wide are three
+#: things too small to recognise; one fills the tile and is recognised at a glance.
+#:
+#: «FIRST» IS THE GAME'S OWN FIRST, not ours. `read_squad_heroes.md` walks the formation's
+#: `localIndexToHeroDic` by POSITION — 1, 2, 3… — so the first record of a squad is the
+#: hero the game itself keeps in position 1, never whichever entry a Lua `pairs()` happened
+#: to hand over first.
+FACES = 1
 
 #: The drone slot is not a hero and has no portrait of its own.
 DRONE_ID = 1000000
@@ -176,23 +183,27 @@ class HeroReader:
 
     # -- what a field is drawn with -----------------------------------------
     def faces(self, index: int) -> list:
-        """The picture links for one squad — `[]` when nothing could name its heroes.
+        """The picture link for one squad — `[]` when its first hero has no picture.
 
         ASKS FOR A READING when there has never been one, and answers `[]` meanwhile.
-        The screen is polled, so the faces appear a moment later without anything
+        The screen is polled, so the face appears a moment later without anything
         blocking on the game.
+
+        THE FIRST HERO AND NO OTHER. When the hero in position 1 cannot be named, the
+        answer is «no picture» rather than the hero behind him: a tile is read as «this
+        is who leads that squad», so standing somebody else in his place would be a
+        wrong answer dressed as a right one — the same reason a hero nobody can name
+        draws no face at all instead of a similar one.
         """
         if not self._read:
             self.refresh_async()
         links = []
-        for hero_id, stem in self._heroes.get(int(index), ()):
+        for hero_id, stem in self._heroes.get(int(index), ())[:FACES]:
             url = face_url(stem) if stem else ""
             if not url:
                 url = _fallback_url(hero_id)
             if url:
                 links.append(url)
-            if len(links) >= FACES:
-                break
         return links
 
 

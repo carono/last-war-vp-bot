@@ -1107,11 +1107,16 @@ body.modal-open { overflow: hidden; }
 .mini .name > span { flex: 1 1 auto; min-width: 0; }
 .mini-icon { width: 34px; height: 34px; object-fit: contain; flex: 0 0 auto; }
 
-/* THE SQUAD PICKER (#2062) — four tiles in a row, one per squad, the faces standing in
-   it, and grey when it is switched off. The person asked for exactly that: «клик по
-   картинке должен включать и отключать этот отряд, выключенный делаем серым».
-   A row of four on the narrowest phone, so the tile is sized by the grid and never by a
-   width anybody measured. */
+/* THE SQUAD PICKER (#2062) — four SQUARE tiles in a row, one per squad, the face of the
+   hero the game keeps first painted across the whole of it, and grey when it is switched
+   off. The person asked for exactly that, twice: «клик по картинке должен включать и
+   отключать этот отряд, выключенный делаем серым», and then, having seen three little
+   portraits crowded into each tile, «оставляй спрайт первого героя, сейчас там мешанина,
+   картинки фоном, квадратные».
+
+   A row of four on the narrowest phone, so the tile is sized by the GRID and never by a
+   width anybody measured, and its height comes from `aspect-ratio` — a square that stays
+   square at 360 px, at 393 px and on a desktop pane. */
 .squads {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1119,12 +1124,18 @@ body.modal-open { overflow: hidden; }
   margin-top: 4px;
 }
 .squad {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
+  align-items: flex-end;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  /* The finger-wide minimum still belongs to the tile itself — a square a quarter of a
+     narrow phone wide is already wider than that, and this is what holds when the pane
+     is narrower still (tests/test_panel_web.py measures it). */
   min-height: var(--tap);
-  padding: 6px 4px;
+  padding: 0;
   border: 1px solid var(--card-edge, #262c36);
   border-radius: 12px;
   background: var(--card, #161a21);
@@ -1132,40 +1143,66 @@ body.modal-open { overflow: hidden; }
   font: inherit;
   cursor: pointer;
 }
-.squad-faces {
+/* THE PICTURE AT ITS OWN BRIGHTNESS. It is not scrim-ed the way a card's background is
+   (`.item.errand.art`): a card is mostly words with a picture behind them, and a tile is
+   a picture with one word on it. So the sprite is not faded at all — the word is what
+   gets the protection, in a bubble of its own below. */
+.squad-art {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: none;
+  background-repeat: no-repeat;
+  background-position: center 12%;
+  background-size: cover;
+}
+/* No picture is the honest answer for a hero nobody could name — the slot's number, big
+   enough to be the tile's own subject rather than a stamp in the corner of an empty box. */
+.squad-blank {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  /* A ROW INSIDE THE TILE, never a control of its own: the finger-wide minimum belongs
-     to `.squad`, which carries `min-height: var(--tap)`. A `min-height` here read as a
-     26-px button to the audit that measures them (tests/test_panel_web.py). */
-  height: 34px;
-}
-.squad-faces img { width: 30px; height: 30px; object-fit: contain; }
-/* No picture is the honest answer for a hero nobody could name — the slot's number. */
-.squad-blank {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
   color: var(--ink-soft);
+  font-size: 22px;
   font-weight: 600;
 }
+/* THE WORD IN A BUBBLE, over the picture. The game's sprites run from near-white to
+   near-black, so a label laid straight onto one is legible on some squads and invisible
+   on others — the same measurement that put a scrim under the cards on «Таймеры», and
+   the same answer in the shape a tile can carry. */
 .squad-name {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
+  margin: 0 4px 4px;
+  padding: 2px 6px;
+  max-width: calc(100% - 8px);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card) 84%, transparent);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
   font-size: 11px;
   line-height: 1.2;
   text-align: center;
 }
 .squad-name em { color: var(--ink-soft); font-style: normal; font-size: 10px; }
-/* SWITCHED OFF = GREY, and it is the whole tile: the faces lose their colour and the
-   card loses its edge, so «which are on» is answerable at arm's length. */
-.squad.off { opacity: 0.5; border-style: dashed; }
-.squad.off .squad-faces img { filter: grayscale(1); }
+/* SWITCHED OFF = GREY, AND IT HAS TO READ AS OFF AGAINST A PICTURE AT FULL BRIGHTNESS.
+   Opacity alone was enough over three faded stamps and is not enough now, so the picture
+   loses its colour AND most of its light, the tile keeps the dashed edge, and the bubble
+   goes quiet with it. */
+.squad.off { border-style: dashed; }
+.squad.off .squad-art { filter: grayscale(1) brightness(0.5); opacity: 0.72; }
+.squad.off .squad-blank { opacity: 0.6; }
 .squad.off .squad-name { color: var(--ink-soft); }
+/* The light palette needs the off tile darkened DOWNWARDS less and greyed the same: on
+   white, brightness(0.5) reads as a hole rather than as a disabled control. */
+:root[data-theme='light'] .squad.off .squad-art {
+  filter: grayscale(1) brightness(1.12) contrast(0.72);
+  opacity: 0.5;
+}
