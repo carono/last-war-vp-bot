@@ -6,6 +6,41 @@ Rally captures (`results/rally/monitor.jsonl`) describe squads with numeric
 internal *resName*, not by id. `tools/hero_icons_map.py` bridges the two and is wired
 into `tools/dev/rally_report.py` (icon + name shown per confirmed hero).
 
+## SOLVED: the live client names every hero's icon (#2062)
+
+The encrypted on-disk table below is no longer the only route, and for anything the
+panel draws it is not the route at all. The RUNNING client has the config decrypted, and
+the name of the icon file is two hops away from a hero id:
+
+```lua
+local inst = LocalController.instance()
+local look = inst:getValue("lw_hero", 50006, "appearance")            -- 50006
+inst:getValue("lw_hero_appearance", look, "half_icon_path")           -- hero_icon_Audie_Murphy
+inst:getValue("lw_hero_appearance", look, "queue_icon_path")          -- the same, second try
+```
+
+`half_icon_path` is literally the extracted file's stem
+(`results/hero_icons/{small,big}/hero_icon_<stem>.png`), so no guessing and no partial
+table: all twenty heroes standing in this account's four squads resolved on the first
+read, including ones nobody had ever confirmed by eye (`hero_icon_Sally_Ride`,
+`hero_icon_Doctor_Poison3_ur`, `hero_icon_MissHot_UR`).
+
+Two traps that cost a read each:
+
+* **A hero's `bigName` is NOT the stem.** It is the display name —
+  `hero_show_name_Murphy` for a hero whose file is `hero_icon_Audie_Murphy.png`. Reading
+  it looks like it works and quietly names a third of the roster wrongly.
+* **The case on disk is not the case in the config.** The client answers
+  `hero_icon_dva`, the extractor wrote `hero_icon_DVA.png`. `tools/lib/hero_icons_map.py`
+  matches case-insensitively for that reason; Windows never noticed and Linux did.
+
+**Which hero stands in which squad**, since the same read needs it (#2062):
+`ArmyFormationDataManager.ArmyFormationList` holds one entry per squad, and its
+`heroList` / `heroes` answer with POSITIONS, never with heroes. The link is
+`localIndexToHeroDic` (`{position -> hero uuid}`, `remoteIndexToHeroDic` beside it), and
+`DataCenter.HeroDataManager:GetAllHeroList()` turns a uuid into a `heroId`. The recipe
+that does all of it is `src/lastwar_bot/actions/read_squad_heroes.md`.
+
 ## Verified mechanics
 
 * **Weapon grade = slot field `f15`.** In the sample its range is `1..30`,

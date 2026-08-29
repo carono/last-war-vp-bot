@@ -2489,10 +2489,5 @@
   "health.no_traffic.short": "нет трафика",
   "health.not_in_game.short": "не в игре",
   "health.maintenance.short": "техобслуживание",
-  "health.kicked.short": "кикнуло",
-  "web.ui.accounts": "Аккаунты",
-  "web.ui.accounts.pick": "Выбрать аккаунт",
-  "web.ui.accounts.closed": "закрыт",
-  "web.ui.accounts.unread": "ещё не читали",
-  "web.ui.accounts.level": "ур. {n}"
+  "health.kicked.short": "кикнуло"
 }

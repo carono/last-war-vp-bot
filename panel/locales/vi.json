@@ -2489,10 +2489,5 @@
   "health.no_traffic.short": "không có lưu lượng",
   "health.not_in_game.short": "chưa vào game",
   "health.maintenance.short": "bảo trì",
-  "health.kicked.short": "bị văng",
-  "web.ui.accounts": "Tài khoản",
-  "web.ui.accounts.pick": "Chọn tài khoản",
-  "web.ui.accounts.closed": "đã đóng",
-  "web.ui.accounts.unread": "chưa từng đọc",
-  "web.ui.accounts.level": "TT {n}"
+  "health.kicked.short": "bị văng"
 }

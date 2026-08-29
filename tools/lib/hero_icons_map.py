@@ -160,9 +160,37 @@ def file_named(name: str, size: str = "small") -> "str | None":
     for folder in order:
         root = os.path.abspath(os.path.join(ICON_ROOT, folder))
         full = os.path.abspath(os.path.join(root, clean))
-        if os.path.dirname(full) == root and os.path.isfile(full):
+        if os.path.dirname(full) != root:
+            return None
+        if os.path.isfile(full):
             return full
+        # …and the same name in whatever case the extractor wrote it. The stem comes out
+        # of the client's own config (`hero_icon_dva` against a file called
+        # `hero_icon_DVA.png`), and a file system that cares about the difference would
+        # otherwise drop a face the machine has (#2062). Windows never notices; Linux
+        # does, and the tests run there.
+        found = _listing(folder).get(clean.lower())
+        if found:
+            return os.path.join(root, found)
     return None
+
+
+#: One listing per folder, remembered. The art is extracted by a person running a tool,
+#: never while the panel is up, so re-reading the directory per picture buys nothing.
+_LISTINGS: dict = {}
+
+
+def _listing(folder: str) -> dict:
+    """`{lowercased file name: the name on disk}` for one icon folder."""
+    found = _LISTINGS.get(folder)
+    if found is None:
+        root = os.path.join(ICON_ROOT, folder)
+        try:
+            found = {name.lower(): name for name in os.listdir(root)}
+        except OSError:
+            found = {}
+        _LISTINGS[folder] = found
+    return found
 
 
 if __name__ == "__main__":

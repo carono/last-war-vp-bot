@@ -2489,10 +2489,5 @@
   "health.no_traffic.short": "trafik yok",
   "health.not_in_game.short": "oyunda değil",
   "health.maintenance.short": "bakım",
-  "health.kicked.short": "atıldı",
-  "web.ui.accounts": "Hesaplar",
-  "web.ui.accounts.pick": "Hesap seç",
-  "web.ui.accounts.closed": "kapalı",
-  "web.ui.accounts.unread": "hiç okunmadı",
-  "web.ui.accounts.level": "KM {n}"
+  "health.kicked.short": "atıldı"
 }

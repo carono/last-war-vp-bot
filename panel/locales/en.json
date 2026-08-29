@@ -2489,10 +2489,5 @@
   "health.no_traffic.short": "no traffic",
   "health.not_in_game.short": "not in game",
   "health.maintenance.short": "maintenance",
-  "health.kicked.short": "kicked out",
-  "web.ui.accounts": "Accounts",
-  "web.ui.accounts.pick": "Pick an account",
-  "web.ui.accounts.closed": "closed",
-  "web.ui.accounts.unread": "never read",
-  "web.ui.accounts.level": "HQ {n}"
+  "health.kicked.short": "kicked out"
 }

@@ -2489,10 +2489,5 @@
   "health.no_traffic.short": "tidak ada lalu lintas",
   "health.not_in_game.short": "tidak di gim",
   "health.maintenance.short": "pemeliharaan",
-  "health.kicked.short": "terlempar",
-  "web.ui.accounts": "Akun",
-  "web.ui.accounts.pick": "Pilih akun",
-  "web.ui.accounts.closed": "tertutup",
-  "web.ui.accounts.unread": "belum pernah dibaca",
-  "web.ui.accounts.level": "Markas {n}"
+  "health.kicked.short": "terlempar"
 }

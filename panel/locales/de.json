@@ -2489,10 +2489,5 @@
   "health.no_traffic.short": "kein Traffic",
   "health.not_in_game.short": "nicht im Spiel",
   "health.maintenance.short": "Wartung",
-  "health.kicked.short": "rausgeworfen",
-  "web.ui.accounts": "Konten",
-  "web.ui.accounts.pick": "Konto wählen",
-  "web.ui.accounts.closed": "geschlossen",
-  "web.ui.accounts.unread": "nie gelesen",
-  "web.ui.accounts.level": "HQ {n}"
+  "health.kicked.short": "rausgeworfen"
 }
