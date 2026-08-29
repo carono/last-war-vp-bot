@@ -111,8 +111,20 @@ recorder, always call the original.
    server-confirmed copy with a real `seqId`. Every genuine broadcast carries a
    positive `seqId`, so dropping the `seqId`-less copy removes the duplicate with
    no loss.
-3. **Live-forward only.** Capture starts when the hook is installed; it sees new
-   messages, not pre-existing backlog.
+3. **The LISTENER is live-forward only** — the hook starts hearing when it is
+   installed, so it sees new messages and not the backlog. **The BACKLOG is a
+   separate read and it exists (#2064):** this file used to say the client keeps no
+   persistent store of messages, and that is wrong. The client holds its own per-room
+   copy in `Chat.ChatInterface.getRoomMgr().roomDatas[<room>].msgs`, filled by the very
+   parse the hook wraps — measured live on one account: **7 rooms, 291 messages held**,
+   every one of them with a `uid`, a `seqId` and its own `serverTime`; 254 had plain
+   text and the rest were attachment posts, which read through `getMessageWithExtra`.
+   `READ_CHAT` (docs/dsl.md) and `actions/read_chat_history.md` read that copy, once, on
+   a press. It asks the SERVER nothing. `ChatController.ChatRoomRequestHistoryMsg` would
+   fetch DEEPER than what is held and `Chat.Controller.ChatDBManager`
+   (`QueryLatestChat` / `QueryChatByTime`) is the client's own on-disk base — neither is
+   touched, on purpose: the first is a background question to the server, and the second
+   has not been needed while the held copy answers.
 4. **UTF-8 stdout.** Chat is UTF-8 (Cyrillic / Arabic / CJK / emoji). The Windows
    console the reader runs under defaults to a legacy codepage (cp1251), so a raw
    `print()` of a foreign message raises `UnicodeEncodeError` and kills the whole

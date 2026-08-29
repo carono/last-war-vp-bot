@@ -889,6 +889,54 @@ clones are not in the register. Those need `scan_map_monsters.md`, which is 147 
 no uuid. The two are different questions, and `actions/list_world_monsters.md` is the
 recipe for this one.
 
+### `READ_CHAT [LIMIT <n>] INTO <var>`
+
+Read the chat history **the client is already holding** into `<var>` (#2064). Not a
+question to the server and not a wait for somebody to speak.
+
+`Chat.ChatInterface.getRoomMgr().roomDatas[<room>].msgs` is the client's own per-room
+message list, filled by the very parse the chat listener hooks
+(`tools/chat_reader.py`). Reading it asks the server nothing — it is the copy the
+client made when the messages arrived, which is what «read once, then LISTEN» wants a
+first read to be. Everything after it arrives through the listener.
+
+```
+READ_CHAT LIMIT 40 INTO chat
+```
+
+`LIMIT` is per ROOM — the newest that many of each — and defaults to 40. A room whose
+`msgs` is empty is skipped rather than counted: that is history the client has not
+asked for, not history that does not exist.
+
+The answer is a **JSON array**, oldest first, one object per message:
+
+```json
+{"ts": 1756412345.0, "room_id": "country_100", "chat_type": "world", "seq_id": "8123",
+ "sender_uid": "1000000000000001", "sender_name": "Player1", "alliance": "AL1",
+ "msg": "hello", "is_mine": false, "head_pic": "0", "head_pic_ver": "0"}
+```
+
+JSON rather than the « | »-separated line `SCAN_MONSTERS` answers with, because a chat
+message is arbitrary text and every separator anybody could pick is a character
+somebody has already typed into world chat.
+
+Three things the statement does that a caller would otherwise get wrong:
+
+- **`ts` is the message's own `serverTime`, never the parse time.** History read out of
+  the client is parsed «now»; stamped that way, every ancient message would sort to the
+  bottom of the tab.
+- **the buffer is its own** (`__CR_HIST`, not the listener's `__CR_BUF`). The reader
+  child drains its buffer on its own clock, so a backlog seeded there would go to
+  whichever of the two asked first and the other would see nothing at all.
+- **an un-confirmed echo is dropped.** An outgoing message is parsed twice — an
+  optimistic local copy with no `seqId`, then the server-confirmed one. Only the record
+  with a positive `seqId` is kept, which is the same identity the listener stores under,
+  so the two readers never double up on one message.
+
+**What it does NOT do:** `ChatController.ChatRoomRequestHistoryMsg` would fetch deeper
+than what is held. That is a request to the server and it is deliberately not made.
+`actions/read_chat_history.md` is the recipe that uses this.
+
 ### `CHAT_SEND [ROOM v] [TO v] [TEXT v] [STICKER v] [COORDS v] [SERVER v] [LABEL v]`
 
 Put a message in front of a player — text (inline emoji included), a sticker, or a

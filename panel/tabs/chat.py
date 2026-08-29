@@ -143,6 +143,9 @@ class ChatTab(PanelTab):
         # full-size. Keyed by the image, so it is bounded by the cache above.
         self._photo_meta: dict = {}
         self._loaded = False
+        # Guards the backlog read against a second press while the first is still
+        # in the game: it is one round trip, and two of them race for one link.
+        self._backlog_busy = False
 
     # -- lifecycle ------------------------------------------------------------
     def ensure_loaded(self) -> None:
@@ -211,8 +214,11 @@ class ChatTab(PanelTab):
                 ]
             cards.append(card)
         cards += self._web_picker_cards()
+        # The backlog read is a press, and it belongs on BOTH front-ends: a phone that
+        # opens a chat nobody has spoken in yet would otherwise see nothing at all,
+        # with no way to ask for what the client is already holding (#2064).
         return {"cards": cards, "now": _time.time(),
-                "actions": []}
+                "actions": [{"id": "history", "label": "chat.history.load"}]}
 
     #: Which channel the phone's picker sends into. Not a per-profile setting — it is
     #: «which card am I answering» and it is answered again every time the screen is
@@ -296,6 +302,10 @@ class ChatTab(PanelTab):
         the game does not allow one beside text.
         """
         args = args or {}
+        if action == "history":
+            # The same press the window's «Загрузить историю» is: one read of what the
+            # client already holds, folded into the same store.
+            return {"ok": self._load_backlog()}
         if action == "set":
             # The picker's own «в какой канал» — remembered for as long as the screen is
             # being looked at, and checked against the rooms this tab has actually seen.
@@ -471,8 +481,12 @@ class ChatTab(PanelTab):
 
         bot = ttk.Frame(self.parent, padding=(6, 2, 6, 4))
         bot.pack(fill="x")
+        # THE HISTORY IS LOADED, not only listened for (#2064). One press, one round
+        # trip to the client's own per-room copy — never a clock.
+        self.tr(ttk.Button(bot, command=self._load_backlog),
+                 "chat.history.load").pack(side="left")
         self.tr(ttk.Button(bot, command=self._clear_chat),
-                 "chat.clear").pack(side="left")
+                 "chat.clear").pack(side="left", padx=(4, 0))
         self._chat_count_var = statevar.string(None, self.t("chat.count", n=0))
         ttk.Label(bot, textvariable=self._chat_count_var, foreground="#888").pack(
             side="right", padx=8)
@@ -1180,7 +1194,14 @@ class ChatTab(PanelTab):
         try:
             while True:
                 record = self._chat_q.get_nowait()
-                self.take(INTAKE_CHAT).kept()
+                # A BACKLOG record is not the reader talking. It travels the same queue
+                # so that it is persisted, ordered, rendered and routed by exactly one
+                # piece of code — but the flow strip answers «идут ли данные ПРЯМО
+                # СЕЙЧАС», and a press that seeds three hundred old messages would paint
+                # it green over a reader that has been dead for an hour (#1549, #2064).
+                backlog = bool(record.pop("_backlog", False))
+                if not backlog:
+                    self.take(INTAKE_CHAT).kept()
                 self._met_in_chat(met, record)
                 chat_type = record.get("chat_type", "other")
                 if chat_type not in self._chat_msgs:
@@ -1199,9 +1220,10 @@ class ChatTab(PanelTab):
                         if self._dm_append(record):
                             rebuild.add("dm")
                         changed.add("dm")
-                    elif not record.get("is_mine"):
+                    elif not backlog and not record.get("is_mine"):
                         self._dm_unread[room] = self._dm_unread.get(room, 0) + 1
-                    if not record.get("is_mine") and "dm" != self._active_chat_type():
+                    if (not backlog and not record.get("is_mine")
+                            and "dm" != self._active_chat_type()):
                         self._chat_unread["dm"] = self._chat_unread.get("dm", 0) + 1
                     continue
                 msgs = self._chat_msgs[chat_type]
@@ -1226,7 +1248,8 @@ class ChatTab(PanelTab):
                 # Unread only counts somebody else's message in a tab nobody is
                 # looking at: my own echo back is not news, and neither is a message
                 # in the tab that is open.
-                if not record.get("is_mine") and chat_type != self._active_chat_type():
+                if (not backlog and not record.get("is_mine")
+                        and chat_type != self._active_chat_type()):
                     self._chat_unread[chat_type] = self._chat_unread.get(chat_type, 0) + 1
         except queue.Empty:
             pass
@@ -1259,6 +1282,62 @@ class ChatTab(PanelTab):
         # is a question only a moving strip can answer.
         self._refresh_flow()
         self.rt.tick.arm("chat", 1000, self._pump_chat)
+
+    #: How many messages of EACH ROOM the backlog read asks the client for. The client
+    #: holds about forty per room it has been sitting in; asking for more costs nothing
+    #: and gets whatever is there.
+    BACKLOG_LIMIT = 40
+
+    def _load_backlog(self) -> bool:
+        """Play `read_chat_history` and fold what the client holds into this store.
+
+        THE HISTORY WAS NEVER LOADED, only listened for (#2064): the reader child hears
+        what ARRIVES, so a freshly switched-on chat tab was empty until somebody spoke,
+        and everything said before the panel started existed only in the client. The
+        client keeps its own per-room copy, and this reads THAT — one round trip, on a
+        press, never on a clock.
+
+        The records go into the same queue the reader's do, so they are persisted,
+        de-duplicated, ordered by their own `serverTime` and routed to their tabs by
+        exactly one piece of code. They are marked `_backlog` on the way in, because
+        history is neither «the reader is talking» nor unread news.
+
+        Off the Tk thread — a scenario is a game round trip, and it must not sit on the
+        thread that draws. `human=True`: somebody is at a button.
+        """
+        if self._backlog_busy:
+            return False
+        self._backlog_busy = True
+        self.say("chat", "log.chat.backlog_reading")
+
+        def work() -> None:
+            records: list = []
+            try:
+                outcome = self.rt.actions.play("read_chat_history",
+                                               {"limit": self.BACKLOG_LIMIT},
+                                               human=True, tag="chat")
+                got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+                raw = got.get("chat") or "[]"
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(parsed, list):
+                    records = [r for r in parsed if isinstance(r, dict)]
+            except Exception as exc:            # noqa: BLE001 — a failed read, not a dead tab
+                self.post(lambda: self.say("chat", "log.error", error=exc))
+            self.post(lambda: self._absorb_backlog(records))
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def _absorb_backlog(self, records: list) -> None:
+        """Hand the read messages to the pump — on the Tk thread, and say how many."""
+        self._backlog_busy = False
+        for record in records:
+            record["_backlog"] = True
+            self._chat_q.put(record)
+        if records:
+            self.say("chat", "log.chat.backlog", n=len(records))
+        else:
+            self.say("chat", "log.chat.backlog_none")
 
     def _dm_append(self, record: dict) -> bool:
         """Append a live DM to the OPEN conversation. True if a full rebuild is needed.

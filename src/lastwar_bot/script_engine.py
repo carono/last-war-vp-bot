@@ -300,6 +300,10 @@ _SCAN_MONSTERS_RE = re.compile(
 # they are read out of `ctx.vars` at run time and go to the game as escaped bytes
 # (`lua_actions._lua_bytes`), which is the whole reason the sending ability could
 # become a recipe at all (#1976).
+# READ_CHAT [LIMIT <n>] INTO <var>
+_READ_CHAT_RE = re.compile(
+    r"^READ_CHAT\s+(?:LIMIT\s+(\d+)\s+)?INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
+)
 _CHAT_SEND_RE = re.compile(r"^CHAT_SEND\b(.*)$", re.IGNORECASE)
 _CHAT_SEND_OPT_RE = re.compile(
     r"\b(ROOM|TO|TEXT|STICKER|COORDS|SERVER|LABEL)\s+([A-Za-z_]\w*)", re.IGNORECASE)
@@ -507,6 +511,27 @@ class ScanMonstersStmt(_Stmt):
     three measurements that decide how a caller uses it.
     """
     var: str
+
+
+@dataclass(slots=True)
+class ReadChatStmt(_Stmt):
+    """Read the chat history the CLIENT is already holding, into `var` (#2064).
+
+    Not a question to the server and not a wait for somebody to speak: the client keeps
+    the last few dozen messages of every room it is in, filled by the very parse the
+    chat listener hooks. This reads that copy — once, when a person opens the tab or
+    presses «Обновить» — which is what «read once, then LISTEN» wants a first read to
+    be. Everything after it arrives through the listener.
+
+    The answer is a JSON array of records, one per message, in the shape
+    `tools/lib/chat_records.py` decodes: `ts` (the message's own serverTime, never the
+    parse time), `room_id`, `chat_type`, `seq_id`, `sender_uid`, `sender_name`, `msg`
+    and the avatar fields. JSON rather than the « | »-separated line SCAN_MONSTERS
+    answers with, because a chat message is arbitrary text and every separator anybody
+    could pick is a character somebody has already typed into world chat.
+    """
+    var: str
+    limit: int = 40
 
 
 @dataclass(slots=True)
@@ -979,6 +1004,11 @@ def _parse_one(lines, i, indent):
     m = _SCAN_MONSTERS_RE.match(text)
     if m:
         return ScanMonstersStmt(text=text, line_no=ln, var=m.group(1)), i + 1
+
+    m = _READ_CHAT_RE.match(text)
+    if m:
+        return ReadChatStmt(text=text, line_no=ln, var=m.group(2),
+                            limit=int(m.group(1) or 40)), i + 1
 
     m = _READ_LUA_RE.match(text)
     if m:
@@ -1576,6 +1606,8 @@ class Interpreter:
                 self._do_read_lua(stmt)
             case ScanMonstersStmt():
                 self._do_scan_monsters(stmt)
+            case ReadChatStmt():
+                self._do_read_chat(stmt)
             case ChatSendStmt():
                 self._do_chat_send(stmt)
 
@@ -2786,6 +2818,60 @@ class Interpreter:
         self.ctx.vars[stmt.var] = value
         found = 0 if not value else len(str(value).split("|"))
         self._log(f"SCAN_MONSTERS -> {found} monster(s) INTO {stmt.var}")
+
+    def _do_read_chat(self, stmt: ReadChatStmt) -> None:
+        """Seed the client's held messages into a buffer of our own, then drain it.
+
+        TWO chunks and not one, because the recorder has to be there before anything can
+        be recorded and a game session may have been up for days without it: the first
+        (re)installs `_G.__CR_REC`, the second walks the rooms through it. The listener's
+        own hook calls that global BY NAME, so re-installing it under a running reader
+        updates what the reader records rather than fighting it.
+
+        The buffer is the history one (`chat_records.HISTORY_SINK`), never the
+        listener's: the reader child empties `__CR_BUF` on its own clock, so a backlog
+        seeded there would go to whichever of the two asked first and the other would
+        see nothing at all.
+        """
+        self._tools_lib_on_path()
+        import chat_records
+
+        self._run_lua(chat_records.record_lua(), marker=chat_records.MARKER)
+        rooms = seeded = 0
+        for ln in self._run_lua(chat_records.backlog_lua(stmt.limit),
+                                marker=chat_records.MARKER):
+            if "SEED " not in ln:
+                continue
+            body = ln.split("SEED ", 1)[1].strip()
+            if body.startswith("err="):
+                self._log(f"READ_CHAT: {body[4:]}")
+                self.ctx.vars[stmt.var] = "[]"
+                return
+            for tok in body.split(" "):
+                if tok.startswith("rooms="):
+                    rooms = int(tok[6:] or 0)
+                elif tok.startswith("n="):
+                    seeded = int(tok[2:] or 0)
+
+        records: list = []
+        seen: set = set()
+        for ln in self._run_lua(chat_records.drain_lua(chat_records.HISTORY_SINK),
+                                marker=chat_records.MARKER):
+            rec = chat_records.parse_record_line(ln)
+            if not chat_records.usable(rec):
+                continue
+            key = chat_records.identity(rec)
+            if key in seen:
+                continue
+            seen.add(key)
+            records.append(rec)
+        records.sort(key=lambda r: r.get("ts", 0.0))
+        self.ctx.vars[stmt.var] = json.dumps(records, ensure_ascii=False)
+        # BOTH numbers, deliberately. «Seeded 291, kept 254» is a client holding
+        # attachment posts the reader drops; «seeded 291, kept 0» is the drain having
+        # gone somewhere else, and the two look identical if only one is printed.
+        self._log(f"READ_CHAT -> {len(records)} message(s) of {seeded} held "
+                  f"in {rooms} room(s) INTO {stmt.var}")
 
     def _do_chat_send(self, stmt: ChatSendStmt) -> None:
         """Send text / a sticker / a map pin into a chat room, and say whether it landed.
