@@ -224,7 +224,11 @@ export function StateView({
   // short form falls back to its sentence, which is what every reason added before this
   // existed did, and the CSS keeps even that from overflowing.
   const word = t(LINK_SHORT[reason] || LINK_WORDS[reason] || 'web.ui.off')
-  const why = LINK_SHORT[reason] ? t(LINK_WORDS[reason]) : ''
+  // …and it is only drawn when something is WRONG. On a green light the sentence says
+  // «сервер игры отвечает — всё работает» beside a pill that already says «сервер
+  // отвечает»: one line of the page spent on an echo, and the common case is the one
+  // that must stay short.
+  const why = colour !== 'ok' && LINK_SHORT[reason] ? t(LINK_WORDS[reason]) : ''
   const rec = recoveryLine(state.game.recovery || {})
   const powerOn = state.power?.on !== false
   // NOT WHILE THE SWITCH IS OFF: the mark above already says that in the words somebody
