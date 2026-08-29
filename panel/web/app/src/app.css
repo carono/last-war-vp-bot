@@ -1003,8 +1003,35 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
 .item.errand.art.off::before { opacity: 0.1; filter: grayscale(1); }
 .item.errand.art.off .title { background: none; backdrop-filter: none; padding-left: 0; }
 
-/* EVERY BLOCK ON «Таймеры» IS THE SAME CARD. */
-.item.errand { gap: 4px; }
+/* EVERY BLOCK ON «Таймеры» IS THE SAME CARD.
+
+   THE SWITCH IS THE CORNER, not the end of the title row (#2061). It was asked for in
+   the corner once already and drawn there — then the picture became the whole card and
+   the switch went back into the flow beside the name, which is not a corner and does not
+   read as one. It is pinned now, out of the flow: the name can be as long as it likes
+   and the switch does not move, and the title's pill deliberately stops short of it.
+
+   AND A CARD HAS A FLOOR: 144 px. Below that the art is a strip rather than a picture —
+   the shortest listener was 73 px, which is a band of pixels with a name on it — and a
+   column of cards between 73 and 221 reads as rubble. 144 is where the tallest ORDINARY
+   card lands anyway (a name, two lines of facts and a row of buttons), so the floor
+   lifts the short ones INTO the common band instead of inventing a new one: everything
+   now sits between 144 and 221, and the page is SHORTER than it was before the switch
+   left the flow (6327 against 6509), because a pinned switch stops forcing the head row
+   to be 44 px tall. */
+.item.errand {
+  position: relative;
+  gap: 4px;
+  min-height: 144px;
+}
+.item.errand .errand-switch {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 3;
+}
+/* …and the head row keeps its hands off that corner. */
+.item.errand .errand-head { padding-right: 58px; }
 .item.errand .facts { margin: 0; }
 .item.errand .facts .pill { margin-right: 6px; }
 /* THE PICTURE IS THE CARD (#2061, third pass) — the person's words: «картинка должна

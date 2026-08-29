@@ -2420,6 +2420,15 @@ def test_a_card_says_whether_it_is_on_by_its_colour_and_switches_in_the_corner()
         "an errand that is off is drawn exactly like one that is on"
     css = _css()
     assert ".item.errand.off" in css, "nothing colours a card that is switched off"
+    # THE SWITCH IS THE CORNER, out of the flow (#2061): asked for twice, and it drifted
+    # back into the title row once already when the picture became the whole card.
+    corner = re.search(r"\.item\.errand \.errand-switch\s*\{[^}]*\}", css)
+    assert corner and "position: absolute" in corner.group(0), \
+        "the switch is back in the row beside the name"
+    # …and a card has a floor, or the art is a strip rather than a picture.
+    card = re.search(r"\.item\.errand\s*\{[^}]*\}", css)
+    assert card and re.search(r"min-height:\s*1[0-9]{2}px", card.group(0)), \
+        "a card can be a sliver again"
     # …AND ITS PICTURE GOES OFF WITH IT (#2061). The card wears the game's own sprite as
     # a background now, and a background is the loudest thing on it: a switched-off card
     # at full strength would read as the liveliest of the thirty.
