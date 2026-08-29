@@ -1316,6 +1316,12 @@ class ChatTab(PanelTab):
         self.say("chat", "log.chat.backlog_reading")
 
         def work() -> None:
+            # THE UID IS RESOLVED HERE, on the thread that is already off Tk (#2064).
+            # The store is keyed by the character, and reading which character this is
+            # costs a game round trip — doing it in a second thread afterwards is how
+            # the first fix still filed nothing: the backlog came back, the store was
+            # not open yet, and the open that would have taken it never finished.
+            uid = self._resolve_char_uid()
             records: list = []
             try:
                 outcome = self.rt.actions.play("read_chat_history",
@@ -1328,12 +1334,12 @@ class ChatTab(PanelTab):
                     records = [r for r in parsed if isinstance(r, dict)]
             except Exception as exc:            # noqa: BLE001 — a failed read, not a dead tab
                 self.post(lambda: self.say("chat", "log.error", error=exc))
-            self.post(lambda: self._absorb_backlog(records))
+            self.post(lambda: self._absorb_backlog(records, uid))
 
         threading.Thread(target=work, daemon=True).start()
         return True
 
-    def _absorb_backlog(self, records: list) -> None:
+    def _absorb_backlog(self, records: list, uid: str = "") -> None:
         """Put what was read where it is durable — on the Tk thread, and say how many.
 
         THE STORE FIRST, the view second, and that order is the whole lesson of the
@@ -1347,15 +1353,18 @@ class ChatTab(PanelTab):
         if not records:
             self.say("chat", "log.chat.backlog_none")
             return
+        if self._chat_store is None and uid:
+            # The character is known — the read resolved it on its own thread — so the
+            # store can simply be opened, here, before anything is filed into it.
+            self._open_chat_store(uid)
         if self._chat_store is None:
-            # Not «no store», but «not open yet»: the uid is being read off the game.
-            # Held rather than dropped — a press that says 278 and keeps none of them
-            # is the worst of the two failures, because it looks like it worked.
+            # Not «no store», but «no character»: the game could not say who is logged
+            # in. Held rather than dropped — a press that says 279 and keeps none of
+            # them is the worse of the two failures, because it looks like it worked —
+            # and filed by `_open_chat_store` as soon as one is known.
             self._backlog_pending = list(records)
             self.say("chat", "log.chat.backlog_held", n=len(records))
             self.ensure_loaded()
-            if self._chat_store is None:
-                self._reopen_chat_store()
             return
         self._file_backlog(records)
 
