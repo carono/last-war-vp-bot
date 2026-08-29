@@ -865,13 +865,19 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
    and a small grey box in the corner is not a colour. Dimmed rather than greyed out: the
    card is still readable and still pressable — its «▶» plays the errand once whether or
    not the schedule is on — so it must not look disabled. */
+/* THREE THINGS AT ONCE, and it takes three: on a dark palette one shade of grey against
+   another is not a difference anybody sees at arm's length (measured on an emulated
+   iPhone against the live page — `background: var(--bg-soft)` alone was invisible). So an
+   errand that is off loses its card colour altogether, its edge goes dashed, and the
+   whole block is dimmed. It is still readable and still pressable — «▶» plays the errand
+   once whether or not its schedule is on — so it must not look disabled. */
 .item.errand.off {
-  background: var(--bg-soft);
-  border-color: color-mix(in srgb, var(--card-edge) 60%, transparent);
+  background: transparent;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--card-edge) 75%, transparent);
+  opacity: 0.62;
 }
-.item.errand.off .title,
-.item.errand.off .stat b { color: var(--ink-soft); font-weight: 600; }
-.item.errand.off .errand-icon { opacity: 0.55; }
+.item.errand.off .title { color: var(--ink-soft); }
 
 /* EVERY BLOCK ON «Таймеры» IS THE SAME CARD. */
 .item.errand { gap: 4px; }
@@ -931,3 +937,63 @@ body.modal-open { overflow: hidden; }
 .mini .name { display: flex; align-items: center; gap: 8px; }
 .mini .name > span { flex: 1 1 auto; min-width: 0; }
 .mini-icon { width: 34px; height: 34px; object-fit: contain; flex: 0 0 auto; }
+
+/* THE SQUAD PICKER (#2062) — four tiles in a row, one per squad, the faces standing in
+   it, and grey when it is switched off. The person asked for exactly that: «клик по
+   картинке должен включать и отключать этот отряд, выключенный делаем серым».
+   A row of four on the narrowest phone, so the tile is sized by the grid and never by a
+   width anybody measured. */
+.squads {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+.squad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--tap);
+  padding: 6px 4px;
+  border: 1px solid var(--card-edge, #262c36);
+  border-radius: 12px;
+  background: var(--card, #161a21);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.squad-faces {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 34px;
+}
+.squad-faces img { width: 30px; height: 30px; object-fit: contain; }
+/* No picture is the honest answer for a hero nobody could name — the slot's number. */
+.squad-blank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.squad-name {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+.squad-name em { color: var(--ink-soft); font-style: normal; font-size: 10px; }
+/* SWITCHED OFF = GREY, and it is the whole tile: the faces lose their colour and the
+   card loses its edge, so «which are on» is answerable at arm's length. */
+.squad.off { opacity: 0.5; border-style: dashed; }
+.squad.off .squad-faces img { filter: grayscale(1); }
+.squad.off .squad-name { color: var(--ink-soft); }
