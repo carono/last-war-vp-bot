@@ -25,6 +25,13 @@
   --gap: 10px;
   --pad: 14px;
   --tap: 44px;
+  /* THE BOTTOM BAR'S REAL HEIGHT, named once (#2064). It was a 64 spelled out in the
+     page's padding and nowhere else, so anything that wanted to sit ABOVE the bar —
+     the chat's send box — had to guess it, and a guess that is one pixel short is a
+     control a thumb cannot reach. `nav` is 52 of button plus 6 above and 6 below and
+     the 1 px line on top of it — measured 65 — and the home indicator under all of it.
+     The old spelling said 64 and was exactly that one pixel short. */
+  --navh: calc(65px + env(safe-area-inset-bottom));
   color-scheme: dark;
 }
 
@@ -94,7 +101,7 @@ html, body {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
-  padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  padding-bottom: var(--navh);
 }
 
 /* -- header ---------------------------------------------------------------- */
@@ -902,7 +909,10 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
 .worldmap-canvas {
   position: relative;
   width: 100%;
-  height: 58vh;
+  /* `dvh` for the same reason the chat pane has it (#2064): `vh` is the viewport the
+     phone would have if the browser's furniture rolled away, and a map measured in it
+     pushes everything below it under the bottom bar. */
+  height: 58dvh;
   min-height: 260px;
   border: 1px solid var(--card-edge);
   border-radius: var(--radius);
@@ -1312,8 +1322,14 @@ body.modal-open {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  height: min(62vh, 640px);
-  min-height: 220px;
+  /* `dvh`, NOT `vh`, and this is the second time this repository has paid for that
+     (#2061 did it to the modal, #2064 to the chat): `vh` on a phone is the LARGE
+     viewport — the page as it would be with the address bar rolled away — so a pane
+     measured in it is taller than the screen actually is, and what follows it goes
+     under the browser's own furniture and under the panel's bottom bar. The person's
+     words for the result: «футер налезает на окно чата, и я не вижу окно ввода». */
+  height: min(58dvh, 640px);
+  min-height: 180px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 8px;
@@ -1363,7 +1379,23 @@ body.modal-open {
 .bubble .shot img { max-width: 100%; border-radius: 10px; }
 .shot-big { max-width: 100%; border-radius: 10px; }
 
-.chatbox { display: flex; gap: 6px; align-items: center; }
+/* THE BOX IS ALWAYS REACHABLE, whatever is above it. It sticks to the bottom of the
+   viewport, one bar's height up, so the fixed navigation can never stand on it — and
+   it keeps the page's own background, or the bubbles would slide through it. */
+.chatbox {
+  position: sticky;
+  bottom: calc(var(--navh) + 4px);
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 0;
+  background: var(--bg);
+}
+/* «Отправить» IS ONE WORD. The row is three controls on a 360 px phone, and letting
+   the button wrap turns it into «Отпр / авить» — the box keeps its width by shrinking
+   the field instead, which has a `min-width: 0` for exactly that. */
+.chatbox .go { white-space: nowrap; }
 .chatbox input {
   flex: 1 1 auto;
   min-width: 0;

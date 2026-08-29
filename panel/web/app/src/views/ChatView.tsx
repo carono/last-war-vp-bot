@@ -310,6 +310,47 @@ export function ChatView({
     }
   }, [deep, busy, more, server, screen, type, room, deepRoom, rows, link, toast])
 
+  /* THE PANE IS EXACTLY THE ROOM THERE IS, measured rather than guessed (#2064).
+   *
+   * The person's report was «футер налезает на окно чата, и я не вижу окно ввода»: the
+   * pane was a share of the viewport (`62vh`), the send box came after it, and on a
+   * phone the two together were taller than the screen — so the box sat under the fixed
+   * bottom bar. A share of ANY unit is a guess, because what stands above the pane (the
+   * account strip, the title, the chip row, and whether the chips wrapped) is not known
+   * to the stylesheet. So it is read off the page: what the visible viewport has, less
+   * where the pane starts, less the box and the bar under it.
+   *
+   * `visualViewport` is what shrinks when the keyboard comes up, so the same measure
+   * keeps the box off the keyboard as well; it is re-taken on resize, on rotation and
+   * when the browser's own furniture rolls away. */
+  useLayoutEffect(() => {
+    const fit = () => {
+      const el = pane.current
+      if (!el) return
+      const seen = window.visualViewport?.height || window.innerHeight
+      const box = el.parentElement?.querySelector('.chatbox') as HTMLElement | null
+      const bar = document.querySelector('nav') as HTMLElement | null
+      const glue = atBottom()
+      const room =
+        seen - el.getBoundingClientRect().top - (box?.offsetHeight || 56) - (bar?.offsetHeight || 64) - 16
+      el.style.height = Math.max(160, Math.round(room)) + 'px'
+      if (glue) el.scrollTop = el.scrollHeight
+    }
+    fit()
+    const vv = window.visualViewport
+    window.addEventListener('resize', fit)
+    window.addEventListener('orientationchange', fit)
+    vv?.addEventListener('resize', fit)
+    vv?.addEventListener('scroll', fit)
+    return () => {
+      window.removeEventListener('resize', fit)
+      window.removeEventListener('orientationchange', fit)
+      vv?.removeEventListener('resize', fit)
+      vv?.removeEventListener('scroll', fit)
+    }
+     
+  }, [type, room, rows.length])
+
   useLayoutEffect(() => {
     const el = pane.current
     if (!el) return
@@ -495,6 +536,16 @@ export function ChatView({
             type="text"
             value={text}
             placeholder={t('chat.send.prompt')}
+            /* THE KEYBOARD MUST NOT SWALLOW THE BOX. The page says
+               `interactive-widget=resizes-content`, which the newer phones honour by
+               shrinking the page instead of sliding it — but a browser that only
+               shrinks the VISUAL viewport leaves the box where it was, under the
+               keyboard. Asking for it after the keyboard has finished coming up costs
+               nothing and covers both. */
+            onFocus={(e) => {
+              const el = e.currentTarget
+              window.setTimeout(() => el.scrollIntoView({ block: 'center' }), 350)
+            }}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void send('send')

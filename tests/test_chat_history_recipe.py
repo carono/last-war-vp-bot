@@ -457,6 +457,39 @@ def test_the_renderer_matches_every_drawing_by_name():
     assert ") : view?.map ? (" not in text, "the catch-all fallback is back"
 
 
+# ---------------------------------------------------------------------------
+# the send box a thumb can actually reach (#2064)
+# ---------------------------------------------------------------------------
+def test_no_large_viewport_units_are_left_in_the_layout():
+    """`vh` on a phone is the viewport WITHOUT the browser's furniture.
+
+    Anything measured in it is taller than the screen really is, and whatever follows
+    it goes under the bottom bar. It cost the modal once (#2061) and the chat once
+    (#2064, «футер налезает на окно чата»); the units are `dvh` everywhere now.
+    """
+    css = (_REPO / "panel" / "web" / "app" / "src" / "app.css").read_text(encoding="utf-8")
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)          # prose may name the trap
+    bad = re.findall(r":[^;{}]*?\b\d+(?:\.\d+)?vh\b", body)
+    assert not bad, f"large-viewport units left in the layout: {bad}"
+
+
+def test_the_send_box_stands_above_the_bottom_bar():
+    css = (_REPO / "panel" / "web" / "app" / "src" / "app.css").read_text(encoding="utf-8")
+    assert "--navh:" in css, "the bar's height is not named anywhere"
+    assert "padding-bottom: var(--navh)" in css, \
+        "the page's clearance for the bar is a number of its own again"
+    box = css[css.index(".chatbox {"):css.index(".chatbox {") + 260]
+    assert "position: sticky" in box and "bottom: calc(var(--navh)" in box, \
+        "the send box does not stand above the bar"
+
+
+def test_the_pane_is_measured_and_not_guessed():
+    view = _VIEW.read_text(encoding="utf-8")
+    assert "visualViewport" in view, \
+        "nothing follows the viewport the keyboard leaves behind"
+    assert "el.style.height" in view, "the pane's height is still a share of something"
+
+
 def test_every_locale_has_the_keys():
     wanted = ("chat.history.load", "log.chat.backlog", "log.chat.backlog_none",
               "log.chat.backlog_reading", "log.chat.backlog_held",
