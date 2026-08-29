@@ -1122,31 +1122,54 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
 .stat { margin: 0; }
 .stat b { color: var(--ink); font-weight: 600; }
 
-/* A SHEET OVER THE PAGE (#2051) — what every gear opens now, in place of a collapse
-   that pushed the list around under the thumb. One set of rules for all of them. */
-body.modal-open { overflow: hidden; }
+/* A SHEET OVER THE PAGE (#2051), AND IT STANDS IN THE MIDDLE OF IT (#2061).
+   «Модалка плохая, должна быть в центре экрана, а она вниз уехала» — and it had not
+   drifted, it was BUILT that way: `align-items: flex-end` made every modal a bottom
+   sheet, centred only from 620 px up, where a phone never is. One line, and it is the
+   whole of the complaint.
+
+   THE SECOND FAULT WAS IN THE HEIGHT, and it is the mobile classic: `max-height: 86vh`.
+   `vh` on a phone is the LARGE viewport — the page as it would be with the address bar
+   hidden — so a tall modal was allowed to be taller than what is actually on screen and
+   its foot went under the browser's own chrome. Everything else in this file already
+   uses `dvh` (`100dvh` on the app itself); the modal was the one place that did not.
+
+   And a centred sheet may not sit under the notch or the home indicator, so the
+   backdrop carries the safe area as padding — the modal is centred INSIDE that, which
+   is why it needs no insets of its own.
+
+   The breakpoint is gone with the bottom-sheet shape it existed for. Nothing on this
+   front-end has thresholds any more. */
+/* …and the page behind it is PINNED, not merely overflow-hidden: on WebKit the document
+   scrolls under a sheet regardless, and `ui/Modal.tsx` remembers the offset so closing
+   the modal puts the person back exactly where they were. */
+body.modal-open {
+  position: fixed;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+}
 .modal-back {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.62);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
   z-index: 40;
 }
 .modal {
   width: min(560px, 100%);
-  max-height: 86vh;
+  /* `100%` is the backdrop's padded box — the safe area is already out of it — and the
+     `dvh` cap keeps a modal off the browser's own furniture on a phone. */
+  max-height: min(88dvh, 100%);
   display: flex;
   flex-direction: column;
   background: var(--card, #161a21);
   border: 1px solid var(--line, #262c36);
-  border-radius: 14px 14px 0 0;
-  padding: 12px 14px 18px;
-}
-@media (min-width: 620px) {
-  .modal-back { align-items: center; }
-  .modal { border-radius: 14px; }
+  border-radius: 14px;
+  padding: 12px 14px 14px;
 }
 .modal-head {
   display: flex;
@@ -1156,7 +1179,21 @@ body.modal-open { overflow: hidden; }
   padding-bottom: 8px;
   border-bottom: 1px solid var(--line, #262c36);
 }
-.modal-body { overflow: auto; padding-top: 6px; }
+/* THE LONG ONE SCROLLS INSIDE ITSELF — the rally caps are sixty-odd fields — and the
+   page behind it does not move: `body.modal-open` holds the page, `overscroll-behavior`
+   stops the scroll handing over to it at the ends. A field being typed into scrolls
+   itself clear of the keyboard rather than sitting under it, which is what
+   `scroll-margin` buys. */
+.modal-body {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-top: 6px;
+}
+.modal-body input,
+.modal-body select,
+.modal-body textarea {
+  scroll-margin: 16px;
+}
 
 /* …and the picture on a tile, beside its name. */
 .mini .name { display: flex; align-items: center; gap: 8px; }

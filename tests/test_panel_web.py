@@ -2534,6 +2534,26 @@ def test_there_is_one_modal_and_every_gear_opens_it():
     assert css.count(".modal-back") >= 1 and "body.modal-open" in css, \
         "the sheet no longer holds the page still behind it"
 
+    # IT STANDS IN THE MIDDLE OF THE SCREEN (#2061). It was built as a bottom sheet —
+    # `align-items: flex-end`, centred only from 620 px up, where a phone never is — and
+    # the person's whole complaint («модалка вниз уехала») was that one line.
+    back = re.search(r"\.modal-back\s*\{[^}]*\}", css)
+    assert back and "align-items: center" in back.group(0), "the modal hugs an edge again"
+    assert "flex-end" not in back.group(0), "the bottom sheet is back"
+    assert "env(safe-area-inset" in back.group(0), "a centred sheet may reach the notch"
+    # …and its height is measured against the viewport that is ACTUALLY on screen: `vh`
+    # on a phone is the page as it would be with the address bar hidden, so a tall modal
+    # was allowed to run under the browser's own furniture.
+    box = re.search(r"\.modal\s*\{[^}]*\}", css)
+    assert box and "dvh" in box.group(0), "the modal measures itself in lying units"
+    # THE PAGE BEHIND IS PINNED, and the modal is drawn on the body rather than inside
+    # the card that opened it — an errand card is a stacking context, so a sheet returned
+    # from inside one was painted over by the cards after it.
+    modal = (_APP_SRC / "ui" / "Modal.tsx").read_text(encoding="utf-8")
+    assert "createPortal" in modal, "the modal is drawn inside whatever opened it"
+    assert "document.body.style.top" in modal, \
+        "the page behind the sheet is not pinned — on WebKit it scrolls anyway"
+
 
 def test_no_reading_can_push_the_page_sideways():
     """The yellow line broke the phone's layout (#2061) — and it was a CLASS of line.

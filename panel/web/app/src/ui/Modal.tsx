@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { t } from '../i18n'
 
 /* A SHEET OVER THE PAGE, not a block that pushes it down (#2051).
@@ -24,14 +25,30 @@ export function Modal({ title, onClose, children }: {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
+    /* THE PAGE BEHIND IS HELD, AND `overflow: hidden` IS NOT ENOUGH TO HOLD IT (#2061).
+       On WebKit — which is every iPhone — the document goes on scrolling under a sheet
+       with the body merely overflow-hidden: the list behind slides away, and closing the
+       modal leaves the person somewhere they did not go. The lock that works is to pin
+       the body and remember where it was, then put it back. */
+    const y = window.scrollY
+    document.body.style.top = `-${y}px`
     document.body.classList.add('modal-open')
     window.addEventListener('keydown', key)
     return () => {
       document.body.classList.remove('modal-open')
+      document.body.style.top = ''
+      window.scrollTo(0, y)
       window.removeEventListener('keydown', key)
     }
   }, [onClose])
-  return (
+  /* IT IS DRAWN ON THE BODY, not where it was written (#2061). A gear's modal is
+     returned from inside the card it belongs to, and an errand card is a stacking
+     context of its own — it has to be, that is what lets its picture sit behind its
+     text (`isolation: isolate`). A `z-index: 40` inside a stacking context is 40 WITHIN
+     THAT CARD, so the cards drawn after it painted straight over the sheet: the modal
+     came up with the list showing through it. A portal takes it out to the body, where
+     its z-index means what it says, and no future card style can reach it. */
+  return createPortal(
     <div className="modal-back" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
@@ -43,6 +60,7 @@ export function Modal({ title, onClose, children }: {
         </div>
         <div className="modal-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
