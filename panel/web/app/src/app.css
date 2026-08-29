@@ -995,96 +995,100 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   opacity: 0.62;
 }
 .item.errand.off .title { color: var(--ink-soft); }
-/* …AND THE PICTURE IS SWITCHED OFF WITH IT (#2061). A background is the loudest thing on
-   a card, so a switched-off card wearing a full-strength one would read as the liveliest
-   of the thirty. Greyed and nearly gone — the colour is what says «off» first, and the
-   art must help rather than argue.
-   The scrim goes with it: over a card with no fill of its own, painting the card colour
-   back would be painting a colour the card no longer has. */
-/* …AND A SWITCHED-OFF CARD HAS TO PUT THE PICTURE OUT HARDER NOW (#2061). At full
-   brightness the art is the loudest thing on the card, so an off card wearing it would
-   read as the liveliest of the thirty — the opposite of what the colour is saying.
-   Greyed and down to a ghost of itself. */
-.item.errand.art.off::before { opacity: 0.12; filter: grayscale(1); }
+/* …AND A SWITCHED-OFF CARD PUTS ITS PICTURE OUT (#2061). The art covers the whole card at
+   full brightness now, which makes it the loudest thing on the screen — so an off card
+   wearing it would read as the liveliest of the thirty, the opposite of what its colour
+   is saying. Greyed and down to a ghost, and its NAME loses the bubble with it: a pill of
+   card colour over a card that has no fill of its own is a patch of nothing. */
+.item.errand.art.off::before { opacity: 0.1; filter: grayscale(1); }
+.item.errand.art.off .title { background: none; backdrop-filter: none; padding-left: 0; }
 
 /* EVERY BLOCK ON «Таймеры» IS THE SAME CARD. */
 .item.errand { gap: 4px; }
 .item.errand .facts { margin: 0; }
 .item.errand .facts .pill { margin-right: 6px; }
-/* THE PICTURE IS THE CARD'S LEFT-HAND SIDE, AT FULL BRIGHTNESS, AND THE TEXT SITS IN A
-   BUBBLE (#2061) — the person's words: «фоновые картинки плохо видно, слишком
-   прозрачное, сделай на полную яркость, перенеси их в левую часть карточки, а текст
-   сделай в пузыре, чтобы не терялся».
+/* THE PICTURE IS THE CARD (#2061, third pass) — the person's words: «картинка должна
+   чувствоваться карточкой, должна быть видна, пузырь только на название, в одну строку».
 
-   WHAT THE FIRST CUT GOT RIGHT AND WHAT IT GOT WRONG. It faded the sprite to 0.18 and
-   painted the card's colour back over the whole width in a gradient — readable, and
-   barely a picture. The MEASUREMENT behind that fade is still true and is exactly why
-   there is a bubble now: the game's sprites run from a near-white refresh ring to a
-   near-black ghost squad, so at full brightness no text can be laid over them in either
-   palette. What changed is WHERE the protection lives — no longer smeared across the
-   card, but gathered under the words.
+   The first pass faded the art to a stain; the second put it in a left-hand band with the
+   whole text block on a panel, and both were answered the same way — this is not a
+   picture beside a list row, it is the card itself. So the sprite covers the WHOLE card at
+   full brightness, and only the NAME carries a bubble.
 
-   So: the sprite fills a band on the left, whole and unfaded; the words ride a panel of
-   the card's own colour that starts inside that band, so the picture is never cut by a
-   hard seam and no line of text ever leaves the panel.
+   WHAT PROTECTS THE OTHER LINES, since a second bubble was ruled out. A wash of the
+   card's own colour, thin at the top where the art is meant to be seen and thick at the
+   bottom where the facts and the buttons are. It is the same measurement as before — the
+   sprites run from a near-white refresh ring to a near-black ghost squad — but spent as a
+   gradient rather than as a panel: at the foot of the card the colour under the words is
+   the card's own to within a tenth, in either palette, while the top two thirds stay the
+   picture. A text shadow of the card's colour rides the fact line as well, which costs no
+   height and catches whatever the wash lets through.
 
-   NEITHER LAYER IS IN THE FLOW, which is what keeps the card the height it was (#1999,
-   5daa8eb2 — the compactness was fought for): `::before` is the picture, and the bubble
-   is the content's own background rather than a third element. */
+   NEITHER LAYER IS IN THE FLOW: `::before` is the art, `::after` is the wash, and the
+   card is the height its text makes it. */
+/* The rows of a card, whatever is behind them. */
+.errand-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
 .item.errand.art { position: relative; isolation: isolate; overflow: hidden; }
 .item.errand.art::before {
   content: '';
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 40%;
-  z-index: -1;
+  inset: 0;
+  z-index: -2;
   pointer-events: none;
   background-image: var(--art);
   background-repeat: no-repeat;
-  background-position: left 6px center;
-  /* ONE HEIGHT FOR EVERY SPRITE, and that is what stops the column looking random
-     (#2061, «карточки сделаны плохо, не красиво и криво»). The pictures are a coin, a
-     portrait, a ring and a building — with `contain` the round ones filled the band while
-     the wide ones sat as small blots, and thirty of those in a row is the «разнобой» the
-     person saw. Scaled by HEIGHT, they all stand the same size whatever their shape. */
-  background-size: auto 78%;
-  /* AND IT FADES INTO THE BUBBLE INSTEAD OF BEING SLICED BY IT. The bubble's edge cut
-     straight down the middle of a face or a coin — the single worst thing on that screen,
-     and it read as a rendering fault rather than as a design. */
-  -webkit-mask-image: linear-gradient(90deg, #000 50%, transparent 95%);
-  mask-image: linear-gradient(90deg, #000 50%, transparent 95%);
-  /* FULL BRIGHTNESS. The picture is the picture — the words are protected by their own
-     panel, not by dimming the art down to a stain. */
+  background-position: center 40%;
+  /* COVER, because it is the card's own picture: a sprite floating in the middle with
+     card colour around it is the «аватар сбоку» this pass exists to stop being. */
+  background-size: cover;
   opacity: 1;
 }
-
-/* THE BUBBLE, AND IT IS ONE ELEMENT. It starts INSIDE the picture's band so the sprite
-   fades under it instead of ending at a line, and it is opaque enough that the brightest
-   sprite in the list cannot show through the type — measured on an emulated iPhone
-   against the refresh ring (the whitest) and the ghost squads (the darkest), in both
-   palettes.
-
-   ONE panel around every row rather than a background on each: four paddings cost four
-   times the height, and this card's height is fought for. The card gives back its own
-   inset in exchange, so the whole composition is the height it was — 35 cards, average
-   159 px, measured before and after. */
-.errand-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.item.errand.art { padding: 4px 6px; }
-.item.errand.art .errand-body {
-  position: relative;
-  z-index: 1;
-  margin-left: 26%;
-  padding: 1px 7px;
-  /* Rounder and softer than the card it sits on, so it reads as a panel the words ride
-     rather than as a rectangular patch stuck over the picture. */
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--card) 82%, transparent);
-  backdrop-filter: blur(3px);
+.item.errand.art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card) 14%, transparent) 0%,
+    color-mix(in srgb, var(--card) 58%, transparent) 46%,
+    color-mix(in srgb, var(--card) 92%, transparent) 100%
+  );
 }
-/* The light palette gets a denser bubble, not a lighter picture: the words are dark
-   here, and it is a dark sprite behind them that has to be kept out. */
-:root[data-theme='light'] .item.errand.art .errand-body {
-  background: color-mix(in srgb, var(--card) 93%, transparent);
+/* The light palette needs a heavier wash: the words are dark here, and the sprites are
+   drawn for a dark UI — measured against the brightest and the darkest of them. */
+:root[data-theme='light'] .item.errand.art::after {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card) 24%, transparent) 0%,
+    color-mix(in srgb, var(--card) 72%, transparent) 46%,
+    color-mix(in srgb, var(--card) 96%, transparent) 100%
+  );
+}
+
+/* THE BUBBLE IS THE NAME'S ALONE, and the name is ONE LINE. A title that wrapped was
+   what made the column ragged; cut with an ellipsis it cannot, and the whole sentence is
+   a tap away behind the «i» (#2061's own short-name/«i» pair, which is what makes this
+   affordable). */
+.item.errand.art .title {
+  /* THE PILL HUGS THE NAME, and does not stretch to the switch: a lozenge the width of
+     the card reads as an input box, which is the last thing a title should look like. */
+  flex: 0 1 auto;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(3px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* …and the lines that have no bubble get the wash plus a shadow of the card's own
+   colour: free, and it catches the sprite the wash lets through. */
+.item.errand.art .facts,
+.item.errand.art .stat {
+  text-shadow: 0 1px 2px var(--card), 0 0 6px var(--card);
 }
 
 /* The live line: the number is the thing, its age is an aside. */

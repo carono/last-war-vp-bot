@@ -2430,10 +2430,18 @@ def test_a_card_says_whether_it_is_on_by_its_colour_and_switches_in_the_corner()
     # a bubble over a picture faded back to a stain.
     art = re.search(r"\.item\.errand\.art::before\s*\{[^}]*\}", css)
     assert art and "opacity: 1" in art.group(0), "the picture is dimmed again"
-    assert "inset: 0 auto 0 0" in art.group(0), "the picture is no longer on the left"
-    bubble = re.search(r"\.item\.errand\.art \.errand-body\s*\{[^}]*\}", css)
-    assert bubble and "background:" in bubble.group(0), "the words have no bubble"
-    assert "margin-left" in bubble.group(0), "the bubble does not clear the picture"
+    # THE PICTURE IS THE CARD (#2061, third pass) — «картинка должна чувствоваться
+    # карточкой»: it covers the whole of it rather than sitting in a band beside the text.
+    assert "inset: 0" in art.group(0) and "cover" in art.group(0), \
+        "the picture is a strip beside the words again"
+    # …AND ONLY THE NAME HAS A BUBBLE, in one line. The other rows are kept readable by a
+    # wash of the card's own colour, which is not a second bubble.
+    pill = re.search(r"\.item\.errand\.art \.title\s*\{[^}]*\}", css)
+    assert pill and "background:" in pill.group(0), "the name has no bubble"
+    assert "text-overflow: ellipsis" in pill.group(0) and "nowrap" in pill.group(0), \
+        "the name can wrap again"
+    wash = re.search(r"\.item\.errand\.art::after\s*\{[^}]*\}", css)
+    assert wash and "linear-gradient" in wash.group(0), "nothing protects the fact line"
 
 
 def test_the_theme_is_the_panels_own_and_not_an_accounts():
