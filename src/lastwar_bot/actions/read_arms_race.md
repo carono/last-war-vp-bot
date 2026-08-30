@@ -67,7 +67,13 @@
 # engineering is docs/research/arms-race.md.
 
 # --- ask for the calendar, then read ----------------------------------------------
-LUA pcall(function() SFSNetwork.SendMessage(MsgDefines.ActivityHeroCalender) end)
+# THE ASK NAMES THE ACTIVITY, and that is the whole difference between a calendar and
+# an empty table. Sent bare it is answered with nothing — five polls of
+# `calenderDataDict` and «arms day: » in the log, for weeks — and sent with the live
+# `activityId` the six phases of the day arrive with their times. The client asks it
+# the same way; the id is read out of the event's own record rather than written down,
+# because it belongs to the season and not to us.
+LUA pcall(function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end if d == nil then return end SFSNetwork.SendMessage(MsgDefines.ActivityHeroCalender, math.floor((d.activityId or 0) + 0)) end)
 
 READ_LUA (function() local M = DataCenter.ActivityPersonalArmsDataManager local ok, n = pcall(function() local c = 0 for _ in pairs(M.calenderDataDict or {}) do c = c + 1 end return c end) if not ok then return 0 end return n end)() INTO arms_cal_in
 

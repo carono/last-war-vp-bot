@@ -320,11 +320,17 @@ ARMS_MINUTES_MAX = 20000
 ARMS_UNITS_KEY = "arms_units"
 ARMS_UNITS_DEFAULT = False
 ARMS_SOLDIERS_KEY = "arms_soldiers"
+#: AND ITS DEFAULT IS «NO CEILING», deliberately. A ceiling nobody asked for is a way for
+#: the panel to stop the thing the person asked it to do: a floor of ours cost most of a
+#: unit phase once, and the rule that came out of it is «страховка, которую придумали МЫ,
+#: не имеет права блокировать то, что человек прямо просил». **What the maximum is, is
+#: the GAME's answer** — the recipe asks each barracks for the size the game has already
+#: accepted for it and lets the server refuse. This field exists for the person who wants
+#: a ceiling, and it is 0 until they say otherwise.
+#:
 #: A thousand is what one live run put in, over two barracks, for 28 000 of that phase's
-#: 75 000 — a fact to check a ceiling against rather than a target to keep.
-ARMS_SOLDIERS_DEFAULT = 1000
-#: Zero is a legal answer and means «whatever the barracks themselves accept»: the recipe
-#: asks each barracks for the size the game has already accepted for it.
+#: 75 000 — a fact to check a ceiling against rather than a number to keep.
+ARMS_SOLDIERS_DEFAULT = 0
 ARMS_SOLDIERS_MIN = 0
 ARMS_SOLDIERS_MAX = 100000
 

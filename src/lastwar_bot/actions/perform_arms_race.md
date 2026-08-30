@@ -49,8 +49,11 @@
 #   units    1 to let the unit phase collect the finished batches and start new ones, 0
 #            to read and book only. A separate switch from `speedup` because it spends a
 #            different thing: RESOURCES, not items out of the bag.
-#   soldiers the most soldiers ONE unit-phase run may put into training. The fuse on
-#            that spend, and the reason `units` can be left on without watching it.
+#   soldiers the most soldiers ONE unit-phase run may put into training. 0 — the
+#            default — means no ceiling of ours at all: what a barracks will take is the
+#            GAME's answer, and the run asks each one for the size the game has already
+#            accepted for it. A ceiling here is for the person who wants one, never a
+#            safety somebody added on their behalf.
 #   minutes  the ceiling those three phases spend under — the most minutes of speed-up
 #            ONE run may pour into a queue. 60 by default, which is deliberately small.
 #   stamina  the drone phase's ceiling — the most stamina one run may spend. 300.
@@ -68,7 +71,7 @@ ARGS drone = 1
 ARGS speedup = 0
 ARGS minutes = 60
 ARGS units = 0
-ARGS soldiers = 1000
+ARGS soldiers = 0
 ARGS stamina = 300
 ARGS rallies = 0
 ARGS squad = 1
