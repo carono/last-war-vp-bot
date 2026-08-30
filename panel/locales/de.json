@@ -2537,6 +2537,8 @@
   "events.arms.units.hint": "An — ein Lauf holt jede Kaserne ab, die ihre Charge fertig hat, und startet in jeder freien Kaserne die größte Charge, die sie annimmt, bis zur Soldatengrenze daneben. Ausgegeben werden die Rohstoffe der Basis und keine Gegenstände aus dem Beutel, deshalb ist es ein eigener Schalter. Aus — ein Lauf liest die Phase und merkt sich ihre Grenze, ohne etwas zu drücken.",
   "events.arms.soldiers": "Soldatengrenze",
   "events.arms.soldiers.hint": "Wie viele Soldaten ein Lauf der Einheitenphase über alle Kasernen zusammen in Ausbildung geben darf. 0 heißt: so viele, wie die Kasernen selbst annehmen — jede wird nach der Größe gefragt, die das Spiel für sie bereits angenommen hat. Ein Live-Lauf gab 1000 hinein und erzielte 28000 von 75000 dieser Phase.",
+  "events.arms.free_minutes": "Minuten zum Freimachen einer Kaserne",
+  "events.arms.free_minutes.hint": "Wie viele Minuten an Beschleunigern ein Lauf der Einheitenphase ausgeben darf, um eine noch ausbildende Kaserne zu leeren, damit dort eine neue punktende Charge starten kann. Nicht die Sicherung darüber: die kauft Punkte in der Bau- und Forschungsphase, diese kauft eine freie Kaserne. 0 heißt: nur in bereits freie Kasernen ausbilden. Soldaten-Beschleuniger vor universellen, kleine Stücke vor großen, Diamanten nie.",
   "events.arms.train": "Ausbilden",
   "events.arms.train.confirm": "In jeder freien Kaserne eine Charge starten? Es kostet die Rohstoffe der Basis, bis zur Soldatengrenze.",
   "events.arms.spend": "Beschleuniger jetzt einsetzen",

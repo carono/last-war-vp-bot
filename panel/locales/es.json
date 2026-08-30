@@ -2537,6 +2537,8 @@
   "events.arms.units.hint": "Activado: una pasada recoge cada cuartel que ha terminado su lote y lanza en cada cuartel libre el mayor lote que acepte, hasta el tope de soldados de al lado. Gasta los recursos de la base, no objetos de la bolsa, por eso es un interruptor aparte. Desactivado: una pasada lee la fase y apunta su frontera sin pulsar nada.",
   "events.arms.soldiers": "Tope de soldados",
   "events.arms.soldiers.hint": "Cuántos soldados puede poner a entrenar una pasada de la fase de unidades, entre todos los cuarteles. 0 significa lo que acepten los propios cuarteles: a cada uno se le pide el tamaño que el juego ya le aceptó. Una pasada real puso 1000 y sumó 28000 de los 75000 de esa fase.",
+  "events.arms.free_minutes": "Minutos para liberar un cuartel",
+  "events.arms.free_minutes.hint": "Cuántos minutos de aceleradores puede gastar una pasada de la fase de unidades para vaciar un cuartel que sigue entrenando, y así lanzar allí un lote nuevo que puntúa. No es el fusible de arriba: aquel compra puntos en las fases de construcción e investigación, este compra un cuartel libre. 0: entrenar solo en los cuarteles ya libres. Aceleradores de soldados antes que los universales, piezas pequeñas antes que las grandes, y nunca diamantes.",
   "events.arms.train": "Entrenar",
   "events.arms.train.confirm": "¿Lanzar un lote en cada cuartel libre? Gasta los recursos de la base, hasta el tope de soldados.",
   "events.arms.spend": "Gastar aceleradores ahora",

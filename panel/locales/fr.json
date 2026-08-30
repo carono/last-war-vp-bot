@@ -2537,6 +2537,8 @@
   "events.arms.units.hint": "Activé — un passage récupère chaque caserne qui a fini son lot et lance dans chaque caserne libre le plus grand lot qu'elle accepte, jusqu'au plafond de soldats voisin. Ce sont les ressources de la base qui partent, pas des objets du sac : d'où un interrupteur distinct. Désactivé — un passage lit la phase et note sa frontière sans rien presser.",
   "events.arms.soldiers": "Plafond de soldats",
   "events.arms.soldiers.hint": "Le nombre maximal de soldats qu'un passage de la phase des unités peut mettre en formation, toutes casernes confondues. 0 signifie ce que les casernes acceptent elles-mêmes : on demande à chacune la taille que le jeu lui a déjà acceptée. Un passage réel en a mis 1000 et marqué 28000 sur les 75000 de cette phase.",
+  "events.arms.free_minutes": "Minutes pour libérer une caserne",
+  "events.arms.free_minutes.hint": "Combien de minutes d'accélérateurs un passage de la phase des unités peut dépenser pour vider une caserne encore en formation, afin d'y lancer un nouveau lot qui rapporte. Ce n'est pas le fusible ci-dessus : celui-là achète des points dans les phases de construction et de recherche, celui-ci achète une caserne libre. 0 : ne former que dans les casernes déjà libres. Accélérateurs de soldats avant les universels, petites pièces avant les grandes, jamais de diamants.",
   "events.arms.train": "Former",
   "events.arms.train.confirm": "Lancer un lot dans chaque caserne libre ? Cela dépense les ressources de la base, jusqu'au plafond de soldats.",
   "events.arms.spend": "Dépenser les accélérateurs",

@@ -2537,6 +2537,8 @@
   "events.arms.units.hint": "Attivo: un giro ritira ogni caserma che ha finito il lotto e avvia in ogni caserma libera il lotto più grande che accetta, fino al tetto di soldati qui accanto. Spende le risorse della base, non oggetti dello zaino: per questo è un interruttore a parte. Spento: un giro legge la fase e segna il suo confine senza premere nulla.",
   "events.arms.soldiers": "Tetto di soldati",
   "events.arms.soldiers.hint": "Quanti soldati un giro della fase delle unità può mettere in addestramento, su tutte le caserme insieme. 0 significa quanto accettano le caserme stesse: a ciascuna si chiede la dimensione che il gioco le ha già accettato. Un giro dal vivo ne ha messi 1000 e ha fatto 28000 dei 75000 di quella fase.",
+  "events.arms.free_minutes": "Minuti per liberare una caserma",
+  "events.arms.free_minutes.hint": "Quanti minuti di acceleratori un giro della fase delle unità può spendere per svuotare una caserma ancora in addestramento, così da avviarvi un nuovo lotto che segna punti. Non è il fusibile qui sopra: quello compra punti nelle fasi di costruzione e ricerca, questo compra una caserma libera. 0: addestrare solo nelle caserme già libere. Acceleratori dei soldati prima di quelli universali, pezzi piccoli prima dei grandi, e mai diamanti.",
   "events.arms.train": "Addestra",
   "events.arms.train.confirm": "Avviare un lotto in ogni caserma libera? Spende le risorse della base, fino al tetto di soldati.",
   "events.arms.spend": "Spendi acceleratori ora",

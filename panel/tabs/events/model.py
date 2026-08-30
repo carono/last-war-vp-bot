@@ -334,6 +334,16 @@ ARMS_SOLDIERS_DEFAULT = 0
 ARMS_SOLDIERS_MIN = 0
 ARMS_SOLDIERS_MAX = 100000
 
+#: …and the minutes that run may spend FREEING a barracks that is still training. A
+#: separate number from the speed-up fuse of the minutes phases, because it buys a
+#: different thing: not points, but an empty barracks to start a scoring batch in. 0 by
+#: default — the send that does it has never been seen to land, so it is asked for rather
+#: than assumed, and a run given 0 simply trains into whatever is already free.
+ARMS_FREE_MINUTES_KEY = "arms_free_minutes"
+ARMS_FREE_MINUTES_DEFAULT = 0
+ARMS_FREE_MINUTES_MIN = 0
+ARMS_FREE_MINUTES_MAX = 20000
+
 #: Which squad raises the drone phase's banners, by the slot the player sees.
 ARMS_SQUAD_KEY = "arms_squad"
 ARMS_SQUAD_DEFAULT = 1
@@ -357,6 +367,15 @@ def arms_stamina_of(value) -> int:
     except (TypeError, ValueError):
         return ARMS_STAMINA_DEFAULT
     return max(ARMS_STAMINA_MIN, min(ARMS_STAMINA_MAX, number))
+
+
+def arms_free_minutes_of(value) -> int:
+    """A freeing ceiling that came out of a file or off a phone, clamped to the field."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return ARMS_FREE_MINUTES_DEFAULT
+    return max(ARMS_FREE_MINUTES_MIN, min(ARMS_FREE_MINUTES_MAX, number))
 
 
 def arms_soldiers_of(value) -> int:

@@ -2537,6 +2537,8 @@
   "events.arms.units.hint": "Włączone — przebieg odbiera z każdych koszar gotową partię i uruchamia w każdych wolnych koszarach największą partię, jaką przyjmą, do limitu żołnierzy obok. Wydaje surowce bazy, a nie przedmioty z torby, dlatego jest to osobny przełącznik. Wyłączone — przebieg odczytuje fazę i zapisuje jej granicę, niczego nie naciskając.",
   "events.arms.soldiers": "Limit żołnierzy",
   "events.arms.soldiers.hint": "Ilu żołnierzy jeden przebieg fazy jednostek może wstawić do szkolenia, we wszystkich koszarach razem. 0 oznacza tyle, ile przyjmą same koszary: każde pytane są o rozmiar partii, który gra już dla nich przyjęła. Przebieg na żywo wstawił 1000 i zdobył 28000 z 75000 tej fazy.",
+  "events.arms.free_minutes": "Minuty na zwolnienie koszar",
+  "events.arms.free_minutes.hint": "Ile minut przyspieszeń przebieg fazy jednostek może wydać, by opróżnić wciąż szkolące koszary i uruchomić w nich nową, punktującą partię. To nie bezpiecznik powyżej: tamten kupuje punkty w fazach budowy i nauki, ten kupuje wolne koszary. 0 — szkolić tylko w tych, które już są wolne. Przyspieszenia żołnierzy przed uniwersalnymi, małe sztuki przed dużymi, diamentów nigdy.",
   "events.arms.train": "Szkol",
   "events.arms.train.confirm": "Uruchomić partię w każdych wolnych koszarach? Wydaje surowce bazy, do limitu żołnierzy.",
   "events.arms.spend": "Wydaj przyspieszenia teraz",

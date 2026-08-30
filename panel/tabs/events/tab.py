@@ -133,6 +133,7 @@ class EventsTab(PanelTab):
     _arms_minutes = modelmod.ARMS_MINUTES_DEFAULT
     _arms_units = modelmod.ARMS_UNITS_DEFAULT
     _arms_soldiers = modelmod.ARMS_SOLDIERS_DEFAULT
+    _arms_free_minutes = modelmod.ARMS_FREE_MINUTES_DEFAULT
 
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
@@ -248,6 +249,7 @@ class EventsTab(PanelTab):
         self._arms_minutes = modelmod.ARMS_MINUTES_DEFAULT
         self._arms_units = modelmod.ARMS_UNITS_DEFAULT
         self._arms_soldiers = modelmod.ARMS_SOLDIERS_DEFAULT
+        self._arms_free_minutes = modelmod.ARMS_FREE_MINUTES_DEFAULT
         self._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
         self._arms_args_registered = False
         self._register_arms_args()
@@ -321,6 +323,7 @@ class EventsTab(PanelTab):
                 "minutes": self.arms_minutes(),
                 "units": 1 if self.arms_units() else 0,
                 "soldiers": self.arms_soldiers(),
+                "free_minutes": self.arms_free_minutes(),
                 "stamina": self.arms_stamina(),
                 "rallies": self.arms_rallies(),
                 "squad": self.arms_squad()}
@@ -381,6 +384,10 @@ class EventsTab(PanelTab):
     def arms_soldiers(self) -> int:
         """The most soldiers ONE unit-phase run may put into training. Clamped."""
         return modelmod.arms_soldiers_of(self._arms_soldiers)
+
+    def arms_free_minutes(self) -> int:
+        """The minutes a unit-phase run may spend freeing a busy barracks. Clamped."""
+        return modelmod.arms_free_minutes_of(self._arms_free_minutes)
 
     def arms_squad(self) -> int:
         """Which squad raises the drone phase's banners, by the slot the player sees."""
@@ -446,6 +453,15 @@ class EventsTab(PanelTab):
                                   get=self.arms_soldiers,
                                   set=lambda v: self.set_arms_option(
                                       modelmod.ARMS_SOLDIERS_KEY, v)),
+                errandopts.Option(modelmod.ARMS_FREE_MINUTES_KEY,
+                                  "events.arms.free_minutes",
+                                  errandopts.NUMBER,
+                                  hint_key="events.arms.free_minutes.hint",
+                                  low=modelmod.ARMS_FREE_MINUTES_MIN,
+                                  high=modelmod.ARMS_FREE_MINUTES_MAX,
+                                  get=self.arms_free_minutes,
+                                  set=lambda v: self.set_arms_option(
+                                      modelmod.ARMS_FREE_MINUTES_KEY, v)),
                 errandopts.Option(modelmod.ARMS_SQUAD_KEY, "events.arms.squad",
                                   errandopts.SQUADS, single=True,
                                   get=lambda: [self.arms_squad()],
@@ -1562,6 +1578,7 @@ class EventsTab(PanelTab):
                            modelmod.ARMS_MINUTES_KEY: self.arms_minutes(),
                            modelmod.ARMS_UNITS_KEY: self.arms_units(),
                            modelmod.ARMS_SOLDIERS_KEY: self.arms_soldiers(),
+                           modelmod.ARMS_FREE_MINUTES_KEY: self.arms_free_minutes(),
                            modelmod.ARMS_SQUAD_KEY: self.arms_squad()})
         except Exception as exc:                # noqa: BLE001 — a profile going away
             self.rt.dbg("events").warning("arms knob not saved: %s", exc)
@@ -1689,6 +1706,9 @@ class EventsTab(PanelTab):
                                         modelmod.ARMS_UNITS_DEFAULT))
         self._arms_soldiers = modelmod.arms_soldiers_of(
             raw.get(modelmod.ARMS_SOLDIERS_KEY, modelmod.ARMS_SOLDIERS_DEFAULT))
+        self._arms_free_minutes = modelmod.arms_free_minutes_of(
+            raw.get(modelmod.ARMS_FREE_MINUTES_KEY,
+                    modelmod.ARMS_FREE_MINUTES_DEFAULT))
         self._arms_squad = modelmod.squad_of(raw.get(modelmod.ARMS_SQUAD_KEY))
         self._squad = modelmod.squad_of(raw.get(modelmod.GOLDEN_SQUAD_KEY))
         self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, False))
@@ -1930,6 +1950,11 @@ class EventsTab(PanelTab):
              "hint": "events.arms.soldiers.hint", "kind": "number",
              "value": self.arms_soldiers(),
              "min": modelmod.ARMS_SOLDIERS_MIN, "max": modelmod.ARMS_SOLDIERS_MAX},
+            {"key": modelmod.ARMS_FREE_MINUTES_KEY, "label": "events.arms.free_minutes",
+             "hint": "events.arms.free_minutes.hint", "kind": "number",
+             "value": self.arms_free_minutes(),
+             "min": modelmod.ARMS_FREE_MINUTES_MIN,
+             "max": modelmod.ARMS_FREE_MINUTES_MAX},
             {"key": modelmod.ARMS_STAMINA_KEY, "label": "events.arms.stamina",
              "hint": "events.arms.stamina.hint", "kind": "number",
              "value": self.arms_stamina(),
@@ -2136,6 +2161,15 @@ class EventsTab(PanelTab):
                 self._arms_soldiers = number
                 self._arms_knob_saved()
                 return {"ok": True, "soldiers": self._arms_soldiers}
+            if key == modelmod.ARMS_FREE_MINUTES_KEY:
+                # Refused rather than clamped, like every other ceiling on this card.
+                number = _whole(raw)
+                if (number is None or number < modelmod.ARMS_FREE_MINUTES_MIN
+                        or number > modelmod.ARMS_FREE_MINUTES_MAX):
+                    return {"ok": False, "reason": "web.ui.not_a_number"}
+                self._arms_free_minutes = number
+                self._arms_knob_saved()
+                return {"ok": True, "free_minutes": self._arms_free_minutes}
             if key == modelmod.ARMS_MINUTES_KEY:
                 # Refused rather than clamped, for the same reason as the stamina one
                 # below — and this ceiling stands in front of the player's speed-ups,

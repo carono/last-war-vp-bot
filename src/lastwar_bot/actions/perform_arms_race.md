@@ -54,6 +54,10 @@
 #            GAME's answer, and the run asks each one for the size the game has already
 #            accepted for it. A ceiling here is for the person who wants one, never a
 #            safety somebody added on their behalf.
+#   free_minutes  the minutes that run may spend FREEING a barracks that is still
+#            training, so the emptied one can start a scoring batch. Not the same fuse as
+#            `minutes`: that one buys POINTS in the building and research phases, this one
+#            buys an empty barracks. 0 trains only into what is already free.
 #   minutes  the ceiling those three phases spend under — the most minutes of speed-up
 #            ONE run may pour into a queue. 60 by default, which is deliberately small.
 #   stamina  the drone phase's ceiling — the most stamina one run may spend. 300.
@@ -72,6 +76,7 @@ ARGS speedup = 0
 ARGS minutes = 60
 ARGS units = 0
 ARGS soldiers = 0
+ARGS free_minutes = 0
 ARGS stamina = 300
 ARGS rallies = 0
 ARGS squad = 1

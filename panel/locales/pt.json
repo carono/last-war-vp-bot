@@ -2537,6 +2537,8 @@
   "events.arms.units.hint": "Ligado — uma passagem recolhe cada quartel que terminou o lote e inicia em cada quartel livre o maior lote que ele aceita, até ao limite de soldados ao lado. Gasta os recursos da base, não itens da bolsa, por isso é um interruptor próprio. Desligado — uma passagem lê a fase e marca a sua fronteira sem premir nada.",
   "events.arms.soldiers": "Limite de soldados",
   "events.arms.soldiers.hint": "Quantos soldados uma passagem da fase das unidades pode pôr em treino, em todos os quartéis juntos. 0 significa o que os próprios quartéis aceitarem: a cada um pede-se o tamanho que o jogo já lhe aceitou. Uma passagem real pôs 1000 e fez 28000 dos 75000 dessa fase.",
+  "events.arms.free_minutes": "Minutos para libertar um quartel",
+  "events.arms.free_minutes.hint": "Quantos minutos de acelerações uma passagem da fase das unidades pode gastar para esvaziar um quartel que ainda treina, para nele iniciar um novo lote que pontua. Não é o fusível acima: esse compra pontos nas fases de construção e investigação, este compra um quartel livre. 0: treinar apenas nos quartéis já livres. Acelerações de soldados antes das universais, peças pequenas antes das grandes, e nunca diamantes.",
   "events.arms.train": "Treinar",
   "events.arms.train.confirm": "Iniciar um lote em cada quartel livre? Gasta os recursos da base, até ao limite de soldados.",
   "events.arms.spend": "Gastar acelerações agora",

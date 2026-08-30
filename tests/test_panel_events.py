@@ -970,7 +970,10 @@ def test_a_minute_phase_spends_speed_ups_and_asks_before_it_does():
     assert tab.rt.played == [modelmod.ARMS_UNIT_ACTION]
     args = tab.rt.args[0]
     assert args["units"] == 0                  # switched off until the person says so
-    assert args["soldiers"] == modelmod.ARMS_SOLDIERS_DEFAULT
+    # …and NO ceiling of ours: what a barracks will take is the game's answer, and a fuse
+    # nobody asked for is how the panel stops the thing it was told to do.
+    assert args["soldiers"] == 0
+    assert args["free_minutes"] == 0
     # …and a phase the server invents tomorrow still gets no press, only the errand.
     other = ARMS_HERO_PHASE.replace("event=120000", "event=129999")
     tab = _tab(arms=other)
@@ -994,7 +997,8 @@ def test_the_arms_switch_is_one_value_drawn_in_two_places():
     assert set(options) == {modelmod.ARMS_HERO_KEY, modelmod.ARMS_DRONE_KEY,
                             modelmod.ARMS_STAMINA_KEY, modelmod.ARMS_SPEEDUP_KEY,
                             modelmod.ARMS_MINUTES_KEY, modelmod.ARMS_UNITS_KEY,
-                            modelmod.ARMS_SOLDIERS_KEY, modelmod.ARMS_SQUAD_KEY}
+                            modelmod.ARMS_SOLDIERS_KEY,
+                            modelmod.ARMS_FREE_MINUTES_KEY, modelmod.ARMS_SQUAD_KEY}
     options[modelmod.ARMS_HERO_KEY].write(tab.rt, True)
     assert tab.arms_hero() is True
     # …and the same for the switch that stands in front of the player's speed-ups: one
@@ -1022,6 +1026,12 @@ def test_the_arms_switch_is_one_value_drawn_in_two_places():
     assert tab.web_press("set", {"key": modelmod.ARMS_SOLDIERS_KEY,
                                  "value": 250})["ok"] is True
     assert tab.arms_args()["soldiers"] == 250
+    # …and the minutes that FREE a barracks are a third number, not a second reading of
+    # the fuse that buys points: they buy an empty barracks to train in.
+    assert tab.arms_args()["free_minutes"] == modelmod.ARMS_FREE_MINUTES_DEFAULT
+    assert tab.web_press("set", {"key": modelmod.ARMS_FREE_MINUTES_KEY,
+                                 "value": 600})["ok"] is True
+    assert tab.arms_args()["free_minutes"] == 600
 
 
 def test_the_drone_phase_is_raised_and_never_past_the_days_rally_caps():

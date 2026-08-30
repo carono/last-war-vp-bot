@@ -2537,6 +2537,8 @@
   "events.arms.units.hint": "Açık — bir tur partisini bitiren her kışlayı toplar ve boş her kışlada kabul ettiği en büyük partiyi başlatır, yanındaki asker tavanına kadar. Çantadaki eşyaları değil üssün kendi kaynaklarını harcar; bu yüzden ayrı bir anahtardır. Kapalı — bir tur aşamayı okur ve hiçbir şeye basmadan sınırını not eder.",
   "events.arms.soldiers": "Asker tavanı",
   "events.arms.soldiers.hint": "Birim aşamasının bir turunun tüm kışlalarda toplam kaç askeri eğitime koyabileceği. 0, kışlaların kendilerinin kabul ettiği kadar demektir: her birinden oyunun onun için zaten kabul ettiği parti büyüklüğü istenir. Canlı bir tur 1000 koydu ve o aşamanın 75000 puanının 28000'ini aldı.",
+  "events.arms.free_minutes": "Kışlayı boşaltmak için dakika",
+  "events.arms.free_minutes.hint": "Birim aşamasının bir turu, hâlâ eğitim yapan bir kışlayı boşaltıp orada puan getiren yeni bir parti başlatmak için kaç dakikalık hızlandırıcı harcayabilir. Yukarıdaki sigorta değildir: o, inşaat ve araştırma aşamalarında puan satın alır; bu, boş bir kışla satın alır. 0, yalnızca zaten boş olan kışlalarda eğitim demektir. Asker hızlandırıcıları evrensel olanlardan önce, küçük parçalar büyüklerden önce, elmas asla.",
   "events.arms.train": "Eğit",
   "events.arms.train.confirm": "Boş her kışlada bir parti başlatılsın mı? Asker tavanına kadar üssün kaynaklarını harcar.",
   "events.arms.spend": "Şimdi hızlandırıcı harca",

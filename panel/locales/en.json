@@ -2537,6 +2537,8 @@
   "events.arms.units.hint": "On — a run collects every barracks that has finished its batch and starts the biggest new one each free barracks will take, up to the soldier ceiling beside this. What it spends is the base's own resources rather than items from the bag, which is why it is a switch of its own. Off — a run reads the phase and books its border without pressing anything.",
   "events.arms.soldiers": "Soldier ceiling",
   "events.arms.soldiers.hint": "The most soldiers one unit-phase run may put into training, over all barracks together. 0 means whatever the barracks themselves accept: each is asked for the size the game has already accepted for it. A live run put 1000 in and scored 28000 of that phase's 75000.",
+  "events.arms.free_minutes": "Minutes for freeing a barracks",
+  "events.arms.free_minutes.hint": "How many minutes of speed-up a unit-phase run may spend to empty a barracks that is still training, so a new scoring batch can start in it. Not the fuse above: that one buys points in the building and research phases, this one buys an empty barracks. 0 trains only into barracks that are already free. Soldier speed-ups go before universal ones, small pieces before large, and diamonds are never spent.",
   "events.arms.train": "Train",
   "events.arms.train.confirm": "Start a batch in every free barracks? It spends the base's own resources, up to the soldier ceiling.",
   "events.arms.spend": "Spend speed-ups now",
