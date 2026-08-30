@@ -149,15 +149,75 @@ check the game itself answers and it survives the rules changing under it.
   ceiling, the day's remaining rally allowance, the phase's top chest, or the squad
   coming off the board, whichever comes first.
 
+## The other three phases: the ceilings, and what the client would not give up
+
+The person's ceilings, in their own words and settled: **«На стройку и науку нужно 3000
+минут для выполнения часа, юнитов просто ускоряем, чтобы освободить очередь»**, plus
+level **9** for the training and «собирай сразу» for the chests.
+
+### What was measured, and can be relied on
+
+**Training pays 28 points for one level-9 soldier.** `SoldierDataManager:GetSoldierIdByLevel(9)`
+is `3013`, and the `score` row for it is id `1121`, `type = 4`, `group = 114`, `points = 28`.
+The same group holds the ladder for the lower levels — 3005…3011 pay 5, 6, 7, 13, 15, 19,
+22 — and 28 on the ninth continues it, which is what makes the row trustworthy rather
+than a lookalike. **12 000 ÷ 28 = 429 soldiers** for the top chest, and that is the
+number a ceiling should be, not a guess about «максимум».
+
+**The phase's own rules are the only mapping, and they arrive only while it runs.** The
+`score` table is 1475 rows and **nothing in it names an event**: a full scan for
+`120001`, `120002` and `120003` across `gopara`, `name`, `tips` and `group` returns zero
+rows each. Rules were found for the hero phase (`type 42`, 400 for one hire; `type 87`,
+1 for 2 000 hero XP; `type 20`, 30 for a diamond bundle) only because that phase was
+running and had handed its `scoresList` over. So the rate for a speed-up phase cannot be
+derived offline, and a recipe must read it at the moment the phase opens.
+
+### The surface each phase will need
+
+| what | where |
+|---|---|
+| build queues | `DataCenter.BuildQueueManager` — `GetAllQueue`, `GetMinRemainTimeQueue`, `GetQueueDataByBuildUuid`, `IsQueueTimeFinish`, `IsAnyQueueFree` |
+| a queue's job | `DataCenter.BuildManager` — `GetBuildQueueByUuid(occupyUuid)`, `GetBuildQueueState`; the queue ROW carries no remaining time |
+| research | `DataCenter.ScienceDataManager` — `GetAllScienceOnlyRead` (312 rows), `GetScienceById`; plus `ScienceManager` |
+| soldiers | `DataCenter.SoldierDataManager` — `GetSoldierIdByLevel`, `GetCanTrainHighestLevelSoldier`, `GetInsideSoldiers`, `GetAllSoldiers`; the yard is `CityArmyYardManager` |
+| speed-ups | `DataCenter.ItemData:GetSpeedItem()` — three kinds on the account read, all `type = 2`, `type2 = 1` |
+| the chests | `MsgDefines.ActivityHeroScoreReward = activity.hero.score.reward`, `ActivityHeroDayReward = activity.hero.day.reward` |
+
+The box rows themselves are already readable and say what a claim has to name:
+`score_rewards[i] = {index, receive, target, value}` and
+`day_rewards[i] = {index, receive, resourceItemId, resourceNum}` — `index` is ZERO-based
+and `receive` is 1 once taken.
+
+### What did NOT work, so nobody repeats it
+
+* **`ScoreRewardGet` / `DailyRewardGet` are not the senders.** `debug.getlocal` over them
+  gives `(self, message)` — they are the reply handlers. The send is a
+  `SFSNetwork.SendMessage(MsgDefines.ActivityHero…Reward, …)` made from the window.
+* **The message classes are not in `_G`.** Searching for `HeroScoreReward`,
+  `HeroDayReward` and `ActivityHero` among the globals returns nothing; they are required
+  modules, so the field list cannot be read the way `AlHelpAllMessage`'s was.
+* **And `string.dump` is closed** (since 2026-08, silently inside a `pcall`), so the
+  constant-dump trick that answered the alliance help is gone. The remaining routes are
+  the UI class while its window is open, or a capture of the outgoing frame.
+* **The item template is thin.** `ItemTemplateManager:GetItemTemplate(200200)` carries
+  `id`, `type`, `type2` and nothing else — how many MINUTES a speed-up is worth is not
+  there, and «профильное или универсальное» is not `type2` either (all three kinds on the
+  account read `type2 = 1`).
+
+`debug.getlocal` on a method DOES work and is the cheap way to get a signature —
+`GetScoreBoxState(self, data, index)`, `GetCurData(self, activityId)`,
+`IsAllBoxRewardReceivedByType(self, activityType)` all came from it.
+
 ## Open
 
-* `120001` «Строительство Города», `120002` «Прогресс юнита» and `120003` «Исследование
-  технологий» spend the player's speed-ups and troops. **Each needs its ceiling agreed
-  with the person before a recipe is written** — a phase recipe with a guessed ceiling
-  is a recipe that spends somebody else's items. Asked and not yet answered: how much
-  speed-up per phase and whether any queue or only the one already running; which unit,
-  how many batches, and what resource floor; and whether the chests should be claimed
-  automatically.
+* **The ceilings are all settled; the SENDERS are what is missing.** `120001` and
+  `120003` spend 3 000 minutes of speed-up into the queue with the LONGEST remaining
+  time, specialised kinds before universal ones; `120002` speeds a training queue up only
+  far enough to FREE it, then collects and trains the most level-9 soldiers it can; the
+  chests are claimed as soon as they are owed. None of that can be written until the
+  «use a speed-up on this queue», «start a training batch» and «claim this box» sends are
+  known — see «What did NOT work» above for the three routes that are closed and the two
+  that are not.
 * **The rally cost in stamina has not been read off a live client.** Everything the
   drone recipe does is bounded by it, so it is the first thing to check when the phase
   next comes round.
