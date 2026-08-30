@@ -382,16 +382,16 @@ So «профильные раньше универсальных» is a sort on
 осталось до коробки» is arithmetic over `para3` — neither needs the item template, which
 carries `id`, `type`, `type2` and nothing else.
 
-### What is still missing, and it is one press
+### What looked like it was missing, and was not
 
-`building.camp.training`. Its argument NAMES are known and its values are not: `type` is
-an arm (a `NewQueueType`, most likely, but «most likely» is not a thing to send), and
-`fromLevel` is either 0 for a fresh batch or the level being promoted from. Every route
-into the sender needs the barracks window open, so the ear stays armed until one
-«Тренировать» is pressed by hand. **A guessed batch spends the player's resources**, so
-«Прогресс юнита» draws «no recipe» rather than a button until then.
+`building.camp.training` was written down here as unknowable without a press by hand, on
+the grounds that its `type` «is an arm, most likely a `NewQueueType`». It is 0, the send
+goes out positionally, and a probe run had already made it work — see «the training send
+is settled» below. The lesson is worth keeping: the argument NAMES came out of the class
+and the guess about their VALUES came out of nowhere, and the log of what this repository
+had already sent answered in one line what the guess could not.
 
-## The ear: what it answered, and the one press it is still waiting for
+## The ear: what it answered, and why nothing is waiting on it any more
 
 `SFSNetwork.SendMessage` is wrapped by a recorder that keeps the command and its
 arguments for anything naming a speed-up, a training batch, a research or an arms-race
@@ -408,12 +408,34 @@ build.ccd.m.new({bUUID=<a building uuid> isFixRuins=false itemIDs=<id>;<count>},
 activity.hero.score.reward(29, -1)
 ```
 
-**One press is still owed: «Тренировать» once in the barracks.** `building.camp.training`
-has its argument NAMES and not its values — `type` is an arm (a `NewQueueType`, most
-likely, and «most likely» is not a thing to send) and `fromLevel` is either 0 for a fresh
-batch or the level being promoted from. Every route into the sender wants the barracks
-window open. **A guessed batch spends the player's resources**, so «Прогресс юнита» says
-what the phase pays for and presses nothing until that press is made.
+**And the training send is settled too — it had already been sent by a probe run before
+anybody wrote down that it could not be.** `building.camp.training` goes out POSITIONALLY,
+the way its `OnCreate` names its arguments, and only the first four are needed:
+
+```
+SFSNetwork.SendMessage(MsgDefines.BuildingCampTraining, <barracks uuid>, 0, <soldier level>, <how many>)
+```
+
+`type` is **0** — not a `NewQueueType` after all, which is what «most likely» would have
+guessed wrong. `fromLevel`, `itemIds` and `goldForTime` are left off entirely: a fresh
+batch promotes nothing, spends no speed-up item and never touches gold.
+
+The two neighbours of that send are as plain:
+
+| what | the call |
+|---|---|
+| take a finished batch | `BuildingCampCollect(<barracks uuid>)` |
+| speed a batch up | `BuildingCampAccel(<barracks uuid>, "<itemId>;<count>", false)` |
+
+The collect is proven; the accel is **not** — it is the one shape here nobody has seen
+work, which is why `actions/arms_race_units.md` keeps its fuse at 0 by default and reads
+what the barracks had left before and after rather than believing the send landed.
+
+A barracks is `itemId == 10103000` in `DataCenter.BuildManager`. `productBase` is the size
+of the batch it is running — and the size the game has already accepted for it, which is
+what the recipe asks for again rather than calculating one — and `productEndTime` is when
+that batch is done, in milliseconds. A barracks with a FINISHED batch still counts as
+occupied: it has to be collected before it will take another.
 
 ## What is proven live
 
@@ -424,11 +446,18 @@ what the phase pays for and presses nothing until that press is made.
   **10**, which is why the constant is only ever the opening guess.
 * **Both chest ladders.** Three phase boxes and three day boxes claimed in one pass.
 * **The hero phase.** One hire, 400 points.
+* **The unit phase's two sends.** Two barracks collected (918 soldiers) and two started
+  on 500 level-9 soldiers each, with the phase score moving 0 → 28 000 of its 75 000 in
+  the same minute — 28 points a soldier.
 
 ## Open
 
-* **The training send.** One press by hand, and `120002` can be written; until then it is
-  the only phase of the five that spends nothing.
+* **The freeing send.** `building.camp.accel` has never been seen to land. Until it has,
+  the unit phase trains only into barracks that are ALREADY free, and its fuse for
+  freeing them is 0.
+* **The unit phase end to end.** Its two sends are proven; the recipe that strings them
+  together has only been gated live (it refuses a phase of another kind in one line) and
+  waits for a unit phase to come round.
 * **The rally cost in stamina has not been read off a live client.** Everything the
   drone recipe does is bounded by it, so it is the first thing to check when the phase
   next comes round — the drone phase is the one recipe here that has not run live at all.
