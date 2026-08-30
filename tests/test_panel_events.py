@@ -1012,6 +1012,19 @@ def test_the_drone_recipe_holds_its_own_ceilings():
     assert "score did not move" in text
 
 
+def test_the_score_never_reads_as_a_place_to_go():
+    """A grouped «400 / 12 000» is a TILE to the phone's coordinate marker (#1982)."""
+    import sys as _sys
+    from pathlib import Path as _Path
+    for _p in (_Path(__file__).resolve().parents[1] / "tools" / "lib",):
+        if str(_p) not in _sys.path:
+            _sys.path.insert(0, str(_p))
+    from panel.web import coordlinks
+    said = modelmod.arms_points(modelmod.arms_state(modelmod.parse(ARMS_HERO_PHASE)))
+    assert said == "800 / 12000", said
+    assert coordlinks.parts(said) is None, "the phase's score became a jump link"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

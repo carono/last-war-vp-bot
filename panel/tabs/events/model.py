@@ -810,13 +810,20 @@ def arms_chests(state) -> str:
 
 
 def arms_points(state) -> str:
-    """`800 / 12 000` — the points scored against the top chest of the phase."""
+    """`800 / 12000` — the points scored against the top chest of the phase.
+
+    THE DIGITS ARE NOT GROUPED, and that is not a style choice. The phone marks every
+    coordinate in a value as a place to go (#1982, `panel/web/coordlinks.py`), and a
+    grouped `400 / 12 000` reads to that parser as «400 / 12» — a real tile — followed by
+    the stray «000». A score turning into a jump link is a press that moves the camera,
+    so the separator goes rather than the link.
+    """
     if state.score is None:
         return "—"
     top = state.top
     if top is None:
-        return f"{state.score:,}".replace(",", "\u00a0")
-    return ("%s / %s" % (f"{state.score:,}", f"{top:,}")).replace(",", "\u00a0")
+        return str(state.score)
+    return "%d / %d" % (state.score, top)
 
 
 def arms_phase_clock(start: int, end: int) -> str:
