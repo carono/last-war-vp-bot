@@ -336,9 +336,12 @@ ARMS_SOLDIERS_MAX = 100000
 
 #: …and the minutes that run may spend FREEING a barracks that is still training. A
 #: separate number from the speed-up fuse of the minutes phases, because it buys a
-#: different thing: not points, but an empty barracks to start a scoring batch in. 0 by
-#: default — the send that does it has never been seen to land, so it is asked for rather
-#: than assumed, and a run given 0 simply trains into whatever is already free.
+#: different thing: not points, but an empty barracks to start a scoring batch in.
+#:
+#: 0 by default even though the send is proven (one five-minute piece moved a barracks by
+#: exactly 300 s on a test account): what it spends is the player's own speed-ups, and
+#: every knob here that spends something starts at «nothing» until the person says
+#: otherwise. A run given 0 simply trains into whatever is already free.
 ARMS_FREE_MINUTES_KEY = "arms_free_minutes"
 ARMS_FREE_MINUTES_DEFAULT = 0
 ARMS_FREE_MINUTES_MIN = 0

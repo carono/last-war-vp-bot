@@ -427,9 +427,18 @@ The two neighbours of that send are as plain:
 | take a finished batch | `BuildingCampCollect(<barracks uuid>)` |
 | speed a batch up | `BuildingCampAccel(<barracks uuid>, "<itemId>;<count>", false)` |
 
-The collect is proven; the accel is **not** — it is the one shape here nobody has seen
-work, which is why `actions/arms_race_units.md` keeps its fuse at 0 by default and reads
-what the barracks had left before and after rather than believing the send landed.
+**All three are proven live now**, the accel last, on a test account: one five-minute
+soldier speed-up (`"<itemId>;1"`) sent to a barracks with 9 026 s left took it to 8 722 s
+— **exactly 300 s of it, four of which were the clock** — and the bag went 51 → 50 of that
+piece. The batch itself was untouched (`productBase` unchanged), which is the point: the
+send buys TIME, not soldiers. So the argument the class calls `itemId` is the same
+`"<id>;<count>"` string the queue speed-ups take, and `useGold` false keeps it off
+diamonds.
+
+`actions/arms_race_units.md` still reads what the barracks had left before and after and
+says how much the send moved. Not because the shape is in doubt any more, but because a
+run that believed a refused send would train into a barracks that is still busy — and the
+measurement costs one reading.
 
 A barracks is `itemId == 10103000` in `DataCenter.BuildManager`. `productBase` is the size
 of the batch it is running — and the size the game has already accepted for it, which is
@@ -446,15 +455,15 @@ occupied: it has to be collected before it will take another.
   **10**, which is why the constant is only ever the opening guess.
 * **Both chest ladders.** Three phase boxes and three day boxes claimed in one pass.
 * **The hero phase.** One hire, 400 points.
-* **The unit phase's two sends.** Two barracks collected (918 soldiers) and two started
+* **The unit phase's three sends.** Two barracks collected (918 soldiers) and two started
   on 500 level-9 soldiers each, with the phase score moving 0 → 28 000 of its 75 000 in
-  the same minute — 28 points a soldier.
+  the same minute — 28 points a soldier. And the freeing one, on a test account: one
+  five-minute piece moved a barracks 300 s and left the batch alone.
+* **The calendar, on two accounts.** The ask has to NAME the activity; named, it answers
+  with the day's six phases and their times on both.
 
 ## Open
 
-* **The freeing send.** `building.camp.accel` has never been seen to land. Until it has,
-  the unit phase trains only into barracks that are ALREADY free, and its fuse for
-  freeing them is 0.
 * **The unit phase end to end.** Its two sends are proven; the recipe that strings them
   together has only been gated live (it refuses a phase of another kind in one line) and
   waits for a unit phase to come round.

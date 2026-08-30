@@ -22,13 +22,17 @@
 #
 # ## What is proven and what is measured
 #
-# The collect and the training sends are **proven live**: two barracks collected (918
-# soldiers) and two started on 500 each, with the phase score moving 0 → 28 000 in the
-# same minute. The freeing send is the one shape here that has not been seen live, so the
-# run does not trust it: it reads what the barracks had left BEFORE and AFTER, and says
-# plainly whether the minutes moved anything. A send the server drops costs nothing —
-# the items only leave the bag when it accepts it — but a run that silently believed it
-# had freed a barracks would train nothing and report success.
+# All three sends are **proven live**. The collect and the training: two barracks
+# collected (918 soldiers) and two started on 500 each, with the phase score moving
+# 0 → 28 000 in the same minute. The freeing one, measured on a test account: one
+# five-minute soldier speed-up took a barracks from 9 026 s left to 8 722 s — 300 s of it,
+# the other four seconds being the clock — and left `productBase` alone, because the send
+# buys TIME and not soldiers.
+#
+# The run still reads what the barracks had left BEFORE and AFTER and says how much the
+# minutes moved. Not because the shape is in doubt, but because a run that believed a
+# refused send would train into a barracks that is still busy, and the check costs one
+# reading.
 #
 # ## Arguments
 #
