@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "Bật — tác vụ mở tập kết cho đến khi tiêu hết mức thể lực bên cạnh hoặc đạt rương cao nhất của giai đoạn. Hạn mức tập kết trong ngày không bao giờ bị vượt: còn lại bao nhiêu thì được bấy nhiêu, và một giai đoạn vì thế không ghi điểm là kết quả đúng.",
   "events.arms.stamina": "Mức thể lực tối đa",
   "events.arms.stamina.hint": "Thể lực nhiều nhất một lần chạy giai đoạn Drone được tiêu. 0 là không mở gì cả.",
+  "events.arms.speedup": "Dùng vật phẩm tăng tốc trong các pha xây dựng, binh lính và nghiên cứu",
+  "events.arms.speedup.hint": "Bật — một lượt chạy đổ vật phẩm tăng tốc vào hàng đợi dài nhất đúng loại cho tới khi đạt rương cao nhất của pha hoặc dùng hết trần phút bên cạnh. Vật phẩm chuyên dụng được dùng trước loại đa dụng, và không bao giờ tiêu kim cương. Tắt — lượt chạy chỉ đọc pha và hẹn giờ ở ranh giới của nó, không bấm gì cả.",
+  "events.arms.minutes": "Trần phút tăng tốc",
+  "events.arms.minutes.hint": "Một lượt chạy của pha như vậy được dùng bao nhiêu phút tăng tốc. 0 là không dùng gì. Rương cao nhất tốn 1715 phút ở pha xây dựng, 2000 ở pha nghiên cứu và 3000 ở pha binh lính.",
+  "events.arms.spend": "Dùng tăng tốc ngay",
+  "events.arms.spend.confirm": "Việc này tiêu vật phẩm tăng tốc của chính tài khoản này vào một hàng đợi. Dùng tới trần phút?",
   "events.arms.squad": "Đội mở tập kết",
   "events.arms.raise": "Mở ngay",
   "events.arms.raise.confirm": "Tập kết sẽ đưa đội ra khỏi căn cứ và tiêu thể lực cùng lượt tập kết trong ngày. Mở đến mức tối đa?"

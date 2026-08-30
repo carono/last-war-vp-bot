@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "Activado — la tarea convoca hasta gastar el tope de aguante de al lado o alcanzar el cofre más alto de la fase. Los topes diarios de convocatorias nunca se saltan: lo que dejen es todo lo que habrá, y una fase que por eso no puntúe es la respuesta correcta.",
   "events.arms.stamina": "Tope de aguante",
   "events.arms.stamina.hint": "El aguante máximo que puede gastar una ejecución de la fase del dron. 0 no convoca nada.",
+  "events.arms.speedup": "Gastar aceleradores en las fases de construcción, unidades e investigación",
+  "events.arms.speedup.hint": "Activado — una ejecución vierte aceleradores en la cola más larga del tipo adecuado hasta alcanzar el cofre superior de la fase o agotar el límite de minutos de al lado. Los aceleradores especializados se gastan antes que los universales, y nunca se gastan diamantes. Desactivado — la ejecución lee la fase y despierta en su frontera sin pulsar nada.",
+  "events.arms.minutes": "Límite de minutos de acelerador",
+  "events.arms.minutes.hint": "Cuántos minutos de acelerador puede gastar una ejecución de esa fase. 0 no gasta nada. El cofre superior cuesta 1715 minutos en la fase de construcción, 2000 en la de investigación y 3000 en la de unidades.",
+  "events.arms.spend": "Gastar aceleradores ahora",
+  "events.arms.spend.confirm": "Esto gasta los aceleradores de esta cuenta en una cola. ¿Gastar hasta el límite de minutos?",
   "events.arms.squad": "Escuadrón que convoca",
   "events.arms.raise": "Convocar ahora",
   "events.arms.raise.confirm": "Convocar saca al escuadrón de la base y gasta aguante y convocatorias del día. ¿Convocar hasta el tope?"

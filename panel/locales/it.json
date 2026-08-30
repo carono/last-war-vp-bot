@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "Attivo — l'incarico lancia raduni finché non esaurisce il tetto di vigore accanto o raggiunge il baule più alto della fase. I tetti giornalieri dei raduni non vengono mai aggirati: quello che lasciano è tutto, e una fase che per questo non fa punti è la risposta giusta.",
   "events.arms.stamina": "Tetto di vigore",
   "events.arms.stamina.hint": "Il vigore massimo che una esecuzione della fase drone può spendere. 0 non lancia nulla.",
+  "events.arms.speedup": "Spendere acceleratori nelle fasi di costruzione, unità e ricerca",
+  "events.arms.speedup.hint": "Attivo — un'esecuzione versa acceleratori nella coda più lunga del tipo giusto finché non si raggiunge il forziere superiore della fase o non si esaurisce il tetto di minuti qui accanto. Gli acceleratori specializzati vengono spesi prima di quelli universali e i diamanti non vengono mai spesi. Disattivo — l'esecuzione legge la fase e si sveglia al suo confine senza premere nulla.",
+  "events.arms.minutes": "Tetto di minuti di acceleratore",
+  "events.arms.minutes.hint": "Quanti minuti di acceleratore può spendere una singola esecuzione di tale fase. 0 non spende nulla. Il forziere superiore costa 1715 minuti nella fase di costruzione, 2000 in quella di ricerca e 3000 in quella delle unità.",
+  "events.arms.spend": "Spendi acceleratori ora",
+  "events.arms.spend.confirm": "Questo spende gli acceleratori di questo account in una coda. Spendere fino al tetto di minuti?",
   "events.arms.squad": "Squadra che raduna",
   "events.arms.raise": "Lancia ora",
   "events.arms.raise.confirm": "Un raduno fa uscire la squadra dalla base e spende vigore e raduni della giornata. Lanciare fino al tetto?"

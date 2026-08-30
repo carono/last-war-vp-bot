@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "Ligado — a tarefa convoca até gastar o teto de vigor ao lado ou alcançar o baú mais alto da fase. Os tetos diários de convocações nunca são burlados: o que eles deixarem é tudo, e uma fase que por isso não pontue é a resposta certa.",
   "events.arms.stamina": "Teto de vigor",
   "events.arms.stamina.hint": "O vigor máximo que uma execução da fase do drone pode gastar. 0 não convoca nada.",
+  "events.arms.speedup": "Gastar acelerações nas fases de construção, unidades e pesquisa",
+  "events.arms.speedup.hint": "Ligado — uma execução despeja acelerações na fila mais longa do tipo certo até alcançar o baú superior da fase ou esgotar o teto de minutos ao lado. As acelerações específicas são gastas antes das universais, e diamantes nunca são gastos. Desligado — a execução lê a fase e desperta na fronteira dela sem apertar nada.",
+  "events.arms.minutes": "Teto de minutos de aceleração",
+  "events.arms.minutes.hint": "Quantos minutos de aceleração uma execução dessa fase pode gastar. 0 não gasta nada. O baú superior custa 1715 minutos na fase de construção, 2000 na de pesquisa e 3000 na de unidades.",
+  "events.arms.spend": "Gastar acelerações agora",
+  "events.arms.spend.confirm": "Isto gasta as acelerações desta conta numa fila. Gastar até o teto de minutos?",
   "events.arms.squad": "Esquadrão que convoca",
   "events.arms.raise": "Convocar agora",
   "events.arms.raise.confirm": "Convocar tira o esquadrão da base e gasta vigor e convocações do dia. Convocar até o teto?"

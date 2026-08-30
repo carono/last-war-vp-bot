@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "Nyala — tugas membuat rally sampai batas stamina di sebelahnya habis atau peti tertinggi fase tercapai. Batas rally harian tidak pernah dilangkahi: sisa dari batas itulah yang ada, dan fase yang karenanya tidak mendapat poin adalah jawaban yang benar.",
   "events.arms.stamina": "Batas stamina",
   "events.arms.stamina.hint": "Stamina terbanyak yang boleh dihabiskan satu jalannya fase drone. 0 tidak membuat apa pun.",
+  "events.arms.speedup": "Pakai pemercepat pada fase pembangunan, unit, dan riset",
+  "events.arms.speedup.hint": "Aktif — satu jalannya menuang pemercepat ke antrean terpanjang dari jenis yang tepat sampai peti teratas fase tercapai atau batas menit di sebelahnya habis. Pemercepat khusus dipakai sebelum yang universal, dan berlian tidak pernah dipakai. Nonaktif — jalannya membaca fase dan bangun di batasnya tanpa menekan apa pun.",
+  "events.arms.minutes": "Batas menit pemercepat",
+  "events.arms.minutes.hint": "Berapa menit pemercepat yang boleh dipakai satu kali jalan fase seperti itu. 0 tidak memakai apa pun. Peti teratas berharga 1715 menit pada fase pembangunan, 2000 pada riset, dan 3000 pada unit.",
+  "events.arms.spend": "Pakai pemercepat sekarang",
+  "events.arms.spend.confirm": "Ini memakai pemercepat milik akun ini ke sebuah antrean. Pakai sampai batas menit?",
   "events.arms.squad": "Skuad yang membuat rally",
   "events.arms.raise": "Buat sekarang",
   "events.arms.raise.confirm": "Rally mengeluarkan skuad dari markas dan menghabiskan stamina serta rally hari ini. Buat sampai batasnya?"

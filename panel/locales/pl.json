@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "Włączone — zadanie zwołuje, aż wyczerpie limit wytrzymałości obok albo osiągnie najwyższą skrzynię fazy. Dzienne limity zwołań nigdy nie są omijane: ile zostawią, tyle będzie, a faza, która przez to nie zdobędzie punktów, jest właściwą odpowiedzią.",
   "events.arms.stamina": "Limit wytrzymałości",
   "events.arms.stamina.hint": "Ile wytrzymałości może wydać jedno wykonanie fazy drona. 0 nie zwołuje nic.",
+  "events.arms.speedup": "Wydawaj przyspieszenia w fazach budowy, jednostek i badań",
+  "events.arms.speedup.hint": "Włączone — przebieg wlewa przyspieszenia do najdłuższej kolejki właściwego rodzaju, aż osiągnie górną skrzynię fazy albo wyczerpie sąsiedni limit minut. Przyspieszenia specjalistyczne idą przed uniwersalnymi, a diamenty nie są wydawane nigdy. Wyłączone — przebieg czyta fazę i budzi się na jej granicy, niczego nie naciskając.",
+  "events.arms.minutes": "Limit minut przyspieszeń",
+  "events.arms.minutes.hint": "Ile minut przyspieszeń może wydać jeden przebieg takiej fazy. 0 nie wydaje nic. Górna skrzynia kosztuje 1715 minut w fazie budowy, 2000 w fazie badań i 3000 w fazie jednostek.",
+  "events.arms.spend": "Wydaj przyspieszenia teraz",
+  "events.arms.spend.confirm": "To wyda przyspieszenia tego konta w kolejkę. Wydawać do limitu minut?",
   "events.arms.squad": "Oddział zwołujący",
   "events.arms.raise": "Zwołaj teraz",
   "events.arms.raise.confirm": "Zwołanie wyprowadza oddział z bazy i wydaje wytrzymałość oraz dzienne zwołania. Zwoływać do limitu?"

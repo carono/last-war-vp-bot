@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "Açık — görev, yanındaki dayanıklılık tavanı bitene ya da aşamanın en üst sandığına ulaşılana kadar toplanma başlatır. Günlük toplanma sınırları asla aşılmaz: onlardan artan neyse o kadardır ve bu yüzden puan alamayan bir aşama doğru sonuçtur.",
   "events.arms.stamina": "Dayanıklılık tavanı",
   "events.arms.stamina.hint": "Bir drone aşaması çalışmasının harcayabileceği en fazla dayanıklılık. 0 hiçbir şey başlatmaz.",
+  "events.arms.speedup": "İnşa, birlik ve araştırma evrelerinde hızlandırıcı harca",
+  "events.arms.speedup.hint": "Açık — bir çalıştırma, evrenin en üst sandığına ulaşılana ya da yanındaki dakika tavanı tükenene dek doğru türdeki en uzun sıraya hızlandırıcı döker. Özel hızlandırıcılar evrensel olanlardan önce harcanır ve elmas asla harcanmaz. Kapalı — çalıştırma evreyi okur ve hiçbir şeye basmadan sınırında uyanır.",
+  "events.arms.minutes": "Hızlandırıcı dakika tavanı",
+  "events.arms.minutes.hint": "Böyle bir evrenin tek çalıştırması kaç dakika hızlandırıcı harcayabilir. 0 hiçbir şey harcamaz. En üst sandık inşa evresinde 1715, araştırma evresinde 2000, birlik evresinde 3000 dakikadır.",
+  "events.arms.spend": "Şimdi hızlandırıcı harca",
+  "events.arms.spend.confirm": "Bu, bu hesabın kendi hızlandırıcılarını bir sıraya harcar. Dakika tavanına kadar harcansın mı?",
   "events.arms.squad": "Toplanmayı başlatan takım",
   "events.arms.raise": "Şimdi başlat",
   "events.arms.raise.confirm": "Toplanma, takımı üsten çıkarır ve günün dayanıklılığını ve toplanmalarını harcar. Tavana kadar başlatılsın mı?"

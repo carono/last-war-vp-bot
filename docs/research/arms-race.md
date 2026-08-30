@@ -312,6 +312,85 @@ Two senders that ARE reachable from a recipe, for completeness:
 `DataCenter.QueueData.QueueDataManager:AllianceHelpAddSpeed(uuid, endTime, startT)`.
 Neither spends an item.
 
+## The four sends, settled — and the route that settled three of them without a press
+
+The section below was right that `SendMsg` builds its packet out of an open window and
+that `string.dump` is closed. It was wrong to conclude that the packets therefore could
+only be HEARD. **The message classes are loaded modules**, not globals, and `require`
+reaches them exactly as it reaches a window's view:
+
+```
+package.loaded['Net.Msgs.BuildCcdMNewMessage']
+package.loaded['Net.Msgs.QueueCcdMNewMessage']
+package.loaded['Net.Msgs.BuildingCampTrainingMessage']
+```
+
+`debug.getlocal` over each class's `OnCreate` names its arguments, and where an argument
+is a TABLE the field names come out of a proxy — a table whose `__index` records the key
+and answers `nil`, handed to `OnCreate` on a message that is built in memory and never
+sent:
+
+| what | `MsgDefines` | the call |
+|---|---|---|
+| speed up a BUILD queue | `BuildCcdMNew = build.ccd.m.new` | `(param, golloesSpeedTime)`, `param = {bUUID, isFixRuins, itemIDs, useGold}` |
+| speed up ANY OTHER queue | `QueueCcdMNew = queue.ccd.m.new` | `(param, golloesFreeTime)`, `param = {qUUID, itemIDs, useGold}` |
+| start a training batch | `BuildingCampTraining = building.camp.training` | `(uuid, type, sLevel, sNum, fromLevel, itemIds, goldForTime)` |
+| a chest | `ActivityHeroScoreReward` · `ActivityHeroDayReward` | `(activityId, index)` |
+
+`itemIDs` is the game's own **`"<itemId>;<count>"`** string, `useGold` is `false` and the
+gold-for-time argument is `0` on every send this repository makes — a phase that could
+only be finished with diamonds is a phase the recipes leave unfinished.
+
+**A build queue names the BUILDING it occupies, every other queue names ITSELF.** That is
+the whole difference between the two messages: `bUUID` is the queue row's `itemId`,
+`qUUID` is the queue row's `uuid`. Getting it the wrong way round is a send the server
+drops in silence.
+
+The heard press that confirmed the first and the fourth, painted by the ear:
+
+```
+build.ccd.m.new({bUUID=<a building uuid> isFixRuins=false itemIDs=200211;11}, 0)
+activity.hero.score.reward(29, -1)
+```
+
+`ItemUse = item.use` is a real message and is NOT the queue speed-up — that was the
+guess this route replaced.
+
+### The queues, and what a `type` means
+
+`DataCenter.QueueDataManager:GetAllQueue()` hands over every queue in one list; the build
+ones are also in `DataCenter.BuildQueueManager`. A row carries `uuid`, `type`, `state`
+(2 = running), `startTime`, `endTime` in **milliseconds**, and `itemId` — the building
+uuid for a build queue, the science id for a research one.
+
+`NewQueueType` names the numbers: `Default = 0` (building), `Science = 6`,
+`Hospital = 3`, `CarSoldier = 1`, `FootSoldier = 8`, `BowSoldier = 9`, `ArmyUpgrade = 34`,
+and a long tail of barns, missiles and hospitals. Healing is deliberately not a kind any
+arms-race recipe touches.
+
+### The bag says what a speed-up is WORTH, and the item template does not
+
+`DataCenter.ItemData:GetSpeedItem()` returns the universal ones only.
+`GetItemsByType(2)` returns them all, and each row carries what matters:
+
+* `speedUpType` — **the same key as `ItemSpdMenu2SpeedScoreValue`**: 1 universal,
+  7 building, 6 research, 3 soldiers, 4 healing.
+* `para3` — the item's worth in **SECONDS** (60, 300, 900, 3600).
+* `count` — how many are held.
+
+So «профильные раньше универсальных» is a sort on `speedUpType`, and «сколько минут
+осталось до коробки» is arithmetic over `para3` — neither needs the item template, which
+carries `id`, `type`, `type2` and nothing else.
+
+### What is still missing, and it is one press
+
+`building.camp.training`. Its argument NAMES are known and its values are not: `type` is
+an arm (a `NewQueueType`, most likely, but «most likely» is not a thing to send), and
+`fromLevel` is either 0 for a fresh batch or the level being promoted from. Every route
+into the sender needs the barracks window open, so the ear stays armed until one
+«Тренировать» is pressed by hand. **A guessed batch spends the player's resources**, so
+«Прогресс юнита» draws «no recipe» rather than a button until then.
+
 ## The ear: what is armed on the live client, and what it is waiting for
 
 Since none of the three sends can be read out of a class, the remaining route is to hear

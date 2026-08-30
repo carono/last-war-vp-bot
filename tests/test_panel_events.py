@@ -935,17 +935,39 @@ def test_the_arms_card_says_the_phase_the_day_and_the_one_switch():
     assert hire and hire[0]["confirm"] == "events.arms.hire.confirm"
 
 
-def test_a_phase_with_no_recipe_is_offered_no_press():
-    """Three of the five phases spend items whose ceiling nobody has agreed (#2065)."""
-    build = ARMS_HERO_PHASE.replace("event=120000", "event=120001")
-    tab = _tab(arms=build)
-    card = _card(tab, "events.group.arms")
-    assert [a["id"] for a in card["actions"]] == ["play_arms"]
-    assert tab.web_press("phase_arms", {}) == {"error": "closed"}
-    # …and the errand itself is still playable: a run that hires nothing still books
-    # the next phase border, which is what it is on the clock for.
-    assert tab.web_press("play_arms", {}) == {"ok": True}
-    assert modelmod.ARMS_ERRAND in tab.rt.played
+def test_a_minute_phase_spends_speed_ups_and_asks_before_it_does():
+    """The three middle phases are ONE recipe: minutes poured into a queue (#2065).
+
+    They used to have no press at all, because the sends could not be read and the
+    ceiling had not been agreed. Both are settled now — the phase asks first, because
+    a speed-up is the one thing on this card that cannot be got back.
+    """
+    for kind in (120001, 120003):
+        phase = ARMS_HERO_PHASE.replace("event=120000", "event=%d" % kind)
+        tab = _tab(arms=phase)
+        card = _card(tab, "events.group.arms")
+        press = [a for a in card["actions"] if a["id"] == "phase_arms"]
+        assert press, kind
+        assert press[0]["label"] == "events.arms.spend"
+        assert press[0]["confirm"] == "events.arms.spend.confirm"
+        assert tab.web_press("phase_arms", {}) == {"ok": True}
+        assert tab.rt.played == [modelmod.ARMS_SPEEDUP_ACTION]
+        # …and it was played WITH its ceiling, because the recipe pours nothing without
+        # one: the switch is OFF by default and the minutes are deliberately small.
+        args = tab.rt.args[0]
+        assert args["speedup"] == 0
+        assert args["minutes"] == modelmod.ARMS_MINUTES_DEFAULT
+    # …and the two that still have no recipe get no press, only the errand: the unit
+    # phase, whose training send could not be read off the client, and whatever the
+    # server invents tomorrow.
+    for kind in (modelmod.ARMS_UNIT, 129999):
+        other = ARMS_HERO_PHASE.replace("event=120000", "event=%d" % kind)
+        tab = _tab(arms=other)
+        card = _card(tab, "events.group.arms")
+        assert [a["id"] for a in card["actions"]] == ["play_arms"], kind
+        assert tab.web_press("phase_arms", {}) == {"error": "closed"}
+        assert tab.web_press("play_arms", {}) == {"ok": True}
+        assert modelmod.ARMS_ERRAND in tab.rt.played
 
 
 def test_the_arms_switch_is_one_value_drawn_in_two_places():
@@ -959,9 +981,23 @@ def test_the_arms_switch_is_one_value_drawn_in_two_places():
     # …and the row on «Таймеры» is the same setter, not a second copy of the value.
     options = {o.key: o for o in tab.errand_options()[modelmod.ARMS_ERRAND]}
     assert set(options) == {modelmod.ARMS_HERO_KEY, modelmod.ARMS_DRONE_KEY,
-                            modelmod.ARMS_STAMINA_KEY, modelmod.ARMS_SQUAD_KEY}
+                            modelmod.ARMS_STAMINA_KEY, modelmod.ARMS_SPEEDUP_KEY,
+                            modelmod.ARMS_MINUTES_KEY, modelmod.ARMS_SQUAD_KEY}
     options[modelmod.ARMS_HERO_KEY].write(tab.rt, True)
     assert tab.arms_hero() is True
+    # …and the same for the switch that stands in front of the player's speed-ups: one
+    # value, the card and the gear both writing it, and the errand reading it at fire
+    # time rather than off the catalogue row it was written with.
+    assert tab.arms_args()["speedup"] == 0
+    options[modelmod.ARMS_SPEEDUP_KEY].write(tab.rt, True)
+    assert tab.arms_speedup() is True
+    assert tab.arms_args()["speedup"] == 1
+    # A ceiling is REFUSED rather than quietly clamped, the rule the stamina one goes by.
+    assert tab.web_press("set", {"key": modelmod.ARMS_MINUTES_KEY,
+                                 "value": modelmod.ARMS_MINUTES_MAX + 1})["ok"] is False
+    assert tab.web_press("set", {"key": modelmod.ARMS_MINUTES_KEY,
+                                 "value": 120})["ok"] is True
+    assert tab.arms_args()["minutes"] == 120
 
 
 def test_the_drone_phase_is_raised_and_never_past_the_days_rally_caps():

@@ -1,0 +1,96 @@
+# «Гонка вооружений», фазы стройки / юнитов / технологий — очки набираются минутами ускорений.
+# ru: «Гонка вооружений», фазы стройки, юнитов и технологий — очки набираются минутами ускорений.
+#
+# THIS SPENDS THE PLAYER'S OWN SPEED-UPS, and it stops at whichever ceiling it meets
+# first, saying which one stopped it:
+#
+#   1. the phase's TOP CHEST. Points already scored are the server's own count, so the
+#      run works out how many MINUTES are still missing and never spends past them.
+#   2. `minutes` — the most minutes of speed-up one run may spend. 0 means «no cap of
+#      my own», and then the chest above is the only bound.
+#   3. the QUEUE. A minute poured into a queue that has fifty seconds left is a minute
+#      thrown away, so every send is cut to what the queue can still absorb, and the
+#      run stops when no queue of the right kind is running.
+#   4. the bag. Specialised speed-ups are spent before universal ones — a universal one
+#      is worth the same minute here and worth it everywhere else too.
+#
+# It never spends diamonds. `useGold` is false and the gold-for-time argument is 0 on
+# every send; a phase that could only be finished with diamonds is a phase this recipe
+# leaves unfinished.
+#
+# ## The phase must be PAYING, and it is checked against the game, not against a memory
+#
+# The rate — 7 points a minute for building, 6 for research, 4 for units — is a client
+# constant (`SpeedScoreValue`), and a constant that used to be true is the classic way
+# to spend an account's items for nothing. So the score is read before a send and again
+# after it, and a send that moved nothing ends the run with «this phase did not pay for
+# that». That check the game itself answers, and it survives the rules changing.
+#
+# ## Which queue, and which message
+#
+#   120001  «Строительство Города»     the build queues     `build.ccd.m.new`  bUUID
+#   120003  «Исследование технологий»  the research queues  `queue.ccd.m.new`  qUUID
+#
+# A build queue names the BUILDING it is occupying, every other queue names itself —
+# which is why the two messages exist and why they are not interchangeable. The kinds
+# are `NewQueueType` (Default 0, Science 6).
+#
+# «Прогресс юнита» is NOT here. Its points are not bought with minutes: the design is
+# to speed a training queue only far enough to FREE it, collect what is ready and then
+# train as many level-9 soldiers as the barracks will take — a different ability, and
+# one still waiting on the shape of the «start a training batch» send.
+#
+# ## Arguments
+#
+#   minutes  the most minutes of speed-up one run may spend. 0 = the top chest is the
+#            only ceiling. The person's own number for a first live run is a small one.
+#
+# The reading is actions/read_arms_race.md; the research is docs/research/arms-race.md.
+
+ARGS minutes = 0
+
+CALL read_arms_race
+
+READ_LUA (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end return math.floor((d.event_id or 0) + 0) end)() INTO arms_event
+
+IF arms_event == 120000
+    STOP "the hero phase is running — its points are hires, not minutes"
+
+IF arms_event == 120004
+    STOP "the drone phase is running — its points are rallies, not minutes"
+
+# The run's own plan and counters in one place, so the ceilings cannot drift apart from
+# the numbers they are judged against. `sc0` is the score standing before the send about
+# to go out; `paid` is whether the last one moved it.
+LUA DataCenter.__lw_arms_sp = {cap = (tonumber("{minutes}") or 0) * 60, spent = 0, sends = 0, sc0 = -1, paid = 1, why = 'nothing tried'}
+
+# May another parcel of minutes go out, and what exactly is in it? Everything the answer
+# needs is read in ONE call — the phase, the chest, the cap, the queues and the bag —
+# and the parcel it settles on is parked in `p.next` for the send below.
+READ_LUA (function() local p = DataCenter.__lw_arms_sp or {} p.next = nil if math.floor(tonumber(p.paid) or 1) == 0 then p.why = 'the score did not move for the last parcel' return 0 end local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then p.why = 'the game would not say which phase is running' return 0 end local ev = math.floor((d.event_id or 0) + 0) local plan = {[120001] = {kinds = {[0] = true}, rate = 'Build', spec = 7, build = true}, [120003] = {kinds = {[6] = true}, rate = 'Science', spec = 6}} local plan1 = plan[ev] if plan1 == nil then p.why = 'this phase is not paid for in minutes' return 0 end local rate = 0 pcall(function() rate = math.floor((SpeedScoreValue[plan1.rate] or 0) + 0) end) if rate <= 0 then p.why = 'the client would not price a minute of ' .. plan1.rate .. ' speed-up' return 0 end local sc = math.floor((d.sc or 0) + 0) local top = 0 pcall(function() for _, b in pairs(d.score_rewards or {}) do local t = math.floor((b.target or 0) + 0) if t > top then top = t end end end) if top <= 0 then top = math.floor((d.score_reward_max or 0) + 0) end if top > 0 and sc >= top then p.why = 'the top chest is already reached' return 0 end local want = 0 if top > 0 then want = math.ceil((top - sc) / rate) * 60 end if want <= 0 then p.why = 'nothing left to score' return 0 end local cap = math.floor(tonumber(p.cap) or 0) local spent = math.floor(tonumber(p.spent) or 0) if cap > 0 then local room = cap - spent if room <= 0 then p.why = 'the run reached its own ceiling of ' .. math.floor(cap / 60) .. ' minute(s)' return 0 end if room < want then want = room end end local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) if now <= 0 then p.why = 'the game would not say the time' return 0 end local Q = DataCenter.QueueDataManager local all = nil pcall(function() all = Q:GetAllQueue() end) if type(all) ~= 'table' then p.why = 'no queue list' return 0 end local best, bestLeft = nil, 0 for _, q in pairs(all) do if type(q) == 'table' then local t = math.floor((q.type or -1) + 0) local st = math.floor((q.state or 0) + 0) local ends = math.floor(((q.endTime or 0) / 1000) + 0) if plan1.kinds[t] and st == 2 and ends > now then local left = ends - now if left > bestLeft then best, bestLeft = q, left end end end end if best == nil then p.why = 'no queue of that kind is running — there is nothing to pour minutes into' return 0 end local room = bestLeft - 60 if room <= 0 then p.why = 'the longest queue has under a minute left' return 0 end if room < want then want = room end local I = DataCenter.ItemData local pool = {} pcall(function() for _, it in pairs(I:GetItemsByType(2) or {}) do if type(it) == 'table' then local st = math.floor((it.speedUpType or 0) + 0) local sec = math.floor((it.para3 or 0) + 0) local have = math.floor((it.count or 0) + 0) if sec > 0 and have > 0 and (st == plan1.spec or st == 1) then pool[#pool + 1] = {id = math.floor((it.itemId or 0) + 0), sec = sec, have = have, own = (st == plan1.spec) and 1 or 0} end end end end) if #pool == 0 then p.why = 'the bag holds no speed-up this phase could spend' return 0 end table.sort(pool, function(a, b) if a.own ~= b.own then return a.own > b.own end return a.sec > b.sec end) local pick, num = nil, 0 for _, it in ipairs(pool) do if it.sec <= want then local n = math.floor(want / it.sec) if n > it.have then n = it.have end if n > 0 then pick, num = it, n break end end end if pick == nil then p.why = 'the smallest speed-up in the bag is worth more than the ' .. want .. ' second(s) still wanted' return 0 end p.sc0 = sc p.rate = rate p.next = {id = pick.id, num = num, sec = pick.sec * num, build = plan1.build and 1 or 0, target = plan1.build and tostring(best.itemId or '') or tostring(best.uuid or '')} if p.next.target == '' or p.next.target == 'nil' then p.next = nil p.why = 'the queue would not name what to speed up' return 0 end p.why = '' return 1 end)() INTO arms_sp_go
+
+IF arms_sp_go == 0
+    READ_LUA (function() local p = DataCenter.__lw_arms_sp or {} return tostring(p.why or '') end)() INTO arms_sp_why
+    LOG "arms speed-up: nothing sent — {arms_sp_why}"
+    STOP "nothing to speed up"
+
+WHILE arms_sp_go == 1 LIMIT 60
+    # The parcel itself. `useGold = false` and the gold-for-time argument `0` are what
+    # keep this off the player's diamonds; `itemIDs` is the game's own «<id>;<count>».
+    LUA local p = DataCenter.__lw_arms_sp local n = p and p.next if n ~= nil then local ids = tostring(math.floor(n.id)) .. ';' .. tostring(math.floor(n.num)) local ok, why = pcall(function() if math.floor(n.build) == 1 then SFSNetwork.SendMessage(MsgDefines.BuildCcdMNew, {bUUID = n.target, isFixRuins = false, itemIDs = ids, useGold = false}, 0) else SFSNetwork.SendMessage(MsgDefines.QueueCcdMNew, {qUUID = n.target, itemIDs = ids, useGold = false}, 0) end end) p.sent_ok = ok and 1 or 0 p.sent_err = ok and '' or tostring(why) end
+
+    WAIT 2
+
+    # What that parcel cost and whether it paid. The score is the SERVER's, so a parcel
+    # that moved nothing is a parcel this phase does not reward — and the next plan
+    # refuses on `paid`.
+    READ_LUA (function() local p = DataCenter.__lw_arms_sp or {} local n = p.next if n ~= nil and math.floor(tonumber(p.sent_ok) or 0) == 1 then p.spent = math.floor(tonumber(p.spent) or 0) + math.floor(n.sec) p.sends = math.floor(tonumber(p.sends) or 0) + 1 end local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) local sc = -1 if d ~= nil then sc = math.floor((d.sc or 0) + 0) end local before = math.floor(tonumber(p.sc0) or -1) if math.floor(tonumber(p.sent_ok) or 0) == 0 then p.paid = 0 elseif before >= 0 and sc >= 0 and sc <= before then p.paid = 0 else p.paid = 1 end return p.paid end)() INTO arms_sp_paid
+
+    IF arms_sp_paid == 0
+        LOG "the score did not move for that parcel of minutes — nothing more is spent on this phase"
+
+    READ_LUA (function() local p = DataCenter.__lw_arms_sp or {} p.next = nil if math.floor(tonumber(p.paid) or 1) == 0 then p.why = 'the score did not move for the last parcel' return 0 end local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then p.why = 'the game would not say which phase is running' return 0 end local ev = math.floor((d.event_id or 0) + 0) local plan = {[120001] = {kinds = {[0] = true}, rate = 'Build', spec = 7, build = true}, [120003] = {kinds = {[6] = true}, rate = 'Science', spec = 6}} local plan1 = plan[ev] if plan1 == nil then p.why = 'this phase is not paid for in minutes' return 0 end local rate = 0 pcall(function() rate = math.floor((SpeedScoreValue[plan1.rate] or 0) + 0) end) if rate <= 0 then p.why = 'the client would not price a minute of ' .. plan1.rate .. ' speed-up' return 0 end local sc = math.floor((d.sc or 0) + 0) local top = 0 pcall(function() for _, b in pairs(d.score_rewards or {}) do local t = math.floor((b.target or 0) + 0) if t > top then top = t end end end) if top <= 0 then top = math.floor((d.score_reward_max or 0) + 0) end if top > 0 and sc >= top then p.why = 'the top chest is reached' return 0 end local want = 0 if top > 0 then want = math.ceil((top - sc) / rate) * 60 end if want <= 0 then p.why = 'nothing left to score' return 0 end local cap = math.floor(tonumber(p.cap) or 0) local spent = math.floor(tonumber(p.spent) or 0) if cap > 0 then local room = cap - spent if room <= 0 then p.why = 'the run reached its own ceiling of ' .. math.floor(cap / 60) .. ' minute(s)' return 0 end if room < want then want = room end end local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) if now <= 0 then p.why = 'the game would not say the time' return 0 end local Q = DataCenter.QueueDataManager local all = nil pcall(function() all = Q:GetAllQueue() end) if type(all) ~= 'table' then p.why = 'no queue list' return 0 end local best, bestLeft = nil, 0 for _, q in pairs(all) do if type(q) == 'table' then local t = math.floor((q.type or -1) + 0) local st = math.floor((q.state or 0) + 0) local ends = math.floor(((q.endTime or 0) / 1000) + 0) if plan1.kinds[t] and st == 2 and ends > now then local left = ends - now if left > bestLeft then best, bestLeft = q, left end end end end if best == nil then p.why = 'no queue of that kind is running any more' return 0 end local room = bestLeft - 60 if room <= 0 then p.why = 'the longest queue has under a minute left' return 0 end if room < want then want = room end local I = DataCenter.ItemData local pool = {} pcall(function() for _, it in pairs(I:GetItemsByType(2) or {}) do if type(it) == 'table' then local st = math.floor((it.speedUpType or 0) + 0) local sec = math.floor((it.para3 or 0) + 0) local have = math.floor((it.count or 0) + 0) if sec > 0 and have > 0 and (st == plan1.spec or st == 1) then pool[#pool + 1] = {id = math.floor((it.itemId or 0) + 0), sec = sec, have = have, own = (st == plan1.spec) and 1 or 0} end end end end) if #pool == 0 then p.why = 'the bag is out of speed-ups this phase could spend' return 0 end table.sort(pool, function(a, b) if a.own ~= b.own then return a.own > b.own end return a.sec > b.sec end) local pick, num = nil, 0 for _, it in ipairs(pool) do if it.sec <= want then local n = math.floor(want / it.sec) if n > it.have then n = it.have end if n > 0 then pick, num = it, n break end end end if pick == nil then p.why = 'the smallest speed-up left is worth more than the ' .. want .. ' second(s) still wanted' return 0 end p.sc0 = sc p.next = {id = pick.id, num = num, sec = pick.sec * num, build = plan1.build and 1 or 0, target = plan1.build and tostring(best.itemId or '') or tostring(best.uuid or '')} if p.next.target == '' or p.next.target == 'nil' then p.next = nil p.why = 'the queue would not name what to speed up' return 0 end p.why = '' return 1 end)() INTO arms_sp_go
+
+READ_LUA (function() local p = DataCenter.__lw_arms_sp or {} local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) local sc = -1 local top = 0 if d ~= nil then sc = math.floor((d.sc or 0) + 0) top = math.floor((d.score_reward_max or 0) + 0) end return 'parcels=' .. math.floor(tonumber(p.sends) or 0) .. ' minutes=' .. math.floor((tonumber(p.spent) or 0) / 60) .. ' score=' .. sc .. '/' .. top .. ' stopped=' .. tostring(p.why or '') .. (tostring(p.sent_err or '') ~= '' and (' err=' .. tostring(p.sent_err)) or '') end)() INTO arms_sp_report
+
+LOG "arms speed-up: {arms_sp_report}"

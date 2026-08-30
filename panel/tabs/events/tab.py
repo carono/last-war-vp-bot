@@ -124,6 +124,14 @@ class EventsTab(PanelTab):
     #: waited for that — this is the margin, not the wait.
     AFTER_ATTACK_MS = 2_000
 
+    #: Declared on the CLASS and not only in ``__init__``: the base's own constructor
+    #: restores the saved block before the lines below run, and the restore reaches for
+    #: these two. A tab that has never been drawn has no widgets, so ``None`` is the
+    #: honest answer at that moment rather than an attribute error (#2065).
+    _arms_speedup_var = None
+    _arms_speedup = modelmod.ARMS_SPEEDUP_DEFAULT
+    _arms_minutes = modelmod.ARMS_MINUTES_DEFAULT
+
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
         #: The last answer from the game. `None` until the first read comes back.
@@ -233,6 +241,9 @@ class EventsTab(PanelTab):
         self._arms_drone = modelmod.ARMS_DRONE_DEFAULT
         self._arms_drone_var = None
         self._arms_stamina = modelmod.ARMS_STAMINA_DEFAULT
+        self._arms_speedup = modelmod.ARMS_SPEEDUP_DEFAULT
+        self._arms_speedup_var = None
+        self._arms_minutes = modelmod.ARMS_MINUTES_DEFAULT
         self._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
         self._arms_args_registered = False
         self._register_arms_args()
@@ -302,6 +313,8 @@ class EventsTab(PanelTab):
         """
         return {"hero": 1 if self.arms_hero() else 0,
                 "drone": 1 if self.arms_drone() else 0,
+                "speedup": 1 if self.arms_speedup() else 0,
+                "minutes": self.arms_minutes(),
                 "stamina": self.arms_stamina(),
                 "rallies": self.arms_rallies(),
                 "squad": self.arms_squad()}
@@ -336,6 +349,19 @@ class EventsTab(PanelTab):
     def arms_stamina(self) -> int:
         """The most stamina one drone run may spend. The person's number, clamped."""
         return modelmod.arms_stamina_of(self._arms_stamina)
+
+    def arms_speedup(self) -> bool:
+        """May the errand's building / units / research phases spend speed-ups?"""
+        if self._arms_speedup_var is not None:
+            try:
+                return bool(self._arms_speedup_var.get())
+            except tk.TclError:            # the window is going away
+                pass
+        return bool(self._arms_speedup)
+
+    def arms_minutes(self) -> int:
+        """The most minutes of speed-up one such run may spend. Clamped."""
+        return modelmod.arms_minutes_of(self._arms_minutes)
 
     def arms_squad(self) -> int:
         """Which squad raises the drone phase's banners, by the slot the player sees."""
@@ -373,6 +399,20 @@ class EventsTab(PanelTab):
                                   get=self.arms_stamina,
                                   set=lambda v: self.set_arms_option(
                                       modelmod.ARMS_STAMINA_KEY, v)),
+                errandopts.Option(modelmod.ARMS_SPEEDUP_KEY, "events.arms.speedup",
+                                  errandopts.SWITCH,
+                                  hint_key="events.arms.speedup.hint",
+                                  get=self.arms_speedup,
+                                  set=lambda on: self.set_arms_option(
+                                      modelmod.ARMS_SPEEDUP_KEY, on)),
+                errandopts.Option(modelmod.ARMS_MINUTES_KEY, "events.arms.minutes",
+                                  errandopts.NUMBER,
+                                  hint_key="events.arms.minutes.hint",
+                                  low=modelmod.ARMS_MINUTES_MIN,
+                                  high=modelmod.ARMS_MINUTES_MAX,
+                                  get=self.arms_minutes,
+                                  set=lambda v: self.set_arms_option(
+                                      modelmod.ARMS_MINUTES_KEY, v)),
                 errandopts.Option(modelmod.ARMS_SQUAD_KEY, "events.arms.squad",
                                   errandopts.SQUADS, single=True,
                                   get=lambda: [self.arms_squad()],
@@ -1461,9 +1501,14 @@ class EventsTab(PanelTab):
                 "events.arms.play").pack(side="left")
         play = modelmod.ARMS_PLAYS.get(state.kind)
         if play is not None:
+            if state.kind == modelmod.ARMS_HERO:
+                phase_key = "events.arms.hire"
+            elif state.kind in modelmod.ARMS_MINUTE_KINDS:
+                phase_key = "events.arms.spend"
+            else:
+                phase_key = "events.arms.raise"
             self.tr(ttk.Button(press, command=lambda: self.play_arms(play)),
-                    "events.arms.hire" if state.kind == modelmod.ARMS_HERO
-                    else "events.arms.raise").pack(side="left", padx=(8, 0))
+                    phase_key).pack(side="left", padx=(8, 0))
         else:
             # A PHASE WITH NO RECIPE GETS NO BUTTON, and the reason is said out loud
             # rather than left as an absence: the other four phases spend the player's
@@ -1478,6 +1523,8 @@ class EventsTab(PanelTab):
             self.remember({modelmod.ARMS_HERO_KEY: self.arms_hero(),
                            modelmod.ARMS_DRONE_KEY: self.arms_drone(),
                            modelmod.ARMS_STAMINA_KEY: self.arms_stamina(),
+                           modelmod.ARMS_SPEEDUP_KEY: self.arms_speedup(),
+                           modelmod.ARMS_MINUTES_KEY: self.arms_minutes(),
                            modelmod.ARMS_SQUAD_KEY: self.arms_squad()})
         except Exception as exc:                # noqa: BLE001 — a profile going away
             self.rt.dbg("events").warning("arms knob not saved: %s", exc)
@@ -1580,6 +1627,8 @@ class EventsTab(PanelTab):
         return {modelmod.ARMS_HERO_KEY: self.arms_hero(),
                 modelmod.ARMS_DRONE_KEY: self.arms_drone(),
                 modelmod.ARMS_STAMINA_KEY: self.arms_stamina(),
+                modelmod.ARMS_SPEEDUP_KEY: self.arms_speedup(),
+                modelmod.ARMS_MINUTES_KEY: self.arms_minutes(),
                 modelmod.ARMS_SQUAD_KEY: self.arms_squad(),
                 modelmod.GOLDEN_SQUAD_KEY: self.squad(),
                 modelmod.GOLDEN_APPROACH_KEY: self.approach(),
@@ -1595,6 +1644,10 @@ class EventsTab(PanelTab):
                                         modelmod.ARMS_DRONE_DEFAULT))
         self._arms_stamina = modelmod.arms_stamina_of(
             raw.get(modelmod.ARMS_STAMINA_KEY, modelmod.ARMS_STAMINA_DEFAULT))
+        self._arms_speedup = bool(raw.get(modelmod.ARMS_SPEEDUP_KEY,
+                                          modelmod.ARMS_SPEEDUP_DEFAULT))
+        self._arms_minutes = modelmod.arms_minutes_of(
+            raw.get(modelmod.ARMS_MINUTES_KEY, modelmod.ARMS_MINUTES_DEFAULT))
         self._arms_squad = modelmod.squad_of(raw.get(modelmod.ARMS_SQUAD_KEY))
         self._squad = modelmod.squad_of(raw.get(modelmod.GOLDEN_SQUAD_KEY))
         self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, False))
@@ -1611,12 +1664,15 @@ class EventsTab(PanelTab):
                 self._arms_hero_var.set(self._arms_hero)
             if self._arms_drone_var is not None:
                 self._arms_drone_var.set(self._arms_drone)
+            if self._arms_speedup_var is not None:
+                self._arms_speedup_var.set(self._arms_speedup)
         except tk.TclError:                 # the window is going away
             pass
 
     def persist_vars(self) -> list:
         return [v for v in (self._squad_var, self._approach_var, self._arms_hero_var,
-                            self._arms_drone_var) if v is not None]
+                            self._arms_drone_var, self._arms_speedup_var)
+                if v is not None]
 
     # -- the phone's copy ---------------------------------------------------
     def web_view(self) -> "dict | None":
@@ -1819,6 +1875,9 @@ class EventsTab(PanelTab):
             # THE 300 IS A FIELD AND NOT A CONSTANT, because it is the person's number
             # («час дрона, 300 энергии, это стамина, тратим только стягами») and an
             # account whose bar is a different size will want a different one.
+            {"key": modelmod.ARMS_SPEEDUP_KEY, "label": "events.arms.speedup",
+             "hint": "events.arms.speedup.hint", "kind": "switch",
+             "value": self.arms_speedup()},
             {"key": modelmod.ARMS_STAMINA_KEY, "label": "events.arms.stamina",
              "hint": "events.arms.stamina.hint", "kind": "number",
              "value": self.arms_stamina(),
@@ -1839,6 +1898,12 @@ class EventsTab(PanelTab):
                 # and the rally budget the card does not own.
                 acts.append({"id": "phase_arms", "label": "events.arms.raise",
                              "confirm": "events.arms.raise.confirm"})
+            elif arms.kind in modelmod.ARMS_MINUTE_KINDS:
+                # …and pouring minutes into a queue spends the player's own speed-ups,
+                # which is the one thing here that cannot be got back. It asks, and what
+                # it may spend is the «минут» ceiling above and the phase's top chest.
+                acts.append({"id": "phase_arms", "label": "events.arms.spend",
+                             "confirm": "events.arms.spend.confirm"})
             acard["actions"] = acts
         else:
             acard["items"] = (acard.get("items") or []) + [
@@ -1989,6 +2054,26 @@ class EventsTab(PanelTab):
                         pass
                 self._arms_knob_saved()
                 return {"ok": True, "drone": self._arms_drone}
+            if key == modelmod.ARMS_SPEEDUP_KEY:
+                self._arms_speedup = bool(raw)
+                if self._arms_speedup_var is not None:
+                    try:
+                        self._arms_speedup_var.set(self._arms_speedup)
+                    except tk.TclError:     # the window is going away
+                        pass
+                self._arms_knob_saved()
+                return {"ok": True, "speedup": self._arms_speedup}
+            if key == modelmod.ARMS_MINUTES_KEY:
+                # Refused rather than clamped, for the same reason as the stamina one
+                # below — and this ceiling stands in front of the player's speed-ups,
+                # which is the one thing on this card that cannot be got back.
+                number = _whole(raw)
+                if (number is None or number < modelmod.ARMS_MINUTES_MIN
+                        or number > modelmod.ARMS_MINUTES_MAX):
+                    return {"ok": False, "reason": "web.ui.not_a_number"}
+                self._arms_minutes = number
+                self._arms_knob_saved()
+                return {"ok": True, "minutes": self._arms_minutes}
             if key == modelmod.ARMS_STAMINA_KEY:
                 # REFUSED RATHER THAN CLAMPED, the rule the train's fare goes by: a
                 # ceiling that silently became something else is a ceiling the person

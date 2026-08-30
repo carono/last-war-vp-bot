@@ -234,15 +234,34 @@ ARMS_KINDS: dict = {
 #: rallies: the points come from raising banners and nothing else (#2065).
 ARMS_DRONE_ACTION = "arms_race_drone"
 
-#: Which kinds the panel can actually act on. Two so far, and the list is here rather
-#: than in the tab because it decides whether a BUTTON is offered: the other three spend
-#: the player's speed-ups or troops, and their ceilings have not been agreed
-#: (`src/lastwar_bot/actions/perform_arms_race.md`). A button over a phase with no
-#: recipe would be a button that reports success for doing nothing.
-ARMS_AUTOMATED: tuple = (ARMS_HERO, ARMS_DRONE)
+#: …and the ONE recipe behind the other three, because they are one ability: building,
+#: units and research all pay for MINUTES of speed-up poured into a queue, and only the
+#: queue and the message differ (#2065).
+ARMS_SPEEDUP_ACTION = "arms_race_speedup"
+
+#: Which kinds the panel can act on — all five now. The list decides whether a BUTTON is
+#: offered, so it is here rather than in the tab; a phase the server invents tomorrow is
+#: not in it and draws «no recipe» rather than a button that reports success for doing
+#: nothing.
+ARMS_AUTOMATED: tuple = (ARMS_HERO, ARMS_BUILD, ARMS_TECH, ARMS_DRONE)
 
 #: What each automated phase is played by, so neither front-end has to know.
-ARMS_PLAYS: dict = {ARMS_HERO: ARMS_HERO_ACTION, ARMS_DRONE: ARMS_DRONE_ACTION}
+ARMS_PLAYS: dict = {ARMS_HERO: ARMS_HERO_ACTION,
+                    ARMS_BUILD: ARMS_SPEEDUP_ACTION,
+                    ARMS_TECH: ARMS_SPEEDUP_ACTION,
+                    ARMS_DRONE: ARMS_DRONE_ACTION}
+
+#: The phases whose points are MINUTES, kept apart from the other two because the button
+#: over them asks a different question and spends a different thing.
+#:
+#: «Прогресс юнита» is deliberately NOT among them, and it is not an oversight. Its
+#: points are not bought with minutes at all: the person's design is «ускорить, чтобы
+#: ОСВОБОДИТЬ очередь → собрать готовых → поставить максимум 9 уровня», and the send
+#: that starts a training batch is the one shape of the four that could not be read off
+#: the client — every route into it needs the barracks window open. It waits on one
+#: press made by hand, and until then the phase draws «no recipe» rather than a button
+#: that spends the player's resources on a guessed packet (#2065).
+ARMS_MINUTE_KINDS: tuple = (ARMS_BUILD, ARMS_TECH)
 
 #: Whether the errand's hero phase may hire. Saved in this tab's own block, because it
 #: is a decision about THIS account; how MANY hires is the recipe's `ARGS pulls`.
@@ -260,6 +279,22 @@ ARMS_STAMINA_DEFAULT = 300
 #: account whose bar is bigger than this one's.
 ARMS_STAMINA_MIN = 0
 ARMS_STAMINA_MAX = 2000
+
+#: Whether the errand's building / units / research phases may spend speed-ups, and the
+#: most minutes ONE run may pour into a queue. OFF by default and small by default: the
+#: items are the player's own, and the first live run of each of those phases is the
+#: person's, with a ceiling they chose (`CLAUDE.md`). 120 is the person's own safety
+#: number — what a top chest really costs is worked out at the start of the phase from
+#: the live rule, and this stands in front of it in case that arithmetic is ever wrong.
+ARMS_SPEEDUP_KEY = "arms_speedup"
+ARMS_SPEEDUP_DEFAULT = False
+ARMS_MINUTES_KEY = "arms_minutes"
+ARMS_MINUTES_DEFAULT = 120
+#: The bounds of that ceiling. Zero is a legal answer and means «spend nothing»; the top
+#: is above what a top chest costs in the dearest of the three phases — 3 000 minutes at
+#: 4 points a minute — so the field never argues with a phase that wants the whole of it.
+ARMS_MINUTES_MIN = 0
+ARMS_MINUTES_MAX = 3000
 
 #: Which squad raises the drone phase's banners, by the slot the player sees.
 ARMS_SQUAD_KEY = "arms_squad"
@@ -284,6 +319,15 @@ def arms_stamina_of(value) -> int:
     except (TypeError, ValueError):
         return ARMS_STAMINA_DEFAULT
     return max(ARMS_STAMINA_MIN, min(ARMS_STAMINA_MAX, number))
+
+
+def arms_minutes_of(value) -> int:
+    """A speed-up ceiling that came out of a file or off a phone, clamped to the field."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return ARMS_MINUTES_DEFAULT
+    return max(ARMS_MINUTES_MIN, min(ARMS_MINUTES_MAX, number))
 
 GROUPS: tuple = (Group(CODENAME), Group(GOLDEN), Group(FIREWORKS), Group(ARMS))
 

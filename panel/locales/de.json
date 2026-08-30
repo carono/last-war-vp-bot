@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "An — der Lauf startet Sammelangriffe, bis die Ausdauergrenze daneben verbraucht ist oder die oberste Truhe der Phase erreicht wird. Die Tageslimits für Sammelangriffe werden nie umgangen: Was sie übrig lassen, ist alles, und eine Phase, die deshalb keine Punkte macht, ist die richtige Antwort.",
   "events.arms.stamina": "Ausdauergrenze",
   "events.arms.stamina.hint": "Wie viel Ausdauer ein Drohnenlauf höchstens verbrauchen darf. 0 startet nichts.",
+  "events.arms.speedup": "Beschleuniger in den Bau-, Einheiten- und Forschungsphasen einsetzen",
+  "events.arms.speedup.hint": "Aktiv — ein Lauf gießt Beschleuniger in die längste Warteschlange der passenden Art, bis die oberste Truhe der Phase erreicht oder die Minutengrenze daneben verbraucht ist. Spezialisierte Beschleuniger gehen vor universellen, Diamanten werden nie ausgegeben. Inaktiv — ein Lauf liest die Phase und weckt sich an ihrer Grenze, ohne etwas zu drücken.",
+  "events.arms.minutes": "Obergrenze für Beschleunigerminuten",
+  "events.arms.minutes.hint": "Wie viele Minuten an Beschleunigern ein Lauf einer solchen Phase ausgeben darf. 0 gibt nichts aus. Die oberste Truhe kostet 1715 Minuten in der Bauphase, 2000 in der Forschungsphase und 3000 in der Einheitenphase.",
+  "events.arms.spend": "Beschleuniger jetzt einsetzen",
+  "events.arms.spend.confirm": "Dies verbraucht die eigenen Beschleuniger dieses Kontos in einer Warteschlange. Bis zur Minutengrenze ausgeben?",
   "events.arms.squad": "Trupp für die Sammelangriffe",
   "events.arms.raise": "Jetzt starten",
   "events.arms.raise.confirm": "Ein Sammelangriff schickt den Trupp aus der Basis und verbraucht Ausdauer und Sammelangriffe des Tages. Bis zur Grenze starten?"

@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "Activé — la tâche lance des ralliements jusqu'à épuiser le plafond d'endurance ci-contre ou atteindre le coffre le plus élevé de la phase. Les plafonds de ralliements du jour ne sont jamais contournés : ce qu'ils laissent est tout ce qu'elle aura, et une phase qui n'y marque donc rien est la bonne réponse.",
   "events.arms.stamina": "Plafond d'endurance",
   "events.arms.stamina.hint": "L'endurance maximale qu'une exécution de la phase drone peut dépenser. 0 ne lance rien.",
+  "events.arms.speedup": "Dépenser des accélérateurs dans les phases construction, unités et recherche",
+  "events.arms.speedup.hint": "Activé — une exécution verse des accélérateurs dans la file la plus longue du bon type jusqu'à atteindre le coffre supérieur de la phase ou épuiser le plafond de minutes voisin. Les accélérateurs spécialisés passent avant les universels, et les diamants ne sont jamais dépensés. Désactivé — l'exécution lit la phase et se réveille à sa frontière sans rien presser.",
+  "events.arms.minutes": "Plafond de minutes d'accélérateurs",
+  "events.arms.minutes.hint": "Combien de minutes d'accélérateurs une exécution d'une telle phase peut dépenser. 0 ne dépense rien. Le coffre supérieur coûte 1715 minutes en phase construction, 2000 en recherche et 3000 en unités.",
+  "events.arms.spend": "Dépenser les accélérateurs",
+  "events.arms.spend.confirm": "Cela dépense les accélérateurs de ce compte dans une file. Dépenser jusqu'au plafond de minutes ?",
   "events.arms.squad": "Escouade qui rallie",
   "events.arms.raise": "Lancer maintenant",
   "events.arms.raise.confirm": "Un ralliement fait sortir l'escouade de la base et dépense l'endurance et les ralliements du jour. Lancer jusqu'au plafond ?"

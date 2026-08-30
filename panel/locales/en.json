@@ -2529,6 +2529,12 @@
   "events.arms.drone.hint": "On — the run raises rallies until the stamina ceiling beside it is spent or the phase's top chest is reached. It never goes past the day's own rally caps: what those leave is all it gets, and a phase that therefore scores nothing is the right answer.",
   "events.arms.stamina": "Stamina ceiling",
   "events.arms.stamina.hint": "The most stamina one drone run may spend. 0 raises nothing.",
+  "events.arms.speedup": "Spend speed-ups in the building, unit and research phases",
+  "events.arms.speedup.hint": "On — a run pours speed-ups into the longest queue of the right kind until the phase's top chest is reached or the minute ceiling beside this is spent. Specialised speed-ups go before universal ones, and diamonds are never spent. Off — a run reads the phase and books its border without pressing anything.",
+  "events.arms.minutes": "Speed-up minute ceiling",
+  "events.arms.minutes.hint": "How many minutes of speed-up one run of such a phase may spend. 0 spends nothing. The top chest costs 1715 minutes in the building phase, 2000 in the research one and 3000 in the unit one.",
+  "events.arms.spend": "Spend speed-ups now",
+  "events.arms.spend.confirm": "This spends this account's own speed-ups into a queue. Spend up to the minute ceiling?",
   "events.arms.squad": "Squad that raises",
   "events.arms.raise": "Raise now",
   "events.arms.raise.confirm": "Raising sends the squad out of the base and spends this day's rallies and stamina. Raise up to the ceiling?"
