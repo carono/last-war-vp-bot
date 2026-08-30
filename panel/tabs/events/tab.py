@@ -1494,6 +1494,7 @@ class EventsTab(PanelTab):
         self._row(rows, "events.arms.phase", self._arms_kind_words(state.kind), grey)
         self._row(rows, "events.arms.points", modelmod.arms_points(state), grey)
         self._row(rows, "events.arms.chests", modelmod.arms_chests(state), grey)
+        self._row(rows, "events.arms.day_chests", modelmod.arms_day_chests(state), grey)
         self._row(rows, "events.arms.day",
                   "—" if state.done is None else "%d / 6" % state.done, grey)
         if state.state == modelmod.OPEN:
@@ -1905,6 +1906,8 @@ class EventsTab(PanelTab):
              "value": self._arms_kind_words(arms.kind)},
             {"label": "events.arms.points", "value": modelmod.arms_points(arms)},
             {"label": "events.arms.chests", "value": modelmod.arms_chests(arms)},
+            {"label": "events.arms.day_chests",
+             "value": modelmod.arms_day_chests(arms)},
             {"label": "events.arms.day",
              "value": ("—" if arms.done is None else "%d / 6" % arms.done)},
         ]}

@@ -2513,6 +2513,7 @@
   "events.arms.phase": "Fase attuale",
   "events.arms.points": "Punti",
   "events.arms.chests": "Bauli riscossi",
+  "events.arms.day_chests": "Casse del giorno prese",
   "events.arms.day": "Fasi completate oggi",
   "events.arms.until": "La fase finisce tra",
   "events.arms.calendar": "Fasi della giornata",

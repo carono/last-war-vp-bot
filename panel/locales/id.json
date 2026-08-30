@@ -2513,6 +2513,7 @@
   "events.arms.phase": "Fase saat ini",
   "events.arms.points": "Poin",
   "events.arms.chests": "Peti yang diambil",
+  "events.arms.day_chests": "Peti harian diambil",
   "events.arms.day": "Fase selesai hari ini",
   "events.arms.until": "Fase berakhir dalam",
   "events.arms.calendar": "Fase hari ini",

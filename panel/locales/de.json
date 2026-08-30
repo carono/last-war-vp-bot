@@ -2513,6 +2513,7 @@
   "events.arms.phase": "Aktuelle Phase",
   "events.arms.points": "Punkte",
   "events.arms.chests": "Truhen erhalten",
+  "events.arms.day_chests": "Tageskisten genommen",
   "events.arms.day": "Heute erledigte Phasen",
   "events.arms.until": "Phase endet in",
   "events.arms.calendar": "Phasen des Tages",

@@ -922,6 +922,21 @@ def arms_chests(state) -> str:
     return "%d / %d" % (sum(1 for v in state.taken if v), len(state.targets))
 
 
+def arms_day_chests(state) -> str:
+    """`3 / 3` — the DAY's own ladder of boxes, as the game counts it.
+
+    A separate reading from `arms_chests`, which is the phase's three: this one is the
+    ladder that runs across the whole day and is the thing a person means by «сколько
+    сундуков гонки собрано за сегодня». **It is the server's own flag on each box**
+    (`day_rewards[i].receive`), never a tally the panel keeps — a count of presses would
+    drift the first time a claim was refused, and the panel drawing its own bookkeeping
+    beside the game's is the mistake this repository has already made once.
+    """
+    if not state.day_taken:
+        return "—"
+    return "%d / %d" % (sum(1 for v in state.day_taken if v), len(state.day_taken))
+
+
 def arms_points(state) -> str:
     """`800 / 12000` — the points scored against the top chest of the phase.
 

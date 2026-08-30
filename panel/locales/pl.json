@@ -2513,6 +2513,7 @@
   "events.arms.phase": "Bieżąca faza",
   "events.arms.points": "Punkty",
   "events.arms.chests": "Odebrane skrzynie",
+  "events.arms.day_chests": "Skrzynie dnia odebrane",
   "events.arms.day": "Faz zrobionych dzisiaj",
   "events.arms.until": "Faza kończy się za",
   "events.arms.calendar": "Fazy dnia",
