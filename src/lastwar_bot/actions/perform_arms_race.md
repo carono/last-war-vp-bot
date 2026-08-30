@@ -74,7 +74,14 @@ IF arms_event == 120004
     STOP "drone phase done"
 
 IF arms_event != 120000
-    LOG "arms race: this phase is not automated yet — its ceiling has not been agreed. Coming back on the phase border"
+    # A phase nobody automated still says what it WOULD pay for, and how much of it a
+    # top chest costs — the rules are the server's own `scores` (the ids of the rows in
+    # the `score` table it is scoring this phase by) and the price of a minute of
+    # speed-up is a client constant. Written into the log rather than acted on, so the
+    # person deciding a ceiling has the numbers in front of them.
+    READ_LUA (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 'no reading' end local ids = tostring(d.scores or '') local top = math.floor((d.score_reward_max or 0) + 0) local sc = math.floor((d.sc or 0) + 0) local inst = nil pcall(function() inst = LocalController.instance() end) local want = {} for part in string.gmatch(ids, '[^|]+') do local n = tonumber(part) if n ~= nil then want[tostring(math.floor(n))] = true end end local rules = {} if inst ~= nil then local n = 0 pcall(function() n = inst:GetTableLength('score') + 0 end) for i = 1, n do local ok, line = pcall(function() return inst:getLine('score', i) end) if ok and line ~= nil then local function g(k) local v = nil pcall(function() v = line:getValue(k) end) if v == nil then return '' end return tostring(v) end local id = tonumber(g('id')) if id ~= nil and want[tostring(math.floor(id))] then rules[#rules+1] = 'type=' .. g('type') .. ' pays=' .. g('points') .. ' per=' .. g('value') end end end end local rate = 0 local kind = '' local map = {[120001] = 'Build', [120002] = 'Soldier', [120003] = 'Science'} local key = map[math.floor((d.event_id or 0) + 0)] if key ~= nil then kind = key pcall(function() rate = math.floor((SpeedScoreValue[key] or 0) + 0) end) end local need = '' if rate > 0 and top > sc then need = ' — ' .. math.ceil((top - sc) / rate) .. ' more minute(s) of ' .. kind .. ' speed-up would reach the top chest at ' .. rate .. ' a minute' end return 'score=' .. sc .. '/' .. top .. ' rules=[' .. table.concat(rules, '; ') .. '] ids=' .. ids .. need end)() INTO arms_phase_rules
+
+    LOG "arms race: this phase is not automated yet — its ceiling has not been agreed. {arms_phase_rules}. Coming back on the phase border"
     STOP "phase not automated"
 
 IF hero == 0
