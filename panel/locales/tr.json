@@ -2532,7 +2532,7 @@
   "events.arms.speedup": "İnşa, birlik ve araştırma evrelerinde hızlandırıcı harca",
   "events.arms.speedup.hint": "Açık — bir çalıştırma, evrenin en üst sandığına ulaşılana ya da yanındaki dakika tavanı tükenene dek doğru türdeki en uzun sıraya hızlandırıcı döker. Özel hızlandırıcılar evrensel olanlardan önce harcanır ve elmas asla harcanmaz. Kapalı — çalıştırma evreyi okur ve hiçbir şeye basmadan sınırında uyanır.",
   "events.arms.minutes": "Hızlandırıcı dakika tavanı",
-  "events.arms.minutes.hint": "Böyle bir evrenin tek çalıştırması kaç dakika hızlandırıcı harcayabilir. 0 hiçbir şey harcamaz. En üst sandık inşa evresinde 1715, araştırma evresinde 2000, birlik evresinde 3000 dakikadır.",
+  "events.arms.minutes.hint": "Böyle bir evrenin tek çalıştırması kaç dakika hızlandırıcı harcayabilir. 0 hiçbir şey harcamaz. 3000 dakika, 600 adet beş dakikalık hızlandırıcı demektir — bir evrenin tüm sandıkları uygulamada bu kadara mal olur. Evrenin gerçek tavanı her çalıştırmada oyundan okunur ve daha önce gelirse çalıştırma en üst sandıkta durur. Küçük hızlandırıcılar büyüklerden, özel olanlar evrensel olanlardan önce harcanır.",
   "events.arms.spend": "Şimdi hızlandırıcı harca",
   "events.arms.spend.confirm": "Bu, bu hesabın kendi hızlandırıcılarını bir sıraya harcar. Dakika tavanına kadar harcansın mı?",
   "events.arms.squad": "Toplanmayı başlatan takım",

@@ -2532,7 +2532,7 @@
   "events.arms.speedup": "Wydawaj przyspieszenia w fazach budowy, jednostek i badań",
   "events.arms.speedup.hint": "Włączone — przebieg wlewa przyspieszenia do najdłuższej kolejki właściwego rodzaju, aż osiągnie górną skrzynię fazy albo wyczerpie sąsiedni limit minut. Przyspieszenia specjalistyczne idą przed uniwersalnymi, a diamenty nie są wydawane nigdy. Wyłączone — przebieg czyta fazę i budzi się na jej granicy, niczego nie naciskając.",
   "events.arms.minutes": "Limit minut przyspieszeń",
-  "events.arms.minutes.hint": "Ile minut przyspieszeń może wydać jeden przebieg takiej fazy. 0 nie wydaje nic. Górna skrzynia kosztuje 1715 minut w fazie budowy, 2000 w fazie badań i 3000 w fazie jednostek.",
+  "events.arms.minutes.hint": "Ile minut przyspieszeń może wydać jeden przebieg takiej fazy. 0 nie wydaje nic. 3000 minut to 600 pięciominutowych przyspieszeń — tyle w praktyce kosztują skrzynie całej fazy. Prawdziwy limit fazy jest odczytywany z gry przy każdym przebiegu, a przebieg zatrzymuje się na górnej skrzyni, jeśli ta wypadnie wcześniej. Małe przyspieszenia wydawane są przed dużymi, a specjalistyczne przed uniwersalnymi.",
   "events.arms.spend": "Wydaj przyspieszenia teraz",
   "events.arms.spend.confirm": "To wyda przyspieszenia tego konta w kolejkę. Wydawać do limitu minut?",
   "events.arms.squad": "Oddział zwołujący",

@@ -2532,7 +2532,7 @@
   "events.arms.speedup": "Spend speed-ups in the building, unit and research phases",
   "events.arms.speedup.hint": "On — a run pours speed-ups into the longest queue of the right kind until the phase's top chest is reached or the minute ceiling beside this is spent. Specialised speed-ups go before universal ones, and diamonds are never spent. Off — a run reads the phase and books its border without pressing anything.",
   "events.arms.minutes": "Speed-up minute ceiling",
-  "events.arms.minutes.hint": "How many minutes of speed-up one run of such a phase may spend. 0 spends nothing. The top chest costs 1715 minutes in the building phase, 2000 in the research one and 3000 in the unit one.",
+  "events.arms.minutes.hint": "How many minutes of speed-up one run of such a phase may spend. 0 spends nothing. 3000 minutes is 600 five-minute speed-ups — what a whole phase's chests are known to cost in practice. The phase's real ceiling is read from the game each run, and the run stops at the top chest if that comes first. Small speed-ups are spent before large ones, and specialised before universal.",
   "events.arms.spend": "Spend speed-ups now",
   "events.arms.spend.confirm": "This spends this account's own speed-ups into a queue. Spend up to the minute ceiling?",
   "events.arms.squad": "Squad that raises",

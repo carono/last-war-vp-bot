@@ -283,18 +283,22 @@ ARMS_STAMINA_MAX = 2000
 #: Whether the errand's building / units / research phases may spend speed-ups, and the
 #: most minutes ONE run may pour into a queue. OFF by default and small by default: the
 #: items are the player's own, and the first live run of each of those phases is the
-#: person's, with a ceiling they chose (`CLAUDE.md`). 120 is the person's own safety
-#: number — what a top chest really costs is worked out at the start of the phase from
-#: the live rule, and this stands in front of it in case that arithmetic is ever wrong.
+#: person's, with a ceiling they chose (`CLAUDE.md`). 3 000 is the person's own measured
+#: number and not ours: what a top chest costs is worked out at the start of the phase
+#: from the live rule, and this stands in front of that arithmetic in case it is wrong —
+#: which, measured against what the person really spends, it may well be.
 ARMS_SPEEDUP_KEY = "arms_speedup"
 ARMS_SPEEDUP_DEFAULT = False
 ARMS_MINUTES_KEY = "arms_minutes"
-ARMS_MINUTES_DEFAULT = 120
-#: The bounds of that ceiling. Zero is a legal answer and means «spend nothing»; the top
-#: is above what a top chest costs in the dearest of the three phases — 3 000 minutes at
-#: 4 points a minute — so the field never argues with a phase that wants the whole of it.
+ARMS_MINUTES_DEFAULT = 3000
+#: The bounds of that ceiling. Zero is a legal answer and means «spend nothing». 3 000
+#: is the DEFAULT because it is what the person actually spends on a phase, measured by
+#: hand rather than by us: «для получения всех сундуков я трачу 600 пятиминутных
+#: ускорений» — 600 × 5 = 3 000 minutes. The top of the field is well above it so that
+#: raising the ceiling is possible without touching code, which is the whole point of it
+#: being a field.
 ARMS_MINUTES_MIN = 0
-ARMS_MINUTES_MAX = 3000
+ARMS_MINUTES_MAX = 20000
 
 #: Which squad raises the drone phase's banners, by the slot the player sees.
 ARMS_SQUAD_KEY = "arms_squad"

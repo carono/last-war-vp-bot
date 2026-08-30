@@ -2532,7 +2532,7 @@
   "events.arms.speedup": "Dùng vật phẩm tăng tốc trong các pha xây dựng, binh lính và nghiên cứu",
   "events.arms.speedup.hint": "Bật — một lượt chạy đổ vật phẩm tăng tốc vào hàng đợi dài nhất đúng loại cho tới khi đạt rương cao nhất của pha hoặc dùng hết trần phút bên cạnh. Vật phẩm chuyên dụng được dùng trước loại đa dụng, và không bao giờ tiêu kim cương. Tắt — lượt chạy chỉ đọc pha và hẹn giờ ở ranh giới của nó, không bấm gì cả.",
   "events.arms.minutes": "Trần phút tăng tốc",
-  "events.arms.minutes.hint": "Một lượt chạy của pha như vậy được dùng bao nhiêu phút tăng tốc. 0 là không dùng gì. Rương cao nhất tốn 1715 phút ở pha xây dựng, 2000 ở pha nghiên cứu và 3000 ở pha binh lính.",
+  "events.arms.minutes.hint": "Một lượt chạy của pha như vậy được dùng bao nhiêu phút tăng tốc. 0 là không dùng gì. 3000 phút là 600 vật phẩm tăng tốc năm phút — đó là chi phí thực tế cho toàn bộ rương của một pha. Trần thật của pha được đọc từ game ở mỗi lượt chạy, và lượt chạy dừng ở rương cao nhất nếu nó đến trước. Vật phẩm nhỏ được dùng trước vật phẩm lớn, và loại chuyên dụng trước loại đa dụng.",
   "events.arms.spend": "Dùng tăng tốc ngay",
   "events.arms.spend.confirm": "Việc này tiêu vật phẩm tăng tốc của chính tài khoản này vào một hàng đợi. Dùng tới trần phút?",
   "events.arms.squad": "Đội mở tập kết",

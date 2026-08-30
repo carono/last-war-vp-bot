@@ -2532,7 +2532,7 @@
   "events.arms.speedup": "Gastar acelerações nas fases de construção, unidades e pesquisa",
   "events.arms.speedup.hint": "Ligado — uma execução despeja acelerações na fila mais longa do tipo certo até alcançar o baú superior da fase ou esgotar o teto de minutos ao lado. As acelerações específicas são gastas antes das universais, e diamantes nunca são gastos. Desligado — a execução lê a fase e desperta na fronteira dela sem apertar nada.",
   "events.arms.minutes": "Teto de minutos de aceleração",
-  "events.arms.minutes.hint": "Quantos minutos de aceleração uma execução dessa fase pode gastar. 0 não gasta nada. O baú superior custa 1715 minutos na fase de construção, 2000 na de pesquisa e 3000 na de unidades.",
+  "events.arms.minutes.hint": "Quantos minutos de aceleração uma execução dessa fase pode gastar. 0 não gasta nada. 3000 minutos são 600 acelerações de cinco minutos — o que na prática custam os baús de uma fase inteira. O teto real da fase é lido do jogo a cada execução, e a execução para no baú superior se ele vier antes. As acelerações pequenas são gastas antes das grandes, e as específicas antes das universais.",
   "events.arms.spend": "Gastar acelerações agora",
   "events.arms.spend.confirm": "Isto gasta as acelerações desta conta numa fila. Gastar até o teto de minutos?",
   "events.arms.squad": "Esquadrão que convoca",

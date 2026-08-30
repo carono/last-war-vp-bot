@@ -2532,7 +2532,7 @@
   "events.arms.speedup": "Pakai pemercepat pada fase pembangunan, unit, dan riset",
   "events.arms.speedup.hint": "Aktif — satu jalannya menuang pemercepat ke antrean terpanjang dari jenis yang tepat sampai peti teratas fase tercapai atau batas menit di sebelahnya habis. Pemercepat khusus dipakai sebelum yang universal, dan berlian tidak pernah dipakai. Nonaktif — jalannya membaca fase dan bangun di batasnya tanpa menekan apa pun.",
   "events.arms.minutes": "Batas menit pemercepat",
-  "events.arms.minutes.hint": "Berapa menit pemercepat yang boleh dipakai satu kali jalan fase seperti itu. 0 tidak memakai apa pun. Peti teratas berharga 1715 menit pada fase pembangunan, 2000 pada riset, dan 3000 pada unit.",
+  "events.arms.minutes.hint": "Berapa menit pemercepat yang boleh dipakai satu kali jalan fase seperti itu. 0 tidak memakai apa pun. 3000 menit sama dengan 600 pemercepat lima menit — segitu biaya nyata untuk seluruh peti satu fase. Batas sebenarnya dibaca dari game tiap kali jalan, dan jalannya berhenti di peti teratas kalau itu datang lebih dulu. Pemercepat kecil dipakai sebelum yang besar, dan yang khusus sebelum yang universal.",
   "events.arms.spend": "Pakai pemercepat sekarang",
   "events.arms.spend.confirm": "Ini memakai pemercepat milik akun ini ke sebuah antrean. Pakai sampai batas menit?",
   "events.arms.squad": "Skuad yang membuat rally",
