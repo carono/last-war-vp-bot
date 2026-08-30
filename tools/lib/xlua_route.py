@@ -30,6 +30,17 @@ import find_instance_rpm as F
 
 N_OFF = 0x48
 
+#: The 0-argument `XLuaManager` getters that have been seen to hand back the live
+#: `LuaEnv`, likeliest first. Names of a game class, not of this machine — a build that
+#: renames the getter falls through to the walk below and the walk teaches the cache.
+LUAENV_GETTERS = ("get_Env", "get_LuaEnv", "get_luaEnv", "GetEnv", "GetLuaEnv")
+
+#: pid -> the getter name that answered on that client. Only the NAME is remembered,
+#: never the LuaEnv pointer: a name is a fact about the build and cannot go stale while
+#: the client runs, whereas a cached instance is a bet on the collector. Asking the live
+#: client for the pointer costs one hijack, so there is nothing to win by guessing it.
+_LUAENV_GETTER: dict = {}
+
 
 class X:
     def __init__(self):
@@ -182,10 +193,69 @@ class X:
         nm = self.hj(self.e["il2cpp_type_get_name"], [t], "rettypename")
         return D.cstr(self.h, nm) if nm else "?"
 
+    def method_named(self, cls, name, argc):
+        """One hijack: the MethodInfo of `name`, or 0.
+
+        :meth:`gmfn` asks for the flags and the parameter count as well, which is two
+        more suspensions of the game's main thread than a caller that only means to
+        CALL the method has any use for.
+        """
+        return self.hj(self.e["il2cpp_class_get_method_from_name"],
+                       [cls, self.cstr(name), argc], f"gmfn:{name}/{argc}")
+
+    def _getter_order(self):
+        """Getter names to try, the one that answered on this client first."""
+        seen = _LUAENV_GETTER.get(self.pid)
+        return ([seen] if seen else []) + [n for n in LUAENV_GETTERS if n != seen]
+
+    def _getter_result(self, mgr, mi, name):
+        """Invoke a 0-arg getter on the manager; the plausible heap object, or 0."""
+        cand, exc = self.invoke(mi, mgr, [], f"mgr.{name}")
+        kls = D.u64(D.rpm_safe(self.h, cand, 8) or b"\x00" * 8, 0) if cand else 0
+        print(f"    XLuaManager.{name}() -> 0x{cand:x} exc=0x{exc:x} clsptr=0x{kls:x}")
+        # Trust the getter's il2cpp return type (LuaEnv, from metadata). The runtime
+        # instance's class pointer differs from the metadata class (obfuscated build —
+        # game class names don't decode), so we do NOT require kls==luaenv_cls; a
+        # plausible heap pointer with exc==0 is it.
+        if cand and not exc and 0x10000 < cand < 0x7FFFFFFFFFFF and not (cand & 7):
+            return cand
+        return 0
+
     def luaenv_via_manager_method(self, mgr, luaenv_cls):
-        """Find a 0-arg XLuaManager method that returns XLua.LuaEnv (a getter) and
-        invoke it on mgr. Returns the live LuaEnv (class-pointer verified) or 0.
-        Prefer getter-shaped names; a getter has no side effects."""
+        """The live LuaEnv off a 0-arg XLuaManager getter — ASKED BY NAME, walked last.
+
+        **Every step of this suspends the game's main thread**, and that is what makes
+        the walk below dangerous rather than merely slow: it costs 2–4 hijacks for each
+        of up to 600 methods, about 180 per evaluator build, and the client crashes 4.5×
+        more often in the five seconds after one (#2066,
+        `docs/research/client-crashes.md`). Asking `il2cpp_class_get_method_from_name`
+        for the getter costs THREE — the lookup, the return type and the call — and the
+        name that answered is remembered for the life of this process, so the next build
+        against the same client costs three again. `find_dostring` has asked by name
+        first since #1994; this never did, and it is the larger of the two.
+
+        The walk is kept as the fallback for a build that renames the getter, and a walk
+        that finds one teaches :data:`_LUAENV_GETTER`, so the price is paid once.
+        """
+        for name in self._getter_order():
+            mi = self.method_named(self.xluamgr_cls, name, 0)
+            if not mi:
+                continue
+            if "LuaEnv" not in self.method_ret_type(mi):
+                continue          # a getter of that name, but not of what we are after
+            env = self._getter_result(mgr, mi, name)
+            if env:
+                _LUAENV_GETTER[self.pid] = name
+                return env
+        return self._luaenv_by_walking(mgr, luaenv_cls)
+
+    def _luaenv_by_walking(self, mgr, luaenv_cls):
+        """Every 0-arg XLuaManager method that returns a LuaEnv, tried in turn.
+
+        The expensive way, and the only one left when the build has renamed its getter.
+        Prefer getter-shaped names; a getter has no side effects.
+        """
+        print("    no named LuaEnv getter answered — walking XLuaManager (expensive)")
         gm = self.e["il2cpp_class_get_methods"]
         gmn = self.e["il2cpp_method_get_name"]
         gmpc = self.e["il2cpp_method_get_param_count"]
@@ -206,15 +276,11 @@ class X:
         # getters first (get_*/Get*), then the rest
         cands.sort(key=lambda mn: 0 if mn[1][:3].lower() == "get" else 1)
         for m, nm in cands:
-            cand, exc = self.invoke(m, mgr, [], f"mgr.{nm}")
-            kls = D.u64(D.rpm_safe(self.h, cand, 8) or b"\x00" * 8, 0) if cand else 0
-            print(f"    XLuaManager.{nm}() -> 0x{cand:x} exc=0x{exc:x} clsptr=0x{kls:x}")
-            # Trust the getter's il2cpp return type (LuaEnv, from metadata). The
-            # runtime instance's class pointer differs from the metadata class
-            # (obfuscated build — game class names don't decode), so we do NOT
-            # require kls==luaenv_cls; a plausible heap pointer with exc==0 is it.
-            if cand and not exc and 0x10000 < cand < 0x7FFFFFFFFFFF and not (cand & 7):
-                return cand
+            env = self._getter_result(mgr, m, nm)
+            if env:
+                if nm:
+                    _LUAENV_GETTER[self.pid] = nm
+                return env
         return 0
 
     def method_param0_type(self, mi):

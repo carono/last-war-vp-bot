@@ -144,6 +144,26 @@ Not fixed here — this is the measurement. The cheap end of it:
 3. Anything that removes hijacks removes crash exposure proportionally, because the
    per-hijack risk is what it is.
 
+## What was done about it (#2067)
+
+Both cheap items, in `tools/lib/xlua_route.py`:
+
+* `luaenv_via_manager_method` **asks for the getter by name** before walking anything —
+  `il2cpp_class_get_method_from_name`, the return type, the call: **four hijacks against
+  the walk's ~180**. The names tried are a short list (`get_Env` first, which is what
+  this build answers to), and a build that renames the getter still falls through to the
+  walk, which is unchanged.
+* The name that answered is **remembered for the life of the process, keyed on the
+  client's pid** — including one the walk had to find — so a rebuilt evaluator against
+  the same client costs four hijacks again. Only the NAME is cached, never the `LuaEnv`
+  pointer: a name is a fact about the build and cannot go stale while the client runs,
+  and asking the live client for the pointer costs one hijack, so there is nothing to
+  win by guessing it.
+
+On the measured profile that turns ~180 hijacks per evaluator build into 4, i.e. the
+32 317 hijacks its log holds into roughly 700. `tests/test_xlua_getter.py` pins the cost
+without a client: the il2cpp layer is stubbed and the test counts the hijacks.
+
 ## Limits of this reading
 
 * Windows' event 1000 does not say which client or which Windows session crashed. Four
