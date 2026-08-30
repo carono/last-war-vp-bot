@@ -66,6 +66,24 @@
 # Who reads it: the panel's «События» tab and the arms-race errand. The reverse
 # engineering is docs/research/arms-race.md.
 
+# --- is there anything to read yet? ------------------------------------------------
+#
+# A CLIENT THAT IS STILL COMING UP THROWS FROM THE GAME'S OWN CODE, and it throws on the
+# INDEX rather than on the use: `DataCenter.ActivityPersonalArmsDataManager` runs the
+# module's loader, and on a client that has not finished logging in that loader dies at
+# «attempt to index a nil value (global 'CommonUtil')». A chunk that touched the manager
+# outside a `pcall` therefore came back nil, and the reading fell over with «variable
+# 'arms_cal_in' = None is not numeric» — measured on a client three minutes old.
+#
+# So the manager is reached once, inside a `pcall`, before anything else. A client that
+# cannot answer yet FAILS here, loudly: the alternative is «open=0» — a reading that says
+# the event is closed when the truth is that nobody has asked the server yet, and that is
+# exactly the lie a half-loaded client tells best.
+READ_LUA (function() local ok, has = pcall(function() local M = DataCenter.ActivityPersonalArmsDataManager return M ~= nil and M.dataDict ~= nil end) if ok and has then return 1 end return 0 end)() INTO arms_ready
+
+IF arms_ready == 0
+    FAIL "the client has not finished loading — the arms-race event cannot be read yet"
+
 # --- ask for the calendar, then read ----------------------------------------------
 # THE ASK NAMES THE ACTIVITY, and that is the whole difference between a calendar and
 # an empty table. Sent bare it is answered with nothing — five polls of
