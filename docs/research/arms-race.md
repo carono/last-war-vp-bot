@@ -446,6 +446,38 @@ what the recipe asks for again rather than calculating one — and `productEndTi
 that batch is done, in milliseconds. A barracks with a FINISHED batch still counts as
 occupied: it has to be collected before it will take another.
 
+## The exchange of hours: what it costs, how it is sent, and which way it points
+
+Measured on a test account, one exchange spent (there is one a day):
+
+* **The sender is the manager's own**, and the raw message is not worth building by hand:
+  `DataCenter.ActivityPersonalArmsDataManager:SendExchange(aid, fromIndex, fromStage,
+  toIndex, toStage)`. A hand-built `activity.hero.exchange` table went out «ok» and did
+  nothing — the class's `OnCreate(param)` reads the table its own way and the proxy
+  trick lists no keys for it, so the manager's method is the only reliable route.
+  Alongside it: `GetLeftExchangeTimes(actId)`, `IsExchangeFuncOpen(actId)`,
+  `NeedExchangeConfirmMessage(aid)` / `SetExchangeConfirmed()`, and `OnExchange(res)` —
+  which is where a reply would land, and which was **never called** for any of the sends.
+* **The free one costs nothing.** The event record carries `resourceItemId = 9003` and
+  `resourceItemNum = 6`, and the account that made the exchange holds **none** of that
+  item by any getter — so those two fields price a FURTHER exchange, not the day's free
+  one.
+* **Nothing happens when you press it.** The counter stayed `used=0 left=1` and the
+  running phase stayed what it was for twenty minutes; both moved **at the next phase
+  border** — `used=1 left=0`, and a fresh four-hour window.
+* **And the direction is the opposite of the obvious one.** Sent as «from the slot I am
+  standing on, to the slot I want» (`3,3 → 4,4`, slot 4 being the unit hour), the border
+  brought round the phase we were ALREADY playing — building again, with its score
+  already at the top chest and its boxes already taken, for four more hours. The unit
+  hour did not arrive. So this send moves the phase you are ON into the slot you name;
+  to ARRIVE at a phase, the argument order to try is the reverse — `from` = the slot
+  holding the phase wanted, `to` = the slot playing now. **Untested**, and it costs a day
+  per attempt, so the next account to try it should write down which way round it went.
+
+The calendar is needed for either direction and it is WIPED within a minute or two of
+arriving, so it is re-asked (naming the activity) immediately before reading the slots
+rather than once at the start of a run.
+
 ## What is proven live
 
 * **The minutes phases, both of them.** A technology phase and a building phase were each
