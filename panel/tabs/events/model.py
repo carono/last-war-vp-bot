@@ -239,15 +239,21 @@ ARMS_DRONE_ACTION = "arms_race_drone"
 #: queue and the message differ (#2065).
 ARMS_SPEEDUP_ACTION = "arms_race_speedup"
 
+#: …and the unit phase's own, which spends RESOURCES rather than anything out of the bag:
+#: it collects the barracks that have finished and starts the biggest batch each free one
+#: will take. 28 points a level-9 soldier, measured live (#2065).
+ARMS_UNIT_ACTION = "arms_race_units"
+
 #: Which kinds the panel can act on — all five now. The list decides whether a BUTTON is
 #: offered, so it is here rather than in the tab; a phase the server invents tomorrow is
 #: not in it and draws «no recipe» rather than a button that reports success for doing
 #: nothing.
-ARMS_AUTOMATED: tuple = (ARMS_HERO, ARMS_BUILD, ARMS_TECH, ARMS_DRONE)
+ARMS_AUTOMATED: tuple = (ARMS_HERO, ARMS_BUILD, ARMS_UNIT, ARMS_TECH, ARMS_DRONE)
 
 #: What each automated phase is played by, so neither front-end has to know.
 ARMS_PLAYS: dict = {ARMS_HERO: ARMS_HERO_ACTION,
                     ARMS_BUILD: ARMS_SPEEDUP_ACTION,
+                    ARMS_UNIT: ARMS_UNIT_ACTION,
                     ARMS_TECH: ARMS_SPEEDUP_ACTION,
                     ARMS_DRONE: ARMS_DRONE_ACTION}
 
@@ -256,11 +262,10 @@ ARMS_PLAYS: dict = {ARMS_HERO: ARMS_HERO_ACTION,
 #:
 #: «Прогресс юнита» is deliberately NOT among them, and it is not an oversight. Its
 #: points are not bought with minutes at all: the person's design is «ускорить, чтобы
-#: ОСВОБОДИТЬ очередь → собрать готовых → поставить максимум 9 уровня», and the send
-#: that starts a training batch is the one shape of the four that could not be read off
-#: the client — every route into it needs the barracks window open. It waits on one
-#: press made by hand, and until then the phase draws «no recipe» rather than a button
-#: that spends the player's resources on a guessed packet (#2065).
+#: ОСВОБОДИТЬ очередь → собрать готовых → поставить максимум 9 уровня», so what it
+#: spends is the player's RESOURCES and its ceiling is counted in SOLDIERS. It has a
+#: recipe of its own since the training send was proven live — two barracks started on
+#: 500 each and the phase score moved 0 → 28 000 in the same minute (#2065).
 ARMS_MINUTE_KINDS: tuple = (ARMS_BUILD, ARMS_TECH)
 
 #: Whether the errand's hero phase may hire. Saved in this tab's own block, because it
@@ -306,6 +311,23 @@ ARMS_MINUTES_DEFAULT = 6000
 ARMS_MINUTES_MIN = 0
 ARMS_MINUTES_MAX = 20000
 
+#: Whether the errand's unit phase may collect the finished batches and start new ones,
+#: and the most soldiers ONE run may put into training. A SEPARATE switch from the
+#: speed-up one, because it spends a different thing: resources out of the base rather
+#: than items out of the bag, and an account that is saving for a building wants to say
+#: no to one without saying no to the other. OFF by default, like every knob here that
+#: spends something.
+ARMS_UNITS_KEY = "arms_units"
+ARMS_UNITS_DEFAULT = False
+ARMS_SOLDIERS_KEY = "arms_soldiers"
+#: A thousand is what one live run put in, over two barracks, for 28 000 of that phase's
+#: 75 000 — a fact to check a ceiling against rather than a target to keep.
+ARMS_SOLDIERS_DEFAULT = 1000
+#: Zero is a legal answer and means «whatever the barracks themselves accept»: the recipe
+#: asks each barracks for the size the game has already accepted for it.
+ARMS_SOLDIERS_MIN = 0
+ARMS_SOLDIERS_MAX = 100000
+
 #: Which squad raises the drone phase's banners, by the slot the player sees.
 ARMS_SQUAD_KEY = "arms_squad"
 ARMS_SQUAD_DEFAULT = 1
@@ -329,6 +351,15 @@ def arms_stamina_of(value) -> int:
     except (TypeError, ValueError):
         return ARMS_STAMINA_DEFAULT
     return max(ARMS_STAMINA_MIN, min(ARMS_STAMINA_MAX, number))
+
+
+def arms_soldiers_of(value) -> int:
+    """A training ceiling that came out of a file or off a phone, clamped to the field."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return ARMS_SOLDIERS_DEFAULT
+    return max(ARMS_SOLDIERS_MIN, min(ARMS_SOLDIERS_MAX, number))
 
 
 def arms_minutes_of(value) -> int:

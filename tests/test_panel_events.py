@@ -957,17 +957,28 @@ def test_a_minute_phase_spends_speed_ups_and_asks_before_it_does():
         args = tab.rt.args[0]
         assert args["speedup"] == 0
         assert args["minutes"] == modelmod.ARMS_MINUTES_DEFAULT
-    # …and the two that still have no recipe get no press, only the errand: the unit
-    # phase, whose training send could not be read off the client, and whatever the
-    # server invents tomorrow.
-    for kind in (modelmod.ARMS_UNIT, 129999):
-        other = ARMS_HERO_PHASE.replace("event=120000", "event=%d" % kind)
-        tab = _tab(arms=other)
-        card = _card(tab, "events.group.arms")
-        assert [a["id"] for a in card["actions"]] == ["play_arms"], kind
-        assert tab.web_press("phase_arms", {}) == {"error": "closed"}
-        assert tab.web_press("play_arms", {}) == {"ok": True}
-        assert modelmod.ARMS_ERRAND in tab.rt.played
+    # …the UNIT phase asks a different question, because it spends a different thing:
+    # the base's own resources, bounded by a ceiling counted in soldiers rather than in
+    # minutes. It got its recipe when the training send was proven live (#2065).
+    unit = ARMS_HERO_PHASE.replace("event=120000", "event=%d" % modelmod.ARMS_UNIT)
+    tab = _tab(arms=unit)
+    card = _card(tab, "events.group.arms")
+    press = [a for a in card["actions"] if a["id"] == "phase_arms"]
+    assert press and press[0]["label"] == "events.arms.train"
+    assert press[0]["confirm"] == "events.arms.train.confirm"
+    assert tab.web_press("phase_arms", {}) == {"ok": True}
+    assert tab.rt.played == [modelmod.ARMS_UNIT_ACTION]
+    args = tab.rt.args[0]
+    assert args["units"] == 0                  # switched off until the person says so
+    assert args["soldiers"] == modelmod.ARMS_SOLDIERS_DEFAULT
+    # …and a phase the server invents tomorrow still gets no press, only the errand.
+    other = ARMS_HERO_PHASE.replace("event=120000", "event=129999")
+    tab = _tab(arms=other)
+    card = _card(tab, "events.group.arms")
+    assert [a["id"] for a in card["actions"]] == ["play_arms"]
+    assert tab.web_press("phase_arms", {}) == {"error": "closed"}
+    assert tab.web_press("play_arms", {}) == {"ok": True}
+    assert modelmod.ARMS_ERRAND in tab.rt.played
 
 
 def test_the_arms_switch_is_one_value_drawn_in_two_places():
@@ -982,7 +993,8 @@ def test_the_arms_switch_is_one_value_drawn_in_two_places():
     options = {o.key: o for o in tab.errand_options()[modelmod.ARMS_ERRAND]}
     assert set(options) == {modelmod.ARMS_HERO_KEY, modelmod.ARMS_DRONE_KEY,
                             modelmod.ARMS_STAMINA_KEY, modelmod.ARMS_SPEEDUP_KEY,
-                            modelmod.ARMS_MINUTES_KEY, modelmod.ARMS_SQUAD_KEY}
+                            modelmod.ARMS_MINUTES_KEY, modelmod.ARMS_UNITS_KEY,
+                            modelmod.ARMS_SOLDIERS_KEY, modelmod.ARMS_SQUAD_KEY}
     options[modelmod.ARMS_HERO_KEY].write(tab.rt, True)
     assert tab.arms_hero() is True
     # …and the same for the switch that stands in front of the player's speed-ups: one
@@ -998,6 +1010,18 @@ def test_the_arms_switch_is_one_value_drawn_in_two_places():
     assert tab.web_press("set", {"key": modelmod.ARMS_MINUTES_KEY,
                                  "value": 120})["ok"] is True
     assert tab.arms_args()["minutes"] == 120
+    # The unit phase's own pair goes the same way — a SEPARATE switch, because it spends
+    # the base's resources rather than items out of the bag, and its ceiling counts
+    # soldiers and is refused rather than clamped.
+    assert tab.arms_args()["units"] == 0
+    options[modelmod.ARMS_UNITS_KEY].write(tab.rt, True)
+    assert tab.arms_units() is True
+    assert tab.arms_args()["units"] == 1
+    assert tab.web_press("set", {"key": modelmod.ARMS_SOLDIERS_KEY,
+                                 "value": modelmod.ARMS_SOLDIERS_MAX + 1})["ok"] is False
+    assert tab.web_press("set", {"key": modelmod.ARMS_SOLDIERS_KEY,
+                                 "value": 250})["ok"] is True
+    assert tab.arms_args()["soldiers"] == 250
 
 
 def test_the_drone_phase_is_raised_and_never_past_the_days_rally_caps():

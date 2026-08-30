@@ -17,7 +17,7 @@
 #
 #   120000  «Улучшение героя»          hires in the tavern — actions/arms_race_hero.md
 #   120001  «Строительство Города»     spends minutes — actions/arms_race_speedup.md
-#   120002  «Прогресс юнита»           NOT AUTOMATED YET — the training send is unread
+#   120002  «Прогресс юнита»           trains soldiers — actions/arms_race_units.md
 #   120003  «Исследование технологий»  spends minutes — actions/arms_race_speedup.md
 #   120004  «Улучшение Дрона»          raises rallies — actions/arms_race_drone.md
 #
@@ -28,11 +28,11 @@
 # a switch does nothing but read and book the next border, which is the point of it
 # running at all.
 #
-# «Прогресс юнита» is the one phase still unautomated, and it is not an oversight: its
-# points are not bought with minutes at all — the speed-up is spent to FREE a training
-# queue, and what pays is the batch trained afterwards. That send is the one shape of
-# the four this event needs that could not be read off the client, so the phase says
-# what it would do and spends nothing.
+# «Прогресс юнита» is the odd one out and has a recipe of its own: its points are not
+# bought with minutes at all — what pays is the BATCH, 28 points a level-9 soldier
+# measured live. So the run collects what the barracks have finished and starts the
+# biggest batch each free one will take, under a ceiling in SOLDIERS rather than in
+# minutes, because what it spends is the player's resources.
 #
 # Every run also claims whatever chests the server already owes, before doing anything
 # else: a chest is taken and never spent, so there is no phase where it is wrong.
@@ -43,9 +43,14 @@
 #            is the hero recipe's own `ARGS pulls`, and this file holds no second
 #            opinion about it (`CLAUDE.md`).
 #   drone    1 to let the drone phase raise rallies, 0 to read and book only.
-#   speedup  1 to let the building / units / research phases spend speed-ups, 0 to read
-#            and book only. OFF by default: the first live run of each of those three is
-#            the person's own, with a small `minutes` (`CLAUDE.md`).
+#   speedup  1 to let the building and research phases spend speed-ups, 0 to read and
+#            book only. OFF by default: the first live run of each of those is the
+#            person's own, with a small `minutes` (`CLAUDE.md`).
+#   units    1 to let the unit phase collect the finished batches and start new ones, 0
+#            to read and book only. A separate switch from `speedup` because it spends a
+#            different thing: RESOURCES, not items out of the bag.
+#   soldiers the most soldiers ONE unit-phase run may put into training. The fuse on
+#            that spend, and the reason `units` can be left on without watching it.
 #   minutes  the ceiling those three phases spend under — the most minutes of speed-up
 #            ONE run may pour into a queue. 60 by default, which is deliberately small.
 #   stamina  the drone phase's ceiling — the most stamina one run may spend. 300.
@@ -62,6 +67,8 @@ ARGS hero = 1
 ARGS drone = 1
 ARGS speedup = 0
 ARGS minutes = 60
+ARGS units = 0
+ARGS soldiers = 1000
 ARGS stamina = 300
 ARGS rallies = 0
 ARGS squad = 1
@@ -100,13 +107,17 @@ IF arms_event != 120000
     READ_LUA (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 'no reading' end local ids = tostring(d.scores or '') local top = math.floor((d.score_reward_max or 0) + 0) local sc = math.floor((d.sc or 0) + 0) local inst = nil pcall(function() inst = LocalController.instance() end) local want = {} for part in string.gmatch(ids, '[^|]+') do local n = tonumber(part) if n ~= nil then want[tostring(math.floor(n))] = true end end local rules = {} if inst ~= nil then local n = 0 pcall(function() n = inst:GetTableLength('score') + 0 end) for i = 1, n do local ok, line = pcall(function() return inst:getLine('score', i) end) if ok and line ~= nil then local function g(k) local v = nil pcall(function() v = line:getValue(k) end) if v == nil then return '' end return tostring(v) end local id = tonumber(g('id')) if id ~= nil and want[tostring(math.floor(id))] then rules[#rules+1] = 'type=' .. g('type') .. ' pays=' .. g('points') .. ' per=' .. g('value') end end end end local rate = 0 local kind = '' local map = {[120001] = 'Build', [120002] = 'Soldier', [120003] = 'Science'} local key = map[math.floor((d.event_id or 0) + 0)] if key ~= nil then kind = key pcall(function() rate = math.floor((SpeedScoreValue[key] or 0) + 0) end) end local need = '' if rate > 0 and top > sc then need = ' — ' .. math.ceil((top - sc) / rate) .. ' more minute(s) of ' .. kind .. ' speed-up would reach the top chest at ' .. rate .. ' a minute' end return 'score=' .. sc .. '/' .. top .. ' rules=[' .. table.concat(rules, '; ') .. '] ids=' .. ids .. need end)() INTO arms_phase_rules
 
     IF arms_event == 120002
-        # «Прогресс юнита» is not a minutes phase, whatever its neighbours are: the
-        # design is to speed a training queue only far enough to FREE it, collect what
-        # is ready and train as many level-9 soldiers as the barracks takes. The send
-        # that starts a batch is the one shape of the four that cannot be read off the
-        # client, so the phase says what it WOULD do and does nothing.
-        LOG "arms race: the unit phase is running and the training send is not known yet — nothing spent. {arms_phase_rules}. Coming back on the phase border"
-        STOP "unit phase not automated"
+        # «Прогресс юнита» is not a minutes phase, whatever its neighbours are: what
+        # scores is the BATCH, so it has its own recipe and its own switch. The ceiling
+        # is in soldiers, because what a batch costs is resources.
+        IF units == 0
+            LOG "arms race: the unit phase is running and training is switched off. {arms_phase_rules}. Coming back on the phase border"
+            STOP "unit phase, training off"
+        LOG "arms race: {arms_phase_rules}"
+        CALL arms_race_units
+        CALL claim_arms_chests
+        LOG "arms race: unit phase done — coming back in {next_run_in} s, on the phase border"
+        STOP "unit phase done"
 
     IF speedup == 0
         LOG "arms race: this phase is paid for in minutes of speed-up and spending is switched off. {arms_phase_rules}. Coming back on the phase border"

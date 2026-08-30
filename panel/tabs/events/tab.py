@@ -131,6 +131,8 @@ class EventsTab(PanelTab):
     _arms_speedup_var = None
     _arms_speedup = modelmod.ARMS_SPEEDUP_DEFAULT
     _arms_minutes = modelmod.ARMS_MINUTES_DEFAULT
+    _arms_units = modelmod.ARMS_UNITS_DEFAULT
+    _arms_soldiers = modelmod.ARMS_SOLDIERS_DEFAULT
 
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
@@ -244,6 +246,8 @@ class EventsTab(PanelTab):
         self._arms_speedup = modelmod.ARMS_SPEEDUP_DEFAULT
         self._arms_speedup_var = None
         self._arms_minutes = modelmod.ARMS_MINUTES_DEFAULT
+        self._arms_units = modelmod.ARMS_UNITS_DEFAULT
+        self._arms_soldiers = modelmod.ARMS_SOLDIERS_DEFAULT
         self._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
         self._arms_args_registered = False
         self._register_arms_args()
@@ -315,6 +319,8 @@ class EventsTab(PanelTab):
                 "drone": 1 if self.arms_drone() else 0,
                 "speedup": 1 if self.arms_speedup() else 0,
                 "minutes": self.arms_minutes(),
+                "units": 1 if self.arms_units() else 0,
+                "soldiers": self.arms_soldiers(),
                 "stamina": self.arms_stamina(),
                 "rallies": self.arms_rallies(),
                 "squad": self.arms_squad()}
@@ -362,6 +368,19 @@ class EventsTab(PanelTab):
     def arms_minutes(self) -> int:
         """The most minutes of speed-up one such run may spend. Clamped."""
         return modelmod.arms_minutes_of(self._arms_minutes)
+
+    def arms_units(self) -> bool:
+        """May the errand's unit phase collect the batches and start new ones?
+
+        A switch of its own rather than a second reading of `arms_speedup`: what the unit
+        phase spends is RESOURCES, and an account saving them for a building says no to
+        this one while leaving the speed-ups alone.
+        """
+        return bool(self._arms_units)
+
+    def arms_soldiers(self) -> int:
+        """The most soldiers ONE unit-phase run may put into training. Clamped."""
+        return modelmod.arms_soldiers_of(self._arms_soldiers)
 
     def arms_squad(self) -> int:
         """Which squad raises the drone phase's banners, by the slot the player sees."""
@@ -413,6 +432,20 @@ class EventsTab(PanelTab):
                                   get=self.arms_minutes,
                                   set=lambda v: self.set_arms_option(
                                       modelmod.ARMS_MINUTES_KEY, v)),
+                errandopts.Option(modelmod.ARMS_UNITS_KEY, "events.arms.units",
+                                  errandopts.SWITCH,
+                                  hint_key="events.arms.units.hint",
+                                  get=self.arms_units,
+                                  set=lambda on: self.set_arms_option(
+                                      modelmod.ARMS_UNITS_KEY, on)),
+                errandopts.Option(modelmod.ARMS_SOLDIERS_KEY, "events.arms.soldiers",
+                                  errandopts.NUMBER,
+                                  hint_key="events.arms.soldiers.hint",
+                                  low=modelmod.ARMS_SOLDIERS_MIN,
+                                  high=modelmod.ARMS_SOLDIERS_MAX,
+                                  get=self.arms_soldiers,
+                                  set=lambda v: self.set_arms_option(
+                                      modelmod.ARMS_SOLDIERS_KEY, v)),
                 errandopts.Option(modelmod.ARMS_SQUAD_KEY, "events.arms.squad",
                                   errandopts.SQUADS, single=True,
                                   get=lambda: [self.arms_squad()],
@@ -1505,6 +1538,8 @@ class EventsTab(PanelTab):
                 phase_key = "events.arms.hire"
             elif state.kind in modelmod.ARMS_MINUTE_KINDS:
                 phase_key = "events.arms.spend"
+            elif state.kind == modelmod.ARMS_UNIT:
+                phase_key = "events.arms.train"
             else:
                 phase_key = "events.arms.raise"
             self.tr(ttk.Button(press, command=lambda: self.play_arms(play)),
@@ -1525,6 +1560,8 @@ class EventsTab(PanelTab):
                            modelmod.ARMS_STAMINA_KEY: self.arms_stamina(),
                            modelmod.ARMS_SPEEDUP_KEY: self.arms_speedup(),
                            modelmod.ARMS_MINUTES_KEY: self.arms_minutes(),
+                           modelmod.ARMS_UNITS_KEY: self.arms_units(),
+                           modelmod.ARMS_SOLDIERS_KEY: self.arms_soldiers(),
                            modelmod.ARMS_SQUAD_KEY: self.arms_squad()})
         except Exception as exc:                # noqa: BLE001 — a profile going away
             self.rt.dbg("events").warning("arms knob not saved: %s", exc)
@@ -1648,6 +1685,10 @@ class EventsTab(PanelTab):
                                           modelmod.ARMS_SPEEDUP_DEFAULT))
         self._arms_minutes = modelmod.arms_minutes_of(
             raw.get(modelmod.ARMS_MINUTES_KEY, modelmod.ARMS_MINUTES_DEFAULT))
+        self._arms_units = bool(raw.get(modelmod.ARMS_UNITS_KEY,
+                                        modelmod.ARMS_UNITS_DEFAULT))
+        self._arms_soldiers = modelmod.arms_soldiers_of(
+            raw.get(modelmod.ARMS_SOLDIERS_KEY, modelmod.ARMS_SOLDIERS_DEFAULT))
         self._arms_squad = modelmod.squad_of(raw.get(modelmod.ARMS_SQUAD_KEY))
         self._squad = modelmod.squad_of(raw.get(modelmod.GOLDEN_SQUAD_KEY))
         self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, False))
@@ -1882,6 +1923,13 @@ class EventsTab(PanelTab):
              "hint": "events.arms.minutes.hint", "kind": "number",
              "value": self.arms_minutes(),
              "min": modelmod.ARMS_MINUTES_MIN, "max": modelmod.ARMS_MINUTES_MAX},
+            {"key": modelmod.ARMS_UNITS_KEY, "label": "events.arms.units",
+             "hint": "events.arms.units.hint", "kind": "switch",
+             "value": self.arms_units()},
+            {"key": modelmod.ARMS_SOLDIERS_KEY, "label": "events.arms.soldiers",
+             "hint": "events.arms.soldiers.hint", "kind": "number",
+             "value": self.arms_soldiers(),
+             "min": modelmod.ARMS_SOLDIERS_MIN, "max": modelmod.ARMS_SOLDIERS_MAX},
             {"key": modelmod.ARMS_STAMINA_KEY, "label": "events.arms.stamina",
              "hint": "events.arms.stamina.hint", "kind": "number",
              "value": self.arms_stamina(),
@@ -1902,6 +1950,12 @@ class EventsTab(PanelTab):
                 # and the rally budget the card does not own.
                 acts.append({"id": "phase_arms", "label": "events.arms.raise",
                              "confirm": "events.arms.raise.confirm"})
+            elif arms.kind == modelmod.ARMS_UNIT:
+                # …and a batch spends the base's own resources, so it asks too. What it
+                # may spend is the «солдат» ceiling above, and the barracks decide the
+                # rest: each is asked for the size the game has already accepted for it.
+                acts.append({"id": "phase_arms", "label": "events.arms.train",
+                             "confirm": "events.arms.train.confirm"})
             elif arms.kind in modelmod.ARMS_MINUTE_KINDS:
                 # …and pouring minutes into a queue spends the player's own speed-ups,
                 # which is the one thing here that cannot be got back. It asks, and what
@@ -2067,6 +2121,21 @@ class EventsTab(PanelTab):
                         pass
                 self._arms_knob_saved()
                 return {"ok": True, "speedup": self._arms_speedup}
+            if key == modelmod.ARMS_UNITS_KEY:
+                self._arms_units = bool(raw)
+                self._arms_knob_saved()
+                return {"ok": True, "units": self._arms_units}
+            if key == modelmod.ARMS_SOLDIERS_KEY:
+                # Refused rather than clamped, the same rule as the minute fuse: a
+                # ceiling that silently became another number is a ceiling nobody set,
+                # and this one stands in front of the base's own resources.
+                number = _whole(raw)
+                if (number is None or number < modelmod.ARMS_SOLDIERS_MIN
+                        or number > modelmod.ARMS_SOLDIERS_MAX):
+                    return {"ok": False, "reason": "web.ui.not_a_number"}
+                self._arms_soldiers = number
+                self._arms_knob_saved()
+                return {"ok": True, "soldiers": self._arms_soldiers}
             if key == modelmod.ARMS_MINUTES_KEY:
                 # Refused rather than clamped, for the same reason as the stamina one
                 # below — and this ceiling stands in front of the player's speed-ups,
