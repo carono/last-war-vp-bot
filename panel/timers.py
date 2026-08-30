@@ -605,6 +605,30 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         args={"rounds": 3},
         label_key="timers.item.play_frontline_breakthrough",
     ),
+    Timer(
+        name="perform_arms_race",
+        scenario=("perform_arms_race",),
+        # A PERIOD THIS ROW NEVER USES WHILE THE GAME IS ANSWERING. «Гонка вооружений»
+        # changes what it pays for every four hours on a schedule the server fixed a
+        # week ahead, and the recipe reads the border off the calendar and hands it back
+        # as `next_run_in` — so the turn is booked ON the border rather than ground out
+        # against a clock that knows nothing about phases. Four hours is what is left if
+        # the client would not answer at all, which is the phase length itself: a row
+        # that has lost the calendar should look again no oftener than the event moves.
+        interval_sec=4 * 3600,
+        # Ten minutes. A failed run means the client was not there or the account has
+        # not unlocked the event; both mend themselves, and a phase is four hours long,
+        # so there is time to come back a few times without hammering anything.
+        retry_sec=600,
+        enabled=False,
+        # WHETHER THE HERO PHASE MAY HIRE, and nothing else — how MANY hires is the
+        # recipe's own `ARGS pulls` and this row holds no second opinion about it. The
+        # four phases that spend speed-ups, drone data or troops are not automated at
+        # all yet, so there is no knob here for them: a switch over a thing that cannot
+        # happen is a switch that lies.
+        args={"hero": 1},
+        label_key="timers.item.perform_arms_race",
+    ),
 )
 
 

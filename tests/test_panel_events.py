@@ -37,6 +37,7 @@ for _p in (_REPO, _REPO / "src", _REPO / "tools", _REPO / "tools" / "lib"):
 import lua_actions                                    # noqa: E402
 from panel import i18n as i18nmod                     # noqa: E402
 from panel.tabs.events import model as modelmod       # noqa: E402
+from panel.runtime import squad_picker                # noqa: E402
 
 ACTIONS = _REPO / "src" / "lastwar_bot" / "actions"
 READ = ACTIONS / "read_codename_event.md"
@@ -337,6 +338,19 @@ TRAIN_SHUT = ("open=0 state=0 queued=0 carriage=-1 waiting=0 cars=0 seats=0 "
               "departs=- thanked=- contracts=0")
 
 
+#: One arms reading of the shape `actions/read_arms_race.md` sends back: a hero phase
+#: running, 800 points of the 12 000 the top chest wants, no chest taken yet. Invented,
+#: like every fixture here — the shape is what the parser is being asked about, and the
+#: digits of a real account have no business in a public repository (`CLAUDE.md`).
+ARMS_HERO_PHASE = ("open=1 aid=29 day=7 stage=1 event=120000 name=2000601 sc=800 "
+                   "rules=122,121,103 t1=2000 t2=4000 t3=12000 g1=0 g2=0 g3=0 "
+                   "until=8134 done=1 d1=1 d2=0 d3=0")
+#: …and the same day's six borders, the thing no client volunteers.
+ARMS_DAY = ("0:120004:1788055200:1788069600 1:120000:1788069600:1788084000 "
+            "2:120001:1788084000:1788098400 3:120002:1788098400:1788112800 "
+            "4:120003:1788112800:1788127200 5:120004:1788127200:1788141600")
+
+
 def _tab_class():
     try:
         from panel.tabs.events.tab import EventsTab
@@ -357,6 +371,7 @@ class _Runtime:
         #: The golden-zombie tally lives in `panel.db`; nothing here needs one, and a
         #: `None` store is what `panel/golden_zombies.py` reads as «no history yet».
         self.store = None
+        self.settings = _Runtime._Settings()
 
     def play_async(self, name, *a, **kw) -> bool:
         if not self.plays:
@@ -371,8 +386,24 @@ class _Runtime:
     def say(self, tag, key, **fmt) -> None:
         pass
 
+    #: A profile's settings, only ever asked to write themselves down here. A knob moved
+    #: on a tab with no profile behind it must still answer the press.
+    class _Settings:
+        def __init__(self) -> None:
+            self.saves = 0
 
-def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN):
+        def changed(self) -> None:
+            self.saves += 1
+
+    def dbg(self, tag):
+        """A logger that swallows. A knob saved on a tab with no profile behind it
+        warns rather than raises, and the warning has to have somewhere to go."""
+        import logging
+        return logging.getLogger("test.events." + tag)
+
+
+def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN,
+         arms=ARMS_HERO_PHASE, arms_day=ARMS_DAY):
     cls = _tab_class()
     tab = cls.__new__(cls)
     tab.rt = _Runtime(plays)
@@ -384,6 +415,9 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN):
     tab._attack_button = None
     tab._daily_button = None
     tab._sent_key = None
+    # «Под руинами» — no reading of its own; the card carries the last line a run said.
+    tab._ruins_said = ""
+    tab._ruins_running = False
     # «Золотые зомби» — its own reading, its own press, its own day.
     tab._golden = modelmod.parse(golden, at=1.0) if golden is not None else None
     tab._golden_busy = False
@@ -410,6 +444,20 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN):
     tab._train_tickets = modelmod.TRAIN_TICKETS_DEFAULT
     tab._train_buy = modelmod.TRAIN_BUY_DEFAULT
     tab._train_args_registered = True
+    # «Гонка вооружений» — the phase running now, the day's borders, and the one
+    # standing order there is: whether the four-hourly run may hire.
+    tab._arms = modelmod.parse(arms, at=1.0) if arms is not None else None
+    tab._arms_cal = modelmod.arms_calendar(arms_day)
+    tab._arms_busy = False
+    tab._arms_running = False
+    tab._chain_arms = False
+    tab._arms_hero = modelmod.ARMS_HERO_DEFAULT
+    tab._arms_hero_var = None
+    tab._arms_drone = modelmod.ARMS_DRONE_DEFAULT
+    tab._arms_drone_var = None
+    tab._arms_stamina = modelmod.ARMS_STAMINA_DEFAULT
+    tab._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
+    tab._arms_args_registered = True
     return tab
 
 
@@ -528,7 +576,8 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
             # A knob's label and hint are words; its key and value are data, and its
             # kind is one the renderer knows (docs/panel-tabs.md).
             for field in card.get("fields") or ():
-                assert field["kind"] in ("switch", "number", "text")
+                assert field["kind"] in ("switch", "number", "text", "choice",
+                                         squad_picker.KIND)
                 keys += [k for k in (field.get("label"), field.get("hint")) if k]
                 assert not keyish.match(str(field["key"])), \
                     "a knob's key is data, not a locale key"
@@ -594,7 +643,7 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     STEPS = ["find_golden", "attack_golden", "recall_golden", "state_golden",
              "goto_golden", "forget_golden", "rescan_golden"]
     assert _card_actions(live, "events.group.golden") == [
-        "hunt_golden", "squad_next", "approach_toggle"] + STEPS
+        "hunt_golden", "approach_toggle"] + STEPS
     assert live.web_press("hunt_golden", {}) == {"ok": True}
     assert live.rt.played == [modelmod.GOLDEN_ATTACK]
 
@@ -602,7 +651,7 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     # not», and the scenario holds its own gates.
     unknown = _tab(golden=None)
     assert _card_actions(unknown, "events.group.golden") == [
-        "hunt_golden", "squad_next", "approach_toggle"] + STEPS
+        "hunt_golden", "approach_toggle"] + STEPS
 
 
 def test_every_step_of_the_hunt_is_a_scenario_the_phone_can_press():
@@ -844,6 +893,123 @@ def test_a_read_that_failed_is_recorded_as_a_failure_not_as_a_closed_event():
     tab._read_back(_Outcome(True, raw=OPEN))
     assert tab.codename().state == modelmod.OPEN
     assert not tab._reading.error
+
+
+def test_the_day_of_the_arms_race_is_read_as_six_borders():
+    """The calendar line is parsed into the day's phases, and rubbish is dropped."""
+    day = modelmod.arms_calendar(ARMS_DAY)
+    assert len(day) == 6
+    assert day[1] == (1, modelmod.ARMS_HERO, 1788069600, 1788084000)
+    # A client that has just restarted says all sorts of things; none of it raises.
+    assert modelmod.arms_calendar("nonsense 1:2:3 4:5:6:seven") == ()
+    assert modelmod.arms_calendar(None) == ()
+
+
+def test_an_arms_phase_nobody_could_read_is_unknown_and_never_closed():
+    """No answer is «nobody knows» — the same rule the rest of this board goes by."""
+    unknown = modelmod.arms_state(None)
+    assert unknown.state == modelmod.UNKNOWN
+    assert unknown.kind is None and unknown.score is None
+    # …and «unknown» has no recipe by definition, so no press is offered over it.
+    assert unknown.automated is False
+
+
+def test_the_arms_card_says_the_phase_the_day_and_the_one_switch():
+    """The phone's arms card is the reading, and every word on it is a key."""
+    tab = _tab()
+    card = _card(tab, "events.group.arms")
+    rows = {r["label"]: r["value"] for r in card["rows"]}
+    assert rows["events.arms.phase"] == "events.arms.kind.hero"
+    assert rows["events.arms.chests"] == "0 / 3"
+    assert rows["events.arms.day"] == "1 / 6"
+    assert "events.arms.until" in rows            # the phase is running
+    # THE DAY'S SIX PHASES — the whole reason the reading sends the calendar get.
+    assert len(card["items"]) == 6
+    assert card["items"][1]["label"] == "events.arms.kind.hero"
+    # …and the switch is a FIELD, because it is a standing order and not a press.
+    fields = {f["key"]: f for f in card["fields"]}
+    assert fields[modelmod.ARMS_HERO_KEY]["kind"] == "switch"
+    assert fields[modelmod.ARMS_HERO_KEY]["value"] is True
+    # Hiring spends the player's tickets, so the phone asks before it goes.
+    hire = [a for a in card["actions"] if a["id"] == "phase_arms"]
+    assert hire and hire[0]["confirm"] == "events.arms.hire.confirm"
+
+
+def test_a_phase_with_no_recipe_is_offered_no_press():
+    """Three of the five phases spend items whose ceiling nobody has agreed (#2065)."""
+    build = ARMS_HERO_PHASE.replace("event=120000", "event=120001")
+    tab = _tab(arms=build)
+    card = _card(tab, "events.group.arms")
+    assert [a["id"] for a in card["actions"]] == ["play_arms"]
+    assert tab.web_press("phase_arms", {}) == {"error": "closed"}
+    # …and the errand itself is still playable: a run that hires nothing still books
+    # the next phase border, which is what it is on the clock for.
+    assert tab.web_press("play_arms", {}) == {"ok": True}
+    assert modelmod.ARMS_ERRAND in tab.rt.played
+
+
+def test_the_arms_switch_is_one_value_drawn_in_two_places():
+    """The gear on «Таймеры» and the card write the SAME knob, and the errand reads it."""
+    tab = _tab()
+    assert tab.arms_args()["hero"] == 1
+    assert tab.web_press("set", {"key": modelmod.ARMS_HERO_KEY,
+                                 "value": False})["ok"] is True
+    assert tab.arms_hero() is False
+    assert tab.arms_args()["hero"] == 0
+    # …and the row on «Таймеры» is the same setter, not a second copy of the value.
+    options = {o.key: o for o in tab.errand_options()[modelmod.ARMS_ERRAND]}
+    assert set(options) == {modelmod.ARMS_HERO_KEY, modelmod.ARMS_DRONE_KEY,
+                            modelmod.ARMS_STAMINA_KEY, modelmod.ARMS_SQUAD_KEY}
+    options[modelmod.ARMS_HERO_KEY].write(tab.rt, True)
+    assert tab.arms_hero() is True
+
+
+def test_the_drone_phase_is_raised_and_never_past_the_days_rally_caps():
+    """«Тратим только стягами» — and the day's own caps are what bounds it (#2065)."""
+    drone = ARMS_HERO_PHASE.replace("event=120000", "event=120004")
+    tab = _tab(arms=drone)
+    card = _card(tab, "events.group.arms")
+    # The press is offered, and it asks first: raising sends a squad out of the base.
+    press = [a for a in card["actions"] if a["id"] == "phase_arms"]
+    assert press and press[0]["label"] == "events.arms.raise"
+    assert press[0]["confirm"] == "events.arms.raise.confirm"
+    assert tab.web_press("phase_arms", {}) == {"ok": True}
+    assert tab.rt.played == [modelmod.ARMS_DRONE_ACTION]
+    # …and it was played WITH the ceilings, because the recipe raises nothing without
+    # them: a rally allowance that could not be read is handed over as ZERO, never as
+    # «no ceiling» (there is no rally tab behind this fake runtime).
+    args = tab.rt.args[0]
+    assert args["stamina"] == modelmod.ARMS_STAMINA_DEFAULT
+    assert args["rallies"] == 0
+    assert args["drone"] == 1
+
+
+def test_the_stamina_ceiling_is_refused_rather_than_quietly_changed():
+    """A ceiling that silently became something else is a ceiling nobody set."""
+    tab = _tab()
+    assert tab.web_press("set", {"key": modelmod.ARMS_STAMINA_KEY,
+                                 "value": 120})["ok"] is True
+    assert tab.arms_stamina() == 120
+    for bad in ("сто", None, modelmod.ARMS_STAMINA_MAX + 1, -1):
+        assert tab.web_press(
+            "set", {"key": modelmod.ARMS_STAMINA_KEY, "value": bad})["ok"] is False
+    assert tab.arms_stamina() == 120, "a refused value moved the ceiling anyway"
+
+
+def test_the_drone_recipe_holds_its_own_ceilings():
+    """The gates are in the ability, not in the panel (`CLAUDE.md`)."""
+    text = (Path(__file__).resolve().parents[1] / "src" / "lastwar_bot" / "actions"
+            / "arms_race_drone.md").read_text(encoding="utf-8")
+    assert "ARGS stamina = 300" in text
+    assert "ARGS rallies = 0" in text
+    # No allowance means no banner — silence is a refusal, never a licence.
+    assert "IF rallies == 0" in text and "STOP" in text
+    # The phase kind is checked, and the price is ASKED rather than written down.
+    assert "IF arms_event != 120004" in text
+    assert "GetCostStaminaByTargetType" in text
+    # …and nothing in it names a score rule: the server only hands over the CURRENT
+    # phase's rules, so the recipe judges by whether the score actually moved.
+    assert "score did not move" in text
 
 
 def _main() -> int:

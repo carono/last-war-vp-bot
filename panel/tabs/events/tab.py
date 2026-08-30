@@ -212,6 +212,31 @@ class EventsTab(PanelTab):
         self._train_args_registered = False
         self._register_train_args()
 
+        # -- «Гонка вооружений» ---------------------------------------------
+        #: Its own reading, on its own clock, like the other three. The phase running
+        #: now arrives with it; the day's six borders come in a SECOND variable, because
+        #: the calendar is a list and this board's `Reading` holds whole numbers.
+        self._arms = None
+        self._arms_cal: tuple = ()
+        self._arms_busy = False
+        self._arms_running = False
+        #: Whether the arms reading should follow the train one home.
+        self._chain_arms = False
+        #: Whether the errand's hero phase may hire. A plain bool and NOT a Tk variable,
+        #: for the reason the train's knobs are not either: the scheduler reads it off
+        #: its own thread through `register_args`, and a Tk variable read from there
+        #: raises «main thread is not in main loop» (#1416).
+        self._arms_hero = modelmod.ARMS_HERO_DEFAULT
+        self._arms_hero_var = None
+        #: …and the drone phase's three: whether it may raise at all, the stamina it may
+        #: spend doing it, and which squad carries the banners.
+        self._arms_drone = modelmod.ARMS_DRONE_DEFAULT
+        self._arms_drone_var = None
+        self._arms_stamina = modelmod.ARMS_STAMINA_DEFAULT
+        self._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
+        self._arms_args_registered = False
+        self._register_arms_args()
+
     # -- the tab ------------------------------------------------------------
     def build(self) -> None:
         bar = ttk.Frame(self.parent)
@@ -230,6 +255,7 @@ class EventsTab(PanelTab):
     def ensure_loaded(self) -> None:
         """Start the clock and take the first readings, the first time anybody looks."""
         self._register_train_args()
+        self._register_arms_args()
         self._tick()
         self.refresh_both()
 
@@ -249,16 +275,110 @@ class EventsTab(PanelTab):
         schedule.register_args("alliance_train_board", self.train_args)
         self._train_args_registered = True
 
-    def errand_options(self) -> dict:
-        """What the boarding order will do when the conductor is appointed (#2017).
+    def _register_arms_args(self) -> None:
+        """Let the «perform_arms_race» errand read the hero switch LIVE. Idempotent.
 
-        The three knobs were on this card and nowhere else, so «Таймеры» — the tab that
+        Same reason as the train's: without it the errand fires with whatever its
+        catalogue row was written with, and the card and the standing order drift apart
+        the first time somebody moves the switch — the phone showing one rule and the
+        four-hourly run obeying another.
+        """
+        if self._arms_args_registered:
+            return
+        schedule = getattr(self.rt, "schedule", None)
+        if schedule is None or not hasattr(schedule, "register_args"):
+            return                              # a tab opened on its own
+        schedule.register_args(modelmod.ARMS_ERRAND, self.arms_args)
+        self._arms_args_registered = True
+
+    def arms_args(self) -> dict:
+        """The arms errand's ARGS as this card has them right now.
+
+        `rallies` is the one value the card does not own: it is what the DAY's own rally
+        budget still allows, read out of the rally tab's books at the moment the errand
+        fires. The arms race gets no allowance of its own, on purpose — an event that
+        quietly overspends the caps the person set is exactly what #2051 put them there
+        to stop, and a drone phase that therefore scores nothing is the right outcome.
+        """
+        return {"hero": 1 if self.arms_hero() else 0,
+                "drone": 1 if self.arms_drone() else 0,
+                "stamina": self.arms_stamina(),
+                "rallies": self.arms_rallies(),
+                "squad": self.arms_squad()}
+
+    def arms_rallies(self) -> int:
+        """How many rallies the day's budget still leaves the drone phase.
+
+        A budget that cannot be READ answers 0 — «nothing left» rather than «no ceiling»
+        — because the cost of being wrong runs one way only: a run handed a number it
+        should not have had spends the person's rallies and cannot give them back.
+        """
+        try:
+            from ..rally import limits as rallygate
+            limits, counts = rallygate.read(self.rt)
+            left = counts.left_for(modelmod.ARMS_RALLY_KIND, limits)
+        except Exception as exc:            # noqa: BLE001 — a number, never the run
+            self.rt.dbg("events").warning("arms rally budget unreadable: %s", exc)
+            return 0
+        if left < 0:
+            return modelmod.ARMS_RALLIES_UNCAPPED
+        return max(0, int(left))
+
+    def arms_drone(self) -> bool:
+        """May the errand's drone phase raise banners?"""
+        if self._arms_drone_var is not None:
+            try:
+                return bool(self._arms_drone_var.get())
+            except tk.TclError:            # the window is going away
+                pass
+        return bool(self._arms_drone)
+
+    def arms_stamina(self) -> int:
+        """The most stamina one drone run may spend. The person's number, clamped."""
+        return modelmod.arms_stamina_of(self._arms_stamina)
+
+    def arms_squad(self) -> int:
+        """Which squad raises the drone phase's banners, by the slot the player sees."""
+        return modelmod.squad_of(self._arms_squad)
+
+    def errand_options(self) -> dict:
+        """What the standing orders on this board will do when they fire (#2017).
+
+        Two errands: whether the arms-race run may hire in the hero phase, and the
+        train's three. The three knobs were on this card and nowhere else, so «Таймеры» — the tab that
         says whether `alliance_train_board` is even listening — showed a name and no way
         to say which carriage, what fare, or whether to buy the missing contracts. They
         are the same values the card edits and the same the recipe reads at fire time
         (`train_args`): plain attributes here, so a tab nobody has opened has them.
         """
-        return {"alliance_train_board": (
+        return {
+            modelmod.ARMS_ERRAND: (
+                errandopts.Option(modelmod.ARMS_HERO_KEY, "events.arms.hero",
+                                  errandopts.SWITCH,
+                                  hint_key="events.arms.hero.hint",
+                                  get=self.arms_hero,
+                                  set=lambda on: self.set_arms_option(
+                                      modelmod.ARMS_HERO_KEY, on)),
+                errandopts.Option(modelmod.ARMS_DRONE_KEY, "events.arms.drone",
+                                  errandopts.SWITCH,
+                                  hint_key="events.arms.drone.hint",
+                                  get=self.arms_drone,
+                                  set=lambda on: self.set_arms_option(
+                                      modelmod.ARMS_DRONE_KEY, on)),
+                errandopts.Option(modelmod.ARMS_STAMINA_KEY, "events.arms.stamina",
+                                  errandopts.NUMBER,
+                                  hint_key="events.arms.stamina.hint",
+                                  low=modelmod.ARMS_STAMINA_MIN,
+                                  high=modelmod.ARMS_STAMINA_MAX,
+                                  get=self.arms_stamina,
+                                  set=lambda v: self.set_arms_option(
+                                      modelmod.ARMS_STAMINA_KEY, v)),
+                errandopts.Option(modelmod.ARMS_SQUAD_KEY, "events.arms.squad",
+                                  errandopts.SQUADS, single=True,
+                                  get=lambda: [self.arms_squad()],
+                                  set=lambda v: self.set_arms_option(
+                                      modelmod.ARMS_SQUAD_KEY, v)),),
+            "alliance_train_board": (
             errandopts.Option("train_carriage", "events.train.carriage.set",
                               errandopts.NUMBER,
                               low=min(modelmod.TRAIN_CARRIAGES),
@@ -324,6 +444,8 @@ class EventsTab(PanelTab):
                 self.refresh_golden()
             elif self._age_of(self._train) > self.STALE_SEC:
                 self.refresh_train()
+            elif self._age_of(self._arms) > self.STALE_SEC:
+                self.refresh_arms()
         self.rt.tick.arm("events_poll", self.TICK_MS, self._tick)
 
     def on_language_change(self) -> None:
@@ -334,6 +456,10 @@ class EventsTab(PanelTab):
         self._reading = None
         self._golden = None
         self._train = None
+        self._arms = None
+        #: …and the calendar with it: a week of borders belongs to the account that was
+        #: told them, and another account's day starts and ends somewhere else.
+        self._arms_cal = ()
         self._tally = None
         self._render()
         self.refresh_both()
@@ -344,12 +470,14 @@ class EventsTab(PanelTab):
         self.rt.tick.disarm("events_after_attack")
         self.rt.tick.disarm("events_after_hunt")
         self.rt.tick.disarm("events_after_board")
+        self.rt.tick.disarm("events_after_arms")
 
     def shutdown(self) -> None:
         self.rt.tick.disarm("events_poll")
         self.rt.tick.disarm("events_after_attack")
         self.rt.tick.disarm("events_after_hunt")
         self.rt.tick.disarm("events_after_board")
+        self.rt.tick.disarm("events_after_arms")
 
     # -- the reading --------------------------------------------------------
     def _tick(self) -> None:
@@ -365,6 +493,9 @@ class EventsTab(PanelTab):
                 elif (not self._train_busy
                         and self._age_of(self._train) >= self.REFRESH_SEC):
                     self.refresh_train()
+                elif (not self._arms_busy
+                        and self._age_of(self._arms) >= self.REFRESH_SEC):
+                    self.refresh_arms()
         finally:
             self.rt.tick.arm("events_poll", self.TICK_MS, self._tick)
 
@@ -411,6 +542,7 @@ class EventsTab(PanelTab):
         """
         self._chain_golden = True
         self._chain_train = True
+        self._chain_arms = True
         if self.refresh(human=human):
             return True
         self._chain_golden = False
@@ -568,6 +700,90 @@ class EventsTab(PanelTab):
     def _train_done(self) -> None:
         self._train_busy = False
         self._render()
+        #: …and the FOURTH reading, chained for the same reason the others are.
+        if self._chain_arms:
+            self._chain_arms = False
+            self.refresh_arms()
+
+    # -- «Гонка вооружений»: the phase, the day, and the one press ----------
+    def refresh_arms(self, human: bool = False) -> bool:
+        """Ask the game which phase is running and what the day looks like.
+
+        The reading SENDS the calendar get (`actions/read_arms_race.md`), which is what
+        makes the day's six borders knowable at all — but it is still one round trip and
+        it presses nothing, so it sits on the same clock as the rest of this board.
+        """
+        if self._arms_busy:
+            return False
+        self._arms_busy = True
+        started = self.rt.play_async(
+            modelmod.ARMS_ACTION, tag="events", human=human,
+            on_result=self._arms_back, on_done=self._arms_done)
+        if not started:
+            self._arms_busy = False
+        return started
+
+    def _arms_back(self, outcome) -> None:
+        at = time.time()
+        if outcome is None or not getattr(outcome, "ok", False):
+            reason = getattr(outcome, "reason", "") or ""
+            self._arms = modelmod.Reading(error=reason or "failed", at=at)
+            return
+        ctx = getattr(outcome, "ctx", None)
+        values = getattr(ctx, "vars", {}) or {}
+        self._arms = modelmod.parse(values.get(modelmod.ARMS_VARIABLE), at=at)
+        #: The calendar is kept even when the phase itself was unreadable: a day whose
+        #: borders are known is worth drawing whatever the current phase says, and the
+        #: borders do not go stale — the server fixed them a week ago.
+        calendar = modelmod.arms_calendar(values.get(modelmod.ARMS_DAY_VARIABLE))
+        if calendar:
+            self._arms_cal = calendar
+
+    def _arms_done(self) -> None:
+        self._arms_busy = False
+        self._render()
+
+    def arms(self):
+        """The arms card against the last reading — what both front-ends draw."""
+        return modelmod.arms_state(self._arms, self._arms_cal)
+
+    def arms_hero(self) -> bool:
+        """May the errand's hero phase hire? The widget wins while the tab is drawn."""
+        if self._arms_hero_var is not None:
+            try:
+                return bool(self._arms_hero_var.get())
+            except tk.TclError:            # the window is going away
+                pass
+        return bool(self._arms_hero)
+
+    def set_arms_option(self, key: str, value) -> bool:
+        """The gear on «Таймеры» writing this card's own knob (`CLAUDE.md`)."""
+        return bool(self.web_press("set", {"key": key, "value": value}).get("ok"))
+
+    def play_arms(self, action: str) -> bool:
+        """Play the errand by hand, or the hero phase on its own.
+
+        Both are scenarios and both hold their own gates — the ceiling, the phase kind,
+        whether the tickets cover a hire — so the panel does not re-decide any of that
+        here (`CLAUDE.md`). What it does is refuse to start a SECOND one on top of the
+        first, which is a fact about this tab and not about the game.
+        """
+        if self._arms_running:
+            return False
+        self._arms_running = True
+        # THE SAME ARGS THE SCHEDULE FIRES WITH, whichever of the two is played. The
+        # drone recipe raises nothing without a rally allowance, and a press that left
+        # it out would look like a press that did not work — the ceilings belong to the
+        # ability and the numbers come from here (`CLAUDE.md`).
+        started = self.rt.play_async(action, self.arms_args(), tag="events", human=True,
+                                     on_done=self._arms_played)
+        if not started:
+            self._arms_running = False
+        return started
+
+    def _arms_played(self) -> None:
+        self._arms_running = False
+        self.rt.tick.arm("events_after_arms", self.AFTER_ATTACK_MS, self.refresh_arms)
 
     def train(self):
         """The train card against the last reading — what both front-ends draw."""
@@ -935,6 +1151,8 @@ class EventsTab(PanelTab):
                 self._render_golden(group)
             elif group.key == modelmod.FIREWORKS:
                 self._render_fireworks(group)
+            elif group.key == modelmod.ARMS:
+                self._render_arms(group)
         self._refresh_status()
 
     def _render_codename(self, group) -> None:
@@ -1156,6 +1374,114 @@ class EventsTab(PanelTab):
         self.tr(ttk.Label(press, foreground=_GREY),
                 "events.fireworks.collect.hint").pack(side="left", padx=(10, 0))
 
+    def _arms_kind_words(self, kind) -> str:
+        """The phase's name, or its bare id when the server invents a sixth kind.
+
+        A kind nobody has a name for is drawn as its NUMBER rather than as «неизвестно»:
+        the number is what the log and the research will call it, and it is the one thing
+        that lets a person say which phase they were looking at.
+        """
+        if kind is None:
+            return "—"
+        key = modelmod.ARMS_KINDS.get(kind)
+        return self.t(key) if key else str(kind)
+
+    def _render_arms(self, group) -> None:
+        """«Гонка вооружений»: the phase running now, the day's six, and the presses."""
+        state = self.arms()
+        grey = _GREY if state.state != modelmod.OPEN else _LIVE
+
+        head = ttk.Frame(self._body)
+        head.pack(fill="x", padx=6, pady=(10, 2))
+        glyph, colour = _GLYPH.get(state.state, _GLYPH[modelmod.UNKNOWN])
+        ttk.Label(head, text=glyph, foreground=colour, width=2).pack(side="left")
+        self.tr(ttk.Label(head, font=ui_font(weight="bold"),
+                          foreground=grey or "#000000"), group.title_key).pack(side="left")
+        ttk.Label(head, text=self._state_words(state), foreground=_GREY).pack(
+            side="left", padx=(10, 0))
+
+        rows = ttk.Frame(self._body)
+        rows.pack(fill="x", padx=4, pady=(0, 2))
+        self._row(rows, "events.arms.phase", self._arms_kind_words(state.kind), grey)
+        self._row(rows, "events.arms.points", modelmod.arms_points(state), grey)
+        self._row(rows, "events.arms.chests", modelmod.arms_chests(state), grey)
+        self._row(rows, "events.arms.day",
+                  "—" if state.done is None else "%d / 6" % state.done, grey)
+        if state.state == modelmod.OPEN:
+            self._row(rows, "events.arms.until", modelmod.hhmm(state.seconds), grey)
+
+        # THE DAY, WHICH IS THE WHOLE REASON THE READING SENDS THE CALENDAR GET. Six
+        # lines: the window in the reader's own clock and what that phase pays for. The
+        # one running now is drawn live and the rest grey, so «what is on at four» is a
+        # glance rather than a trip into the game.
+        if state.phases:
+            plan = ttk.Frame(self._body)
+            plan.pack(fill="x", padx=4, pady=(2, 2))
+            self.tr(ttk.Label(plan, foreground=_GREY), "events.arms.calendar").pack(
+                anchor="w", padx=22)
+            for stage, kind, start, end in state.phases:
+                live = (state.stage is not None and stage == state.stage
+                        and state.state == modelmod.OPEN)
+                tint = _LIVE if live else _GREY
+                line = ttk.Frame(plan)
+                line.pack(fill="x", padx=22, pady=1)
+                line.columnconfigure(0, weight=1)
+                ttk.Label(line, text=modelmod.arms_phase_clock(start, end),
+                          foreground=tint or "#000000").grid(row=0, column=0, sticky="w")
+                ttk.Label(line, text=self._arms_kind_words(kind),
+                          font=ui_font(weight="bold" if live else "normal"),
+                          foreground=tint or "#000000").grid(row=0, column=1, sticky="e",
+                                                             padx=(8, 8))
+
+        # WHETHER THE FOUR-HOURLY RUN MAY HIRE. A standing order and not a press: the
+        # errand fires on the phase border, which is the one minute in four hours when
+        # nobody is at the machine.
+        if self._arms_hero_var is None:
+            self._arms_hero_var = statevar.boolean(self.rt.root)
+        self._arms_hero = self.arms_hero()
+        self._arms_hero_var.set(self._arms_hero)
+        knob = ttk.Frame(self._body)
+        knob.pack(fill="x", padx=28, pady=(4, 0))
+        self.tr(ttk.Checkbutton(knob, variable=self._arms_hero_var),
+                "events.arms.hero").pack(side="left")
+        if self._arms_drone_var is None:
+            self._arms_drone_var = statevar.boolean(self.rt.root)
+        self._arms_drone = self.arms_drone()
+        self._arms_drone_var.set(self._arms_drone)
+        self.tr(ttk.Checkbutton(knob, variable=self._arms_drone_var),
+                "events.arms.drone").pack(side="left", padx=(16, 0))
+        self.tr(ttk.Label(knob, foreground=_GREY),
+                "events.arms.stamina").pack(side="left", padx=(16, 0))
+        ttk.Label(knob, text=str(self.arms_stamina()),
+                  font=ui_font(weight="bold")).pack(side="left", padx=(6, 0))
+
+        press = ttk.Frame(self._body)
+        press.pack(fill="x", padx=28, pady=(4, 6))
+        self.tr(ttk.Button(press, command=lambda: self.play_arms(modelmod.ARMS_ERRAND)),
+                "events.arms.play").pack(side="left")
+        play = modelmod.ARMS_PLAYS.get(state.kind)
+        if play is not None:
+            self.tr(ttk.Button(press, command=lambda: self.play_arms(play)),
+                    "events.arms.hire" if state.kind == modelmod.ARMS_HERO
+                    else "events.arms.raise").pack(side="left", padx=(8, 0))
+        else:
+            # A PHASE WITH NO RECIPE GETS NO BUTTON, and the reason is said out loud
+            # rather than left as an absence: the other four phases spend the player's
+            # own speed-ups, drone data or troops and their ceilings have not been
+            # agreed. A button there would report success for doing nothing.
+            self.tr(ttk.Label(press, foreground=_GREY),
+                    "events.arms.no_recipe").pack(side="left", padx=(8, 0))
+
+    def _arms_knob_saved(self) -> None:
+        """The switch moved — ask for the profile to be written, both front-ends alike."""
+        try:
+            self.remember({modelmod.ARMS_HERO_KEY: self.arms_hero(),
+                           modelmod.ARMS_DRONE_KEY: self.arms_drone(),
+                           modelmod.ARMS_STAMINA_KEY: self.arms_stamina(),
+                           modelmod.ARMS_SQUAD_KEY: self.arms_squad()})
+        except Exception as exc:                # noqa: BLE001 — a profile going away
+            self.rt.dbg("events").warning("arms knob not saved: %s", exc)
+
     def _paint_golden_button(self) -> None:
         """Dead while a chain is on its way, and while the purse cannot pay for one march."""
         try:
@@ -1251,7 +1577,11 @@ class EventsTab(PanelTab):
         restored value answers when it is not — a tab nobody has opened must still hand
         back what it was given (`docs/panel-tabs.md`).
         """
-        return {modelmod.GOLDEN_SQUAD_KEY: self.squad(),
+        return {modelmod.ARMS_HERO_KEY: self.arms_hero(),
+                modelmod.ARMS_DRONE_KEY: self.arms_drone(),
+                modelmod.ARMS_STAMINA_KEY: self.arms_stamina(),
+                modelmod.ARMS_SQUAD_KEY: self.arms_squad(),
+                modelmod.GOLDEN_SQUAD_KEY: self.squad(),
                 modelmod.GOLDEN_APPROACH_KEY: self.approach(),
                 modelmod.TRAIN_CARRIAGE_KEY: self.carriage(),
                 modelmod.TRAIN_TICKETS_KEY: self.tickets(),
@@ -1259,6 +1589,13 @@ class EventsTab(PanelTab):
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
+        self._arms_hero = bool(raw.get(modelmod.ARMS_HERO_KEY,
+                                       modelmod.ARMS_HERO_DEFAULT))
+        self._arms_drone = bool(raw.get(modelmod.ARMS_DRONE_KEY,
+                                        modelmod.ARMS_DRONE_DEFAULT))
+        self._arms_stamina = modelmod.arms_stamina_of(
+            raw.get(modelmod.ARMS_STAMINA_KEY, modelmod.ARMS_STAMINA_DEFAULT))
+        self._arms_squad = modelmod.squad_of(raw.get(modelmod.ARMS_SQUAD_KEY))
         self._squad = modelmod.squad_of(raw.get(modelmod.GOLDEN_SQUAD_KEY))
         self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, False))
         self._train_carriage = modelmod.carriage_of(raw.get(modelmod.TRAIN_CARRIAGE_KEY))
@@ -1270,11 +1607,16 @@ class EventsTab(PanelTab):
                 self._squad_var.set(str(self._squad))
             if self._approach_var is not None:
                 self._approach_var.set(self._approach)
+            if self._arms_hero_var is not None:
+                self._arms_hero_var.set(self._arms_hero)
+            if self._arms_drone_var is not None:
+                self._arms_drone_var.set(self._arms_drone)
         except tk.TclError:                 # the window is going away
             pass
 
     def persist_vars(self) -> list:
-        return [v for v in (self._squad_var, self._approach_var) if v is not None]
+        return [v for v in (self._squad_var, self._approach_var, self._arms_hero_var,
+                            self._arms_drone_var) if v is not None]
 
     # -- the phone's copy ---------------------------------------------------
     def web_view(self) -> "dict | None":
@@ -1435,6 +1777,73 @@ class EventsTab(PanelTab):
                          "confirm": "events.ruins.confirm"},
                         {"id": "ruins_read", "label": "events.ruins.read"}]}
 
+        # …and «Гонка вооружений», which is the one card on this board whose whole
+        # point is what comes NEXT: the six phases of the day, with the one running now
+        # marked. That list exists because the reading sends the calendar get — nothing
+        # else on the client knows it (docs/research/arms-race.md).
+        arms = self.arms()
+        acard = {"title": "events.group." + modelmod.ARMS, "rows": [
+            {"label": "events.state", "value": self._state_words(arms)},
+            {"label": "events.arms.phase",
+             "value": self._arms_kind_words(arms.kind)},
+            {"label": "events.arms.points", "value": modelmod.arms_points(arms)},
+            {"label": "events.arms.chests", "value": modelmod.arms_chests(arms)},
+            {"label": "events.arms.day",
+             "value": ("—" if arms.done is None else "%d / 6" % arms.done)},
+        ]}
+        if arms.state == modelmod.OPEN:
+            acard["rows"].append({"label": "events.arms.until",
+                                  "value": modelmod.hhmm(arms.seconds)})
+        if arms.phases:
+            # The NAME is the label and the clock is the value, and that way round for a
+            # reason: a label is a locale key on this front-end and «07:00–11:00» is
+            # data. A kind the server invents tomorrow says so in words and carries its
+            # id in the value, rather than putting a bare number where a key belongs.
+            items = []
+            for _stage, kind, start, end in arms.phases:
+                key = modelmod.ARMS_KINDS.get(kind)
+                clock = modelmod.arms_phase_clock(start, end)
+                items.append({"label": key or "events.arms.kind.other",
+                              "value": clock if key else "%s · %s" % (clock, kind)})
+            acard["items"] = items
+        # THE SWITCH IS A FIELD, not a press: it is the rule our own four-hourly run
+        # obeys when it fires on a phase border, which is exactly the minute nobody is
+        # at the machine (`CLAUDE.md`).
+        acard["fields"] = [
+            {"key": modelmod.ARMS_HERO_KEY, "label": "events.arms.hero",
+             "hint": "events.arms.hero.hint", "kind": "switch",
+             "value": self.arms_hero()},
+            {"key": modelmod.ARMS_DRONE_KEY, "label": "events.arms.drone",
+             "hint": "events.arms.drone.hint", "kind": "switch",
+             "value": self.arms_drone()},
+            # THE 300 IS A FIELD AND NOT A CONSTANT, because it is the person's number
+            # («час дрона, 300 энергии, это стамина, тратим только стягами») and an
+            # account whose bar is a different size will want a different one.
+            {"key": modelmod.ARMS_STAMINA_KEY, "label": "events.arms.stamina",
+             "hint": "events.arms.stamina.hint", "kind": "number",
+             "value": self.arms_stamina(),
+             "min": modelmod.ARMS_STAMINA_MIN, "max": modelmod.ARMS_STAMINA_MAX},
+            squad_picker.field(self.rt, modelmod.ARMS_SQUAD_KEY, "events.arms.squad",
+                               [self.arms_squad()], single=True)]
+        if not self._arms_running:
+            acts = [{"id": "play_arms", "label": "events.arms.play"}]
+            if arms.kind == modelmod.ARMS_HERO:
+                # Hiring spends the player's recruit tickets, so it asks first — the
+                # same rule the train's fare and the rally join go by. Diamonds are
+                # never in it: the recipe refuses a hire the tickets will not cover.
+                acts.append({"id": "phase_arms", "label": "events.arms.hire",
+                             "confirm": "events.arms.hire.confirm"})
+            elif arms.kind == modelmod.ARMS_DRONE:
+                # …and raising sends squads out of the base and spends the day's own
+                # rallies, so it asks too. What it may spend is the two ceilings above
+                # and the rally budget the card does not own.
+                acts.append({"id": "phase_arms", "label": "events.arms.raise",
+                             "confirm": "events.arms.raise.confirm"})
+            acard["actions"] = acts
+        else:
+            acard["items"] = (acard.get("items") or []) + [
+                {"label": "events.arms.play", "pill": "events.codename.attack.off"}]
+
         return {"cards": [
             {"title": None, "rows": [
                 {"label": "events.web.read",
@@ -1445,6 +1854,7 @@ class EventsTab(PanelTab):
             tcard,
             fcard,
             rcard,
+            acard,
         ], "now": time.time(),
             "actions": [{"id": "refresh", "label": "events.refresh"},
                         # …AND «ПРОРЫВ ОБОРОНЫ» (#1976), the Sunday mini-game. One recipe
@@ -1486,6 +1896,17 @@ class EventsTab(PanelTab):
             return self.ruins(action == "ruins_play")
         if action == "collect_fireworks":
             return {"ok": self.collect_fireworks()}
+        if action == "play_arms":
+            return {"ok": self.play_arms(modelmod.ARMS_ERRAND)}
+        if action == "phase_arms":
+            # The gate is the recipe's — it refuses a phase of another kind in one line.
+            # What is checked here is only that the panel can NAME the phase as one it
+            # has a recipe for: a press over an unreadable phase would ask the game to
+            # act on something nobody could say the name of.
+            play = modelmod.ARMS_PLAYS.get(self.arms().kind)
+            if play is None:
+                return {"error": "closed"}
+            return {"ok": self.play_arms(play)}
         if action == "frontline":
             # The recipe's own defaults — how many rounds, how deep each lane goes — are
             # `ARGS` of the file and the panel holds no second opinion (`CLAUDE.md`).
@@ -1550,6 +1971,44 @@ class EventsTab(PanelTab):
                 if len(picked) != 1:
                     return {"error": "unknown"}
                 return self._set_golden_squad(picked[0])
+            if key == modelmod.ARMS_HERO_KEY:
+                self._arms_hero = bool(raw)
+                if self._arms_hero_var is not None:
+                    try:
+                        self._arms_hero_var.set(self._arms_hero)
+                    except tk.TclError:     # the window is going away
+                        pass
+                self._arms_knob_saved()
+                return {"ok": True, "hero": self._arms_hero}
+            if key == modelmod.ARMS_DRONE_KEY:
+                self._arms_drone = bool(raw)
+                if self._arms_drone_var is not None:
+                    try:
+                        self._arms_drone_var.set(self._arms_drone)
+                    except tk.TclError:     # the window is going away
+                        pass
+                self._arms_knob_saved()
+                return {"ok": True, "drone": self._arms_drone}
+            if key == modelmod.ARMS_STAMINA_KEY:
+                # REFUSED RATHER THAN CLAMPED, the rule the train's fare goes by: a
+                # ceiling that silently became something else is a ceiling the person
+                # did not set.
+                number = _whole(raw)
+                if (number is None or number < modelmod.ARMS_STAMINA_MIN
+                        or number > modelmod.ARMS_STAMINA_MAX):
+                    return {"ok": False, "reason": "web.ui.not_a_number"}
+                self._arms_stamina = number
+                self._arms_knob_saved()
+                return {"ok": True, "stamina": self._arms_stamina}
+            if key == modelmod.ARMS_SQUAD_KEY:
+                # ONE squad — a run raises its banners with one, and inventing which is
+                # not the panel's call (#2062).
+                picked = squad_picker.chosen_from(raw)
+                if len(picked) != 1:
+                    return {"error": "unknown"}
+                self._arms_squad = modelmod.squad_of(picked[0])
+                self._arms_knob_saved()
+                return {"ok": True, "squad": self._arms_squad}
             if key == modelmod.TRAIN_BUY_KEY:
                 self._train_buy = bool(raw)
                 self._train_knob_saved()

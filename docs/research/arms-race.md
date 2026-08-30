@@ -97,16 +97,70 @@ next will pay; the client learns it when the phase starts. That costs nothing, b
 what a phase of a given KIND wants is the kind's own business and is known from the
 config.
 
+## The drone phase is paid for in STAMINA, and the stamina is not its own
+
+The person's words for `120004`: **«Час дрона, 300 энергии, это стамина, тратим только
+стягами»** — the phase's points come from raising rallies, each rally costs stamina, and
+one run may spend 300 of it.
+
+Two things about that are worth writing down, because both are easy to get wrong.
+
+**«Энергия» here IS the stamina, and it is the SAME purse the golden-zombie hunt
+spends.** `LuaEntry.Player.stamina` is what both read; the hunt merely calls it `energy`
+on its card (`actions/read_golden_zombies.md`). So the two abilities compete for one
+bar: a drone phase told it may spend 300 leaves that much less for zombies, and a hunt
+that ran first can leave the phase with nothing. Neither knows about the other, and
+nothing in the panel shares the bar out — that is a decision for the person, not for an
+agent.
+
+**The price of a rally is ASKED, never written down.**
+`MarchUtil.GetCostStaminaByTargetType(MarchTargetType.RALLY_FOR_BOSS)` — the same call
+the hunt makes for `ATTACK_MONSTER`, which answers 10. The rally figure has **not been
+read live yet**, and the recipe refuses to loop if the build answers 0: a ceiling of
+«300 stamina» over a spend the game prices at nothing is a ceiling that cannot bite, and
+a run that discovered that by looping would be a run raising unbounded banners.
+
+**And it never gets a rally allowance of its own.** The rallies a day is worth are the
+person's own caps, per monster group, counted in `panel/rally_limits.py` (#2051/#2055).
+The arms race spends OUT OF those: the panel hands the recipe what is left, `0` raises
+nothing, and a drone phase that therefore scores nothing is the right outcome rather
+than a bug. An event that quietly overspent the day's rallies is exactly what the caps
+exist to stop.
+
+## The rules arrive for the current phase only — so judge by the score MOVING
+
+There is no way to ask what the phase after next will pay, and what paid yesterday is
+worthless. So `arms_race_drone.md` carries no rule id at all: it reads `sc` before a
+banner and again after it, and stops on the spot when the number did not move. That is a
+check the game itself answers and it survives the rules changing under it.
+
 ## What the panel does with it
 
 * `actions/read_arms_race.md` — sends the calendar get, then reads the phase running now
   (`arms`) and the whole day (`arms_day`). Presses nothing, spends nothing.
+* `actions/perform_arms_race.md` — the errand. Reads the phase, plays whichever recipe
+  that kind has, and leaves the seconds to the next border in `next_run_in`, so the
+  schedule books the turn ON the border rather than grinding a period against an event
+  that changes five times a day.
 * `actions/arms_race_hero.md` — the `120000` phase: recruit in the tavern up to the
   phase's top chest or the allowance the person gave, whichever comes first, and never
   in diamonds.
+* `actions/arms_race_drone.md` — the `120004` phase: raise rallies up to the stamina
+  ceiling, the day's remaining rally allowance, the phase's top chest, or the squad
+  coming off the board, whichever comes first.
 
 ## Open
 
-* The other four phases spend the player's speed-ups, drone data and stamina. **Each
-  needs its ceiling agreed with the person before a recipe is written** — a phase recipe
-  with a guessed ceiling is a recipe that spends somebody else's items.
+* `120001` «Строительство Города», `120002` «Прогресс юнита» and `120003` «Исследование
+  технологий» spend the player's speed-ups and troops. **Each needs its ceiling agreed
+  with the person before a recipe is written** — a phase recipe with a guessed ceiling
+  is a recipe that spends somebody else's items. Asked and not yet answered: how much
+  speed-up per phase and whether any queue or only the one already running; which unit,
+  how many batches, and what resource floor; and whether the chests should be claimed
+  automatically.
+* **The rally cost in stamina has not been read off a live client.** Everything the
+  drone recipe does is bounded by it, so it is the first thing to check when the phase
+  next comes round.
+* **The stamina bar is shared with the golden-zombie hunt and nothing shares it out.**
+  Written down here rather than solved: which of the two gets the bar on a day both want
+  it is the person's call.

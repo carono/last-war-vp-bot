@@ -187,7 +187,105 @@ TRAIN_WITH_PASSENGER = 3
 
 #: The groups, in the order they are drawn. One so far, and the shape is what matters:
 #: a second event is one entry here, one `Group`, and its own reading.
-GROUPS: tuple = (Group(CODENAME), Group(GOLDEN), Group(FIREWORKS))
+#: «Гонка вооружений» — six four-hour phases a day, each paying points for ONE kind of
+#: progress, on a schedule the server fixed a week ahead.
+#:
+#: The card exists because the event is unreadable without it: the client volunteers the
+#: phase running NOW and nothing else, so «what comes next» is a question a person
+#: otherwise answers by opening the game. The calendar is one message away and the
+#: reading sends it (`actions/read_arms_race.md`), which is what lets this card draw the
+#: whole day and lets the errand book its next turn on a phase BORDER instead of
+#: grinding a period against an event that changes five times a day.
+#:
+#: Nothing here is counted by the panel. `sc` is the server's own tally, so points made
+#: from the phone or by the person playing are already in it — the same rule the rest of
+#: this board goes by. The research is docs/research/arms-race.md.
+ARMS = "arms"
+
+#: The scenario that answers it, and the two variables it lands in — the phase running
+#: now, and the day's six borders.
+ARMS_ACTION = "read_arms_race"
+ARMS_VARIABLE = "arms"
+ARMS_DAY_VARIABLE = "arms_day"
+
+#: The press: do what the phase running now pays for, then book the border.
+ARMS_ERRAND = "perform_arms_race"
+
+#: …and the one phase that has a recipe, played on its own by the button beside it.
+ARMS_HERO_ACTION = "arms_race_hero"
+
+#: The five kinds of phase, by the id the server sends. The NAMES are the game's own and
+#: are copied out of its tables into the locales (`docs/game-glossary.md`); a kind the
+#: server invents tomorrow draws its bare id rather than a guess.
+ARMS_HERO = 120000
+ARMS_BUILD = 120001
+ARMS_UNIT = 120002
+ARMS_TECH = 120003
+ARMS_DRONE = 120004
+ARMS_KINDS: dict = {
+    ARMS_HERO: "events.arms.kind.hero",
+    ARMS_BUILD: "events.arms.kind.build",
+    ARMS_UNIT: "events.arms.kind.unit",
+    ARMS_TECH: "events.arms.kind.tech",
+    ARMS_DRONE: "events.arms.kind.drone",
+}
+
+#: …and the one for the drone phase, which is paid for in STAMINA and in the day's own
+#: rallies: the points come from raising banners and nothing else (#2065).
+ARMS_DRONE_ACTION = "arms_race_drone"
+
+#: Which kinds the panel can actually act on. Two so far, and the list is here rather
+#: than in the tab because it decides whether a BUTTON is offered: the other three spend
+#: the player's speed-ups or troops, and their ceilings have not been agreed
+#: (`src/lastwar_bot/actions/perform_arms_race.md`). A button over a phase with no
+#: recipe would be a button that reports success for doing nothing.
+ARMS_AUTOMATED: tuple = (ARMS_HERO, ARMS_DRONE)
+
+#: What each automated phase is played by, so neither front-end has to know.
+ARMS_PLAYS: dict = {ARMS_HERO: ARMS_HERO_ACTION, ARMS_DRONE: ARMS_DRONE_ACTION}
+
+#: Whether the errand's hero phase may hire. Saved in this tab's own block, because it
+#: is a decision about THIS account; how MANY hires is the recipe's `ARGS pulls`.
+ARMS_HERO_KEY = "arms_hero"
+ARMS_HERO_DEFAULT = True
+
+#: …and the same for the drone phase, whose ceiling is a NUMBER the person named: «час
+#: дрона, 300 энергии, это стамина, тратим только стягами».
+ARMS_DRONE_KEY = "arms_drone"
+ARMS_DRONE_DEFAULT = True
+ARMS_STAMINA_KEY = "arms_stamina"
+ARMS_STAMINA_DEFAULT = 300
+#: The bounds of that ceiling. Zero is a legal answer and means «raise nothing»; the top
+#: is a whole day's stamina bar several times over, so the field never argues with an
+#: account whose bar is bigger than this one's.
+ARMS_STAMINA_MIN = 0
+ARMS_STAMINA_MAX = 2000
+
+#: Which squad raises the drone phase's banners, by the slot the player sees.
+ARMS_SQUAD_KEY = "arms_squad"
+ARMS_SQUAD_DEFAULT = 1
+
+#: WHICH RALLY BUDGET THE DRONE PHASE SPENDS OUT OF (#2051/#2055). The run raises boss
+#: banners, so it comes out of the elite group's own daily cap — the person's number,
+#: kept in `panel/rally_limits.py` and counted there. The arms race never gets an
+#: allowance of its own: an event that quietly overspends the day's rallies is exactly
+#: what the caps exist to stop, and a phase that therefore scores nothing is the RIGHT
+#: outcome rather than a bug.
+ARMS_RALLY_KIND = "doom_elite"
+#: What «no cap at all» is handed over as. A number rather than «unlimited», because the
+#: recipe counts down from it — and the stamina ceiling bites long before this does.
+ARMS_RALLIES_UNCAPPED = 99
+
+
+def arms_stamina_of(value) -> int:
+    """A stamina ceiling that came out of a file or off a phone, clamped to the field."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return ARMS_STAMINA_DEFAULT
+    return max(ARMS_STAMINA_MIN, min(ARMS_STAMINA_MAX, number))
+
+GROUPS: tuple = (Group(CODENAME), Group(GOLDEN), Group(FIREWORKS), Group(ARMS))
 
 
 def when(stamp: float) -> str:
@@ -611,3 +709,127 @@ def train_queue(state) -> str:
     if not state.cars or not state.seats:
         return str(state.waiting)
     return "%d / %d" % (state.waiting, state.cars * state.seats)
+
+
+class ArmsState:
+    """What «Гонка вооружений» says right now — the whole card, in one object.
+
+    ``kind`` is the phase's id (:data:`ARMS_KINDS`), ``score`` the points the SERVER has
+    for this phase, ``targets`` the three chest totals and ``taken`` which of them are
+    already claimed. ``None`` anywhere is «the game would not say» and is drawn as words
+    — never as a zero, which on this card would read as «you have done nothing» when the
+    truth is «nobody asked».
+    """
+
+    __slots__ = ("state", "day", "stage", "kind", "score", "targets", "taken",
+                 "seconds", "done", "day_taken", "phases")
+
+    def __init__(self, state: str, day=None, stage=None, kind=None, score=None,
+                 targets=(), taken=(), seconds=None, done=None, day_taken=(),
+                 phases=()) -> None:
+        self.state = state
+        self.day = day
+        self.stage = stage
+        self.kind = kind
+        self.score = score
+        #: The three chest totals of the phase, smallest first.
+        self.targets = tuple(targets)
+        #: …and 1 for each of them already claimed.
+        self.taken = tuple(taken)
+        self.seconds = seconds
+        #: How many of the day's six phases count as finished.
+        self.done = done
+        #: The day's own three chests, claimed or not.
+        self.day_taken = tuple(day_taken)
+        #: The day's calendar: `(stage, kind, start, end)` per phase, oldest first.
+        self.phases = tuple(phases)
+
+    @property
+    def open(self) -> bool:
+        return self.state == OPEN
+
+    @property
+    def automated(self) -> bool:
+        """Is there a recipe for the phase running now?
+
+        `False` while nobody knows — an unknown phase has no recipe by definition, and
+        offering the press anyway would ask the game to act on a phase the panel could
+        not name.
+        """
+        return self.kind in ARMS_AUTOMATED
+
+    @property
+    def top(self):
+        """The biggest chest total of this phase, or ``None``."""
+        return max(self.targets) if self.targets else None
+
+    def __repr__(self) -> str:
+        return f"<arms {self.state} kind={self.kind} score={self.score}>"
+
+
+def arms_state(reading, calendar=()) -> "ArmsState":
+    """The arms card against one reading. No answer is `unknown`, never `closed`."""
+    if reading is None or reading.error or not reading.values:
+        return ArmsState(UNKNOWN, phases=tuple(calendar))
+    get = reading.get
+    running = get("open")
+    state = OPEN if running else (UNKNOWN if running is None else CLOSED)
+    return ArmsState(
+        state,
+        day=get("day"), stage=get("stage"), kind=get("event"), score=get("sc"),
+        targets=tuple(v for v in (get("t1"), get("t2"), get("t3")) if v is not None),
+        taken=tuple(v for v in (get("g1"), get("g2"), get("g3")) if v is not None),
+        seconds=get("until"), done=get("done"),
+        day_taken=tuple(v for v in (get("d1"), get("d2"), get("d3")) if v is not None),
+        phases=tuple(calendar))
+
+
+def arms_calendar(raw) -> tuple:
+    """`0:120004:1788055200:1788069600 …` → `((stage, kind, start, end), …)`.
+
+    Anything unparseable is dropped rather than raised on: this is the client talking,
+    and a client that has just been restarted says all sorts of things.
+    """
+    out = []
+    for piece in str(raw or "").split():
+        parts = piece.split(":")
+        if len(parts) != 4:
+            continue
+        try:
+            out.append(tuple(int(p) for p in parts))
+        except ValueError:
+            continue
+    return tuple(out)
+
+
+def arms_chests(state) -> str:
+    """`1 / 3` — how many of the phase's three chests have been claimed."""
+    if not state.targets:
+        return "—"
+    return "%d / %d" % (sum(1 for v in state.taken if v), len(state.targets))
+
+
+def arms_points(state) -> str:
+    """`800 / 12 000` — the points scored against the top chest of the phase."""
+    if state.score is None:
+        return "—"
+    top = state.top
+    if top is None:
+        return f"{state.score:,}".replace(",", "\u00a0")
+    return ("%s / %s" % (f"{state.score:,}", f"{top:,}")).replace(",", "\u00a0")
+
+
+def arms_phase_clock(start: int, end: int) -> str:
+    """`08:00–12:00` — one phase's window, in the reader's own local time.
+
+    The borders are the SERVER's seconds and are shown as the clock the person reads,
+    for the same reason :func:`when` is local: this answers «when do I have to be here»,
+    not «which server day does this belong to».
+    """
+    import datetime as _dt                              # noqa: PLC0415 — one format
+    try:
+        a = _dt.datetime.fromtimestamp(int(start)).strftime("%H:%M")
+        b = _dt.datetime.fromtimestamp(int(end)).strftime("%H:%M")
+    except (TypeError, ValueError, OSError):
+        return "—"
+    return f"{a}–{b}"
