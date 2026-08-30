@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **34%** — 56 of 164
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **36%** — 60 of 169
 
-🟩 56 done · 🟨 73 partly · 🟥 35 not automated
+🟩 60 done · 🟨 75 partly · 🟥 34 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -145,8 +145,13 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 ### Arms Race
 
-- ❌ Drone window, rally window, stamina window
-- ❌ City, hero, technology and unit windows
+- ✅ Reading the whole event in one go — which of the five phases is running, how many points the account has scored, what each of the phase's three boxes costs, how much time the phase has left, and the week's plan of phases. No window is opened and nothing is asked twice: the plan says when the phase turns over, so the bot waits for the border instead of looking again.
+- ✅ Taking the boxes — both ladders, the phase's own three and the day's, claimed the moment the score has earned them and before anything is spent. A box is taken and never given back, so it is done on every run whatever the phase is. Live: three phase boxes and three day boxes in one pass.
+- ✅ The building phase and the technology phase — the two that pay for minutes of speed-up. The bot pours minutes into the queue with the most time left, spends the phase's own kind of speed-up before the universal ones and the small pieces before the big ones, and stops at the first of three limits: the top box of the phase, the ceiling the person set, or what the queue can still absorb. It never spends diamonds. It also checks the price of a minute against the game rather than trusting a number: one piece goes out first, the score is read before and after, and everything else is planned on what that piece actually paid — a phase that stops paying stops the run. Live: a technology phase and a building phase each taken to the top box exactly, 3 000 minutes for the second of them, with the pieces spent counted in the log.
+- ✅ Hiring on the hero phase — the phase whose points come from the tavern. Live: one hire, 400 points.
+- 🟡 The drone phase — raises rallies for the points, under the day's own rally allowance and a stamina ceiling; not yet seen in a real session.
+- ❌ The unit phase — training soldiers for points. The bot says what the phase pays for and spends nothing, because the training order is the one thing about this event it cannot yet send.
+- 🟡 The event on a schedule — one row that does whatever the phase in front of it pays for, claims the boxes and then sleeps to the phase border rather than to a clock, so it wakes when the game changes phase. Ships switched off, and the spending of speed-ups is a separate switch that is off too, with a ceiling in minutes beside it — both reachable from the phone.
 
 ### Alliance duel (VS)
 
@@ -327,7 +332,7 @@ The routine as it is actually played, against what the bot covers.
 | | |
 |---|---|
 | Every 20 min — donate to alliance technology | ✅ · on a schedule 🟡 |
-| Every 4 h — Arms Race objectives | ❌ |
+| Every 4 h — Arms Race objectives | 🟡 four phases of the five done by itself — boxes, the tavern, and the minutes of speed-up the building and technology phases pay for; the unit phase is read and left alone |
 | Every 4 h — send the second batch of trucks | 🟡 one press, and it comes back by itself when the nearest truck is home |
 
 ### Every day

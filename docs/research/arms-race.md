@@ -391,36 +391,47 @@ into the sender needs the barracks window open, so the ear stays armed until one
 «Тренировать» is pressed by hand. **A guessed batch spends the player's resources**, so
 «Прогресс юнита» draws «no recipe» rather than a button until then.
 
-## The ear: what is armed on the live client, and what it is waiting for
+## The ear: what it answered, and the one press it is still waiting for
 
-Since none of the three sends can be read out of a class, the remaining route is to hear
-one. `SFSNetwork.SendMessage` is wrapped by a recorder that keeps the command and its
+`SFSNetwork.SendMessage` is wrapped by a recorder that keeps the command and its
 arguments for anything naming a speed-up, a training batch, a research or an arms-race
-chest, and sends nothing itself. It is armed and it is waiting for **one press made by
-hand**, per ability:
+chest, and sends nothing itself. **It is not a permanent fixture**: the wrapper keeps the
+original in a closure and `getupvalue` is closed, so the only way to take it off is to
+restart the client — which every client restart does for free, and which is why a session
+that needs the ear arms it again rather than assuming it is still there.
 
-* «ускорить» once on a building or research queue → the shape of `item.use`;
-* «тренировать» once in the barracks → the shape of `building.camp.training`;
-* one arms-race chest claimed once it is owed → the shape of the two reward sends.
+Three of the four shapes never needed it in the end (the message classes are loaded
+modules — see above), and the chest send was heard on the one press that was made:
 
-One press each is the whole cost, and it answers all three exactly. Until then the three
-phases stay unwritten rather than guessed — a guessed payload spends the player's own
-speed-ups on a message the server may or may not read.
+```
+build.ccd.m.new({bUUID=<a building uuid> isFixRuins=false itemIDs=<id>;<count>}, 0)
+activity.hero.score.reward(29, -1)
+```
+
+**One press is still owed: «Тренировать» once in the barracks.** `building.camp.training`
+has its argument NAMES and not its values — `type` is an arm (a `NewQueueType`, most
+likely, and «most likely» is not a thing to send) and `fromLevel` is either 0 for a fresh
+batch or the level being promoted from. Every route into the sender wants the barracks
+window open. **A guessed batch spends the player's resources**, so «Прогресс юнита» says
+what the phase pays for and presses nothing until that press is made.
+
+## What is proven live
+
+* **The minutes phases, both of them.** A technology phase and a building phase were each
+  taken to their top chest exactly — 3 000 minutes for the second, in two parcels, the
+  first of which is deliberately ONE piece so the rate is measured rather than trusted.
+  The client's own `SpeedScoreValue` says 6 a minute for research and the phase paid
+  **10**, which is why the constant is only ever the opening guess.
+* **Both chest ladders.** Three phase boxes and three day boxes claimed in one pass.
+* **The hero phase.** One hire, 400 points.
 
 ## Open
 
-* **The ceilings are all settled and the RATE is now known too; the SENDERS are what is
-  missing.** `120001` and `120003` spend speed-up minutes into the queue with the LONGEST
-  remaining time, specialised kinds before universal ones, stopping at the top chest
-  (1 715 and 2 000 minutes respectively) or at the 3 000 the person named, whichever comes
-  first; `120002` speeds a training queue up only far enough to FREE it, then collects and
-  trains the most level-9 soldiers it can; the chests are claimed as soon as they are
-  owed. None of that can be written until the «use a speed-up on this queue», «start a
-  training batch» and «claim this box» sends are known — the ear above is armed for
-  exactly that, and needs one press by hand for each.
+* **The training send.** One press by hand, and `120002` can be written; until then it is
+  the only phase of the five that spends nothing.
 * **The rally cost in stamina has not been read off a live client.** Everything the
   drone recipe does is bounded by it, so it is the first thing to check when the phase
-  next comes round.
+  next comes round — the drone phase is the one recipe here that has not run live at all.
 * **The stamina bar is shared with the golden-zombie hunt and nothing shares it out.**
   Written down here rather than solved: which of the two gets the bar on a day both want
   it is the person's call.
