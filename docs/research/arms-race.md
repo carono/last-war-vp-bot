@@ -208,16 +208,137 @@ and `receive` is 1 once taken.
 `GetScoreBoxState(self, data, index)`, `GetCurData(self, activityId)`,
 `IsAllBoxRewardReceivedByType(self, activityType)` all came from it.
 
+## What a minute of speed-up is worth — the client says so, and it says it offline
+
+The section above is right that the `score` table names no event, and that a phase hands
+its own rules over only while it runs. It was wrong to conclude from that that **nothing**
+about the rate is knowable in advance. A different table, a plain global, holds it:
+
+```
+SpeedScoreValue            = { Build = 7, Science = 6, Soldier = 4, Heal = 9 }
+ItemSpdMenu2SpeedScoreValue = { [3] = 4, [4] = 9, [6] = 6, [7] = 7 }
+SpeedUpItemId              = 200103
+```
+
+`SpeedScoreValue` is points per **minute** of speed-up spent, by what the minutes were
+spent on, and `ItemSpdMenu2SpeedScoreValue` is the same four numbers keyed by the tab of
+the speed-up bag — so menu 3 is soldiers, 4 healing, 6 research, 7 building. Read against
+the 12 000 of the top chest that gives the minutes each phase actually needs:
+
+| phase | per minute | minutes for 12 000 |
+|---|---|---|
+| 120001 building | 7 | 1 715 |
+| 120003 research | 6 | 2 000 |
+| 120002 units, by speeding a queue | 4 | 3 000 |
+
+Which is worth reading beside the ceiling the person named — «на стройку и науку нужно
+3000 минут» — because 3 000 is the number for SOLDIERS at 4 a minute, and building and
+research reach the same chest on rather less. The ceiling is not wrong; it is simply
+above what the top box costs, and a recipe that stops at the box stops first.
+
+**None of that removes the reading.** The rate is a client constant and the phase's own
+rules are the server's; a run still checks that the score MOVED, exactly as the drone
+recipe does, because a constant that used to be true is the classic way to spend an
+account's items for nothing.
+
+### A phase names its own rules, in a field beside the score
+
+The live row carries `scores` — the ids of the `score` rows this phase pays by, packed
+into one string with `|`:
+
+```
+event_id=120000  sc=<points>  curDay=<n>  curStage=1  activityId=<n>
+score_reward_max=12000  day_rewards_max=18  scores=<id>|<id>|<id>
+minLevelStage=31  maxLevelStage=35  stage_end_time=<epoch>
+```
+
+So «what does this phase pay for» is two reads and no capture: `scores` for the ids, the
+`score` table for the rows. Checked against the hero phase, the three it named came back
+as exactly the rules the section above had to wait for a running phase to learn — `type
+42` 400 for one hire, `type 87` 1 per 2 000 hero XP, `type 20` 30 for a diamond bundle.
+
+**The config does NOT hand the same thing over in advance.** `hero_event` holds a row per
+phase (`120000`…`120004`) with its name key and a handful of unnamed integer columns —
+the table arrives without metadata, so the columns have numbers instead of names — and
+none of them is the rule list the server sends. `hero_activity` is the day plan: 28 rows,
+`cycle = 240` minutes (which is where the four-hour phase comes from), `day`, the day
+rewards and the rank ladder, over the `100000…100004` series rather than this one.
+Neither answers «what pays what» for a phase that is not running.
+
+## `require` still opens a UI class, and it is the way past a closed `string.dump`
+
+A window's Lua is a module, and `require` loads it **without opening the window**. The
+paths follow a convention worth writing down, because guessing it wrongly reads as «not
+found» and looks like the class does not exist:
+
+```
+UI.<Window>.View.<Window>View          -- the widgets, the listeners, and the SEND
+UI.<Window>.Controller.<Window>Ctrl    -- (also seen as UI.<Window>.Ctrl.<Window>Ctrl)
+```
+
+`require('UI.UISpeed.View.UISpeedView')` returns 75 functions, and `debug.getlocal` names
+their arguments even though `string.dump` is closed:
+
+| what | signature |
+|---|---|
+| the send | `SendMsg(self)` |
+| one speed-up chosen | `GetOneSpeedUp(self, list)` · `GetSpeedItem(self)` |
+| what a set of items is worth | `GetSpeedUpTime(self, speedItemList, time)` |
+| spending it | `ConfirmUse(self, id, item, time)` · `UseAddItem(self, itemId, count)` |
+| the client's own log line | `AppendUseItemActionLog(self, itemId, count, approachStr)` |
+
+**And that is where it stops.** Every one of them takes `self` — the open window, its
+list, its slider, its target queue — so none is callable from a recipe, and `SendMsg`
+builds its message out of that `self`. The names settle WHICH message it is (`item.use`),
+not what rides on it.
+
+`Util.LWResourceLackUtil.GetSpeedUpGoods(self, endTime, speedType, itemList)` is the
+game's own chooser — which speed-ups to spend for a given end time and kind — and is the
+place to look when «профильные раньше универсальных» has to be reproduced rather than
+re-invented.
+
+### The message names, settled
+
+| what | `MsgDefines` |
+|---|---|
+| spend a speed-up | `ItemUse = item.use` (and `PushItemUse = push.item.use`) |
+| start a training batch | `BuildingCampTraining = building.camp.training` |
+| start a research | `ScienceResearchNew = science.research.new` |
+| the free five minutes | `FreeSpeedQueue = free.speed.queue` |
+| the two chests | `ActivityHeroScoreReward` · `ActivityHeroDayReward` |
+
+Two senders that ARE reachable from a recipe, for completeness:
+`DataCenter.ArmyManager.ArmyManager:SendSpeedFinishQueue(qUuid)` and
+`DataCenter.QueueData.QueueDataManager:AllianceHelpAddSpeed(uuid, endTime, startT)`.
+Neither spends an item.
+
+## The ear: what is armed on the live client, and what it is waiting for
+
+Since none of the three sends can be read out of a class, the remaining route is to hear
+one. `SFSNetwork.SendMessage` is wrapped by a recorder that keeps the command and its
+arguments for anything naming a speed-up, a training batch, a research or an arms-race
+chest, and sends nothing itself. It is armed and it is waiting for **one press made by
+hand**, per ability:
+
+* «ускорить» once on a building or research queue → the shape of `item.use`;
+* «тренировать» once in the barracks → the shape of `building.camp.training`;
+* one arms-race chest claimed once it is owed → the shape of the two reward sends.
+
+One press each is the whole cost, and it answers all three exactly. Until then the three
+phases stay unwritten rather than guessed — a guessed payload spends the player's own
+speed-ups on a message the server may or may not read.
+
 ## Open
 
-* **The ceilings are all settled; the SENDERS are what is missing.** `120001` and
-  `120003` spend 3 000 minutes of speed-up into the queue with the LONGEST remaining
-  time, specialised kinds before universal ones; `120002` speeds a training queue up only
-  far enough to FREE it, then collects and trains the most level-9 soldiers it can; the
-  chests are claimed as soon as they are owed. None of that can be written until the
-  «use a speed-up on this queue», «start a training batch» and «claim this box» sends are
-  known — see «What did NOT work» above for the three routes that are closed and the two
-  that are not.
+* **The ceilings are all settled and the RATE is now known too; the SENDERS are what is
+  missing.** `120001` and `120003` spend speed-up minutes into the queue with the LONGEST
+  remaining time, specialised kinds before universal ones, stopping at the top chest
+  (1 715 and 2 000 minutes respectively) or at the 3 000 the person named, whichever comes
+  first; `120002` speeds a training queue up only far enough to FREE it, then collects and
+  trains the most level-9 soldiers it can; the chests are claimed as soon as they are
+  owed. None of that can be written until the «use a speed-up on this queue», «start a
+  training batch» and «claim this box» sends are known — the ear above is armed for
+  exactly that, and needs one press by hand for each.
 * **The rally cost in stamina has not been read off a live client.** Everything the
   drone recipe does is bounded by it, so it is the first thing to check when the phase
   next comes round.
