@@ -791,6 +791,10 @@ class _Workspace:
     def sessions(self) -> list:
         return list(self._sessions)
 
+    @property
+    def names(self) -> list:
+        return [s.name for s in self._sessions]
+
     def close(self, name: str) -> None:
         self._sessions = [s for s in self._sessions if s.name != name]
         if self.current.name == name and self._sessions:
@@ -818,6 +822,59 @@ def test_the_page_can_ask_which_accounts_are_open():
         answer = api.profiles()
         assert answer["profiles"] == ["main", "second"], answer
         assert answer["home"] == "main" and answer["showing"] == "main"
+
+
+def test_a_profile_this_panel_has_not_got_is_REFUSED_and_never_answered_out_of_another():
+    """The silent substitution, and it cost a whole evening to see (#2068).
+
+    A machine ended up with two panels: the real one on `default`, and one left over from
+    somebody checking two test accounts. The page went to the leftover, asked
+    `/api/state?profile=default` — and got **200, out of a test account**, named as
+    itself and looking perfectly healthy. Nothing in that answer says which account it is
+    about, so «в панели не открывается профиль default» was the only symptom of a panel
+    quietly speaking for somebody else.
+
+    What is pinned here is the difference between the two questions. A request that names
+    NOBODY still falls back to the server's own session — that is a page that has never
+    chosen an account. A request that NAMES one is a question about that account, and a
+    panel that has not got it says so with the list of what it has, so the page can
+    re-point itself.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        first, _second, _ws = _two_profiles(home)
+        api = apimod.WebApi(first)
+
+        status, said = api.dispatch("GET", "/api/state", {"profile": "ghost"}, {})
+        assert status == 409, (status, said)
+        assert said["error"] == "no_such_profile" and said["profile"] == "ghost", said
+        assert said["profiles"] == ["main", "second"], said
+
+        # A press is refused the same way — worse, in fact: it would have RUN, on the
+        # wrong account's client, spending the wrong account's quota.
+        status, said = api.dispatch("POST", "/api/actions/run",
+                                    {}, {"profile": "ghost", "name": "heal_units"})
+        assert status == 409 and said["error"] == "no_such_profile", (status, said)
+
+        # …and the ones that are about the PANEL go on answering, because a phone whose
+        # remembered account is on another panel has to be able to ask what this one has.
+        status, said = api.dispatch("GET", "/api/profiles", {"profile": "ghost"}, {})
+        assert status == 200 and said["profiles"] == ["main", "second"], (status, said)
+        status, said = api.dispatch("GET", "/api/i18n", {"profile": "ghost"}, {})
+        assert status == 200, (status, said)
+
+        # The «Профиль» screen names a profile this panel has not got BY DESIGN — that
+        # is what opening one is — so it may not be caught by the gate.
+        status, said = api.dispatch("GET", "/api/screen",
+                                    {"profile": "ghost", "id": "profiles"}, {})
+        assert status == 200, (status, said)
+        status, said = api.dispatch("POST", "/api/screen/press", {},
+                                    {"profile": "ghost", "id": "profiles",
+                                     "action": "open", "args": {"name": "ghost"}})
+        assert status == 200, (status, said)
+
+        # Naming nobody is unchanged: the server's own session answers.
+        status, said = api.dispatch("GET", "/api/state", {}, {})
+        assert status == 200 and said["profile"] == "main", (status, said)
 
 
 def test_every_open_account_carries_its_own_light():

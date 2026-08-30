@@ -94,4 +94,33 @@ def carry_out(action: str, name: str, text: str = "") -> bool:
     """
     if _HANDLER is None or action not in BY_ID or not str(name or "").strip():
         return False
-    return bool(_HANDLER(action, str(name).strip(), str(text or "")))
+    name = str(name).strip()
+    done = bool(_HANDLER(action, name, str(text or "")))
+    if done:
+        _remember_the_wish(action, name)
+    return done
+
+
+def _remember_the_wish(action: str, name: str) -> None:
+    """A press that WORKED also says what this machine wants farmed from now on (#2068).
+
+    Opening and closing a profile are the only two things a person does that mean «keep
+    this account up» and «stop keeping it up», and until this the service had to guess
+    them from `open_profiles` — a record every panel process rewrites, including one
+    somebody started for ten minutes to look at two test accounts. Guessing turned that
+    look into the machine's boot list, and then held it there against every attempt to
+    put it down.
+
+    A rename and a delete are not wishes and are not written here: they follow the name,
+    and `panel/profile.py` does that inside the rename and the delete themselves, so a
+    profile renamed by any route at all keeps its place in the list.
+    """
+    from .. import profile as profilemod
+
+    try:
+        if action == OPEN:
+            profilemod.keep_add(name)
+        elif action == CLOSE:
+            profilemod.keep_drop(name)
+    except Exception:                        # noqa: BLE001 — a wish, never the press
+        pass

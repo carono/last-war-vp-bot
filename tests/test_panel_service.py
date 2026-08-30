@@ -194,6 +194,13 @@ def test_the_request_reaches_the_panel_that_has_that_profile() -> None:
         _, said = _get(service, "/api/state")
         answered = said["answered_by"]
         assert ("default" in first) == (answered == "one"), (first, said)
+        # …and a name NOBODY has is refused, never handed to the first panel (#2068).
+        # That fallthrough is how a page asking about `default` got a test account back,
+        # 200 and named as itself, on a machine that had a leftover panel up.
+        status, said = _get(service, "/api/state?profile=ghost")
+        assert status == 409, (status, said)
+        assert said["error"] == "no_such_profile" and said["profile"] == "ghost", said
+        assert sorted(said["profiles"]) == ["alt", "default", "second"], said
     finally:
         a.stop()
         b.stop()

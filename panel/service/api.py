@@ -98,6 +98,13 @@ class ServiceApi:
                          "profiles": self.registry.profiles()}
         who = str(body.get("profile") or query.get("profile") or "")
         panel = self.registry.for_profile(who)
+        if panel is None and who and [p for p in self.registry.all() if not p.closed]:
+            # NAMED, AND NOWHERE (#2068). Panels are up, none of them has this account —
+            # which is a different thing from «no panel», and used to be answered out of
+            # whichever panel happened to be first. Said plainly, with what there IS, so
+            # the page can re-point itself instead of drawing somebody else's account.
+            return 409, {"error": "no_such_profile", "profile": who,
+                         "profiles": self.registry.profiles()}
         if panel is None:
             # NO PANEL IS A STATE, NOT AN ERROR. The machine is up, the door answers, and
             # nobody has signed in — which is precisely the state this service exists to

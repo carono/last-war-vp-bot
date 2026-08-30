@@ -191,10 +191,54 @@ def test_which_profiles_is_a_SETTING_and_falls_back_to_this_machines_own_answer(
     assert keepermod.settings({"keep": {"session": "3"}})["session"] == 3
     assert keepermod.settings({"keep": {"session": "nonsense"}})["session"] == -1
 
-    # Nothing configured: whatever THIS machine's panel last had open — never a name
-    # written into the code (`CLAUDE.md`).
+    # Nothing configured: whatever THIS MACHINE WANTS FARMED — never a name written into
+    # the code (`CLAUDE.md`).
     keep, calls, _ = _keeper(_Registry(), profiles=())
     assert keep.wanted() == keepermod.machine_profiles()
+
+
+def test_what_the_machine_wants_is_a_WISH_and_not_what_a_panel_last_had_open():
+    """The list the service supervises may not be rewritten by looking at something.
+
+    `open_profiles` is a record every panel process rewrites on every open, close and
+    switch. Reading it as «what this machine wants farmed» meant a panel started for ten
+    minutes to look at two test accounts became the boot list — and then the service put
+    those accounts back five seconds after every attempt to quit them, which is what
+    «погасили, она подняла снова» was (#2068).
+
+    The wish is `panel/profile.py::keep_or_last_open`, written only by a person. What is
+    pinned here is that the keeper asks THAT and not the record — including the fallback,
+    so a machine that has never decided goes on behaving exactly as it did.
+    """
+    from panel import profile as profilemod
+
+    asked: list = []
+    real_keep = profilemod.keep_or_last_open
+    real_open = profilemod.ProfileManager.open_profiles
+
+    def wish():
+        asked.append("wish")
+        return ["wanted"]
+
+    def record(self):
+        asked.append("record")
+        return ["a-look-at-something"]
+
+    profilemod.keep_or_last_open = wish
+    profilemod.ProfileManager.open_profiles = record
+    try:
+        # `exists` filters the answer, so the name has to be one this machine really has;
+        # what matters is WHICH question was asked, so the filter is stood aside.
+        real_exists = profilemod.ProfileManager.exists
+        profilemod.ProfileManager.exists = lambda self, name=None: True
+        try:
+            assert keepermod.machine_profiles() == ["wanted"], keepermod.machine_profiles()
+        finally:
+            profilemod.ProfileManager.exists = real_exists
+        assert "record" not in asked, asked
+    finally:
+        profilemod.keep_or_last_open = real_keep
+        profilemod.ProfileManager.open_profiles = real_open
 
 
 def test_switched_off_it_is_the_door_it_used_to_be():

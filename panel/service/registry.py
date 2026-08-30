@@ -159,16 +159,26 @@ class Registry:
             return len(self._panels)
 
     def for_profile(self, name: str = "") -> "Panel | None":
-        """The panel to ask about ``name``, or the first one when it names nobody."""
+        """The panel that HAS ``name`` — or the first one when the request names nobody.
+
+        A NAME NOBODY HAS IS ``None``, NOT «the first one» (#2068). It used to fall
+        through to `panels[0]`, and with two panels up — the real one, and one left over
+        from somebody checking two test accounts — a request about `default` was answered
+        by whichever had dialled in first, out of an account it was not asked about. It
+        came back 200, correctly shaped and named as itself, so neither a person nor an
+        agent had any way to see it was the wrong account. The same substitution inside
+        one panel is refused by `panel/web/api.py::_not_mine`; this is the door's half.
+        """
         panels = [p for p in self.all() if not p.closed]
         if not panels:
             return None
         wanted = str(name or "").strip()
-        if wanted:
-            for panel in panels:
-                if wanted in panel.profiles:
-                    return panel
-        return panels[0]
+        if not wanted:
+            return panels[0]
+        for panel in panels:
+            if wanted in panel.profiles:
+                return panel
+        return None
 
     def by_pid(self, pid: int) -> "Panel | None":
         """The panel running as ``pid``, or ``None`` — the only way to address ONE of them.

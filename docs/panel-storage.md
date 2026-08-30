@@ -147,7 +147,7 @@ exists to remove in the first place.
 | File | What it is |
 |---|---|
 | `panel.db` | **THE ONE DATABASE** — see the section above. Every profile's settings and every profile's data, keyed by profile; the panel's own settings under a scope no account can be named (`:panel`) |
-| `settings.json` → **`panel.db`** | facts about the PANEL rather than about an account: `active_profile`, `open_profiles`, `language`, the web block, `dev_updates` (release channel vs branch tip). **A row since #2025**; an existing file is carried across once and kept beside the database as `settings.json.imported` |
+| `settings.json` → **`panel.db`** | facts about the PANEL rather than about an account: `active_profile`, `open_profiles` (what was last open — a record), `keep_profiles` (what the machine WANTS farmed — a wish only a person writes, #2068), `language`, the web block, `dev_updates` (release channel vs branch tip). **A row since #2025**; an existing file is carried across once and kept beside the database as `settings.json.imported` |
 | `timers.json` | the template a profile with no catalogue of its own is seeded from |
 | `triggers.json` | the same for triggers |
 | `panel_debug.log` | fallback debug log, used only until the panel points logging at a profile's own file |

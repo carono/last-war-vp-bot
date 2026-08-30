@@ -35,9 +35,11 @@ disconnected (`docs/research/multi-instance-rdp.md`).
 
     "keep": {"enabled": true, "profiles": [], "session": -1}
 
-* `profiles` empty means **the ones this machine's panel last had open**
-  (`profiles/settings.json`), which is the machine's own answer and not a name in the
-  code — the rule the whole repository is written to (`CLAUDE.md`).
+* `profiles` empty means **the ones this machine wants farmed** — the standing list a
+  person writes by opening and closing accounts (`panel/profile.py::keep_profiles`),
+  which is the machine's own answer and not a name in the code. It is deliberately NOT
+  «what was open last», because a panel started to look at something for ten minutes
+  rewrites that and would otherwise rewrite what the machine brings up at boot (#2068).
 * `session` `-1` means «wherever somebody is signed in, the machine's own screen first».
 * `enabled` `false` is the old behaviour exactly: a door, supervising nothing.
 
@@ -90,17 +92,26 @@ def settings(config: dict) -> dict:
 
 
 def machine_profiles() -> list:
-    """What this machine's panel last had open — the default when nothing is configured.
+    """What this machine WANTS farmed — the default when `service.json` names nothing.
 
-    Asked of `panel/profile.py`, which is where the answer already lives: the same file
-    the window writes on every open, close and switch. A service that named a profile of
-    its own would be a second answer to a question that has one.
+    THE STANDING LIST, NOT THE LAST ONE (#2068). This used to read `open_profiles`, which
+    is a record rather than a wish: every panel process rewrites it on every open, close
+    and switch, so a panel somebody started for ten minutes to look at two test accounts
+    made those accounts the machine's boot list — and this service then put them back
+    five seconds after every attempt to quit them. Two different questions had one answer
+    and the temporary one kept winning.
+
+    `panel/profile.py::keep_profiles` is the other answer, and only a PERSON writes it:
+    opening or closing a profile on purpose, in either front-end, or `python -m
+    panel.keep` on the machine itself. A machine that has never decided falls back to
+    `open_profiles` and behaves exactly as it did — reading the wish never invents one —
+    and the FIRST deliberate press turns the record into a wish and ends the drift.
     """
     try:
         from .. import profile as profilemod
 
         manager = profilemod.ProfileManager()
-        names = [n for n in (manager.open_profiles() or []) if manager.exists(n)]
+        names = [n for n in profilemod.keep_or_last_open() if manager.exists(n)]
         if names:
             return names
         one = manager.active or profilemod.DEFAULT_PROFILE

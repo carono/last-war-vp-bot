@@ -2003,6 +2003,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
             return
         opening = self._activity.begin("activity.profile.open", name=name)
         session = self._workspace.open(name)
+        # A PERSON opened it, so the machine wants it farmed from now on (#2068). The
+        # boot's own restore does not come through here and writes nothing: what a panel
+        # happened to have open is a record, not a wish.
+        profilemod.keep_add(name)
         self._open_session_page(
             session, staged=True,
             done=lambda: self._opened(session, opening))
@@ -2092,6 +2096,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 pass
         self._paint_outer()
         self._show(self._workspace.current)
+        # …and closing it on purpose is the other half of the wish (#2068).
+        profilemod.keep_drop(name)
         # The web server keeps ONE runtime as its fallback and its log; if that was the
         # profile just closed, point it at one that is still open (#1313).
         webctl.follow(self._workspace)

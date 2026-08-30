@@ -699,6 +699,8 @@ class ProfileManager:
             os.rename(old_dir, os.path.join(PROFILES_DIR, new))
         with panel_store() as store:
             store.profile_rename(old, new)
+        # The standing list is a wish about an ACCOUNT, so it follows the new name (#2068).
+        keep_rename(old, new)
         if self._active == old:
             self.set_active(new)
         return new
@@ -754,6 +756,8 @@ class ProfileManager:
         # still on the disk must not have been quietly stood down.
         with panel_store() as store:
             store.profile_drop(name)
+        # …and an account that is gone is not wanted by the service either (#2068).
+        keep_drop(name)
         if self._active == name:
             return self.set_active(self.list()[0])
         return self._active
@@ -1397,3 +1401,116 @@ def _write_json(path: str, data) -> None:
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+# -- what the MACHINE keeps open: the standing list, and it is not the last one (#2068) --
+#
+# WHY IT IS NOT `open_profiles`. The service keeps a panel up for every profile this
+# machine wants farmed (`panel/service/keeper.py`), and it used to ask that question of
+# `open_profiles` — which is not that list. `open_profiles` is a RECORD: it is rewritten
+# by every panel process on every open, close and switch, including a panel somebody
+# started for ten minutes to look at two test accounts. So a temporary look permanently
+# changed what the machine brings up at boot, and the service then held those accounts up
+# against every attempt to put them down: quit the panel, and five seconds later it was
+# back, because the record said it was wanted.
+#
+# The two questions are genuinely different — «what was open when the last panel wrote
+# this down» and «what does this machine want farmed» — and they now have two answers.
+# Nothing WRITES this one except a person: opening or closing a profile ON PURPOSE
+# (`panel/runtime/profile_control.py`, and the window's own combo), and renaming or
+# deleting one, which follow the name rather than the wish. A panel coming up, restoring
+# what it had, or being handed names on its command line writes nothing here at all.
+
+#: The key in the panel-wide settings. Absent means NOBODY HAS DECIDED YET, which is not
+#: the same as «none»: a machine that has never been asked goes on behaving exactly as it
+#: did, and the service falls back to `open_profiles` until the first deliberate press.
+KEEP_KEY = "keep_profiles"
+
+
+def keep_profiles():
+    """The standing list, or ``None`` when this machine has never decided.
+
+    READING THIS WRITES NOTHING, on purpose. Seeding the key on the first look would make
+    a test, a probe or a service tick freeze whatever `open_profiles` happened to say at
+    that second — and «whatever it happened to say» is the very thing this key exists to
+    stop being the answer. It is written by a person's press and by nothing else
+    (:func:`keep_add`, :func:`keep_drop`), or straight out by `python -m panel.keep`.
+    """
+    raw = ProfileManager._read_settings().get(KEEP_KEY)
+    if not isinstance(raw, list):
+        return None
+    return _sane_names(raw)
+
+
+def keep_or_last_open() -> list:
+    """The standing list, falling back to what was last open — the effective answer.
+
+    The fallback is what the service did for every machine before the key existed, so a
+    panel that has never had a profile opened or closed since the upgrade behaves exactly
+    as it used to. The FIRST deliberate press replaces it with a wish.
+    """
+    said = keep_profiles()
+    if said is not None:
+        return said
+    try:
+        manager = ProfileManager()
+        return [n for n in (manager.open_profiles() or []) if manager.exists(n)]
+    except Exception:                         # noqa: BLE001 — a reading, never the panel
+        return []
+
+
+def set_keep_profiles(names) -> None:
+    """Write the standing list whole. Order is kept; duplicates and strays are not."""
+    data = ProfileManager._read_settings()
+    wanted = _sane_names(names)
+    if data.get(KEEP_KEY) == wanted:
+        return
+    data[KEEP_KEY] = wanted
+    set_panel_settings(data)
+
+
+def keep_add(name: str) -> None:
+    """A person opened ``name`` on purpose: keep it up from now on."""
+    name = sanitize(str(name or ""))
+    if not name:
+        return
+    wanted = keep_or_last_open()
+    if name in wanted:
+        set_keep_profiles(wanted)             # …and write it down, if it was only a record
+        return
+    set_keep_profiles(wanted + [name])
+
+
+def keep_drop(name: str) -> None:
+    """A person closed ``name`` on purpose: stop bringing it back."""
+    name = sanitize(str(name or ""))
+    if not name:
+        return
+    wanted = keep_or_last_open()
+    if name not in wanted:
+        set_keep_profiles(wanted)
+        return
+    set_keep_profiles([n for n in wanted if n != name])
+
+
+def keep_rename(old: str, new: str) -> None:
+    """Follow a rename. A wish about an account, not about a directory name."""
+    old, new = sanitize(str(old or "")), sanitize(str(new or ""))
+    if not old or not new or old == new:
+        return
+    wanted = keep_profiles()
+    if wanted is None or old not in wanted:
+        return
+    set_keep_profiles([new if n == old else n for n in wanted])
+
+
+def _sane_names(names) -> list:
+    """Sanitised, de-duplicated, in order. A name is NOT checked against the disk here:
+    a profile the service wants and somebody moved aside is still wanted, and dropping it
+    silently is how a wish gets lost for ever."""
+    out: list = []
+    for item in names or ():
+        name = sanitize(str(item))
+        if name and name not in out:
+            out.append(name)
+    return out

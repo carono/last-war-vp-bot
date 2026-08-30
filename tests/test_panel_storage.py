@@ -232,6 +232,43 @@ def test_migration_stays_away_from_a_redirected_store():
         assert profilemod.migrate_legacy_layout() == []
 
 
+def test_what_the_machine_KEEPS_open_is_a_wish_and_not_the_record_of_what_was_open():
+    """Two questions that had one answer, and the temporary one kept winning (#2068).
+
+    `open_profiles` is a RECORD: every panel process rewrites it on every open, close and
+    switch. The service used to read it as «what this machine wants farmed», so a panel
+    somebody started for ten minutes to look at two test accounts became the boot list —
+    and the service then put those accounts back five seconds after every attempt to quit
+    them. The wish is its own key now, and the three things it must get right are here.
+    """
+    with _store() as profiles:
+        profiles.create("second")
+        profiles.create("temp")
+
+        # 1. UNDECIDED IS NOT «NONE». A machine that has never been asked behaves exactly
+        #    as it did — and READING it writes nothing, or a probe would freeze whatever
+        #    the record happened to say at that second.
+        profiles.set_open_profiles(["default", "second"])
+        assert profilemod.keep_profiles() is None
+        assert profilemod.keep_or_last_open() == ["default", "second"]
+        assert profilemod.KEEP_KEY not in profilemod.panel_settings()
+
+        # 2. A DELIBERATE PRESS turns the record into a wish, and nothing else does.
+        profilemod.keep_add("temp")
+        assert profilemod.keep_profiles() == ["default", "second", "temp"]
+        profiles.set_open_profiles(["temp"])      # a look-at-one-account panel, writing
+        assert profilemod.keep_or_last_open() == ["default", "second", "temp"], \
+            "the record overwrote the wish again"
+        profilemod.keep_drop("temp")
+        assert profilemod.keep_profiles() == ["default", "second"]
+
+        # 3. A RENAME AND A DELETE follow the name — the wish is about an ACCOUNT.
+        profiles.rename("second", "renamed")
+        assert profilemod.keep_profiles() == ["default", "renamed"]
+        profiles.delete("renamed")
+        assert profilemod.keep_profiles() == ["default"]
+
+
 # -- helpers -------------------------------------------------------------------------
 
 class _store:

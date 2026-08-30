@@ -124,6 +124,10 @@ LANGUAGE_SCREEN = "language"
 #: neither open a fifth nor close one that was misbehaving (`panel/runtime/profile_control.py`).
 PROFILES_SCREEN = "profiles"
 
+#: Routes that answer for the PANEL rather than for one of its accounts, and are
+#: therefore answered whatever profile the request names — see `WebApi._not_mine`.
+PANEL_WIDE = ("/api/profiles", "/api/theme", "/api/i18n")
+
 
 class _Feed:
     """One profile's log: a ring of numbered lines, and the tap filling it.
@@ -1907,6 +1911,9 @@ class WebApi:
         """
         if method == "GET":
             who = str(query.get("profile") or "") or None
+            refused = self._not_mine(path, who, query, body)
+            if refused is not None:
+                return refused
             if path == "/api/profiles":
                 return 200, self.profiles()
             if path == "/api/state":
@@ -1936,6 +1943,9 @@ class WebApi:
                                                 extra, who))
         elif method == "POST":
             who = str(body.get("profile") or "") or None
+            refused = self._not_mine(path, who, query, body)
+            if refused is not None:
+                return refused
             name = str(body.get("name") or "")
             if path == "/api/timers/set":
                 return _answer(self.set_timer(name, bool(body.get("enabled")), who))
@@ -1992,6 +2002,45 @@ class WebApi:
                                           str(body.get("action") or ""),
                                           body.get("args") or {}, who))
         return 404, {"error": "not_found"}
+
+    def _not_mine(self, path: str, who, query: dict, body: dict):
+        """``(409, …)`` when the request names a profile THIS panel has not got (#2068).
+
+        THE SILENT SUBSTITUTION WAS THE BUG. `_runtime` falls back to the server's own
+        session when it does not recognise a name, and every route below took that
+        answer without saying so — so `GET /api/state?profile=default` asked of a panel
+        holding two test accounts came back **200, with one of the test accounts in it**,
+        named as itself and looking perfectly healthy. A machine that had two panels up
+        (one real, one left over from a check) therefore answered the person's page out
+        of the wrong one, and «не открывается профиль default» was the only symptom of
+        it. An answer about the wrong account is worse than no answer, because nothing
+        in it says which account it is about.
+
+        The fallback itself stays where it is useful — a request that names NOBODY still
+        gets the server's own session, which is what a page that has never chosen an
+        account asks for. What is refused is a request that names somebody: it is a
+        question about one account and this panel cannot answer it.
+
+        Three kinds of route are exempt, and each for a stated reason:
+
+        * the ones that are about the PANEL and not an account — the profile list itself
+          and the palette. A phone whose remembered account is on another panel must
+          still be able to ask what this one has, or it can never recover;
+        * `/api/i18n`, which is words. A page that cannot fetch words cannot draw the
+          refusal either, and no account's state travels in a dictionary;
+        * the «Профиль» screen, whose whole purpose is naming a profile this panel has
+          not got — that is what opening one IS (`panel/runtime/profile_control.py`).
+        """
+        if not who or path in PANEL_WIDE:
+            return None
+        names = [name for name, _rt in self.sessions()]
+        if who in names:
+            return None
+        if path.startswith("/api/screen"):
+            wanted = str((query or {}).get("id") or (body or {}).get("id") or "")
+            if wanted == PROFILES_SCREEN:
+                return None
+        return 409, {"error": "no_such_profile", "profile": who, "profiles": names}
 
     # -- reaching the panel safely -------------------------------------------
     @staticmethod
