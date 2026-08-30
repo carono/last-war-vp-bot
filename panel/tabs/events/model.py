@@ -283,20 +283,26 @@ ARMS_STAMINA_MAX = 2000
 #: Whether the errand's building / units / research phases may spend speed-ups, and the
 #: most minutes ONE run may pour into a queue. OFF by default and small by default: the
 #: items are the player's own, and the first live run of each of those phases is the
-#: person's, with a ceiling they chose (`CLAUDE.md`). 3 000 is the person's own measured
-#: number and not ours: what a top chest costs is worked out at the start of the phase
-#: from the live rule, and this stands in front of that arithmetic in case it is wrong —
-#: which, measured against what the person really spends, it may well be.
+#: person's, with a ceiling they chose (`CLAUDE.md`). The minutes are a FUSE rather than
+#: a target: what a phase really needs is read from the live threshold and the live rate
+#: every run, and this only says «whatever you worked out, no more than this».
 ARMS_SPEEDUP_KEY = "arms_speedup"
 ARMS_SPEEDUP_DEFAULT = False
 ARMS_MINUTES_KEY = "arms_minutes"
-ARMS_MINUTES_DEFAULT = 3000
-#: The bounds of that ceiling. Zero is a legal answer and means «spend nothing». 3 000
-#: is the DEFAULT because it is what the person actually spends on a phase, measured by
-#: hand rather than by us: «для получения всех сундуков я трачу 600 пятиминутных
-#: ускорений» — 600 × 5 = 3 000 minutes. The top of the field is well above it so that
-#: raising the ceiling is possible without touching code, which is the whole point of it
-#: being a field.
+ARMS_MINUTES_DEFAULT = 6000
+#: The bounds of that FUSE. Zero is a legal answer and means «spend nothing at all».
+#:
+#: It is deliberately NOT the target and deliberately not 3 000. «Финиш зависит от уровня
+#: героя, не нужно хардкодить 3000 минут, нужно читать текущий календарь» — the top
+#: chest's threshold belongs to the player and the phase (a research phase read 30 000
+#: where an earlier hero phase read 12 000), so what a run needs is worked out every time
+#: from the live threshold and the live rate. 600 five-minute speed-ups — 3 000 minutes —
+#: is what that arithmetic came to for THIS account on THIS phase, and it is a fact to
+#: check against rather than a number to keep.
+#:
+#: The default is twice that, so the fuse does not bite during ordinary work; it exists
+#: for the day the threshold or the rate is misread, and the log prints what was wanted
+#: beside what was spent so a fuse that bit is visible at once.
 ARMS_MINUTES_MIN = 0
 ARMS_MINUTES_MAX = 20000
 
