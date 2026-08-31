@@ -953,6 +953,7 @@
   "timers.log.skipped_times": "{name}: bỏ qua {count} lần — {reason}",
   "timers.log.skip_game": "đang chờ trò chơi khởi động",
   "timers.log.skip_kick": "bị văng — không đụng vào client",
+  "timers.log.skip_kicked": "tài khoản đang được chơi trên thiết bị khác — số liệu đã cũ, đang chờ",
   "timers.log.step_failed": "bước này chưa đi tới cùng: {step}",
   "timers.log.tick_error": "lỗi lịch: {error}",
   "timers.none_selected": "hãy chọn một tác vụ trước — bấm vào tên nó",

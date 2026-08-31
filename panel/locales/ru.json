@@ -953,6 +953,7 @@
   "timers.log.skipped_times": "{name}: пропусков {count} — {reason}",
   "timers.log.skip_game": "жду запуска игры",
   "timers.log.skip_kick": "выкинуло с аккаунта — клиент не трогаю",
+  "timers.log.skip_kicked": "в аккаунт зашли с другого устройства — числа устарели, жду возвращения",
   "timers.log.step_failed": "шаг не отработал: {step}",
   "timers.log.tick_error": "ошибка расписания: {error}",
   "timers.none_selected": "сначала выбери поручение — щёлкни по его названию",

@@ -953,6 +953,7 @@
   "timers.log.skipped_times": "{name}: {count} kez atlandı — {reason}",
   "timers.log.skip_game": "oyunun başlamasını bekliyorum",
   "timers.log.skip_kick": "atıldı — istemciye dokunulmuyor",
+  "timers.log.skip_kicked": "hesap başka bir cihazda oynanıyor — sayılar eskidi, bekliyorum",
   "timers.log.step_failed": "adım sonuna varmadı: {step}",
   "timers.log.tick_error": "zamanlama hatası: {error}",
   "timers.none_selected": "önce bir iş seç — adına tıkla",

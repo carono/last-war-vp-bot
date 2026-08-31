@@ -953,6 +953,7 @@
   "timers.log.skipped_times": "{name}: pominięto {count} raz(y) — {reason}",
   "timers.log.skip_game": "czekam na uruchomienie gry",
   "timers.log.skip_kick": "wyrzucono — klienta nie ruszam",
+  "timers.log.skip_kicked": "na koncie gra inne urządzenie — liczby są nieaktualne, czekam",
   "timers.log.step_failed": "krok nie doszedł do końca: {step}",
   "timers.log.tick_error": "błąd harmonogramu: {error}",
   "timers.none_selected": "najpierw wybierz zadanie — kliknij jego nazwę",

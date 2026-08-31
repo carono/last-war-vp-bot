@@ -953,6 +953,7 @@
   "timers.log.skipped_times": "{name}: saltato {count} volta(e) — {reason}",
   "timers.log.skip_game": "aspetto che il gioco parta",
   "timers.log.skip_kick": "espulso — non tocco il client",
+  "timers.log.skip_kicked": "l'account è in uso su un altro dispositivo — i numeri sono obsoleti, aspetto",
   "timers.log.step_failed": "il passo non è arrivato in fondo: {step}",
   "timers.log.tick_error": "errore di pianificazione: {error}",
   "timers.none_selected": "scegli prima un compito — clicca il suo nome",

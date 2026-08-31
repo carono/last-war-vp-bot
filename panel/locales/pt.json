@@ -953,6 +953,7 @@
   "timers.log.skipped_times": "{name}: ignorado {count} vez(es) — {reason}",
   "timers.log.skip_game": "esperando o jogo iniciar",
   "timers.log.skip_kick": "expulso — não mexo no cliente",
+  "timers.log.skip_kicked": "a conta está a ser jogada noutro dispositivo — os números estão desatualizados, aguardo",
   "timers.log.step_failed": "o passo não chegou ao fim: {step}",
   "timers.log.tick_error": "erro de agendamento: {error}",
   "timers.none_selected": "escolha uma tarefa primeiro — clique no nome dela",

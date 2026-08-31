@@ -419,6 +419,33 @@ def test_every_thing_that_can_put_a_client_back_asks_the_wait():
     assert "timers.log.skip_kick" in gate, "…and would be dropped without a word"
 
 
+def test_an_ordinary_errand_is_held_by_the_kick_too_and_stays_a_debt():
+    """A kicked client is not down — it is TAKEN, and it answers out of stale numbers.
+
+    The wait above is about the restarters keeping their hands off. This is the other
+    half (#2071): every OTHER errand must stop believing that client. Measured on the
+    live account — through a kick the donation errand read «попыток 0» and pressed
+    nothing while 15 were really left, and the day fell from 61 presses to 6.
+
+    And the skip is what turns the missed tick into a DEBT: a run that never started
+    leaves `last_run` alone, so `Catalogue.due_names` still counts the errand overdue
+    and offers it again on the first beat after the account comes back.
+    """
+    import json
+
+    gate = (ROOT / "panel" / "runtime" / "schedule.py").read_text(encoding="utf-8")
+    body = gate.split("def gate(", 1)[1].split("\n    def ", 1)[0]
+    after = body.split('return None if self.rt.recovery.kick_hold_left', 1)[1]
+    assert "kick_hold_left" in after, \
+        "only the recovery errands ask about the kick — the rest read a taken client"
+    assert "timers.log.skip_kicked" in after, "…and would be skipped without a word"
+    assert after.index("kick_hold_left") < after.index("profile_status"), \
+        "the kick is asked AFTER «is the process up», which a kicked client always is"
+    for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
+        locale = json.loads(path.read_text(encoding="utf-8"))
+        assert "timers.log.skip_kicked" in locale, path.name
+
+
 class _Watchdog:
     """The poll's `_watchdog_check`, run against a stub — no Tk, no game, no clock.
 

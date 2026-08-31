@@ -513,6 +513,24 @@ class Schedule:
             # can put a client back (`panel/runtime/recovery.py::kick_hold_left`).
             return None if self.rt.recovery.kick_hold_left(time.time()) <= 0 \
                 else "timers.log.skip_kick"
+        # …AND EVERY OTHER ERRAND IS HELD FOR THE SAME KICK, FOR THE OPPOSITE REASON
+        # (#2071). The wait above keeps a restarter's hands off a client somebody else is
+        # holding; this one keeps an ordinary errand from BELIEVING that client. A kicked
+        # client is not down — its process runs, its Lua answers, every send comes back
+        # `true` — and it is answering out of the numbers it last received before the
+        # server dropped it. Measured: through a kick the donation errand read «попыток
+        # 0» and pressed nothing, while the account really had 15 left, and the day's
+        # tally fell from 61 presses to 6 because the reading was stale rather than
+        # missing (`docs/research/session-kick.md`).
+        #
+        # A skip here is also what makes the missed tick a DEBT rather than a loss: a run
+        # that never started leaves `last_run` where it was, so the errand is still
+        # overdue when the account comes back and `Catalogue.due_names` offers it again
+        # on the next beat, most-overdue-first. Nothing is queued up during the kick and
+        # nothing has to be replayed afterwards — the schedule simply never counted the
+        # tick as done.
+        if self.rt.recovery.kick_hold_left(time.time()) > 0:
+            return "timers.log.skip_kicked"
         running, _text = game_process.profile_status(self.rt.settings)
         if not running:
             return "timers.log.skip_game"

@@ -953,6 +953,7 @@
   "timers.log.skipped_times": "{name}: dilewati {count} kali — {reason}",
   "timers.log.skip_game": "menunggu permainan dimulai",
   "timers.log.skip_kick": "terlempar — klien tidak disentuh",
+  "timers.log.skip_kicked": "akun sedang dimainkan di perangkat lain — angkanya sudah basi, menunggu",
   "timers.log.step_failed": "langkahnya tidak sampai selesai: {step}",
   "timers.log.tick_error": "galat penjadwalan: {error}",
   "timers.none_selected": "pilih dulu sebuah tugas — klik namanya",

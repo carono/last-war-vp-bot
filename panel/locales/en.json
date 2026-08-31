@@ -953,6 +953,7 @@
   "timers.log.skipped_times": "{name}: skipped {count} time(s) — {reason}",
   "timers.log.skip_game": "waiting for the game to start",
   "timers.log.skip_kick": "kicked out — the client is being left alone",
+  "timers.log.skip_kicked": "the account is being played on another device — its numbers are stale, waiting",
   "timers.log.step_failed": "the step did not finish: {step}",
   "timers.log.tick_error": "schedule error: {error}",
   "timers.none_selected": "pick an errand first — click its name",

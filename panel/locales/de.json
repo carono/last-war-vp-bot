@@ -953,6 +953,7 @@
   "timers.log.skipped_times": "{name}: {count}-mal übersprungen — {reason}",
   "timers.log.skip_game": "warte auf den Start des Spiels",
   "timers.log.skip_kick": "hinausgeworfen — der Client bleibt unberührt",
+  "timers.log.skip_kicked": "das Konto wird auf einem anderen Gerät gespielt — die Zahlen sind veraltet, ich warte",
   "timers.log.step_failed": "der Schritt ist nicht durchgelaufen: {step}",
   "timers.log.tick_error": "Fehler im Zeitplan: {error}",
   "timers.none_selected": "wähle zuerst einen Auftrag — klicke seinen Namen an",
