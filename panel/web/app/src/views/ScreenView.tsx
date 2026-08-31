@@ -170,6 +170,12 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
         </p>
       ) : null}
       {bits.length ? <p className="muted small">{bits}</p> : null}
+      {/* WHAT THIS ROW IS, AND THE ONE SWITCH THAT MOVES IT (#2068). An account says
+          «работает» / «работает, но…» / «не работает» and carries a switch, and the
+          switch is the same control every other switch on this front-end is — a `Field`
+          through `FieldRow`, so there is nothing here to keep in step with it. */}
+      {item.state ? <p className="muted small">{item.state}</p> : null}
+      {item.toggle ? <ScreenField field={item.toggle} screen={screen} after={after} /> : null}
       {item.pill || (item.actions || []).length ? (
         <div className="foot">
           <span className="pill">{item.pill ? t(item.pill) : ''}</span>

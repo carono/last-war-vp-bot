@@ -241,6 +241,14 @@ export interface ViewItem {
   facts?: Fact[]
   until?: number
   actions?: ViewAction[]
+  /* THE ONE SWITCH THIS ROW IS ABOUT (#2068). An account has one state — «работает» or
+     not — and the switch that moves it belongs ON the row rather than behind its gear.
+     Drawn by `ui/FieldRow.tsx`, like every other switch on this front-end, and sent back
+     as the screen's own `set` press. */
+  toggle?: Field
+  /* WHY it is not simply working, in the panel's own words — data, already translated
+     (`panel/web/api.py::_working_state`), never a key. */
+  state?: string
   /* THE KNOBS THIS TILE OWNS, behind its own gear (#2051). A screen's card may be a
      grid of things that each have settings of their own — the rally groups are the
      first — and they open in the same sheet the errands' gear opens. */

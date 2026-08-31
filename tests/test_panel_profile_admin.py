@@ -90,7 +90,10 @@ LOCALES = ROOT / "panel" / "locales"
 LANGS = sorted(p.stem for p in LOCALES.glob("*.json"))
 
 NEW_KEYS = ("profile.delete.prompt", "profile.rename.open",
-            "profile.confirm.refused", "log.profile.rename_failed")
+            "profile.confirm.refused", "log.profile.rename_failed",
+            # «works or does not» — the switch, its hint and the three words (#2068)
+            "profile.working", "profile.working.hint", "profile.state.working",
+            "profile.state.trouble", "profile.state.off", "profile.state.coming")
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +121,9 @@ class _Rt:
                  showing="one") -> None:
         self.profiles = _Profiles(names, showing)
         self.workspace = _Workspace(open_names, showing)
+        #: What this profile's own light says — «работает» is that verdict, not a
+        #: separate reading (#2068).
+        self.colour, self.light_text = "ok", ""
 
     def t(self, key, **fmt) -> str:
         return key
@@ -131,8 +137,39 @@ def _api(rt=None, handler=None) -> "apimod.WebApi":
     api._name_of = lambda runtime: runtime.profiles.active       # noqa: SLF001
     api._profile_client_text = lambda runtime, name: ""          # noqa: SLF001
     api._hand_over = lambda runtime, func: func()                # noqa: SLF001
+    api.sessions = lambda: [(name, rt) for name in rt.workspace.names]
+    api._light = lambda runtime: {"colour": runtime.colour,        # noqa: SLF001
+                                  "text": runtime.light_text}
     profilectl.set_handler(handler)
     return api
+
+
+class _Wish:
+    """The standing list, in memory — `panel/profile.py` without a disk (#2068)."""
+
+    def __init__(self, names=()) -> None:
+        self.names = list(names)
+        self._saved = {}
+
+    def __enter__(self) -> "_Wish":
+        import panel.profile as realprofile
+        self._mod = realprofile
+        for attr, func in (("keep_profiles", lambda: list(self.names)),
+                           ("keep_add", self._add), ("keep_drop", self._drop)):
+            self._saved[attr] = getattr(realprofile, attr)
+            setattr(realprofile, attr, func)
+        return self
+
+    def _add(self, name: str) -> None:
+        if name not in self.names:
+            self.names.append(name)
+
+    def _drop(self, name: str) -> None:
+        self.names = [n for n in self.names if n != name]
+
+    def __exit__(self, *exc) -> None:
+        for attr, func in self._saved.items():
+            setattr(self._mod, attr, func)
 
 
 def _rows(view: dict) -> dict:
@@ -246,6 +283,97 @@ def test_opening_and_creating_are_untouched_by_the_guard() -> None:
         assert api._profiles_press(profilectl.OPEN, {"text": "four"}, None)["ok"]   # noqa: SLF001
         assert [d[:2] for d in done] == [(profilectl.OPEN, "three"),
                                          (profilectl.OPEN, "four")], done
+    finally:
+        profilectl.set_handler(None)
+
+
+# ---------------------------------------------------------------------------
+# «works or does not» — the only state an account has (#2068)
+# ---------------------------------------------------------------------------
+def test_no_row_offers_open_or_close_any_more() -> None:
+    """Open and closed are MECHANICS. A person read «закрыт» about an account that was
+    farming in another panel and pressed «открыть» to be told «занято» — neither
+    sentence is about the game, so neither press is on the row."""
+    with _Wish(["one", "two"]):
+        rows = _rows(_api()._profiles_view(None))                 # noqa: SLF001
+    try:
+        for name, item in rows.items():
+            offered = _press_ids(item)
+            assert profilectl.OPEN not in offered, f"«{name}» still offers «Открыть»"
+            assert profilectl.CLOSE not in offered, f"«{name}» still offers «Закрыть»"
+    finally:
+        profilectl.set_handler(None)
+
+
+def test_every_row_carries_one_switch_and_it_is_an_ordinary_field() -> None:
+    with _Wish(["one", "two"]):
+        rows = _rows(_api()._profiles_view(None))                 # noqa: SLF001
+    try:
+        for name, item in rows.items():
+            switch = item.get("toggle")
+            assert switch, f"«{name}» has no switch — that is its only control now"
+            assert switch["kind"] == "switch", switch
+            assert switch["key"] == name, switch
+            assert switch["label"] == "profile.working", switch
+        assert rows["one"]["toggle"]["value"] is True
+        assert rows["three"]["toggle"]["value"] is False, (
+            "a profile nobody is farming reads as switched on")
+    finally:
+        profilectl.set_handler(None)
+
+
+def test_the_three_words_an_account_says_about_itself() -> None:
+    rt = _Rt()
+    with _Wish(["one", "two", "three"]):
+        rows = _rows(_api(rt)._profiles_view(None))                # noqa: SLF001
+        assert rows["one"]["pill"] == "profile.state.working", rows["one"]
+        assert rows["three"]["pill"] == "profile.state.coming", (
+            "an account that is wanted but has no page yet reads as switched off")
+        rt.colour, rt.light_text = "warn", "клиент не отвечает"
+        rows = _rows(_api(rt)._profiles_view(None))                # noqa: SLF001
+        assert rows["one"]["pill"] == "profile.state.trouble", rows["one"]
+        assert rows["one"]["state"] == "клиент не отвечает", (
+            "the reason comes from the profile's OWN verdict, already worded")
+    with _Wish([]):
+        rows = _rows(_api(_Rt())._profiles_view(None))             # noqa: SLF001
+        assert rows["three"]["pill"] == "profile.state.off", rows["three"]
+    profilectl.set_handler(None)
+
+
+def test_the_switch_writes_the_wish_before_it_touches_the_page() -> None:
+    """The wish is the durable half: a panel that cannot open the account right now is
+    a panel whose keeper will, so «Включить» never comes back refused."""
+    done = []
+    api = _api(handler=lambda *a: done.append(a) or True)
+    try:
+        with _Wish([]) as wish:
+            answer = api._profiles_press("set",                    # noqa: SLF001
+                                         {"key": "three", "value": True}, None)
+            assert answer["ok"] is True, answer
+            assert answer["working"] is True, answer
+            assert wish.names == ["three"], wish.names
+            assert done == [(profilectl.OPEN, "three", "")], done
+            answer = api._profiles_press("set",                    # noqa: SLF001
+                                         {"key": "three", "value": False}, None)
+            assert answer["ok"] is True and answer["working"] is False, answer
+            assert wish.names == [], wish.names
+            assert done[-1] == (profilectl.CLOSE, "three", ""), done
+    finally:
+        profilectl.set_handler(None)
+
+
+def test_a_switch_the_page_could_not_carry_out_is_still_a_yes() -> None:
+    """A shell that refuses the press — the profile is held elsewhere, the page is still
+    building — answers «идёт», never «нет»: the wish is written and the service brings
+    the rest into line, silently."""
+    api = _api(handler=lambda *a: False)
+    try:
+        with _Wish([]) as wish:
+            answer = api._profiles_press("set",                    # noqa: SLF001
+                                         {"key": "three", "value": True}, None)
+            assert answer["ok"] is True, answer
+            assert answer["pending"] is True, answer
+            assert wish.names == ["three"], wish.names
     finally:
         profilectl.set_handler(None)
 

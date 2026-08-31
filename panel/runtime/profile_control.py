@@ -108,6 +108,53 @@ def carry_out(action: str, name: str, text: str = "") -> bool:
     return done
 
 
+def set_working(name: str, on: bool) -> dict:
+    """«Работает» / «не работает» for one account — the toggle behind the phone's switch.
+
+    THE PERSON'S OWN WORDS: «никаких режимов открыт/закрыт, только работает или нет»
+    (#2068). Open and closed are mechanics — a page in a notebook, a lock on a client —
+    and they were the only thing either front-end offered, so a person read «закрыт»
+    about an account that was farming perfectly in another process and pressed «открыть»
+    to be told «занято». Neither sentence is about the game.
+
+    So the switch means what it says: ON is «farm this account», OFF is «stop farming
+    it». Two things happen, in this order, and the ORDER is the whole of it:
+
+    1. **The wish is written first**, whatever happens next. `keep_profiles` is what the
+       machine brings up and what the service supervises (`panel/service/keeper.py`), and
+       it is the durable half of the answer: a panel that cannot open the profile RIGHT
+       NOW — its lock is held by a panel on the way out, its page is still building — is
+       a panel whose keeper will open it within a tick.
+    2. **Then this panel tries to do it here**, because usually it can, and a switch that
+       waits five seconds for a supervisor to notice is a switch nobody trusts.
+
+    That is also why «Включить» cannot end in a refusal, which is the other half of what
+    was asked: with the wish written, a profile some other panel is holding is resolved
+    by the service consolidating that panel and asking this one to open it — silently,
+    because the person asked for it silently and because «у вас две панели» is not
+    something anybody can act on.
+
+    Returns what the caller answers with: whether the wish moved and whether the page is
+    already here.
+    """
+    from .. import profile as profilemod
+
+    name = str(name or "").strip()
+    if not name:
+        return {"ok": False}
+    try:
+        if on:
+            profilemod.keep_add(name)
+        else:
+            profilemod.keep_drop(name)
+    except Exception:                        # noqa: BLE001 — a wish, never the press
+        pass
+    here = carry_out(OPEN if on else CLOSE, name)
+    # NEVER `ok: False`: the wish is written and the machine is on its way to it. The
+    # page may be a second behind, which is what `pending` says.
+    return {"ok": True, "pending": not here, "name": name, "working": bool(on)}
+
+
 def _tell_the_service() -> None:
     """The list of profiles this panel holds has moved — say so (#2068).
 

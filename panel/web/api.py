@@ -1585,11 +1585,22 @@ class WebApi:
         """Every profile this installation has, and which of them this window holds.
 
         The list is the FOLDER, like the languages: a profile is a directory, so one made
-        by hand is one more row here with nothing to register. Each row says whether it is
-        open and whether it is the page the window is showing, and offers the one press
-        that applies to it — «Открыть» for a profile that is closed, «Закрыть» for one
-        that is open. The last open profile offers neither: a window with nothing open is
-        a window with nothing in it, and the workspace refuses it (#1206).
+        by hand is one more row here with nothing to register.
+
+        AN ACCOUNT HAS ONE STATE AND IT IS «WORKS OR DOES NOT» (#2068). The person's own
+        words: «никаких режимов открыт/закрыт, только работает или нет». Open and closed
+        are MECHANICS — a page in a notebook, a lock on a client — and offering them as
+        the account's state is how somebody read «закрыт» about an account that was
+        farming in another process and pressed «открыть» to be told «занято». So the row
+        carries a switch called «Работает» (`panel/runtime/profile_control.py::
+        set_working`) and a pill saying which of the three it is: working, working but
+        something is wrong, or not working. The words for the second one are the profile's
+        OWN — the same verdict the header's light draws, already in its language.
+
+        The last open profile keeps its switch drawn and ON: a window with nothing open is
+        a window with nothing in it and the workspace refuses it (#1206), so the press is
+        turned down where it is carried out rather than hidden here — hiding it would make
+        the one account that is running look like the one account that cannot be stopped.
         """
         rt = self._runtime(profile)
         workspace = getattr(rt, "workspace", None)
@@ -1600,15 +1611,10 @@ class WebApi:
         except Exception:                    # noqa: BLE001 — a reading, never the panel
             everything = list(open_names)
         items = []
+        wanted = self._wanted_profiles()
         for name in everything:
             is_open = name in open_names
             actions = []
-            if not is_open:
-                actions.append({"id": profilectl.OPEN, "label": "profile.open",
-                                "args": {"name": name}})
-            elif len(open_names) > 1:
-                actions.append({"id": profilectl.CLOSE, "label": "profile.close_one",
-                                "args": {"name": name}})
             # …AND THE TWO THAT USED TO STAY AT THE MACHINE (#1976). Renaming is offered
             # for the profile the window is showing and for every closed one — never for
             # one open on another page, which is the shell's own rule and is refused
@@ -1633,23 +1639,67 @@ class WebApi:
                 peers = provision.sharing_with(rt.profiles, name)
             except Exception:                # noqa: BLE001 — a reading, never the page
                 peers = []
+            state, said = self._working_state(name, is_open, name in wanted)
             items.append({
                 "text": name,
+                # THE ONE CONTROL AN ACCOUNT HAS (#2068), and it is a `Field` rather than
+                # a control of its own: the front-end draws switches in exactly one place
+                # (`panel/web/app/src/ui/FieldRow.tsx`) and a second one would be a second
+                # thing to learn and a second thing to keep in step.
+                "toggle": {"key": name, "label": "profile.working", "kind": "switch",
+                           "value": is_open},
+                "state": said,
                 # WHICH CLIENT this profile drives — the one fact that decides whether it
                 # farms its own account or somebody else's (#1252). A reading here as it
                 # is in the window's own section.
                 "detail": self._profile_client_text(rt, name),
                 "note": (rt.t("web.ui.profile.shares", others=", ".join(peers))
                          if peers else ""),
-                "pill": ("web.ui.profile.showing" if name == showing
-                         else "web.ui.profile.open" if is_open else ""),
+                "pill": state,
                 "actions": actions,
             })
         return {"id": PROFILES_SCREEN, "title": "menu.profile",
-                "cards": [{"title": "menu.profile", "note": "profile.open_hint",
+                "cards": [{"title": "menu.profile", "note": "profile.working.hint",
                            "items": items}],
                 "actions": [{"id": profilectl.OPEN, "label": "profile.new",
                              "prompt": "profile.new.prompt", "value": ""}]}
+
+    @staticmethod
+    def _wanted_profiles() -> list:
+        """What this machine wants farmed — the standing list, never «what is open».
+
+        `panel/profile.py::keep_profiles` is written by a person and by nothing else
+        (#2068), which is what makes it the right half of «работает»: an account that is
+        wanted but has no page yet is coming up, not switched off, and the row says so
+        instead of drawing a switch that flips itself back a second later.
+        """
+        try:
+            return list(profilemod.keep_profiles() or [])
+        except Exception:                    # noqa: BLE001 — a reading, never the page
+            return []
+
+    def _working_state(self, name: str, is_open: bool, is_wanted: bool) -> tuple:
+        """One account's state as the three words a person reads, plus the reason.
+
+        Green is «the panel holds it and its own verdict is green». Amber is the same
+        account with anything else in its verdict — and the SENTENCE comes from that
+        verdict rather than from a key here, because it carries a pid and an endpoint and
+        is already worded in the profile's own language (:meth:`_light`). Grey is an
+        account nobody is farming, and the reason is whether it is on its way up.
+        """
+        if not is_open:
+            return (("profile.state.coming" if is_wanted else "profile.state.off"), "")
+        rt = None
+        for other, session_rt in self.sessions():
+            if other == name:
+                rt = session_rt
+                break
+        if rt is None:                       # open, and gone between two reads
+            return ("profile.state.coming", "")
+        light = self._light(rt)
+        if str(light.get("colour") or "") == "ok":
+            return ("profile.state.working", "")
+        return ("profile.state.trouble", str(light.get("text") or ""))
 
     def _profile_client_text(self, rt, name: str) -> str:
         """«console, port 47654» / «session <login>, port 47655» — the window's words."""
@@ -1678,6 +1728,32 @@ class WebApi:
         it is for, and «press it again» is no answer when the press removes an account's
         whole history.
         """
+        if action == "set":
+            # THE SWITCH ON THE ROW (#2068) — «работает» / «не работает», which is the
+            # only state an account has on this front-end now. It is carried out on the
+            # Tk thread like every other press here, and it never comes back refused:
+            # the wish is written first and the service brings the rest into line.
+            if not profilectl.available():
+                return {"ok": False, "reason": "web.ui.refused"}
+            name = str(args.get("key") or "").strip()
+            if not name:
+                return {"ok": False, "reason": "web.ui.refused"}
+            want = args.get("value")
+            want = want if isinstance(want, bool) else str(want).lower() in ("1", "true", "on")
+            rt = self._runtime(profile)
+            box: dict = {}
+            done = threading.Event()
+
+            def flip() -> None:
+                try:
+                    box["said"] = profilectl.set_working(name, want)
+                finally:
+                    done.set()
+
+            self._hand_over(rt, flip)
+            if not done.wait(PRESS_TIMEOUT_SEC):
+                return {"ok": True, "pending": True, "name": name}
+            return box.get("said") or {"ok": True, "pending": True, "name": name}
         if action not in profilectl.BY_ID:
             return {"error": "unknown"}
         if not profilectl.available():
