@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Sniffer",
   "develop.sniff.idle": "not recording",
   "develop.sniff.waiting": "waiting — do nothing yet",
+  "develop.sniff.stream": "waiting for the stream — not yet",
   "develop.sniff.go": "recording — go ahead",
   "develop.sniff.half": "one half only",
   "develop.sniff.dead": "not recording",

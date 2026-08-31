@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Farejador",
   "develop.sniff.idle": "não está a gravar",
   "develop.sniff.waiting": "à espera — não faças nada",
+  "develop.sniff.stream": "à espera do fluxo — ainda não aja",
   "develop.sniff.go": "a gravar — avança",
   "develop.sniff.half": "só uma metade",
   "develop.sniff.dead": "não grava",

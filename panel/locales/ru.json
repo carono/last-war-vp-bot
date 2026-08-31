@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Снифер",
   "develop.sniff.idle": "не записывает",
   "develop.sniff.waiting": "жду готовности",
+  "develop.sniff.stream": "жду потока — ещё не действуйте",
   "develop.sniff.go": "пишет — можно действовать",
   "develop.sniff.half": "пишет одна половина",
   "develop.sniff.dead": "не пишет",

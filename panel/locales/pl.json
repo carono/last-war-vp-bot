@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Podsłuch",
   "develop.sniff.idle": "nie nagrywa",
   "develop.sniff.waiting": "czekam — nic nie rób",
+  "develop.sniff.stream": "czekam na strumień — jeszcze nie działaj",
   "develop.sniff.go": "nagrywa — działaj",
   "develop.sniff.half": "tylko jedna połowa",
   "develop.sniff.dead": "nie nagrywa",

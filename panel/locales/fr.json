@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Renifleur",
   "develop.sniff.idle": "n'enregistre pas",
   "develop.sniff.waiting": "j'attends — ne fais rien",
+  "develop.sniff.stream": "en attente du flux — n’agissez pas encore",
   "develop.sniff.go": "enregistre — vas-y",
   "develop.sniff.half": "une moitié seulement",
   "develop.sniff.dead": "n'enregistre pas",

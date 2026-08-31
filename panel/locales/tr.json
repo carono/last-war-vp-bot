@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Koklayıcı",
   "develop.sniff.idle": "kayıt yapmıyor",
   "develop.sniff.waiting": "bekliyor — bir şey yapma",
+  "develop.sniff.stream": "akış bekleniyor — henüz oyuna dokunmayın",
   "develop.sniff.go": "kaydediyor — devam et",
   "develop.sniff.half": "yalnızca bir yarı",
   "develop.sniff.dead": "kaydetmiyor",

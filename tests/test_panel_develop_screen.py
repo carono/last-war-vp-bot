@@ -84,7 +84,7 @@ from panel.tabs.develop_busy import BusyView, GROUPS         # noqa: E402
 LOCALES = _REPO / "panel" / "locales"
 LANGS = sorted(p.stem for p in LOCALES.glob("*.json"))
 NEW_KEYS = ("develop.sniff.idle", "develop.web.recording_hint",
-            "develop.sniff.waiting", "develop.sniff.go",
+            "develop.sniff.waiting", "develop.sniff.stream", "develop.sniff.go",
             "develop.sniff.half", "develop.sniff.dead",
             "develop.sniff.last", "develop.sniff.empty.pill",
             "develop.sniff.empty.traffic", "develop.sniff.empty.trace",
@@ -260,28 +260,53 @@ def test_the_recording_says_whether_it_is_running_and_nothing_else() -> None:
     assert tab._sniffing() is True
 
 
-def test_the_card_says_which_of_the_four_things_the_pair_is_doing() -> None:
+def test_the_card_says_which_of_the_five_things_the_pair_is_doing() -> None:
     """«жду готовности» belongs where the person is looking, not only in the log (#2072).
 
     A run started from a phone is ready two to sixteen seconds later — the hooks go into
     the client one by one — and everything done in the game before that is recorded by
     nobody. The word comes straight off the readers' own markers; nothing is asked of
     anything to say it.
+
+    AND «ГОТОВ» IS NOT «ЛОВИТ». The children's markers say the interfaces are open and
+    the hooks are in — not that one frame has been decoded — so the pill needs the files
+    as well, judged by exactly the threshold the stop verdict uses. Between the two there
+    is «жду потока», and it is the word that keeps the person out of the game while the
+    recording would still miss what they did.
     """
+    import os
+    import tempfile
+
     tab = DevelopTab.__new__(DevelopTab)
     tab._sniff_proc = tab._trace_proc = None
-    tab._sniff_ready = {}
+    tab._sniff_ready, tab._sniff_files = {}, {}
     assert tab._sniff_ready_word() == "develop.sniff.idle"
 
     tab._trace_proc = object()
     tab._sniff_ready = {"traffic": None, "trace": None}
     assert tab._sniff_ready_word() == "develop.sniff.waiting"
     tab._sniff_ready = {"traffic": True, "trace": True}
-    assert tab._sniff_ready_word() == "develop.sniff.go"
+    assert tab._sniff_ready_word() == "develop.sniff.stream", \
+        "hooks in, nothing caught yet — that is NOT «пишет»"
     tab._sniff_ready = {"traffic": True, "trace": False}
     assert tab._sniff_ready_word() == "develop.sniff.half"
     tab._sniff_ready = {"traffic": False, "trace": False}
     assert tab._sniff_ready_word() == "develop.sniff.dead"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        full = os.path.join(tmp, "trace.log")
+        empty = os.path.join(tmp, "traffic.jsonl")
+        with open(full, "w", encoding="utf-8") as fh:
+            fh.write("x" * (DevelopTab.EMPTY_RUN_BYTES + 1))
+        open(empty, "w", encoding="utf-8").close()
+
+        tab._sniff_ready = {"traffic": True, "trace": True}
+        tab._sniff_files = {"trace": full, "traffic": empty}
+        assert tab._sniff_ready_word() == "develop.sniff.stream", \
+            "one half latched is not both — the person still waits"
+        tab._sniff_files = {"trace": full, "traffic": full}
+        assert tab._sniff_ready_word() == "develop.sniff.go", \
+            "«пишет» is lit by BYTES, and only by bytes"
 
 
 def test_an_empty_half_is_judged_by_the_FILE_and_never_by_a_clock() -> None:

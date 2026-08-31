@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Nghe lén",
   "develop.sniff.idle": "không ghi",
   "develop.sniff.waiting": "đang chờ — chưa làm gì",
+  "develop.sniff.stream": "đang chờ luồng — chưa thao tác",
   "develop.sniff.go": "đang ghi — cứ thao tác",
   "develop.sniff.half": "chỉ một nửa",
   "develop.sniff.dead": "không ghi",

@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Pengendus",
   "develop.sniff.idle": "tidak merekam",
   "develop.sniff.waiting": "menunggu — jangan lakukan apa pun",
+  "develop.sniff.stream": "menunggu aliran — jangan bertindak dulu",
   "develop.sniff.go": "merekam — silakan lanjut",
   "develop.sniff.half": "hanya satu bagian",
   "develop.sniff.dead": "tidak merekam",

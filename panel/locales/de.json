@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Sniffer",
   "develop.sniff.idle": "zeichnet nicht auf",
   "develop.sniff.waiting": "warte — noch nichts tun",
+  "develop.sniff.stream": "warte auf den Datenstrom – noch nichts tun",
   "develop.sniff.go": "zeichnet auf — loslegen",
   "develop.sniff.half": "nur eine Hälfte",
   "develop.sniff.dead": "zeichnet nicht auf",

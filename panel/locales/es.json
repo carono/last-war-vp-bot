@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Rastreador",
   "develop.sniff.idle": "no está grabando",
   "develop.sniff.waiting": "esperando — no hagas nada",
+  "develop.sniff.stream": "esperando el flujo: aún no actúes",
   "develop.sniff.go": "grabando — adelante",
   "develop.sniff.half": "solo una mitad",
   "develop.sniff.dead": "no graba",

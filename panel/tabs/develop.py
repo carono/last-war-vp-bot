@@ -744,13 +744,27 @@ class DevelopTab(PanelTab):
         return (f"develop.sniff.empty.{empty[0]}", fmt)
 
     def _sniff_ready_word(self) -> str:
-        """Which of the four things the pair is doing, as a locale key for the card.
+        """Which of the five things the pair is doing, as a locale key for the card.
 
-        Straight off `_sniff_ready`, which the two readers already fill from the
-        children's own markers — no clock, no question asked of anything (#2072). It was
-        only ever in the journal, so a person on a phone pressed in the game while the
-        hooks were still going in, and the frames the run was started for were the ones
-        it missed.
+        Off `_sniff_ready` — which the two readers fill from the children's own markers,
+        no clock and no question asked of anything (#2072) — and off the FILES, which is
+        the half that had to be added. It was only ever in the journal, so a person on a
+        phone pressed in the game while the hooks were still going in, and the frames the
+        run was started for were the ones it missed.
+
+        WHY A MARKER IS NOT ENOUGH. `CAPTURE READY` says the interfaces are open and
+        `TRACE READY` says the hooks are in — neither says a single frame has been
+        decoded, and the pill was drawn from them alone, so it lit «пишет — можно
+        действовать» over a run that had latched nothing. That is the same silent lie
+        #2072 set out to end, only politer: the person reads the pill to decide when to
+        press in the game, and a recording that says «go» before it catches anything
+        sends them in at exactly the wrong moment.
+
+        So «пишет» now needs BYTES — the same `getsize` over the same threshold the stop
+        verdict uses (`_sniff_empty_verdict`), which is what makes the card and the
+        verdict two readings of one fact rather than two opinions. Between the hooks
+        going in and the first record landing there is a word of its own, «жду потока»,
+        and it tells the truth about the only thing the person needs to know.
         """
         state = self._sniff_ready or {}
         if not self._sniffing():
@@ -758,11 +772,16 @@ class DevelopTab(PanelTab):
         if any(value is None for value in state.values()):
             return "develop.sniff.waiting"
         live = [part for part, value in state.items() if value]
-        if len(live) == len(state) and live:
-            return "develop.sniff.go"
-        if live:
+        if not live:
+            return "develop.sniff.dead"
+        if len(live) != len(state):
             return "develop.sniff.half"
-        return "develop.sniff.dead"
+        sizes = self._run_sizes()
+        caught = [part for part in live
+                  if sizes.get(part, 0) > self.EMPTY_RUN_BYTES]
+        if len(caught) == len(live):
+            return "develop.sniff.go"
+        return "develop.sniff.stream"
 
     def _sniffing(self) -> bool:
         """Is a recording session live? Either half counts — `_sync_sniff_var`'s rule."""

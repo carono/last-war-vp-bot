@@ -192,6 +192,7 @@
   "develop.sniff.toggle": "Sniffer",
   "develop.sniff.idle": "non sta registrando",
   "develop.sniff.waiting": "aspetto — non fare nulla",
+  "develop.sniff.stream": "in attesa del flusso — non agire ancora",
   "develop.sniff.go": "registra — vai pure",
   "develop.sniff.half": "solo una metà",
   "develop.sniff.dead": "non registra",
