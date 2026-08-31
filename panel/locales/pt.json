@@ -1541,6 +1541,8 @@
   "web.ui.actions.none": "nada encontrado",
   "web.ui.started": "iniciado: {name}",
   "web.ui.refused": "ocupado — outra coisa está a conduzir o jogo",
+  "web.ui.crashed": "o painel não conseguiu executar este toque — veja o registo",
+  "web.ui.crashed.log": "o toque «{action}» em «{screen}» falhou: {error} — detalhes no registo",
   "web.ui.not_a_number": "isto não é um número inteiro",
   "web.ui.notify": "Avisar-me dos erros",
   "web.ui.log.empty": "ainda não foi dito nada",

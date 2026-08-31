@@ -1541,6 +1541,8 @@
   "web.ui.actions.none": "nothing found",
   "web.ui.started": "started: {name}",
   "web.ui.refused": "busy — something else is driving the game",
+  "web.ui.crashed": "the panel could not carry out this press — see the journal",
+  "web.ui.crashed.log": "the press «{action}» on «{screen}» failed: {error} — the journal has the details",
   "web.ui.not_a_number": "that is not a whole number",
   "web.ui.notify": "Tell me about errors",
   "web.ui.log.empty": "nothing said yet",

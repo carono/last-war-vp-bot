@@ -1819,7 +1819,22 @@ class WebApi:
                 rt.tabs.realize(tab)     # the same draw-before-asking as `screen`
                 box["result"] = tab.web_press(action, args or {})
             except Exception as exc:     # noqa: BLE001
-                box["result"] = {"error": "failed", "detail": str(exc)}
+                # A CRASH IS SAID IN WORDS, AND THE INTERNALS GO TO THE LOG (#2074).
+                # It used to travel as `detail`, so a tab that reached for a widget it
+                # had never drawn told the person «отказано: 'PlayersTab' object has no
+                # attribute '_noted'» — a sentence that names nothing they can act on
+                # and hides the one thing that matters, WHICH screen and WHICH press.
+                # The journal gets the type, the message and the traceback; the phone
+                # gets a sentence and the name of the press it was.
+                try:
+                    rt.dbg("web").warning("%s: press %r raised %s: %s",
+                                          screen_id, action, type(exc).__name__, exc,
+                                          exc_info=True)
+                    rt.say("panel", "web.ui.crashed.log", screen=screen_id,
+                           action=action, error=type(exc).__name__)
+                except Exception:        # noqa: BLE001 — a log, never the answer
+                    pass
+                box["result"] = {"ok": False, "reason": "web.ui.crashed"}
             finally:
                 done.set()
 

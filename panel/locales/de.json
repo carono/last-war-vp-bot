@@ -1541,6 +1541,8 @@
   "web.ui.actions.none": "nichts gefunden",
   "web.ui.started": "gestartet: {name}",
   "web.ui.refused": "beschäftigt — etwas anderes steuert gerade das Spiel",
+  "web.ui.crashed": "das Panel konnte diesen Druck nicht ausführen — siehe Journal",
+  "web.ui.crashed.log": "der Druck «{action}» auf «{screen}» schlug fehl: {error} — Einzelheiten im Journal",
   "web.ui.not_a_number": "das ist keine ganze Zahl",
   "web.ui.notify": "Bei Fehlern benachrichtigen",
   "web.ui.log.empty": "noch nichts gesagt",

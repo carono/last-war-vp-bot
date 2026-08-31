@@ -1541,6 +1541,8 @@
   "web.ui.actions.none": "non trovato nulla",
   "web.ui.started": "avviato: {name}",
   "web.ui.refused": "occupato — qualcos'altro sta guidando il gioco",
+  "web.ui.crashed": "il pannello non è riuscito a eseguire questa pressione — vedi il registro",
+  "web.ui.crashed.log": "la pressione «{action}» su «{screen}» non è riuscita: {error} — dettagli nel registro",
   "web.ui.not_a_number": "non è un numero intero",
   "web.ui.notify": "Avvisami degli errori",
   "web.ui.log.empty": "non è stato ancora detto nulla",

@@ -537,10 +537,12 @@ class TimersTab(PanelTab):
             enabled=timer.enabled, immediate=timer.immediate,
             weekdays=",".join(str(d) for d in timer.weekdays))
         catalogue = self._timer_catalogue.replace(edited)
-        if not self.built:
-            # A tab nobody has opened has no widgets to fold in and no grid to redraw,
+        if not self.drawn:
+            # A tab nobody has DRAWN has no widgets to fold in and no grid to redraw,
             # and `_write_timer` does both (`LAZY`). The file is the whole of the state
-            # here, so it is written straight out.
+            # here, so it is written straight out. `drawn`, never `built`: a headless
+            # panel realizes every tab and draws none, so the flag that used to be
+            # asked here sent the gear straight into the widget path (#2074).
             self._timer_catalogue = catalogue
             timersmod.save_catalogue(catalogue, self.rt.profiles.timers_json())
         else:

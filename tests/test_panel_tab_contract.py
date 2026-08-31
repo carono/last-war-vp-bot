@@ -431,6 +431,66 @@ def test_a_trigger_fires_into_a_tab_nobody_has_opened():
         root.destroy()
 
 
+def test_a_headless_tab_is_realized_but_never_drawn_and_its_screen_still_answers():
+    """The live panel has NO window, and every tab is realized into that (#2074).
+
+    `built` used to mean two things at once — «state ready» and «there are widgets» —
+    and headless made them disagree: `ensure_loaded` marks the tab realized and
+    deliberately skips `build()`, so every `if self.built:` guarding a `.set()` walked
+    straight into an attribute `build()` had never made. That is «отказано:
+    'PlayersTab' object has no attribute '_noted'» and «players: KeyError: 'text'»,
+    one bug wearing two faces. `drawn` is the widget question now, and this pins both
+    halves for the whole registry rather than for the tab somebody happened to press.
+    """
+    try:
+        import tkinter as tk
+
+        root = tk.Tk()
+    except Exception as exc:                                # noqa: BLE001
+        _skip("no display", exc)
+        return
+    root.withdraw()
+    try:
+        for spec in tabsreg.TABS:
+            cls = spec.load()
+            rt = fake_runtime.cold_runtime(root)
+            rt.settings.register(cls.SETTINGS)
+            rt.root = None                     # a panel with no window at all
+            tab = cls(rt, None)                # …and therefore no frame to draw into
+            assert tab.realize() is True, spec.id
+            assert tab.built, f"{spec.id}: a headless tab must still be realized"
+            assert not tab.drawn, (
+                f"{spec.id}: realize() claimed to have DRAWN a tab with no frame")
+            if getattr(cls, "WEB_SCREEN", False):
+                view = tab.web_view()          # the phone asks an undrawn tab: no raise
+                assert isinstance(view, dict), spec.id
+            # …and what the profile keeps is asked of it in that state too.
+            tab.stored_config()
+            tab.shutdown()
+            print(f"    · {spec.id}")
+    finally:
+        root.destroy()
+
+
+def test_no_tab_asks_built_when_it_means_are_there_widgets():
+    """`built` is «realized», `drawn` is «has widgets» — and only one of them is safe.
+
+    A static rule because the dynamic one cannot see every branch: a guard that is only
+    reached by one press on one tab is exactly the one that shipped. Anything under
+    `panel/tabs/` that still asks `self.built` is either the mistake this cost us three
+    times, or a use that wants renaming so the next reader is not misled.
+    """
+    offenders = []
+    for path in sorted((_REPO / "panel" / "tabs").rglob("*.py")):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            code = line.split("#", 1)[0]
+            if "self.built" in code:
+                offenders.append(f"{path.relative_to(_REPO)}:{n}: {line.strip()}")
+    assert not offenders, (
+        "use `self.drawn` for «are there widgets» — `built` is true on a headless "
+        "panel that drew nothing (#2074):\n  " + "\n  ".join(offenders))
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

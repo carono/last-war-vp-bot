@@ -1400,6 +1400,19 @@ class CommandPostTab(PanelTab):
     # rule 3 forbids it in the wave that moves them.
     LEGACY_KEYS = {"pages": "command_post", "ghost_autoloot": "ghost_autoloot"}
 
+    def __init__(self, rt, parent) -> None:
+        super().__init__(rt, parent)
+        # THE PAGES ARE MADE BY `build`, AND THE PHONE ARRIVES BEFORE IT (#2074). A
+        # headless panel realizes every tab and draws none, so `_web_ghost` and its
+        # neighbours reached a `_by_key` that did not exist yet and the press came back
+        # as «отказано: 'CommandPostTab' object has no attribute …» — the same sentence
+        # «Игроки» said about `_noted`. Empty here, filled by `build`: a screen with no
+        # pages behind it says «нечего показать», which is the truth of an undrawn tab.
+        self._nb = None
+        self._shown = False
+        self._pages: dict = {}
+        self._by_key: dict = {}
+
     def build(self) -> None:
         # Until the panel has actually shown this tab, a page change is Tk's own doing
         # (adding the first inner tab selects it) and must not start a game read — a

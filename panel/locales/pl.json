@@ -1541,6 +1541,8 @@
   "web.ui.actions.none": "nic nie znaleziono",
   "web.ui.started": "uruchomiono: {name}",
   "web.ui.refused": "zajęte — grą steruje teraz coś innego",
+  "web.ui.crashed": "panel nie zdołał wykonać tego naciśnięcia — zajrzyj do dziennika",
+  "web.ui.crashed.log": "naciśnięcie «{action}» na «{screen}» nie powiodło się: {error} — szczegóły w dzienniku",
   "web.ui.not_a_number": "to nie jest liczba całkowita",
   "web.ui.notify": "Powiadamiaj o błędach",
   "web.ui.log.empty": "jeszcze nic nie powiedziano",

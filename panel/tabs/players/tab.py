@@ -497,12 +497,14 @@ class PlayersTab(PanelTab):
         """Every filter back to «any» — ONE definition, whether the tab is drawn or not.
 
         The phone can press «Сбросить» on a tab nobody has ever opened, so the state is
-        cleared first and the widgets follow only if there are any. It was written the
+        cleared first and the widgets follow only if there are any — `drawn`, never
+        `built`: a headless panel realizes this tab and draws none of it (#2074), and
+        the flag that used to be asked here was true in exactly that case. It was written the
         other way round once, with the undrawn case spelling the defaults out a second
         time, and the two spellings promptly disagreed about what «any server» is.
         """
         self._filter.update(BLANK_FILTER)
-        if not self.built:
+        if not self.drawn:
             return
         for var in self._vars.values():
             var.set("")
@@ -533,7 +535,7 @@ class PlayersTab(PanelTab):
 
     # -- drawing ------------------------------------------------------------
     def _render(self) -> None:
-        if not self.built or self._tree is None:
+        if not self.drawn or self._tree is None:
             return
         rows = self.visible()
         total = len(self._registry)
@@ -743,7 +745,7 @@ class PlayersTab(PanelTab):
         sort = (raw or {}).get("sort")
         if isinstance(sort, (list, tuple)) and len(sort) == 2:
             self._sort = (str(sort[0]), bool(sort[1]))
-        if self.built:
+        if self.drawn:
             self._filter_to_widgets()
             self._label_headings()
             self._render()
@@ -771,7 +773,7 @@ class PlayersTab(PanelTab):
         A tab nobody has opened has no variables to trace (`PanelTab.LAZY`), and the
         container asks every tab for this list whether or not it drew one.
         """
-        if not self.built:
+        if not self.drawn:
             return []
         return list(self._vars.values()) + [self._noted]
 
@@ -944,7 +946,7 @@ class PlayersTab(PanelTab):
         """Move one filter to its next value, on both front-ends at once."""
         if which == "noted":
             self._filter["noted"] = not self._filter["noted"]
-            if self.built:
+            if self.drawn:
                 # Writing the variable is what redraws: it is traced (`_var`).
                 self._noted.set(self._filter["noted"])
             return True
@@ -953,7 +955,7 @@ class PlayersTab(PanelTab):
             here = self._filter.get(which) or ("" if which == "server" else "any")
             index = ((steps.index(here) + 1) % len(steps)) if here in steps else 0
             self._filter[which] = steps[index]
-            if self.built:
+            if self.drawn:
                 box = self._server_box if which == "server" else self._seen_box
                 box.current(index)
                 self._render()
@@ -966,7 +968,7 @@ class PlayersTab(PanelTab):
         # granularities of the same filter on purpose.
         index = (steps.index(current) + 1) % len(steps) if current in steps else 1
         self._filter[key] = steps[index]
-        if self.built:
+        if self.drawn:
             self._vars[key].set("" if steps[index] is None else str(steps[index]))
         return True
 

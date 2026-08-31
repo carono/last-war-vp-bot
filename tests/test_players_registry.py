@@ -592,11 +592,52 @@ def _bare_tab(tmp):
     tab._sort = reg.DEFAULT_SORT
     tab._home_server = None
     tab._filter = dict(PlayersTab_BLANK)
-    tab._built = False
+    # REALIZED, NEVER DRAWN — what the live panel is (#2074). It read `_built = False`
+    # here, which is the one state the headless panel is never in: `ensure_loaded`
+    # marks a tab realized and skips `build()`, so every guard that asked «built?»
+    # before touching a widget answered yes and reached for one that does not exist.
+    tab._built = True
+    tab._drawn = False
     tab._merging = False
     tab._armed_forget = (None, 0.0)
     tab._detail_uid = ""
     return tab
+
+
+def test_every_press_works_on_a_tab_the_window_never_drew():
+    """The live panel has no window, so this is the ORDINARY case, not an edge one.
+
+    «отказано: 'PlayersTab' object has no attribute '_noted'» was «Сбросить» pressed
+    from a phone against a tab whose filter boxes had never been made, and
+    «players: KeyError: 'text'» was the saved block being put back onto those same
+    boxes at boot. Both are one mistake — asking `built` («state ready», true here)
+    where the question was `drawn` («there are widgets», false for ever without a
+    window). Every press the screen offers is walked, because the neighbours of a
+    broken guard are written the same way as the guard.
+    """
+    with _tmpdir() as tmp:
+        tab = _bare_tab(tmp)
+        _swept_into(tab._registry, [_swept(server_id=100)], now=time.time())
+        assert tab.built and not tab.drawn, "the fixture is not the headless case"
+
+        for action, args in (("reset", {}), ("noted", {}), ("level", {}),
+                             ("power", {}), ("server", {}), ("seen", {}),
+                             ("details", {"uid": "1000000000000001"}),
+                             ("details_close", {}),
+                             ("note", {"uid": "1000000000000001", "text": "mark"}),
+                             ("forget", {"uid": "1000000000000001"})):
+            answer = tab.web_press(action, args)      # must not raise, ever
+            assert isinstance(answer, dict), (action, answer)
+            assert answer.get("error") != "unknown", action
+
+        # …and the state really moved, rather than the press being quietly skipped.
+        assert tab._filter["noted"] is True
+        assert tab._filter["server"] == "100"
+        assert tab.note_of(tab._registry.get("1000000000000001") or {}) == "mark"
+        # The profile's own block goes back onto an undrawn tab without a word.
+        tab.restore({"filter": {"text": "abc", "noted": True}, "sort": ["name", False]})
+        assert tab._filter["text"] == "abc"
+        assert tab.persist_vars() == [], "an undrawn tab has no variables to trace"
 
 
 def test_the_phone_says_only_keys_that_exist_and_offers_only_answered_presses():

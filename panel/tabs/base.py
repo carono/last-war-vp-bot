@@ -157,9 +157,16 @@ class PanelTab:
     def __init__(self, rt, parent) -> None:
         self.rt = rt
         self.parent = parent
-        #: Has :meth:`build` run? The container asks before it hands this tab anything
-        #: that would reach a widget (see :attr:`LAZY`).
+        #: Has this tab been REALIZED — its state made, its saved block applied? The
+        #: container asks before it hands the tab to anything (see :attr:`LAZY`).
+        #: TRUE IN A HEADLESS PANEL TOO, where `build()` deliberately never runs.
         self._built = False
+        #: Has :meth:`build` actually DRAWN anything? False for the whole life of a
+        #: panel with no window (#2074). The two used to be one flag, and every
+        #: `if self.built:` that meant «there are widgets to fold this into» was a lie
+        #: on the live panel — «'PlayersTab' object has no attribute '_noted'» and
+        #: «players: KeyError: 'text'» are the same sentence said twice.
+        self._drawn = False
         #: The saved block this tab was handed while it was still undrawn, and what it
         #: hands back when the profile is written. ``None`` means «never handed one».
         self._saved_config = None
@@ -170,8 +177,23 @@ class PanelTab:
 
     @property
     def built(self) -> bool:
-        """Have this tab's widgets been drawn yet? (:attr:`LAZY`)"""
+        """Has this tab been realized — state made, saved block applied? (:attr:`LAZY`)
+
+        NOT «are there widgets»: a headless panel realizes every tab and draws none.
+        Use :attr:`drawn` for anything that reaches a widget.
+        """
         return self._built
+
+    @property
+    def drawn(self) -> bool:
+        """Did :meth:`build` run — are there widgets to touch? (#2074)
+
+        The question every `if …:` around a `.set()`, a `.current()` or a `Treeview`
+        is really asking. A panel with no window answers False for ever, and the code
+        under such a guard must be pure repainting: the STATE has already been moved by
+        the time it is reached, so skipping it changes nothing but the picture.
+        """
+        return self._drawn
 
     def realize(self) -> bool:
         """Draw the tab now if it is not drawn. ``True`` if this call is what drew it.
@@ -203,6 +225,7 @@ class PanelTab:
         try:
             if not headless:
                 self.build()
+                self._drawn = True
             if self._saved_config is not None:
                 self.apply_config(self._saved_config)
         finally:

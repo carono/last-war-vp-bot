@@ -1541,6 +1541,8 @@
   "web.ui.actions.none": "tidak ada yang ditemukan",
   "web.ui.started": "dijalankan: {name}",
   "web.ui.refused": "sibuk — sesuatu yang lain sedang mengendalikan permainan",
+  "web.ui.crashed": "panel tidak dapat menjalankan tekanan ini — lihat jurnal",
+  "web.ui.crashed.log": "tekanan «{action}» pada «{screen}» gagal: {error} — rinciannya ada di jurnal",
   "web.ui.not_a_number": "itu bukan bilangan bulat",
   "web.ui.notify": "Beri tahu kalau ada kesalahan",
   "web.ui.log.empty": "belum ada yang dikatakan",

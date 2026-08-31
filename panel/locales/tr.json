@@ -1541,6 +1541,8 @@
   "web.ui.actions.none": "bir şey bulunamadı",
   "web.ui.started": "başlatıldı: {name}",
   "web.ui.refused": "meşgul — oyunu şu anda başka bir şey sürüyor",
+  "web.ui.crashed": "panel bu basışı gerçekleştiremedi — günlüğe bakın",
+  "web.ui.crashed.log": "«{screen}» üzerindeki «{action}» basışı başarısız oldu: {error} — ayrıntılar günlükte",
   "web.ui.not_a_number": "bu bir tam sayı değil",
   "web.ui.notify": "Hataları bildir",
   "web.ui.log.empty": "henüz bir şey söylenmedi",
