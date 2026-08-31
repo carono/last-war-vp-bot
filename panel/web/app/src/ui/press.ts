@@ -14,8 +14,11 @@ import type { PressAnswer } from '../types'
 export function pressWord(answer: PressAnswer | null | undefined): string {
   if (!answer) return t('web.ui.refused')
   if (answer.pending) return t('web.ui.accepted')
-  if (answer.ok) return t('web.ui.done')
+  /* A press that WORKED may still have something to say — «трафик пуст: запись длилась
+   * 14 с» (#2072). It used to be flattened to «готово», so the one moment the person
+   * could have re-recorded passed in silence. `fmt` fills the sentence's numbers. */
+  if (answer.ok) return answer.reason ? t(answer.reason, answer.fmt) : t('web.ui.done')
   if (answer.error === 'unknown') return t('web.ui.unknown')
   const why = answer.reason || answer.detail || ''
-  return why ? t('web.ui.refused.why', { why: t(why) }) : t('web.ui.refused')
+  return why ? t('web.ui.refused.why', { why: t(why, answer.fmt) }) : t('web.ui.refused')
 }

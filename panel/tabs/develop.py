@@ -210,6 +210,11 @@ class DevelopTab(PanelTab):
         #: so the session's end has nothing left to ask and never raises a box on a
         #: machine nobody is standing at. None means «nobody has said».
         self._sniff_outcome: dict | None = None
+        #: What the run that has just ended came to — `(locale key, {…})` or None
+        #: (#2072). A recording whose traffic half latched nothing is 0 bytes on disk
+        #: and looked exactly like a good one from the panel: «готово», and the
+        #: silence was found an hour later by whoever came to read the file.
+        self._sniff_verdict: tuple | None = None
         self._sniff_var = statevar.boolean(rt.root, False)
         self._status_var = statevar.string(rt.root, "")
         # -- the scenario runner --
@@ -666,12 +671,19 @@ class DevelopTab(PanelTab):
         """
         running = self._sniffing()
         shown = self._sniff_label.strip() or self.t("develop.run.nolabel")
+        # WHAT IT IS DOING RIGHT NOW, on the card rather than in the journal (#2072):
+        # «жду готовности» is the difference between a run that catches what the person
+        # did and one that starts recording after they did it.
+        items = [{"text": (shown if running else
+                           (self._status_var.get() or "—")),
+                  "label": "develop.sniff.toggle",
+                  "pill": self._sniff_ready_word()}]
+        if not running and self._sniff_verdict is not None:
+            key, fmt = self._sniff_verdict
+            items.append({"text": self.t(key, **fmt), "label": "develop.sniff.last",
+                          "pill": "develop.sniff.empty.pill"})
         cards = [{"title": "develop.sniff.frame",
-                  "items": [{"text": (shown if running else
-                                      (self._status_var.get() or "—")),
-                             "label": "develop.sniff.toggle",
-                             "pill": ("busy.status.running" if running
-                                      else "develop.sniff.idle")}],
+                  "items": items,
                   "note": "develop.web.recording_hint",
                   "actions": ([{"id": "sniff_stop", "label": "develop.sniff.stop",
                                 "prompt": "develop.run.prompt", "value": ""},
@@ -687,6 +699,70 @@ class DevelopTab(PanelTab):
                   "note": "develop.updates.hint"}]
         cards.extend(self._busy.web_cards(busymod.snapshot(self.rt)))
         return {"title": "tab.develop", "cards": cards}
+
+    #: How big a run file may be and still be «nothing was recorded». Not zero: a
+    #: transcript that latched the stream and saw one keepalive is already a few hundred
+    #: bytes, and it is as useless to an analysis as an empty one. A trace that installed
+    #: its hooks writes its banner and its XSTRACE summary whatever happens.
+    EMPTY_RUN_BYTES = 512
+
+    def _run_sizes(self, files: "dict | None" = None) -> dict:
+        """``{kind: bytes}`` for what this session has written SO FAR — O(1), no read.
+
+        Both children write line-buffered (`tools/lib/run_output.py`), so the file on
+        disk is current to within the last line and a `getsize` is the honest answer at
+        the moment Stop is pressed. Counting RECORDS would mean reading the whole file,
+        and a trace is routinely tens of megabytes — on the Tk thread, in the middle of
+        a press, that is the freeze this panel spent #1226 getting rid of.
+        """
+        sizes = {}
+        for kind, path in (files if files is not None else self._sniff_files or {}).items():
+            try:
+                sizes[kind] = os.path.getsize(path)
+            except OSError:
+                sizes[kind] = 0
+        return sizes
+
+    def _sniff_empty_verdict(self, seconds: float,
+                             files: "dict | None" = None) -> "tuple | None":
+        """«Half of this run recorded nothing» — said in words, or None if both are fine.
+
+        WHY BY THE FILE AND NOT BY A CLOCK. A 20-second run whose capture latched is
+        worth analysing and a 90-second one on the wrong interface is not, so a warning
+        about DURATION would be wrong in both directions (#2072). What is being asked
+        here is the only question that matters: is there anything in it.
+        """
+        sizes = self._run_sizes(files)
+        if not sizes:
+            return None
+        empty = sorted(k for k, size in sizes.items() if size <= self.EMPTY_RUN_BYTES)
+        if not empty:
+            return None
+        fmt = {"sec": f"{seconds:.0f}"}
+        if len(empty) == len(sizes) and len(sizes) > 1:
+            return ("develop.sniff.empty.both", fmt)
+        return (f"develop.sniff.empty.{empty[0]}", fmt)
+
+    def _sniff_ready_word(self) -> str:
+        """Which of the four things the pair is doing, as a locale key for the card.
+
+        Straight off `_sniff_ready`, which the two readers already fill from the
+        children's own markers — no clock, no question asked of anything (#2072). It was
+        only ever in the journal, so a person on a phone pressed in the game while the
+        hooks were still going in, and the frames the run was started for were the ones
+        it missed.
+        """
+        state = self._sniff_ready or {}
+        if not self._sniffing():
+            return "develop.sniff.idle"
+        if any(value is None for value in state.values()):
+            return "develop.sniff.waiting"
+        live = [part for part, value in state.items() if value]
+        if len(live) == len(state) and live:
+            return "develop.sniff.go"
+        if live:
+            return "develop.sniff.half"
+        return "develop.sniff.dead"
 
     def _sniffing(self) -> bool:
         """Is a recording session live? Either half counts — `_sync_sniff_var`'s rule."""
@@ -714,9 +790,18 @@ class DevelopTab(PanelTab):
             self._sniff_outcome = {
                 "action": "discard" if action == "sniff_discard" else "save",
                 "description": str((args or {}).get("text") or "")}
+            # THE VERDICT IS TAKEN BEFORE THE CHILDREN LET GO (#2072), because this is
+            # the only moment the person is still holding the phone: an empty half means
+            # «переснимите», and a «готово» that said nothing is how a useless recording
+            # got found an hour later by whoever opened the file.
+            seconds = max(0.0, time.time() - self._sniff_t0) if self._sniff_t0 else 0.0
+            verdict = self._sniff_empty_verdict(seconds)
             self._sniff_var.set(False)
             self._stop_sniff()
-            return {"ok": True}
+            if verdict is None or action == "sniff_discard":
+                return {"ok": True}
+            key, fmt = verdict
+            return {"ok": True, "reason": key, "fmt": fmt}
         if action != "set" or str((args or {}).get("key") or "") != "dev_updates":
             return {"error": "unknown"}
         flag = bool((args or {}).get("value"))
@@ -821,6 +906,7 @@ class DevelopTab(PanelTab):
             self._sniff_var.set(False)
             return
         self._sniff_outcome = None
+        self._sniff_verdict = None
         label_args = ["--label", label] if label.strip() else []
 
         # Neither child is capturing when its pid appears: npcap needs ~1 s to
@@ -1056,10 +1142,18 @@ class DevelopTab(PanelTab):
             return
         seconds = max(0.0, time.time() - self._sniff_t0) if self._sniff_t0 else 0.0
         paths = [files[k] for k in ("trace", "traffic") if k in files]
+        # Said once, wherever the session ended and whoever ended it: the phone hears it
+        # in the answer to its press, the journal keeps it, and the card holds it until
+        # the next run starts (#2072).
+        self._sniff_verdict = self._sniff_empty_verdict(seconds, files)
+        if self._sniff_verdict is not None:
+            key, fmt = self._sniff_verdict
+            self.say("sniff", key, **fmt)
         if outcome is not None:
             # The press already carried the answer (#2072) — the phone asks its two
             # questions in the press itself, so there is nothing left to raise here.
             if outcome.get("action") == "discard":
+                self._sniff_verdict = None       # thrown away: nothing left to judge
                 gone = run_notes.discard_run(paths)
                 self.say("sniff", "log.sniff.discarded", n=len(gone))
             else:

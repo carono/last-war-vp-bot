@@ -84,6 +84,11 @@ from panel.tabs.develop_busy import BusyView, GROUPS         # noqa: E402
 LOCALES = _REPO / "panel" / "locales"
 LANGS = sorted(p.stem for p in LOCALES.glob("*.json"))
 NEW_KEYS = ("develop.sniff.idle", "develop.web.recording_hint",
+            "develop.sniff.waiting", "develop.sniff.go",
+            "develop.sniff.half", "develop.sniff.dead",
+            "develop.sniff.last", "develop.sniff.empty.pill",
+            "develop.sniff.empty.traffic", "develop.sniff.empty.trace",
+            "develop.sniff.empty.both",
             "develop.sniff.start", "develop.sniff.stop",
             "develop.web.already", "develop.web.not_running",
             "develop.web.start_failed")
@@ -192,6 +197,9 @@ def test_the_press_carries_the_two_answers_the_window_asks_in_dialogs() -> None:
     tab = DevelopTab.__new__(DevelopTab)
     tab._sniff_proc, tab._trace_proc = object(), None
     tab._sniff_var = type("V", (), {"set": lambda self, v: None})()
+    # What `__init__` always makes: when the run started, and what it has written so
+    # far — the stop press judges the files before the children let go (#2072).
+    tab._sniff_t0, tab._sniff_files = 0.0, {}
     stopped: list = []
     tab._stop_sniff = lambda: stopped.append(True)
 
@@ -222,6 +230,8 @@ def test_the_screen_offers_start_when_idle_and_stop_when_running() -> None:
     tab.rt = _Runtime()
     tab._sniff_proc = tab._trace_proc = None
     tab._sniff_label = ""
+    tab._sniff_ready = {}
+    tab._sniff_verdict = None
     tab._status_var = type("V", (), {"get": lambda self: ""})()
     tab.t = lambda key, **fmt: english[key].format(**fmt)
     tab._busy = type("B", (), {"web_cards": lambda self, snap: []})()
@@ -248,6 +258,81 @@ def test_the_recording_says_whether_it_is_running_and_nothing_else() -> None:
     assert tab._sniffing() is False
     tab._trace_proc = object()            # one half is enough — `_sync_sniff_var`'s rule
     assert tab._sniffing() is True
+
+
+def test_the_card_says_which_of_the_four_things_the_pair_is_doing() -> None:
+    """«жду готовности» belongs where the person is looking, not only in the log (#2072).
+
+    A run started from a phone is ready two to sixteen seconds later — the hooks go into
+    the client one by one — and everything done in the game before that is recorded by
+    nobody. The word comes straight off the readers' own markers; nothing is asked of
+    anything to say it.
+    """
+    tab = DevelopTab.__new__(DevelopTab)
+    tab._sniff_proc = tab._trace_proc = None
+    tab._sniff_ready = {}
+    assert tab._sniff_ready_word() == "develop.sniff.idle"
+
+    tab._trace_proc = object()
+    tab._sniff_ready = {"traffic": None, "trace": None}
+    assert tab._sniff_ready_word() == "develop.sniff.waiting"
+    tab._sniff_ready = {"traffic": True, "trace": True}
+    assert tab._sniff_ready_word() == "develop.sniff.go"
+    tab._sniff_ready = {"traffic": True, "trace": False}
+    assert tab._sniff_ready_word() == "develop.sniff.half"
+    tab._sniff_ready = {"traffic": False, "trace": False}
+    assert tab._sniff_ready_word() == "develop.sniff.dead"
+
+
+def test_an_empty_half_is_judged_by_the_FILE_and_never_by_a_clock() -> None:
+    """A 20 s run that latched is worth keeping; a 90 s one that did not is not (#2072).
+
+    So the verdict asks the only question that matters — is there anything in it — and
+    it asks it with a `getsize`, because counting records means reading a trace that is
+    routinely tens of megabytes, on the Tk thread, inside a press.
+    """
+    import os
+    import tempfile
+
+    tab = DevelopTab.__new__(DevelopTab)
+    with tempfile.TemporaryDirectory() as tmp:
+        full = os.path.join(tmp, "trace.log")
+        empty = os.path.join(tmp, "traffic.jsonl")
+        with open(full, "w", encoding="utf-8") as fh:
+            fh.write("x" * (DevelopTab.EMPTY_RUN_BYTES + 1))
+        open(empty, "w", encoding="utf-8").close()
+
+        tab._sniff_files = {"trace": full, "traffic": empty}
+        assert tab._sniff_empty_verdict(14.0) == ("develop.sniff.empty.traffic",
+                                                  {"sec": "14"})
+        tab._sniff_files = {"trace": empty, "traffic": full}
+        assert tab._sniff_empty_verdict(9.4)[0] == "develop.sniff.empty.trace"
+        tab._sniff_files = {"trace": empty, "traffic": empty}
+        assert tab._sniff_empty_verdict(3.0)[0] == "develop.sniff.empty.both"
+        tab._sniff_files = {"trace": full, "traffic": full}
+        assert tab._sniff_empty_verdict(3.0) is None, "a short GOOD run is not a warning"
+        tab._sniff_files = {}
+        assert tab._sniff_empty_verdict(60.0) is None, "no files: nothing to judge"
+
+
+def test_stopping_an_empty_run_says_so_in_the_answer_to_the_press() -> None:
+    """The one moment it can still be re-recorded is while the person holds the phone."""
+    import os
+    import tempfile
+
+    tab = DevelopTab.__new__(DevelopTab)
+    tab._sniff_proc, tab._trace_proc = object(), None
+    tab._sniff_var = type("V", (), {"set": lambda self, v: None})()
+    tab._stop_sniff = lambda: None
+    tab._sniff_t0 = 0.0
+    with tempfile.TemporaryDirectory() as tmp:
+        empty = os.path.join(tmp, "traffic.jsonl")
+        open(empty, "w", encoding="utf-8").close()
+        tab._sniff_files = {"traffic": empty}
+        answer = tab.web_press("sniff_stop", {"text": "did a thing"})
+    assert answer["ok"] is True, answer          # the stop DID happen
+    assert answer["reason"] == "develop.sniff.empty.traffic", answer
+    assert "sec" in answer["fmt"], answer        # …with the real number in it
 
 
 def test_the_new_words_are_in_all_eleven_locales() -> None:
