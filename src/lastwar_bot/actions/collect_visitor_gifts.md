@@ -35,12 +35,15 @@
 # nothing at all: the kind was read off `visitorId`, which is a per-arrival
 # counter, not the VisitorType.
 #
-# On a timer this must not count as done when it did nothing: visitors only walk up
-# while the base is on screen, so off the base the run should FAIL and be retried
-# (short retry_sec) rather than silently no-op and wait a whole interval. So the
-# first thing it does is check the scene and bail if we are not in the city.
+# Visitors only walk up while the base is on screen, so a run made from the map is a
+# no-op — and it used to be written as `FAIL`, which #2070 measured: the radar and the
+# treasure errands leave the client on the WORLD map and nothing puts it back, so this
+# row failed 69 times in one day and collected nothing. The scene is not a precondition
+# somebody else owes us, it is one call. So the run RETURNS to the base and only gives
+# up when the client will not go.
 
 IF scene != city
-    FAIL "not on the base (need the city scene) — retry later"
+    GAME CITY
+    WAIT scene == city WITHIN 30s
 
 TAP collect_visitor_gifts xall   # collect until no gift-bearing survivor is left

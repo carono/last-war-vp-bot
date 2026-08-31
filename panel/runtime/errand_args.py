@@ -139,6 +139,29 @@ SPEC: dict = {
     "play_frontline_breakthrough": (
         _num("rounds", "errand.arg.frontline.rounds", low=1, high=20),
     ),
+    # «ГОНКА ВООРУЖЕНИЙ» (#2070). Every phase but the hero one is switched OFF in the
+    # recipe's own defaults, because each spends something out of the player's pocket —
+    # speed-ups, resources, the day's rally budget. The row shipped with `{"hero": 1}`
+    # and no way to say anything else short of typing JSON into the window's editor, so
+    # a live panel ran the errand four times a day and HALTED every time with «minutes
+    # phase, spending off» — which reads in the log exactly like the errand being
+    # broken. The switches are here now, and they stay off until a person turns one on.
+    "perform_arms_race": (
+        _flag("hero", "errand.arg.arms.hero"),
+        _flag("drone", "errand.arg.arms.drone"),
+        _flag("speedup", "errand.arg.arms.speedup",
+              hint_key="errand.arg.arms.speedup.hint"),
+        _num("minutes", "errand.arg.arms.minutes", low=0, high=100000),
+        _flag("units", "errand.arg.arms.units",
+              hint_key="errand.arg.arms.units.hint"),
+        _num("soldiers", "errand.arg.arms.soldiers", low=0, high=1000000,
+             hint_key="errand.arg.arms.soldiers.hint"),
+        _num("free_minutes", "errand.arg.arms.free_minutes", low=0, high=100000,
+             hint_key="errand.arg.arms.free_minutes.hint"),
+        _num("stamina", "errand.arg.arms.stamina", low=0, high=100000),
+        _num("rallies", "errand.arg.arms.rallies", low=0, high=50,
+             hint_key="errand.arg.arms.rallies.hint"),
+    ),
 }
 
 

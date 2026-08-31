@@ -37,12 +37,15 @@
 # in the second, so the recipe could not see them at all and did nothing. Now it
 # matches the kind across both queues.
 #
-# On a timer this must not count as done when it did nothing: survivors only walk up
-# while the base is on screen, so off the base the run should FAIL and be retried
-# (short retry_sec) rather than silently no-op and wait a whole interval. So the
-# first thing it does is check the scene and bail if we are not in the city.
+# Survivors only walk up while the base is on screen, so a run made from the map is a
+# no-op — and for months that was written as `FAIL`, which is what #2070 measured: the
+# radar and the treasure errands leave the client on the WORLD map and nothing puts it
+# back, so this row failed 69 times in one day and recruited nobody. The scene is not a
+# precondition somebody else owes us, it is one call. So the run RETURNS to the base and
+# only gives up when the client will not go.
 
 IF scene != city
-    FAIL "not on the base (need the city scene) — retry later"
+    GAME CITY
+    WAIT scene == city WITHIN 30s
 
 TAP recruit_survivor xall   # recruit until no survivor is left waiting
