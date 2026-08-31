@@ -175,9 +175,41 @@ class _Server(ThreadingHTTPServer):
     given is printed by the tab from the port. So the lookup buys nothing at all, and
     `gethostname()` — which is free, and is what the lookup starts from — is a better
     answer than a reverse lookup of a wildcard.
+
+    AND IT TAKES THE PORT ALONE (#2068). `socketserver.TCPServer.allow_reuse_address` is
+    `1` for every `HTTPServer`, which on POSIX means «rebind through TIME_WAIT» and is
+    exactly right. **On Windows the same flag means something else entirely**: `SO_REUSEADDR`
+    there lets a SECOND process bind a port a first one is already listening on, and the
+    kernel then hands new connections to one of them with nothing deciding which. That is
+    not a theory — it is what happened: two panels both bound `0.0.0.0:9761`, both wrote
+    «удалённое управление включено» into their logs, neither reported a thing, and the
+    person's browser reached the panel that did not have their account. Their account was
+    farming perfectly the whole time, one process away, with «закрыт» written beside it.
+
+    So on Windows the flag is off and `SO_EXCLUSIVEADDRUSE` is on: the second bind fails
+    with the `OSError` the caller has always been ready for, and the panel says «порт
+    занят» (`panel/runtime/web_control.py::apply` → `web.log.busy`) — a refusal somebody
+    can read instead of a silence nobody can. POSIX is left as it was, because there
+    `allow_reuse_address` buys the restart and costs nothing.
     """
 
+    #: Windows' own «this port is mine»: the opposite of `SO_REUSEADDR` rather than a
+    #: stronger version of it. Named here because `socket` only defines it on Windows.
+    _SO_EXCLUSIVEADDRUSE = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+
+    #: Off on Windows, where it is the sharing flag; left alone everywhere else, where it
+    #: is the TIME_WAIT flag and the panel's own restart wants it.
+    allow_reuse_address = os.name != "nt"
+
     def server_bind(self) -> None:
+        if os.name == "nt" and self._SO_EXCLUSIVEADDRUSE is not None:
+            try:
+                self.socket.setsockopt(socket.SOL_SOCKET,
+                                       self._SO_EXCLUSIVEADDRUSE, 1)
+            except OSError:
+                # An option this Windows will not take is not worth failing the bind
+                # over: `allow_reuse_address` is already off, which is most of it.
+                pass
         # `socketserver.TCPServer`'s half (bind + getsockname), named OUTRIGHT. Not
         # `super(ThreadingHTTPServer, self)`, which walks on to `HTTPServer.server_bind`
         # — the very method whose last line is the lookup — and skips nothing at all.

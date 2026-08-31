@@ -122,7 +122,9 @@ LANGUAGE_SCREEN = "language"
 #: …and the fourth: WHICH ACCOUNTS are open at all. The window has it on «Параметры»;
 #: the phone had nothing, so somebody away from the machine could watch four profiles and
 #: neither open a fifth nor close one that was misbehaving (`panel/runtime/profile_control.py`).
-PROFILES_SCREEN = "profiles"
+#: Asked of that module rather than spelled again: the SERVICE sends presses to this
+#: screen too (`panel/service/keeper.py::adopt`, #2068), and it cannot import this file.
+PROFILES_SCREEN = profilectl.SCREEN
 
 #: Routes that answer for the PANEL rather than for one of its accounts, and are
 #: therefore answered whatever profile the request names — see `WebApi._not_mine`.

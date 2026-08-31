@@ -1123,3 +1123,57 @@ reported step makes a page build quadratic in its own size.
   the day a tracer streams into four profiles at once.
 * §5.4's other question is still unanswered: N profiles × M enabled triggers is N × M
   sniffer child processes on one box. Nothing has measured that.
+
+## 13. Two panels on one machine, and the port they shared (#2068)
+
+The report was «панель отвечает из чужого профиля, а аккаунт `<A>` показан закрытым».
+The account was not closed. It had a panel of its own, a client of its own in its own
+Windows session, and its timers and rally joins were running in its own log the whole
+time. The person could not see it because **two panel processes were listening on one
+web port**:
+
+```
+TCP 0.0.0.0:9761 LISTENING 34864   (the panel holding <A>)
+TCP 0.0.0.0:9761 LISTENING 30104   (the panel holding <B>)
+```
+
+Both had written «удалённое управление включено, порт 9761» into their logs, and neither
+had anything to say about the other. The browser reached whichever the kernel handed the
+connection to; that one honestly reported `<A>: open=false`, because it did not have it.
+Pressing «открыть» then asked for a lock the other process was holding, and the refusal
+was raised as a message box on a machine nobody was standing at.
+
+Three things had to be true at once, and all three are now false.
+
+**1. `allow_reuse_address` means the opposite thing on Windows.** Every `HTTPServer` sets
+it to `1`. On POSIX that is «rebind through TIME_WAIT», which the panel's own restart
+wants. On Windows the same `SO_REUSEADDR` lets a SECOND process bind a port a first one is
+already listening on, with nothing deciding who gets a connection. `panel/web/server.py::
+_Server` now clears the flag on Windows and sets `SO_EXCLUSIVEADDRUSE`, so the second bind
+raises the `OSError` the caller was always ready for and the panel says «порт занят» — a
+refusal somebody can read instead of a silence nobody can. Pinned by
+`tests/test_panel_web.py::test_the_port_is_taken_alone_and_a_second_panel_is_refused`.
+
+**2. The service was starting the second process.** `Keeper.launch(missing)` started a
+panel for exactly the profiles that had none, so a machine wanting three accounts with a
+panel already holding one got a SECOND process for the other two — while the same file's
+docstring promised «one panel process holds every wanted profile». The keeper now
+consolidates first (asks every panel but the oldest connection to quit, orderly, through
+`panel/runtime/panel_control.py`), then ASKS the survivor to open what it lacks over
+`/api/screen/press` — the same route a person's tap uses — and starts a panel only when
+the machine has none at all.
+
+**3. The profile list the service routed by was a snapshot.** `hello` was said once per
+connection, so a profile opened after the dial was one the service did not know anybody
+held: `for_profile` answered `None`, the door replied `no_such_profile` about a farming
+account, and the keeper counted it missing. The panel re-says `hello` on every open and
+close that worked (`panel/runtime/profile_control.py::_tell_the_service` →
+`service_link.announce`), which is a change, not a clock — the list moves only when a
+person moves it. The service files the newer list over the older one and needs no new
+frame kind, so an older service loses nothing.
+
+What made this expensive to find is that every symptom pointed at the profile: it was
+drawn as closed, the press was refused, and the log the browser could reach had nothing in
+it — because the log with the evidence belonged to the other process. **On a machine that
+should have one panel, count the listeners on the web port before believing anything the
+page says about which accounts exist.**

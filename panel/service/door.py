@@ -117,10 +117,21 @@ class Door:
         try:
             for frame in wire.reader(conn):
                 if "hello" in frame:
+                    # SAID AGAIN WHENEVER THE LIST MOVES (#2068). `hello` used to be a
+                    # once-per-connection greeting, so the profiles filed here were a
+                    # snapshot taken at the dial: a profile opened afterwards was one the
+                    # service did not know anybody held, `for_profile` answered `None`,
+                    # and the keeper counted a farming account as missing. The panel
+                    # re-says it on every open and close
+                    # (`panel/runtime/service_link.py::announce`), and re-filing it is
+                    # all this side has to do — the greeting is just no longer news.
+                    again = panel.pid != 0
                     panel.hello(frame.get("hello") or {})
-                    self._log("panel connected: session "
-                              f"{panel.session or '?'} pid {panel.pid} "
-                              f"profiles {', '.join(panel.profiles) or '—'}")
+                    self._log(("panel {pid}: profiles now {names}" if again else
+                               "panel connected: session {session} pid {pid} "
+                               "profiles {names}").format(
+                        session=panel.session or "?", pid=panel.pid,
+                        names=", ".join(panel.profiles) or "—"))
                     try:
                         conn.sendall(wire.dumps({"welcome": 1}))
                     except OSError:

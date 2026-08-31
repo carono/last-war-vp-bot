@@ -36,6 +36,12 @@ CLOSE = "close"
 RENAME = "rename"
 DELETE = "delete"
 
+#: The id of the screen these presses are sent to. Here rather than in the web API
+#: because the SERVICE sends them too (`panel/service/keeper.py::adopt`, #2068) and it
+#: runs in session 0, where importing the whole panel web API to learn one string would
+#: be absurd — and where it currently cannot be imported at all.
+SCREEN = "profiles"
+
 
 @dataclass(frozen=True)
 class Control:
@@ -98,7 +104,29 @@ def carry_out(action: str, name: str, text: str = "") -> bool:
     done = bool(_HANDLER(action, name, str(text or "")))
     if done:
         _remember_the_wish(action, name)
+        _tell_the_service()
     return done
+
+
+def _tell_the_service() -> None:
+    """The list of profiles this panel holds has moved — say so (#2068).
+
+    ONE PANEL PER MACHINE, and the service routes to it by that list
+    (`panel/service/registry.py`). The list used to be a snapshot taken when the panel
+    dialled in, so a profile opened afterwards was one the service did not know about:
+    the door answered `no_such_profile` about an account that was farming, and the keeper
+    counted it missing and looked for somewhere to start it.
+
+    Every route that opens or closes a profile comes through here, so this is the one
+    place it has to be said from — and it is said on the CHANGE rather than on a clock,
+    which is the only thing that would have to be justified.
+    """
+    from . import service_link
+
+    try:
+        service_link.announce()
+    except Exception:                        # noqa: BLE001 — never the press
+        pass
 
 
 def _remember_the_wish(action: str, name: str) -> None:

@@ -42,15 +42,30 @@ from panel.service import session as sessionmod    # noqa: E402
 class _Panel:
     """A connected panel, as much of one as the keeper ever touches."""
 
-    def __init__(self, pid: int, profiles, closed: bool = False) -> None:
+    def __init__(self, pid: int, profiles, closed: bool = False, at: float = 0.0) -> None:
         self.pid = pid
         self.profiles = list(profiles)
         self.closed = closed
+        #: When it dialled in. The keeper picks THE panel by it, oldest first.
+        self.at = float(at or pid)
         self.asked: list = []
+        #: What a press on the profiles screen answers. Swapped by the tests that are
+        #: about a panel turning an open down.
+        self.answer = (200, {"ok": True})
 
     def ask(self, method, path, query, body, timeout=None):
-        self.asked.append((method, path, dict(body or {})))
-        self.closed = True                    # a panel that took the press goes away
+        body = dict(body or {})
+        self.asked.append((method, path, body))
+        if path == "/api/panel" and body.get("action") == "quit":
+            self.closed = True                # a panel that took the press goes away
+            return 200, {"ok": True}
+        if path == "/api/screen/press":
+            status, payload = self.answer
+            if status == 200 and payload.get("ok"):
+                name = str((body.get("args") or {}).get("name") or "")
+                if name and name not in self.profiles:
+                    self.profiles.append(name)
+            return status, dict(payload)
         return 200, {"ok": True}
 
 
@@ -248,6 +263,91 @@ def test_switched_off_it_is_the_door_it_used_to_be():
     keep.start()
     assert not calls, "supervised something with supervision switched off"
     assert keep.wanted() == []
+
+
+def test_a_panel_that_is_up_is_ASKED_and_never_bypassed_with_a_second_process():
+    """ONE PANEL PER MACHINE, and it holds every account (#2068).
+
+    This is the bug that put an account out of reach. `launch(missing)` started a panel
+    for exactly the profiles the live one lacked, so a machine wanting two accounts with
+    a panel on one of them got a SECOND process — and on Windows both bound the same web
+    port without either saying so, so the browser reached whichever the kernel picked and
+    the other account read as «закрыт» while it was farming.
+    """
+    panel = _Panel(1, ["one"])
+    keep, calls, lines = _keeper(_Registry([panel]), profiles=("one", "two"))
+    keep.tick()
+
+    assert not calls, f"started a second panel instead of asking the one that is up: {calls}"
+    presses = [a for a in panel.asked if a[1] == "/api/screen/press"]
+    assert len(presses) == 1, f"did not ask the panel to open it: {panel.asked}"
+    assert presses[0][2]["action"] == "open"
+    assert presses[0][2]["args"]["name"] == "two"
+    assert panel.profiles == ["one", "two"]
+
+    # …and now that it holds both, it is left alone for ever.
+    for _ in range(5):
+        keep.tick()
+    assert len([a for a in panel.asked if a[1] == "/api/screen/press"]) == 1, panel.asked
+    assert not calls
+
+
+def test_two_panels_are_an_accident_and_the_keeper_undoes_it():
+    """A second panel is damage, and mostly invisible damage — so it is fixed, not reported.
+
+    The person cannot act on «у вас две панели» and should not have to: what they see is
+    an account that is not there. The oldest connection is the machine's panel; the rest
+    are asked to go, orderly, through the same press the window's ✕ runs.
+    """
+    first, stray = _Panel(1, ["one"], at=100.0), _Panel(2, ["two"], at=200.0)
+    keep, calls, lines = _keeper(_Registry([first, stray]), profiles=("one", "two"))
+    keep.tick()
+
+    assert stray.closed, "the stray panel was left running"
+    assert stray.asked[0][1] == "/api/panel" and stray.asked[0][2]["action"] == "quit"
+    assert not first.closed, "put down the panel it was supposed to keep"
+    assert not calls, "started a process while cleaning up two of them"
+    assert any("TWO PANELS" in ln for ln in lines), lines
+
+    # The profile the stray held is not lost: its lock goes with it, and the survivor is
+    # asked to open it on a later tick.
+    keep.held = lambda name: False
+    keep.tick()
+    presses = [a for a in first.asked if a[1] == "/api/screen/press"]
+    assert [p[2]["args"]["name"] for p in presses] == ["two"], first.asked
+
+
+def test_a_refusal_is_not_asked_again_every_five_seconds():
+    """Some refusals stand until a person changes something (#2024) — say it, then wait.
+
+    A profile with no Windows session and no daemon port of its own drives somebody
+    else's client, and the panel turns the open down for it. A supervisor that asks
+    anyway writes the same line all night and drowns the one that matters.
+    """
+    clock = _Clock()
+    panel = _Panel(1, ["one"])
+    panel.answer = (200, {"ok": False, "reason": "log.profile.open_shared_client"})
+    keep, calls, lines = _keeper(_Registry([panel]), profiles=("one", "two"),
+                                 clock=clock)
+    for _ in range(6):
+        keep.tick()
+        clock.now += keepermod.CHECK_SEC
+    presses = [a for a in panel.asked if a[1] == "/api/screen/press"]
+    assert len(presses) == 1, f"asked {len(presses)} times inside its own quiet spell"
+    assert any("would not open" in ln for ln in lines), lines
+    assert not calls, "fell back to starting a second panel when refused"
+
+    clock.now += keepermod.ASK_AGAIN_SEC
+    keep.tick()
+    assert len([a for a in panel.asked if a[1] == "/api/screen/press"]) == 2, "never asked again"
+
+
+def test_the_screen_a_press_is_sent_to_is_asked_of_the_module_that_owns_it():
+    # Never spelled twice (`CLAUDE.md`): both the web API and the service read it off
+    # the module that declares the presses.
+    from panel.runtime import profile_control as profilectl
+
+    assert keepermod._profiles_screen() == profilectl.SCREEN
 
 
 def test_the_command_it_starts_is_the_one_place_a_panel_is_spelled():

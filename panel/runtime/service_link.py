@@ -49,6 +49,37 @@ def door_address() -> tuple:
     return host, port
 
 
+#: The one link THIS process has, for :func:`announce` to find. Process-wide for the same
+#: reason `panel/runtime/panel_control.py`'s handler is: there is one panel here, and
+#: which service it is talking to is a fact about the process rather than about a runtime.
+_LINK = None
+
+
+def announce() -> bool:
+    """Say the profile list again, because it has just changed (#2068).
+
+    THE LIST WAS A SNAPSHOT WITH NO WAY TO MOVE. `hello` is sent once per connection and
+    carries the profiles the panel had at that moment; the service files it under the
+    panel and routes by it for the life of the socket. So a profile opened afterwards was
+    a profile the service did not know anybody had — `for_profile` answered `None`, the
+    door said `no_such_profile` about an account that was farming, and the keeper counted
+    it as missing and went looking for somewhere to start it. The only thing that stopped
+    a second panel being started on top of it was the instance lock, which is a backstop
+    and not an answer.
+
+    Called from `panel/runtime/profile_control.py` on every open and close that WORKED,
+    which is every route either front-end has. Not a clock and not a poll: the list moves
+    when a person moves it, and that is the moment it is said.
+
+    Returns whether it went. `False` — no link, or not connected — is ordinary and costs
+    nothing: the next dial sends a fresh `hello` with the list as it is by then.
+    """
+    link = _LINK
+    if link is None:
+        return False
+    return link.announce()
+
+
 class ServiceLink:
     """One panel's connection to the service. Started by the shell, stopped with it."""
 
@@ -83,12 +114,17 @@ class ServiceLink:
     def start(self) -> None:
         if self._thread is not None:
             return
+        global _LINK                          # noqa: PLW0603 — one panel per process
+        _LINK = self
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="service-link",
                                         daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
+        global _LINK                          # noqa: PLW0603
+        if _LINK is self:
+            _LINK = None
         self._stop.set()
         sock, self._sock = self._sock, None
         if sock is not None:
@@ -132,10 +168,7 @@ class ServiceLink:
         self.connected = True
         self._log(f"[service] connected to {host}:{port}")
         try:
-            sock.sendall(wire.dumps({"hello": {
-                "session": self.session, "pid": os.getpid(),
-                "version": self.version, "boot": dict(self.boot),
-                "profiles": list(self._profiles() or ())}}))
+            sock.sendall(wire.dumps({"hello": self._hello()}))
             for frame in wire.reader(sock):
                 if "id" in frame:
                     self._answer(sock, frame)
@@ -149,6 +182,35 @@ class ServiceLink:
             except OSError:
                 pass
             self._log("[service] connection closed")
+
+    def _hello(self) -> dict:
+        """What this panel IS, as the service files it. Read fresh every time it is said.
+
+        `profiles` is asked of the callable rather than remembered, which is the whole
+        point of it being one: the list is right at the moment of speaking, whether that
+        is the first dial or an :func:`announce` after a profile was opened.
+        """
+        return {"session": self.session, "pid": os.getpid(),
+                "version": self.version, "boot": dict(self.boot),
+                "profiles": list(self._profiles() or ())}
+
+    def announce(self) -> bool:
+        """Re-say `hello` on the live socket. ``False`` when there is nothing to say it on.
+
+        The service's `Panel.hello` simply overwrites what it holds, so this needs no new
+        frame kind and no version negotiation: an older service files the same dictionary
+        it filed at the dial, and a newer panel talking to it loses nothing.
+        """
+        sock = self._sock
+        if sock is None or not self.connected:
+            return False
+        try:
+            sock.sendall(wire.dumps({"hello": self._hello()}))
+        except OSError:
+            # The link is going down and the retry loop will dial again with a fresh
+            # list. Never the caller's problem: this is said from inside a press.
+            return False
+        return True
 
     def _answer(self, sock, frame: dict) -> None:
         """One request, answered on a worker of its own.

@@ -1076,6 +1076,43 @@ def test_only_one_server_holds_the_window():
 
 
 # ---------------------------------------------------------------------------
+# The port
+# ---------------------------------------------------------------------------
+def test_the_port_is_taken_alone_and_a_second_panel_is_refused():
+    """Two panels on one port is what the person saw as «профиль закрыт» (#2068).
+
+    `socketserver.TCPServer.allow_reuse_address` is `1` for every `HTTPServer`, and the
+    flag behind it means opposite things on the two platforms: on POSIX «rebind through
+    TIME_WAIT», on Windows «share a listening port with whoever already has it». On this
+    machine two panels bound `0.0.0.0:9761`, both wrote «удалённое управление включено»,
+    neither said a word, and the browser reached the one that did not hold the person's
+    account — which was farming perfectly, one process away, drawn as closed.
+
+    So the second bind must FAIL, and the panel already knows how to say why
+    (`panel/runtime/web_control.py::apply` → `web.log.busy`). Pinned from both sides: the
+    flag's value, and a real second server on a real bound port.
+    """
+    assert webmod._Server.allow_reuse_address == (os.name != "nt"), \
+        "on Windows this flag lets a second process share the port"
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        first = webmod.WebServer(rt, host="127.0.0.1", port=0, token="t", api=api)
+        first.start()
+        try:
+            port = first.bound_port()
+            assert port, "the first server never bound"
+            second = webmod.WebServer(rt, host="127.0.0.1", port=port, token="t", api=api)
+            try:
+                second.start()
+            except OSError:
+                return                       # what the caller has always been ready for
+            second.stop()
+            raise AssertionError(f"a second panel took port {port} from the first")
+        finally:
+            first.stop()
+
+
+# ---------------------------------------------------------------------------
 # TLS, when the person has a certificate of their own
 # ---------------------------------------------------------------------------
 def test_without_a_certificate_it_is_plain_http_and_says_so():

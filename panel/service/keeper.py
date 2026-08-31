@@ -43,9 +43,25 @@ disconnected (`docs/research/multi-instance-rdp.md`).
 * `session` `-1` means «wherever somebody is signed in, the machine's own screen first».
 * `enabled` `false` is the old behaviour exactly: a door, supervising nothing.
 
-One panel process holds every wanted profile, which is what a window does too — a profile
-is an independent instance INSIDE it (`CLAUDE.md`), with its own log, schedule, budgets
-and daemon.
+## ONE PANEL PER MACHINE, and it holds every account
+
+    «Никаких других панелей у нас нет, есть одна, и она управляет всеми»
+                                                   — the person, 2026-08-31
+
+That is the rule, not a description of the usual case. A profile is an independent
+instance INSIDE the one panel (`CLAUDE.md`) — its own log, schedule, budgets and daemon —
+and the process is shared on purpose.
+
+**This file used to break it while claiming it.** `launch(missing)` started a panel for
+exactly the profiles that had none, so a machine wanting three accounts with a panel on
+one of them got a SECOND process for the other two. On Windows both then bound the same
+web port and neither said so (`panel/web/server.py::_Server`), the browser reached
+whichever the kernel picked, and an account that was farming perfectly showed as «закрыт»
+with a press that answered «отказано» (#2068).
+
+So the keeper now, in this order: undoes any second panel it finds
+(:meth:`Keeper.consolidate`), ASKS the one that is up to open what it lacks
+(:meth:`Keeper.adopt`), and starts a panel only when the machine has none at all.
 """
 from __future__ import annotations
 
@@ -69,6 +85,26 @@ BACKOFF_SEC = (10.0, 30.0, 60.0, 120.0)
 
 #: How long a panel is given to close itself when the service is going down.
 STOP_WAIT_SEC = 25.0
+
+#: How long a profile the panel REFUSED to open is left alone before it is asked again.
+#: Some refusals are permanent until a person changes something — a profile with no
+#: Windows session and no daemon port of its own drives somebody else's client and is
+#: turned down for it (#2024) — and a supervisor asking every five seconds would say the
+#: same line all night. Long enough to be quiet, short enough that fixing the profile is
+#: followed by it coming up without anybody restarting anything.
+ASK_AGAIN_SEC = 120.0
+
+
+def _profiles_screen() -> str:
+    """The id of the screen whose presses open and close profiles.
+
+    Asked of `panel/runtime/profile_control.py`, which is where the presses themselves
+    are declared, rather than of the web API that draws them — the API is a large import
+    that this process, in session 0, has no reason to load.
+    """
+    from ..runtime import profile_control as profilectl
+
+    return str(profilectl.SCREEN)
 
 #: The defaults of the `keep` block — a machine that has never been configured.
 DEFAULTS = {"enabled": True, "profiles": [], "session": -1, "module": "panel.headless"}
@@ -142,6 +178,9 @@ class Keeper:
         self._said_no_session = False
         #: Profiles said to be held by a panel that is not talking to us — said once each.
         self._said_held: set = set()
+        #: profile -> when the panel was last ASKED to open it, so a refusal is not
+        #: repeated every five seconds (:data:`ASK_AGAIN_SEC`).
+        self._asked: dict = {}
 
     # -- what is wanted, and what is there -----------------------------------
     def wanted(self) -> list:
@@ -223,17 +262,121 @@ class Keeper:
                 return
 
     def tick(self) -> None:
-        """One look: start what is missing, if it is time to try again."""
+        """One look: put the machine back to ONE panel holding everything it wants.
+
+        The order is the whole of it (#2068):
+
+        1. **More than one panel is an accident**, so it is undone first. Until it is,
+           everything below would be asking a question with two answers.
+        2. **A panel that is up is ASKED** to open what is missing. It used to be
+           bypassed: `launch(missing)` started a SECOND process for exactly the profiles
+           the first one lacked — which is how a machine that wanted three accounts ended
+           up with two panels, two web servers on one port and one account the person
+           could not see.
+        3. **Only a machine with NO panel gets one started.**
+        """
         now = self._clock()
+        self.consolidate()
         missing = self.missing(now)
         if not missing:
             if self._fails:
                 self._fails = 0
                 self._said_no_session = False
             return
+        panel = self.the_panel()
+        if panel is not None:
+            self.adopt(panel, missing, now)
+            return
         if now < self._next_try:
             return
         self.launch(missing)
+
+    # -- one panel, and it holds everything ----------------------------------
+    def the_panel(self):
+        """THE panel of this machine, or ``None`` when none has dialled in.
+
+        «Никаких других панелей у нас нет, есть одна, и она управляет всеми» — the
+        person, 2026-08-31. The oldest connection wins when there is somehow more than
+        one, which is the same one :meth:`consolidate` keeps, so the two never disagree
+        about which process the machine is.
+        """
+        panels = [p for p in self.registry.all() if not p.closed]
+        if not panels:
+            return None
+        return min(panels, key=lambda p: (float(getattr(p, "at", 0.0) or 0.0),
+                                          int(getattr(p, "pid", 0) or 0)))
+
+    def consolidate(self) -> list:
+        """Put down every panel but THE one. Returns the pids it asked to go.
+
+        A second panel is not a configuration this machine has — it is damage, and the
+        damage is mostly invisible: on Windows two processes can hold one web port
+        (`panel/web/server.py::_Server`), so the browser reaches whichever the kernel
+        picks and an account being farmed by the other one reads as «закрыт». It is
+        fixed rather than reported, because a person cannot act on «у вас две панели»
+        and should not have to.
+
+        The profiles the stray was holding are not lost: its lock goes with it, the next
+        tick counts them missing, and :meth:`adopt` asks the survivor to open them.
+        """
+        panels = [p for p in self.registry.all() if not p.closed]
+        if len(panels) <= 1:
+            return []
+        keep = self.the_panel()
+        gone = []
+        for panel in panels:
+            if panel is keep:
+                continue
+            pid = int(getattr(panel, "pid", 0) or 0)
+            self._log(f"keeper: TWO PANELS on one machine — asking {pid} "
+                      f"({', '.join(panel.profiles) or 'no profiles'}) to quit and "
+                      f"leaving {int(getattr(keep, 'pid', 0) or 0)} to hold everything")
+            try:
+                panel.ask("POST", "/api/panel", {}, {"action": "quit"}, timeout=5.0)
+            except Exception as exc:         # noqa: BLE001 — a supervisor must not die
+                self._log(f"keeper: panel {pid} did not take the press: {exc}")
+            gone.append(pid)
+        return gone
+
+    def adopt(self, panel, profiles: list, now: float) -> None:
+        """Ask the one panel to open the profiles it is missing.
+
+        THE PRESS IS THE PERSON'S OWN. `/api/screen/press` on the profiles screen is what
+        the button in the browser sends (`panel/web/api.py::_profiles_press`), so a
+        profile the service adds is opened by exactly the code path a person's tap uses —
+        the same lock, the same log lines, and the same refusals when a profile has no
+        client of its own to drive.
+
+        A REFUSAL IS NOT RETRIED EVERY FIVE SECONDS. Some are permanent until somebody
+        changes something (a profile with no session and no port of its own), and a
+        supervisor that asks anyway fills the log with the same line all night. So each
+        name is asked, and then left alone for :data:`ASK_AGAIN_SEC` before it is asked
+        again.
+        """
+        for name in profiles:
+            when = self._asked.get(name)
+            if when is not None and (now - when) < ASK_AGAIN_SEC:
+                continue
+            self._asked[name] = now
+            self._log(f"keeper: asking panel {int(getattr(panel, 'pid', 0) or 0)} "
+                      f"to open «{name}»")
+            try:
+                status, payload = panel.ask(
+                    "POST", "/api/screen/press", {},
+                    {"id": _profiles_screen(), "action": "open",
+                     "args": {"name": name}})
+            except Exception as exc:         # noqa: BLE001 — a supervisor must not die
+                self._log(f"keeper: panel did not take «{name}»: {exc}")
+                continue
+            payload = payload if isinstance(payload, dict) else {}
+            if int(status) == 200 and payload.get("ok"):
+                # Opened, or opening — a staged page answers «принято, идёт» and dials
+                # its new list in when it is drawn (`panel/runtime/service_link.py`).
+                self._asked.pop(name, None)
+                continue
+            self._log(f"keeper: the panel would not open «{name}»: "
+                      f"{payload.get('reason') or payload.get('error') or status} — "
+                      f"asking again in {ASK_AGAIN_SEC:.0f}s")
 
     def launch(self, profiles: list) -> dict:
         """Start ONE panel holding ``profiles``. Said in the log, whatever happens."""

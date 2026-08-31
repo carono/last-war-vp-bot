@@ -207,6 +207,80 @@ def test_the_request_reaches_the_panel_that_has_that_profile() -> None:
         service.stop()
 
 
+def test_a_profile_opened_AFTER_the_dial_is_routed_to() -> None:
+    """The list is not a snapshot of the moment the panel connected (#2068).
+
+    `hello` used to be said once, so the profiles the service filed were the ones the
+    panel had when it dialled. A profile opened afterwards was therefore one nobody was
+    known to hold: the door answered `no_such_profile` about an account that was farming,
+    and the keeper counted it missing and went looking for somewhere to start a panel for
+    it. The panel re-says `hello` on every open and close that worked
+    (`panel/runtime/profile_control.py::_tell_the_service`), and the service simply files
+    the newer list over the older one.
+    """
+    service = _service()
+    api = _Api("one")
+    held = ["default"]
+    link = ServiceLink(api, session="console", profiles=lambda: list(held),
+                       version="test", boot={"pid": 1, "at": 1.0, "head": "abc1234"},
+                       log=lambda line: None,
+                       address=lambda: ("127.0.0.1", service.door.port))
+    link.start()
+    try:
+        assert _wait(lambda: service.registry.all() and
+                     service.registry.all()[0].profiles == ["default"])
+        status, said = _get(service, "/api/state?profile=later")
+        assert status == 409 and said["error"] == "no_such_profile", (status, said)
+        # …the person opens it, and the panel says the list again on the same socket
+        held.append("later")
+        assert link.announce(), "the link had nothing to say it on"
+        assert _wait(lambda: "later" in service.registry.all()[0].profiles), \
+            "the service is still holding the list from the dial"
+        status, said = _get(service, "/api/state?profile=later")
+        assert status == 200 and said["answered_by"] == "one", (status, said)
+    finally:
+        link.stop()
+        service.stop()
+
+
+def test_every_press_that_opens_a_profile_says_the_list_again() -> None:
+    """Announcing is wired to the PRESS, not to a clock, and to every front-end's press.
+
+    Both front-ends and the service itself open profiles through
+    `panel/runtime/profile_control.py::carry_out`, so that is the one place it has to be
+    said from — and a press that failed says nothing, because nothing moved.
+    """
+    from panel import profile as profilemod
+    from panel.runtime import profile_control as profilectl
+    from panel.runtime import service_link as linkmod
+
+    said: list = []
+    real_link = linkmod._LINK
+    # A press also writes down what this machine wants farmed, and this test is not about
+    # that half — stood aside so the run does not touch the machine's own standing list.
+    real_add, real_drop = profilemod.keep_add, profilemod.keep_drop
+    profilemod.keep_add = profilemod.keep_drop = lambda name: None
+
+    class _Spy:
+        def announce(self) -> bool:
+            said.append(1)
+            return True
+
+    linkmod._LINK = _Spy()
+    profilectl.set_handler(lambda action, name, text: name != "no")
+    try:
+        assert profilectl.carry_out(profilectl.OPEN, "yes")
+        assert said == [1], said
+        assert profilectl.carry_out(profilectl.CLOSE, "yes")
+        assert said == [1, 1], said
+        assert not profilectl.carry_out(profilectl.OPEN, "no")
+        assert said == [1, 1], "a press that failed announced a list that did not move"
+    finally:
+        profilectl.set_handler(None)
+        linkmod._LINK = real_link
+        profilemod.keep_add, profilemod.keep_drop = real_add, real_drop
+
+
 def test_no_panel_is_a_state_the_page_can_draw() -> None:
     """The machine is up, the door answers, and nobody has signed in yet."""
     service = _service()
