@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **36%** — 60 of 169
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **36%** — 61 of 171
 
-🟩 60 done · 🟨 76 partly · 🟥 33 not automated
+🟩 61 done · 🟨 77 partly · 🟥 33 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -238,6 +238,11 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 Watching the alliance train — a page of its own: whose train it is, how many carriages it has and how many people are aboard, how full it still is, where it is right now and where its next stop is, and when it arrives. It only runs during its event, so the page is empty most of the week and says so — and the log now says «trains 0» out loud beside the mines and trucks it did find, which is a different sentence from a page that failed to read anything. Rebuilt from a recording; not yet watched during a live train
 - 🟡 Riding the alliance train — a train stands at the alliance station with nobody driving it until an officer appoints a conductor, and from that moment there is a short window to take a seat before it leaves. The bot listens for that moment on its own and, the second the conductor is named, takes a place in the carriage you chose and offers the conductor the fare you chose: a like, which costs nothing, or up to three trade contracts. **It never buys contracts for diamonds** — if the bag is short it offers the free like instead and says so, because the game's offer to make the difference up in diamonds is not something a standing order takes on your behalf. «События» shows what stands at the platform, whether a conductor has been named, which carriage you are in, how many are queued for how many seats, how long is left before it leaves and whether the fare has been paid — all read from the game, so a seat you took by hand is counted too. Boarding and paying were both proven against a live train; the ear that does it by itself has not yet been watched through one Beside the fare there is a switch for whether the missing contracts may be bought for diamonds — off, so nothing is spent unless it is ticked, capped by the same number so a purchase can never go one contract past what was allowed, and every purchase named in the log with its price; the count of contracts in the bag is shown right above it. The purchase leg is not proven yet, so with the switch on and a short bag the bot says so and pays what the bag holds rather than sending a command whose price it cannot yet vouch for.
 
+### Daily quests
+
+- ✅ Claiming the day's finished quests — the bot takes every daily quest the game itself marks finished, one at a time, and then reads the list back to see which ones actually arrived: a row the server refused is named in the log instead of being counted as collected. Nothing is ticked by hand and nothing is assumed — the only thing that decides whether a quest is claimable is the game's own word about it. It runs by itself the moment the game says the day's progress moved, or on one press from the checklist. Proven live: two finished quests claimed in one run and the day's points went from 130 to 150
+- 🟡 Claiming the boxes on the day's progress bar — the five chests that open as the day's points cross each mark are taken one by one rather than in a single «collect all», so the log says which chest arrived and which was refused. A chest the points have not reached yet is left alone and said so. Both halves run in the same press as the quests above, and after the quests, because the points those quests pay are what opens the next chest. The reading and the gate are proven live on a day whose lower three chests were already taken; a chest actually being claimed by the bot has not been seen yet
+
 ### Store
 
 - ❌ Daily diamond bonuses, weekly card
@@ -352,7 +357,7 @@ The routine as it is actually played, against what the bot covers.
 | Fireworks | ✅ boxes are taken by themselves the instant a firework is announced — 0 ms measured live; lighting one is still the person's |
 | Alliance gifts | ✅ · on a schedule 🟡 |
 | Golden eggs and lucky gifts in chat | ❌ |
-| Supplies, secret training, quests | ❌ |
+| Supplies, secret training, quests | ✅ the day's finished quests, claimed and read back · 🟡 the progress-bar chests · ❌ supplies and secret training |
 | Arena | ❌ |
 | Help alliancemates who ask | ✅ |
 | Fire the profession skills that came off cooldown | 🟡 the no-target ones · ❌ the targeted ones |

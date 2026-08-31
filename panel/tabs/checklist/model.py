@@ -300,6 +300,15 @@ BLIND_ERRANDS: tuple = (
     Errand("supplies"),
     Errand("shop"),
     Errand("fireworks"),
+    # «Ежедневные задания» — the quest rows and the five-step points ladder behind them
+    # (#2076). BLIND for now, and deliberately so: the reading exists (the manager knows
+    # how many rows are finished and unclaimed, and how far the day's points have got),
+    # but it is a game read, and the board pays for every field it draws on every
+    # refresh. The press is what was missing — the ability was reachable only from the
+    # `push.daily.quest` listener, which is «when the game says so» and never «сделай
+    # сейчас». The scenario keeps its own gates: it claims only rows the game itself
+    # marks finished-and-unclaimed, and only boxes the day's points have reached.
+    Errand("daily_quests", scenario="collect_daily_quests"),
     Errand("vip_daily"),
     Errand("battle_pass"),
     # The ability the panel has is for ONE post, so the button says «Подать заявку»

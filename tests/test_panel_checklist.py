@@ -368,7 +368,7 @@ def test_the_state_is_read_and_the_doing_is_offered():
             assert errand.run_key.startswith("checklist."), errand.run_key
 
 
-def test_the_nine_errands_with_an_ability_offer_it_and_the_four_without_do_not():
+def test_the_errands_with_an_ability_offer_it_and_the_four_without_do_not():
     """Which lines have a button is a decision, not an accident — so it is pinned.
 
     The four without: `trucks` and `queues_help` have no ability at all yet, and the two
@@ -405,9 +405,14 @@ def test_the_nine_errands_with_an_ability_offer_it_and_the_four_without_do_not()
     # chosen from the GAME's weekday — the one a clock calls; the two narrower ones stay
     # because «collect what is ripe» and «spend squads» are decisions a person may want on
     # their own.
+    #
+    # `daily_quests` is the seventh and arrived the same way (#2076): the ability exists
+    # and the reading has not been put on the board, so the row offers the press and goes
+    # on saying «неизвестно». Its listener (`push.daily.quest`) is «when the game says
+    # so» and not a way to ask for it now, which is exactly what this row is for.
     blind = [e.key for e in modelmod.BLIND_ERRANDS if e.runnable]
     assert blind == ["truck_reward", "radar", "radar_march", "radar_all",
-                     "alliance_gifts", "ministry"], blind
+                     "alliance_gifts", "daily_quests", "ministry"], blind
     assert modelmod.BY_KEY["ministry"].run_key == "checklist.run.ministry"
 
 

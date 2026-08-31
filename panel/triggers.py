@@ -586,6 +586,27 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.treasure_auto",
     ),
     Trigger(
+        name="daily_quests",
+        # «Ежедневные задания» is two claims behind one screen — a list of quest rows and
+        # a five-step points ladder — and the server announces every move of the day's
+        # progress as `push.daily.quest`. So the ear is the whole schedule here: there is
+        # nothing to poll for, and a clock asking «is anything finished yet» would be the
+        # background question CLAUDE.md forbids.
+        #
+        # It fires often — the push lands whenever progress moves, which is most of the
+        # time somebody is playing — so the recipe's no-op path is one VM read and no
+        # wait at all (`collect_daily_quests.md`), and the waits are paid only by a run
+        # that actually claimed something.
+        kind=KIND_WIRE,
+        event_pattern="push.daily.quest",
+        scenario=("collect_daily_quests",),
+        enabled=False,
+        # Deliberately NOT «сразу, без очереди»: nothing here is a race. A finished quest
+        # waits until the day resets, and a box that has opened stays open — so this can
+        # take its turn behind work that is timed.
+        label_key="triggers.item.daily_quests",
+    ),
+    Trigger(
         name="firework_collect",
         # A firework burning over somebody's base drops gift boxes for everyone around,
         # and the game announces every box that is taken — ours and everyone else's — as
