@@ -621,12 +621,11 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # so there is time to come back a few times without hammering anything.
         retry_sec=600,
         enabled=False,
-        # WHETHER THE HERO PHASE MAY HIRE — and the other phases stay off, which is a
-        # DEFAULT and no longer a silence: every one of them is a knob on the gear now
-        # (`panel/runtime/errand_args.py`), because a row that can only HALT with
-        # «spending off» reads in the log exactly like an errand that does not work
-        # (#2070). Each spends something out of the player's own pocket — speed-ups,
-        # resources, the day's rally budget — so the person turns them on, never us.
+        # WHETHER THE HERO PHASE MAY HIRE, and nothing else — how MANY hires is the
+        # recipe's own `ARGS pulls` and this row holds no second opinion about it. The
+        # four phases that spend speed-ups, drone data or troops are not automated at
+        # all yet, so there is no knob here for them: a switch over a thing that cannot
+        # happen is a switch that lies.
         args={"hero": 1},
         label_key="timers.item.perform_arms_race",
     ),
