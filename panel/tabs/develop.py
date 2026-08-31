@@ -204,6 +204,12 @@ class DevelopTab(PanelTab):
         self._sniff_files: dict = {}  # kind -> run file each child reported opening;
                                       # emptied by the save/delete prompt that closes a
                                       # session, which is what makes it fire once
+        #: What the person already answered about the run that is being stopped (#2072).
+        #: The window asks its two questions in dialogs; the phone answers them WITH the
+        #: press — «Стоп» carries the description, «Удалить запись» carries the verdict —
+        #: so the session's end has nothing left to ask and never raises a box on a
+        #: machine nobody is standing at. None means «nobody has said».
+        self._sniff_outcome: dict | None = None
         self._sniff_var = statevar.boolean(rt.root, False)
         self._status_var = statevar.string(rt.root, "")
         # -- the scenario runner --
@@ -644,24 +650,37 @@ class DevelopTab(PanelTab):
           (`develop_busy.BusyView.web_cards`);
         * **the update channel travels as a switch**, because it is one boolean of the
           checkout with nothing to confirm;
-        * **the sniffer pair is a READING and carries no press.** Starting it asks for a
-          label in a message box and stopping it opens the keep-or-throw-away prompt with
-          a description to type — two modals raised on a machine nobody is standing at.
-          The recipe for making them travel is the one this repository already uses: the
-          typed word becomes an argument of the press (`profile_control`, «Аккаунты»),
-          and until that is written the phone SAYS what is being recorded rather than
-          pretending it can start it;
+        * **the sniffer pair TRAVELS WHOLE now (#2072).** It used to be a reading with no
+          press, because starting it asked for a label in a message box and stopping it
+          opened the keep-or-throw-away prompt — two modals raised on a machine nobody is
+          standing at. That was written down as the recipe for ending it, and this is the
+          recipe: the typed word is an ARGUMENT of the press. «Записать» carries the
+          label, «Остановить» carries the description, «Удалить запись» carries the
+          verdict and asks first, and no dialog is raised anywhere. It matters beyond
+          convenience — the live panel runs with no window at all, so a switch only Tk
+          could throw was a switch nobody could throw;
         * **the scenario editor stays in the window** for now, for the same reason and
           one more: it is a text editor, and half of what it is for is reading a recipe
           beside its neighbours. Running a scenario needs none of it — the phone has had
           «Сценарии» since the SPA's first day.
         """
+        running = self._sniffing()
+        shown = self._sniff_label.strip() or self.t("develop.run.nolabel")
         cards = [{"title": "develop.sniff.frame",
-                  "items": [{"text": self._status_var.get() or "—",
+                  "items": [{"text": (shown if running else
+                                      (self._status_var.get() or "—")),
                              "label": "develop.sniff.toggle",
-                             "pill": ("busy.status.running" if self._sniffing()
+                             "pill": ("busy.status.running" if running
                                       else "develop.sniff.idle")}],
-                  "note": "develop.web.reading_only"},
+                  "note": "develop.web.recording_hint",
+                  "actions": ([{"id": "sniff_stop", "label": "develop.sniff.stop",
+                                "prompt": "develop.run.prompt", "value": ""},
+                               {"id": "sniff_discard", "label": "develop.run.discard",
+                                "confirm": "develop.run.confirm",
+                                "confirm_fmt": {"label": shown}}]
+                              if running else
+                              [{"id": "sniff_start", "label": "develop.sniff.start",
+                                "prompt": "develop.label.prompt", "value": ""}])},
                  {"title": "develop.updates.frame",
                   "fields": [{"key": "dev_updates", "label": "develop.updates.dev",
                               "kind": "switch", "value": profilemod.dev_updates()}],
@@ -674,7 +693,30 @@ class DevelopTab(PanelTab):
         return self._sniff_proc is not None or self._trace_proc is not None
 
     def web_press(self, action: str, args) -> dict:
-        """The one knob the screen offers: which releases this checkout follows."""
+        """The recording pair (#2072), and which releases this checkout follows.
+
+        Every question the window asks in a dialog arrives HERE as part of the press —
+        `args.text` is what the phone typed into its own box, and «Удалить запись» has
+        already asked «are you sure?» before it fires. So nothing on this path can raise
+        a window, which is what lets a panel with no Tk at all record a session.
+        """
+        if action == "sniff_start":
+            if self._sniffing():
+                return {"ok": False, "reason": "develop.web.already"}
+            self._start_sniff(label=str((args or {}).get("text") or ""))
+            if not self._sniffing():
+                return {"ok": False, "reason": "develop.web.start_failed"}
+            self._sniff_var.set(True)
+            return {"ok": True}
+        if action in ("sniff_stop", "sniff_discard"):
+            if not self._sniffing():
+                return {"ok": False, "reason": "develop.web.not_running"}
+            self._sniff_outcome = {
+                "action": "discard" if action == "sniff_discard" else "save",
+                "description": str((args or {}).get("text") or "")}
+            self._sniff_var.set(False)
+            self._stop_sniff()
+            return {"ok": True}
         if action != "set" or str((args or {}).get("key") or "") != "dev_updates":
             return {"error": "unknown"}
         flag = bool((args or {}).get("value"))
@@ -745,6 +787,8 @@ class DevelopTab(PanelTab):
         answer (no label); only Cancel aborts the launch, which is why "" and
         None must stay distinguishable here.
         """
+        if self.rt.root is None:
+            return ""            # no window to ask in: an unlabelled run beats no run
         return simpledialog.askstring(self.t("develop.label.title"),
                                       self.t("develop.label.prompt"), parent=self.rt.root)
 
@@ -755,20 +799,28 @@ class DevelopTab(PanelTab):
         else:
             self._stop_sniff()
 
-    def _start_sniff(self) -> None:
-        """Ask for one label, then start the traffic sniffer and the Lua tracer.
+    def _start_sniff(self, label: "str | None" = None) -> None:
+        """Start the traffic sniffer and the Lua tracer under one label.
 
         The label is asked ONCE and passed to both children so a session's two
         run files carry the same name. If only one of the two comes up the
         toggle stays on — a half-running session is still worth watching — and
         the log says which half is missing; only a total failure flips it back.
+
+        `label` is what the caller ALREADY knows (#2072): the phone types it into the
+        press, so the box is never raised at a machine nobody is standing at. None
+        means «nobody has said» and only then is the window asked — where there is no
+        window `_ask_run_label` answers "" rather than blocking on a dialog that cannot
+        be drawn, which is what made the sniffer unstartable without Tk.
         """
         if self._sniff_proc is not None or self._trace_proc is not None:
             return
-        label = self._ask_run_label()
+        if label is None:
+            label = self._ask_run_label()
         if label is None:
             self._sniff_var.set(False)
             return
+        self._sniff_outcome = None
         label_args = ["--label", label] if label.strip() else []
 
         # Neither child is capturing when its pid appears: npcap needs ~1 s to
@@ -998,10 +1050,27 @@ class DevelopTab(PanelTab):
         """
         files, self._sniff_files = self._sniff_files, {}
         label, self._sniff_label = self._sniff_label, ""
+        outcome, self._sniff_outcome = self._sniff_outcome, None
         files = {k: p for k, p in files.items() if p and os.path.exists(p)}
         if not files:
             return
         seconds = max(0.0, time.time() - self._sniff_t0) if self._sniff_t0 else 0.0
+        paths = [files[k] for k in ("trace", "traffic") if k in files]
+        if outcome is not None:
+            # The press already carried the answer (#2072) — the phone asks its two
+            # questions in the press itself, so there is nothing left to raise here.
+            if outcome.get("action") == "discard":
+                gone = run_notes.discard_run(paths)
+                self.say("sniff", "log.sniff.discarded", n=len(gone))
+            else:
+                self._save_run_note(paths, label, str(outcome.get("description") or ""))
+            return
+        if self.rt.root is None:
+            # A panel with no window and nobody who answered: KEEP the run. Losing a
+            # recording must take a deliberate press — the same rule the window's dialog
+            # keeps when it is closed with its X.
+            self._save_run_note(paths, label, "")
+            return
         self._ask_run_outcome(files, label, seconds)
 
     def _ask_run_outcome(self, files: dict, label: str, seconds: float = 0.0) -> None:

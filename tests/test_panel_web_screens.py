@@ -130,23 +130,28 @@ def test_every_tab_offers_a_screen_and_the_last_two_exceptions_are_gone():
         "nobody can reach (#1976)")
 
 
-def test_the_recording_pair_is_a_reading_on_the_phone_and_not_a_press():
-    """The sniffers travel as WORDS, and the reason is not squeamishness (#1976).
+def test_the_recording_pair_is_pressed_by_ITS_OWN_ids_and_no_others():
+    """The sniffers travel whole since #2072, and only under their own names.
 
-    Starting a recording asks for a label in a message box; stopping it opens the
-    keep-or-throw-away prompt with a description to type. Both are modals raised on a
-    machine nobody is standing at, so the screen says what is being recorded and offers
-    no switch — and a press that names one anyway is answered «unknown» rather than
-    quietly doing half of it. The one knob it does carry is the update channel.
+    They used to be words alone: starting a recording asked for a label in a message box
+    and stopping it opened the keep-or-throw-away prompt, both modals raised on a machine
+    nobody is standing at — and the live panel has no window at all, so the switch was
+    one nobody could throw. Both questions are ARGUMENTS of the press now
+    (`sniff_start` / `sniff_stop` / `sniff_discard`, `args.text`), so nothing on the path
+    raises a box. What is pinned here is that nothing ELSE became pressable: a knob named
+    «sniff» is still not a knob of this screen, and the bare verbs are still nobody's.
     """
     cls = BY_ID["develop"].load()
     tab = cls.__new__(cls)
     for never in ("sniff", "trace", "scenario", "loop"):
         answer = tab.web_press("set", {"key": never, "value": True})
         assert answer == {"error": "unknown"}, (
-            f"«{never}» can be pressed from the phone — it opens a box at the "
-            f"machine (#1976): {answer}")
-    assert tab.web_press("start", {}) == {"error": "unknown"}
+            f"«{never}» is not a knob of this screen: {answer}")
+    for never in ("start", "stop", "save"):
+        assert tab.web_press(never, {}) == {"error": "unknown"}, never
+    tab._sniff_proc = tab._trace_proc = None
+    assert tab.web_press("sniff_stop", {"text": "x"}) == {
+        "ok": False, "reason": "develop.web.not_running"}
 
 
 def test_the_settings_screen_refuses_what_decides_which_client_is_driven():

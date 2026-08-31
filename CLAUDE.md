@@ -341,12 +341,22 @@ SNIFFERS and never of «Занятость», the block on the same tab that ans
 ничего не делает»: the threads, the queue, the claims and who is waiting for whom. That
 is the one question somebody away from the machine cannot ask any other way, and it was
 behind a `WEB_SCREEN = False` written for its neighbours. So the tab has a screen — the
-busy grids whole, the update channel as a switch — and the reason the SNIFFERS still do
-not travel is written INSIDE it: starting a recording asks for a label in a message box
-and stopping it asks whether to keep the run, two modals raised on a machine nobody is
-standing at. The phone gets the reading and no switch, and a press naming one is answered
-«unknown» — the same order of work the robberies went through, not an exception. The tab
-is still `DEFAULT_ENABLED = False`, so a panel that never asked for it is handed nothing.
+busy grids whole, the update channel as a switch. The tab is still
+`DEFAULT_ENABLED = False`, so a panel that never asked for it is handed nothing.
+
+**And the half that was held back — the SNIFFERS — travels since #2072**, which is the
+order of work finishing rather than an exception ending. What was written here was that
+starting a recording asks for a label in a message box and stopping it asks whether to
+keep the run, two modals raised on a machine nobody is standing at, so the phone got the
+reading and no switch. The person then hit the consequence: «не могу включить снифер в
+разработке». The live panel has no window at all, so a switch only Tk could throw was a
+switch NOBODY could throw — the same shape as the ghost order behind a dev-only tab
+(#2010) and the profile press only Tk could make (#2024). The cure is the one this file
+already named: **the typed word becomes an argument of the press.** «Записать» carries
+the label, «Остановить» carries the description, «Удалить запись» carries the verdict and
+asks the phone's own «are you sure?» first. No dialog is raised on either path, and a
+window-less panel that is stopped by nobody KEEPS the run — losing a recording must take
+a deliberate press.
 
 **So there are NO divergences left**, and the next one is added exactly the way the three
 were: ask, agree, write it in both files, pin it in the test. What is written down now is

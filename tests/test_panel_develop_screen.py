@@ -8,10 +8,12 @@ because the reason each half went the way it did is the part that will be forgot
     nothing, and «почему панель ничего не делает» is the one question somebody away from
     the machine cannot ask any other way. The cards are the window's own grids, off the
     same `rows()`, so a section added to one reaches both;
-  * **the sniffer pair is a reading and carries no press.** Starting it asks for a label
-    in a message box, stopping it asks whether to keep the run — two modals raised on a
-    machine nobody is standing at. A press naming one is answered «unknown» rather than
-    doing half of it;
+  * **the sniffer pair travels whole since #2072.** It used to be a reading with no
+    press, because starting it asked for a label in a message box and stopping it asked
+    whether to keep the run. The live panel has no window at all, so a switch only Tk
+    could throw was a switch nobody could throw. The questions are ARGUMENTS of the
+    press now — the label rides on «Записать», the description on «Остановить», and
+    «Удалить запись» asks the phone's own «are you sure?» before it fires;
   * **the update channel travels as a switch**, because it is one boolean of the checkout
     with nothing to confirm.
 
@@ -81,7 +83,10 @@ from panel.tabs.develop_busy import BusyView, GROUPS         # noqa: E402
 
 LOCALES = _REPO / "panel" / "locales"
 LANGS = sorted(p.stem for p in LOCALES.glob("*.json"))
-NEW_KEYS = ("develop.sniff.idle", "develop.web.reading_only")
+NEW_KEYS = ("develop.sniff.idle", "develop.web.recording_hint",
+            "develop.sniff.start", "develop.sniff.stop",
+            "develop.web.already", "develop.web.not_running",
+            "develop.web.start_failed")
 
 #: Where a key is expected on a card, and where data is (`test_panel_web_screens`).
 _KEY_FIELDS = ("title", "empty", "label", "pill")
@@ -157,13 +162,84 @@ def test_the_tab_offers_a_screen_now() -> None:
         "«Разработка» has no phone screen — the divergence was ended in #1976")
 
 
-def test_the_only_knob_the_screen_carries_is_the_update_channel() -> None:
+def test_the_knobs_the_screen_carries_are_the_channel_and_the_recording() -> None:
     tab = DevelopTab.__new__(DevelopTab)
     for never in ("sniff", "trace", "scenario", "loop", "page"):
         assert tab.web_press("set", {"key": never, "value": True}) == {"error": "unknown"}, (
-            f"«{never}» is pressable from the phone — it opens a box at the machine")
+            f"«{never}» is not a knob of this screen")
     for never in ("start", "stop", "save"):
         assert tab.web_press(never, {}) == {"error": "unknown"}, never
+
+
+def test_stopping_a_recording_that_is_not_running_is_refused_not_unknown() -> None:
+    """«Nothing is being recorded» is an ANSWER; «unknown» would say the button is not real."""
+    tab = DevelopTab.__new__(DevelopTab)
+    tab._sniff_proc = tab._trace_proc = None
+    for press in ("sniff_stop", "sniff_discard"):
+        answer = tab.web_press(press, {"text": "did a thing"})
+        assert answer == {"ok": False, "reason": "develop.web.not_running"}, answer
+
+
+def test_starting_one_while_one_runs_is_refused_and_starts_nothing() -> None:
+    tab = DevelopTab.__new__(DevelopTab)
+    tab._sniff_proc, tab._trace_proc = object(), None
+    answer = tab.web_press("sniff_start", {"text": "second"})
+    assert answer == {"ok": False, "reason": "develop.web.already"}, answer
+
+
+def test_the_press_carries_the_two_answers_the_window_asks_in_dialogs() -> None:
+    """The whole of #2072: `args.text` is the label / the description, never a box."""
+    tab = DevelopTab.__new__(DevelopTab)
+    tab._sniff_proc, tab._trace_proc = object(), None
+    tab._sniff_var = type("V", (), {"set": lambda self, v: None})()
+    stopped: list = []
+    tab._stop_sniff = lambda: stopped.append(True)
+
+    assert tab.web_press("sniff_stop", {"text": "opened the hospital"}) == {"ok": True}
+    assert tab._sniff_outcome == {"action": "save",
+                                  "description": "opened the hospital"}, tab._sniff_outcome
+    tab._sniff_proc = object()
+    assert tab.web_press("sniff_discard", {}) == {"ok": True}
+    assert tab._sniff_outcome["action"] == "discard", tab._sniff_outcome
+    assert stopped == [True, True], stopped
+
+
+def test_the_started_label_reaches_the_children_without_a_dialog() -> None:
+    tab = DevelopTab.__new__(DevelopTab)
+    tab._sniff_proc = tab._trace_proc = None
+    seen: list = []
+    tab._start_sniff = lambda label=None: seen.append(label)
+    answer = tab.web_press("sniff_start", {"text": "ghost recon"})
+    assert seen == ["ghost recon"], seen
+    # Nothing came up (the stub started no children), so the press says so — and says it
+    # as a REFUSAL with a reason, never as «this panel has no such button».
+    assert answer == {"ok": False, "reason": "develop.web.start_failed"}, answer
+
+
+def test_the_screen_offers_start_when_idle_and_stop_when_running() -> None:
+    english = _english()
+    tab = DevelopTab.__new__(DevelopTab)
+    tab.rt = _Runtime()
+    tab._sniff_proc = tab._trace_proc = None
+    tab._sniff_label = ""
+    tab._status_var = type("V", (), {"get": lambda self: ""})()
+    tab.t = lambda key, **fmt: english[key].format(**fmt)
+    tab._busy = type("B", (), {"web_cards": lambda self, snap: []})()
+
+    import panel.tabs.develop as devmod
+    devmod.profilemod.dev_updates = staticmethod(lambda: False)
+
+    card = tab.web_view()["cards"][0]
+    assert [a["id"] for a in card["actions"]] == ["sniff_start"], card["actions"]
+    tab._trace_proc = object()
+    card = tab.web_view()["cards"][0]
+    assert [a["id"] for a in card["actions"]] == ["sniff_stop", "sniff_discard"], card
+    # Every word on it is a key, and the destructive one asks first.
+    assert card["note"] in english and card["title"] in english
+    for act in card["actions"]:
+        assert act["label"] in english, act
+        assert act.get("prompt", "develop.run.prompt") in english, act
+    assert card["actions"][1]["confirm"] in english
 
 
 def test_the_recording_says_whether_it_is_running_and_nothing_else() -> None:

@@ -1096,11 +1096,13 @@ Three things bound it:
   on the bot» was true of the SNIFFERS and never of «Занятость» on the same tab: the
   threads, the queue, the claims and who waits for whom answer «почему панель ничего не
   делает», the one question somebody away from the machine cannot ask any other way. So
-  the tab has a screen, and what does NOT travel is written inside it: starting a
-  recording asks for a label in a message box, stopping it asks whether to keep the run,
-  and a phone cannot answer either — the screen shows what is being recorded and a press
-  naming a sniffer is answered «unknown». `tests/test_panel_develop_screen.py` pins both
-  halves. **A new exception is still added the same way: ask, agree, write it in both
+  the tab has a screen. The half that was held back — the sniffers, because starting one
+  asked for a label in a message box and stopping it asked whether to keep the run —
+  **travels since #2072**: the questions are ARGUMENTS of the press
+  (`sniff_start` / `sniff_stop` / `sniff_discard`, the typed word in `args.text`), so no
+  box is raised anywhere and a window-less panel can record a session at all. A session
+  nobody answered for is KEPT, never thrown away. `tests/test_panel_develop_screen.py`
+  pins it. **A new exception is still added the same way: ask, agree, write it in both
   files, pin it in the test.**
 * **`settings` used to be the second, and #1976 ended it.** That exception — «breaking a
   profile with one thumb is easier than fixing it from a bus» — held while there were
