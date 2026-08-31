@@ -1481,6 +1481,7 @@
   "web.state.on": "{port} numaralı bağlantı noktasını dinliyor",
   "web.state.off": "kapalı",
   "web.log.started": "uzaktan kumanda açık, bağlantı noktası {port}",
+  "web.log.moved": "kapı artık servisin — {port} portuna o yanıt veriyor, bu panelin kendi uzaktan kumandası kapalı",
   "web.log.stopped": "uzaktan kumanda kapalı",
   "web.log.busy": "{port} bağlantı noktası dolu — başka bir program ya da onu henüz bırakmamış bir panel",
   "web.log.error": "uzaktan kumanda hatası: {error}",

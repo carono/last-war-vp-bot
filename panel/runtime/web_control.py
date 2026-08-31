@@ -27,7 +27,6 @@ through the runtime it was started with; `log_message` alone belongs to the wind
 """
 from __future__ import annotations
 
-import errno
 import secrets
 import ssl
 import threading
@@ -118,6 +117,48 @@ def port_number(values: "dict | None" = None) -> int:
         return webmod.default_port()
 
 
+#: The mark that says THIS INSTALLATION HAS ALREADY HANDED THE DOOR OVER (#2068).
+#:
+#: Kept beside the block rather than in it: :func:`save` writes only :data:`_KEYS`, so a
+#: mark inside the block would be dropped by the first press that changed anything. It is
+#: written ONCE, whether or not there was anything to switch off, so that a person who
+#: turns the debugging door back on is not switched off again by the next restart.
+MOVED_KEY = "web_moved_to_service"
+
+
+def hand_the_door_over_once() -> bool:
+    """The panel stops answering the person's port; the SERVICE answers it (#2068).
+
+    THE PERSON'S DECISION, in their words: «веб панель и служба должны быть одним целым,
+    служба остановлена - ничего не работает, включена - значит все работает». Two doors
+    onto one machine is what cost them the way in twice in a day — two panels silently
+    shared the port, and then the exclusive grab that fixed that turned a one-second
+    overlap into a door the panel closed on itself. One socket, owned by the one process
+    that is always up, has neither failure.
+
+    So this switches the panel's own server OFF, once per installation. What is left
+    behind it is a LOCAL DEBUGGING door — `python -m panel.web_settings --on` still works
+    and is not undone afterwards, because the mark is written on the first run whether or
+    not anything was switched off. The address a person types does not change: the
+    service listens on the same port (`service.json`), so a bookmark, a cookie and a
+    `?token=…` link all go on working.
+
+    Returns whether this call is the one that switched a running door off — the caller
+    says so in the log, once, and never again.
+    """
+    data = profilemod.panel_settings()
+    if data.get(MOVED_KEY):
+        return False
+    block = dict(data.get(profilemod.WEB_KEY) or {})
+    was_on = bool(block.get("enabled"))
+    data[MOVED_KEY] = True
+    if was_on:
+        block["enabled"] = False
+        data[profilemod.WEB_KEY] = block
+    profilemod.set_panel_settings(data)
+    return was_on
+
+
 # -- the socket -------------------------------------------------------------
 def serving():
     """The server this process is running, or ``None``.
@@ -147,6 +188,11 @@ def apply(rt) -> bool:
     Returns whether a server is listening when it is done.
     """
     global _SERVER
+    # THE DOOR IS THE SERVICE'S NOW (#2068). Done here rather than in `settings` because
+    # this is the one path that would otherwise BIND the port, and because there is an
+    # `rt` here to say it with. It is a no-op on every call after the first.
+    if hand_the_door_over_once():
+        _say(rt, "web.log.moved", port=port_number())
     values = settings()
     if not values["enabled"]:
         stop(rt)
@@ -202,13 +248,13 @@ def apply(rt) -> bool:
 
 
 def _is_in_use(exc: OSError) -> bool:
-    """Is this «somebody is on that port» rather than «that is not my address»?
+    """«Somebody is on that port» — asked of the module BOTH doors share (#2068).
 
-    `WSAEADDRINUSE` is 10048 and Python maps it to `errno.EADDRINUSE` on Windows, but
-    the raw number is checked too: the mapping is a detail of the runtime and the answer
-    here decides whether the panel waits a minute or gives up at once.
+    It lived here while the panel was the only thing that bound a socket. The service
+    binds the person's port now, and the same refusal decides the same thing for it, so
+    the question is `panel/web/server.py::is_in_use` and this is the panel's name for it.
     """
-    return exc.errno in (errno.EADDRINUSE, 10048) or getattr(exc, "winerror", 0) == 10048
+    return webmod.is_in_use(exc)
 
 
 def _wait_for_the_port(rt, values: dict) -> None:

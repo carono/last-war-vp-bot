@@ -54,6 +54,17 @@ ENV = {"port": "LW_SERVICE_WEB_PORT", "door": "LW_SERVICE_PORT",
        "host": "LW_SERVICE_WEB_HOST", "token": "LW_SERVICE_TOKEN",
        "certfile": "LW_SERVICE_CERT", "keyfile": "LW_SERVICE_KEY"}
 
+#: How long a port taken by somebody else is an OVERLAP rather than a problem — the same
+#: minute `panel/runtime/web_control.py` waits, for the same reason: the process handing
+#: the port over is on its way out and takes a second or two to let go.
+BUSY_WAIT_SEC = 60.0
+
+#: How often the bind is retried, and how often «still taken» is said once the wait above
+#: has passed. Said on a clock rather than once, because after that minute the machine has
+#: no front door and the log is the only place that can say so.
+BUSY_RETRY_SEC = 1.0
+BUSY_SAY_SEC = 30.0
+
 #: The same for the `keep` block — whether this service OWNS the panels, which profiles,
 #: and which Windows session to start them in (`panel/service/keeper.py`).
 KEEP_ENV = {"enabled": "LW_SERVICE_KEEP", "profiles": "LW_SERVICE_KEEP_PROFILES",
@@ -195,13 +206,72 @@ class Service:
 
     def start(self) -> None:
         self.door.start()
-        self.web.start()
-        self._log(f"service: {self.web.scheme}://{self.web.host}:{self.web.port} "
-                  f"(panels dial {DOOR_HOST}:{self.door.port})")
+        self._take_the_port()
         self._pinger = threading.Thread(target=self._ping, name="service-ping",
                                         daemon=True)
         self._pinger.start()
         self.keeper.start()
+
+    def _take_the_port(self) -> None:
+        """Bind the PERSON'S port, waiting out whoever is still letting go of it (#2068).
+
+        THE SERVICE OWNS THE DOOR NOW. It used to have a port of its own beside the
+        panel's, and two doors onto one machine is what cost the person the way in twice
+        in a day. One socket, held by the process that is always up — «служба остановлена
+        - ничего не работает, включена - значит все работает».
+
+        WHICH MAKES A REFUSAL HERE THE WHOLE MACHINE'S FRONT DOOR, so it is never answered
+        by giving up quietly. The ordinary reason is an overlap of a second or two: a
+        panel that has not yet let go of the port it is handing over, or a service being
+        restarted by Windows while the outgoing one is still closing its socket. That is
+        WAITED OUT (:data:`BUSY_WAIT_SEC`), the same wait `panel/runtime/web_control.py`
+        already does for the same reason and by the same question
+        (`panel/web/server.py::is_in_use`).
+
+        A port still taken after that is somebody else's server, and there is nothing to
+        do about it here except SAY SO, loudly and on a clock, and go on trying — a
+        service that stopped trying would be «служба жива, входа нет», which is exactly
+        the state this whole move exists to make impossible. The door for panels is up
+        either way, so the panels are supervised while the front door is being fought for.
+        """
+        started = threading.Event()
+
+        def take() -> None:
+            said_busy = 0.0
+            began = time.monotonic()
+            while not self._stop.is_set():
+                try:
+                    self.web.start()
+                except OSError as exc:
+                    if not webmod.is_in_use(exc):
+                        self._log(f"service: THE DOOR IS SHUT — cannot listen on "
+                                  f"{self.web.host}:{self.web.port}: {exc}")
+                        started.set()
+                        return
+                    now = time.monotonic()
+                    late = now - began > BUSY_WAIT_SEC
+                    if now - said_busy > (BUSY_SAY_SEC if late else BUSY_WAIT_SEC):
+                        said_busy = now
+                        self._log(f"service: port {self.web.port} is taken by another "
+                                  f"process — {'STILL waiting' if late else 'waiting'} "
+                                  f"for it, the machine has no way in until it is free")
+                    if self._stop.wait(BUSY_RETRY_SEC):
+                        return
+                    continue
+                except Exception as exc:      # noqa: BLE001 — the door stays up
+                    self._log(f"service: THE DOOR IS SHUT — {type(exc).__name__}: {exc}")
+                    started.set()
+                    return
+                self._log(f"service: {self.web.scheme}://{self.web.host}:{self.web.port} "
+                          f"(panels dial {DOOR_HOST}:{self.door.port})")
+                started.set()
+                return
+
+        thread = threading.Thread(target=take, name="service-web", daemon=True)
+        thread.start()
+        # A moment for the ordinary case, so `--status` and the log read in the order
+        # they always did. Whoever is still letting go is waited for on the thread.
+        started.wait(1.5)
 
     def stop(self) -> None:
         self._stop.set()

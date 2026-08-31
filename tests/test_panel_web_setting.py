@@ -50,6 +50,11 @@ class _Profiles:
         profilemod.PROFILES_DIR = os.path.join(root, "profiles")
         profilemod.SETTINGS_FILE = os.path.join(root, "settings.json")
         os.makedirs(profilemod.PROFILES_DIR, exist_ok=True)
+        # THE DOOR HAS ALREADY BEEN HANDED TO THE SERVICE (#2068) — every test below is
+        # about the LOCAL DEBUGGING door that is left behind it, and `apply` would
+        # otherwise switch each of them off once as the move. The move itself is pinned
+        # by the two tests that clear this mark on purpose.
+        profilemod.set_panel_settings({webctl.MOVED_KEY: True})
         return self
 
     # A PROFILE IS A ROW AND ITS CONFIG IS A COLUMN SINCE #2025 — both of these go
@@ -305,6 +310,38 @@ def test_a_port_that_is_STILL_held_a_minute_later_switches_the_setting_off():
             webctl.BUSY_WAIT_SEC, webctl.BUSY_RETRY_SEC = waited, retry
             webctl.stop()
             holder.close()
+
+
+def test_the_panels_own_door_is_handed_to_the_service_once_and_only_once():
+    """«Веб панель и служба должны быть одним целым» (#2068).
+
+    Two doors onto one machine is what cost the person the way in twice in a day. So the
+    panel's own server is switched off — ONCE per installation, and the mark is written
+    whether or not there was anything to switch off, because otherwise every restart
+    would undo the debugging door somebody deliberately switched back on.
+    """
+    with _Profiles() as store:
+        profilemod.set_panel_settings({profilemod.WEB_KEY: {
+            "enabled": True, "port": "9761", "token": "t0k"}})
+        assert webctl.hand_the_door_over_once() is True, "it left the panel on the port"
+        assert webctl.settings()["enabled"] is False
+        assert store.settings()[webctl.MOVED_KEY] is True
+        # …and the token and the port are UNTOUCHED: the address a person types does not
+        # change, the service answers it (`service.json`), so their link goes on working.
+        assert webctl.settings()["token"] == "t0k"
+        assert webctl.settings()["port"] == "9761"
+        # switched back on for debugging — and NOT switched off again by the next boot
+        webctl.save({"enabled": True})
+        assert webctl.hand_the_door_over_once() is False
+        assert webctl.settings()["enabled"] is True, \
+            "the debugging door was closed by a move that had already happened"
+
+
+def test_a_panel_that_never_had_it_on_is_marked_all_the_same():
+    with _Profiles() as store:
+        profilemod.set_panel_settings({})
+        assert webctl.hand_the_door_over_once() is False, "it claimed to switch off nothing"
+        assert store.settings()[webctl.MOVED_KEY] is True
 
 
 class _Runtime:

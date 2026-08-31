@@ -1481,6 +1481,7 @@
   "web.state.on": "in ascolto sulla porta {port}",
   "web.state.off": "spento",
   "web.log.started": "controllo remoto acceso, porta {port}",
+  "web.log.moved": "la porta ora è del servizio — risponde lui sulla porta {port}, il controllo remoto di questo pannello è spento",
   "web.log.stopped": "controllo remoto spento",
   "web.log.busy": "la porta {port} è occupata — un altro programma o un pannello che non l'ha ancora rilasciata",
   "web.log.error": "errore del controllo remoto: {error}",

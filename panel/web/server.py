@@ -26,6 +26,7 @@ out loud in the log.
 """
 from __future__ import annotations
 
+import errno
 import hmac
 import json
 import mimetypes
@@ -58,6 +59,23 @@ def default_port() -> int:
     counts — the panel imports early and is configured late.
     """
     return game_paths.web_port()
+
+def is_in_use(exc: OSError) -> bool:
+    """Is this «somebody is on that port» rather than «that is not my address»?
+
+    HERE BECAUSE BOTH DOORS ASK IT (#2068). The panel asked it first — a restart overlaps
+    with the process it replaces by about a second, and on Windows the port is now taken
+    EXCLUSIVELY, so what used to be a silent share is a refusal that must be WAITED OUT
+    rather than answered by closing the door. The service inherits the same question the
+    day it inherits the port, and the answer decides the same thing for it: wait a minute
+    or say the door is shut. Two copies of it would be two chances to get it wrong.
+
+    `WSAEADDRINUSE` is 10048 and Python maps it to `errno.EADDRINUSE` on Windows, but the
+    raw number is checked too: the mapping is a detail of the runtime.
+    """
+    return (exc.errno in (errno.EADDRINUSE, 10048)
+            or getattr(exc, "winerror", 0) == 10048)
+
 
 #: Every interface by default: the point of it is a DIFFERENT machine reaching this one,
 #: so `127.0.0.1` would be a remote control that only works where nobody needs it. A

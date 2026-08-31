@@ -1481,6 +1481,7 @@
   "web.state.on": "escuchando en el puerto {port}",
   "web.state.off": "apagado",
   "web.log.started": "control remoto activado, puerto {port}",
+  "web.log.moved": "la puerta ahora es del servicio — él atiende el puerto {port}, el control remoto propio de este panel está apagado",
   "web.log.stopped": "control remoto desactivado",
   "web.log.busy": "el puerto {port} está ocupado — otro programa o un panel que aún no lo ha soltado",
   "web.log.error": "error del control remoto: {error}",

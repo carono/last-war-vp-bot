@@ -1481,6 +1481,7 @@
   "web.state.on": "đang nghe cổng {port}",
   "web.state.off": "tắt",
   "web.log.started": "điều khiển từ xa đã bật, cổng {port}",
+  "web.log.moved": "cửa giờ thuộc về dịch vụ — nó trả lời trên cổng {port}, điều khiển từ xa của riêng bảng này đã tắt",
   "web.log.stopped": "điều khiển từ xa đã tắt",
   "web.log.busy": "cổng {port} đã bị chiếm — chương trình khác hoặc một bảng điều khiển chưa nhả nó",
   "web.log.error": "lỗi điều khiển từ xa: {error}",

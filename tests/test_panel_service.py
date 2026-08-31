@@ -76,6 +76,7 @@ _stub_tk()
 
 from panel.runtime.service_link import ServiceLink        # noqa: E402
 from panel.service import self_control as selfctl         # noqa: E402
+from panel.service import host as hostmod                 # noqa: E402
 from panel.service.host import Service                    # noqa: E402
 
 TOKEN = "test-token"
@@ -102,6 +103,70 @@ def _service():
                       log=lambda line: None)
     service.start()
     return service
+
+
+def _busy_port() -> tuple:
+    """A port with a plain socket sitting on it — «in use» on every platform."""
+    import socket as socketmod
+
+    holder = socketmod.socket()
+    holder.bind(("127.0.0.1", 0))
+    holder.listen(1)
+    return holder, holder.getsockname()[1]
+
+
+def test_the_front_door_is_waited_for_and_never_given_up_on():
+    """The service owns the PERSON'S port now, so a refusal here is the whole way in.
+
+    The ordinary reason is an overlap of a second or two — a panel still letting go of
+    the port it is handing over, or Windows restarting this service while the outgoing
+    one closes its socket. Answering that by not listening would be «служба жива, входа
+    нет», the exact state this move exists to make impossible, so it is waited out and
+    said on a clock until the port is free.
+    """
+    import time
+
+    holder, port = _busy_port()
+    lines: list = []
+    said, hostmod.BUSY_WAIT_SEC = hostmod.BUSY_WAIT_SEC, 0.3
+    retry, hostmod.BUSY_RETRY_SEC = hostmod.BUSY_RETRY_SEC, 0.05
+    quiet, hostmod.BUSY_SAY_SEC = hostmod.BUSY_SAY_SEC, 0.1
+    service = Service({"port": port, "door": 0, "host": "127.0.0.1", "token": TOKEN},
+                      log=lines.append)
+    try:
+        service.start()
+        assert not service.web.running, "it bound a port somebody else is holding"
+        assert _wait(lambda: any("is taken by another process" in ln for ln in lines)), \
+            f"nothing in the log says the machine has no way in: {lines}"
+        assert _wait(lambda: any("STILL waiting" in ln for ln in lines)), \
+            f"it stopped saying so after the first minute: {lines}"
+        holder.close()                       # …whoever held it lets go
+        assert _wait(lambda: service.web.running, tries=400), "it never took the port"
+        assert service.web.bound_port() == port
+    finally:
+        hostmod.BUSY_WAIT_SEC, hostmod.BUSY_RETRY_SEC = said, retry
+        hostmod.BUSY_SAY_SEC = quiet
+        service.stop()
+        try:
+            holder.close()
+        except OSError:
+            pass
+
+
+def test_a_door_this_machine_cannot_have_is_said_loudly_and_not_retried_for_ever():
+    """«That is not my address» will not come free by asking again — it is SAID."""
+    lines: list = []
+    service = Service({"port": 0, "door": 0, "host": "203.0.113.1", "token": TOKEN},
+                      log=lines.append)
+    try:
+        service.start()
+        assert _wait(lambda: any("THE DOOR IS SHUT" in ln for ln in lines)), lines
+        assert not service.web.running
+        # …and the door for PANELS is up all the same: they are supervised while the
+        # front door is being fought for.
+        assert service.door.running
+    finally:
+        service.stop()
 
 
 def _link(service, api, session: str, profiles) -> ServiceLink:

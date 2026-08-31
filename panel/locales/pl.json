@@ -1481,6 +1481,7 @@
   "web.state.on": "nasłuchuje na porcie {port}",
   "web.state.off": "wyłączone",
   "web.log.started": "zdalne sterowanie włączone, port {port}",
+  "web.log.moved": "drzwi należą teraz do usługi — to ona obsługuje port {port}, własne zdalne sterowanie tego panelu jest wyłączone",
   "web.log.stopped": "zdalne sterowanie wyłączone",
   "web.log.busy": "port {port} jest zajęty — inny program albo panel, który jeszcze go nie zwolnił",
   "web.log.error": "błąd zdalnego sterowania: {error}",

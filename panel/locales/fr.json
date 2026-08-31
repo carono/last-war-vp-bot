@@ -1481,6 +1481,7 @@
   "web.state.on": "écoute sur le port {port}",
   "web.state.off": "désactivé",
   "web.log.started": "commande à distance activée, port {port}",
+  "web.log.moved": "la porte appartient désormais au service — il répond sur le port {port}, la commande à distance de ce panneau est coupée",
   "web.log.stopped": "commande à distance désactivée",
   "web.log.busy": "le port {port} est pris — un autre programme ou un panneau qui ne l'a pas encore libéré",
   "web.log.error": "erreur de la commande à distance : {error}",

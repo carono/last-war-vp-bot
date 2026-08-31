@@ -1481,6 +1481,7 @@
   "web.state.on": "mendengarkan porta {port}",
   "web.state.off": "mati",
   "web.log.started": "kendali jarak jauh menyala, porta {port}",
+  "web.log.moved": "pintunya sekarang milik layanan — port {port} dijawab olehnya, kendali jarak jauh panel ini sendiri dimatikan",
   "web.log.stopped": "kendali jarak jauh mati",
   "web.log.busy": "porta {port} terpakai — program lain atau panel yang belum melepaskannya",
   "web.log.error": "kesalahan kendali jarak jauh: {error}",

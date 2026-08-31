@@ -1481,6 +1481,7 @@
   "web.state.on": "listening on port {port}",
   "web.state.off": "off",
   "web.log.started": "remote control is on, port {port}",
+  "web.log.moved": "the door is the service's now — port {port} is answered by it, this panel's own remote control is off",
   "web.log.stopped": "remote control is off",
   "web.log.busy": "port {port} is taken — another program, or a panel that has not let go of it yet",
   "web.log.error": "remote control error: {error}",

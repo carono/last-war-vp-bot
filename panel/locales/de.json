@@ -1481,6 +1481,7 @@
   "web.state.on": "lauscht auf Port {port}",
   "web.state.off": "aus",
   "web.log.started": "Fernsteuerung an, Port {port}",
+  "web.log.moved": "die Tür gehört jetzt dem Dienst — Port {port} bedient er, die eigene Fernsteuerung dieser Konsole ist aus",
   "web.log.stopped": "Fernsteuerung aus",
   "web.log.busy": "Port {port} ist belegt — ein anderes Programm oder ein Panel, das ihn noch nicht freigegeben hat",
   "web.log.error": "Fehler der Fernsteuerung: {error}",
