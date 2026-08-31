@@ -429,6 +429,29 @@ out. Anything else a screenless corner of the panel needs on the move goes the s
 way. **And it is not only a convenience: pressing it is MANDATORY after every fix —
 see «A fix that has not restarted the panel has not been delivered» below.**
 
+**AN ACCOUNT HAS ONE STATE, AND IT IS «РАБОТАЕТ / НЕ РАБОТАЕТ» (#2068).** The person's
+own words: «никаких режимов открыт/закрыт, только работает или нет». Open and closed are
+MECHANICS — a page in a notebook, a lock on a client — and the profiles screen offered
+nothing else, so somebody read «закрыт» about an account that was farming perfectly in a
+second panel process and pressed «Открыть» to be told «занято». Two sentences in a row,
+neither of them about the game. So the row on «Профили» carries ONE switch called
+«Работает» and a pill saying which of the three it is; there is no «Открыть» and no
+«Закрыть» on the phone at all.
+
+Two things follow, and neither is optional:
+
+* **The wish is written BEFORE the page is touched** (`profile_control.set_working` →
+  `panel/profile.py::keep_add`/`keep_drop`). The standing list is what the machine brings
+  up and what the service supervises, so a press this panel cannot honour this second is
+  answered «принято, идёт» and the keeper carries it out within a tick. **«Включить» may
+  never come back refused** — a switch that flips itself back is a switch nobody trusts.
+* **A profile another panel is holding is consolidated SILENTLY** — the person asked for
+  it in those terms — by the keeper of 92c618b3, never by telling the person «у вас две
+  панели», which is not something anybody can act on.
+
+Whatever grows a state next is drawn the same way: what the account DOES, in the words a
+person uses about it, and never the panel's own bookkeeping.
+
 ## A control that exists twice is written once
 
 **Binding, and it is how the panel stops growing a second version of every widget.** When
