@@ -293,10 +293,13 @@ export interface Field {
 
 export interface ViewCard {
   title?: string | null
-  /* HOW THE CARD'S ITEMS ARE DRAWN (#1999). Absent or `rows` is the full-width row a
-     list has always been; `tiles` is a wrap of small buttons, for a card whose items
-     are PLACES — a coordinate, a level, a state and the press that goes there. */
-  layout?: 'rows' | 'tiles'
+  /* HOW THE CARD'S ITEMS ARE DRAWN (#1999, #2119). Absent or `rows` is the full-width
+     row a list has always been; `tiles` is a wrap of small buttons, for a card whose
+     items are PLACES — a coordinate, a level, a state and the press that goes there;
+     `cards` is the card an errand is drawn as (`ui/ErrandCard.tsx`), for a card whose
+     items have a FACE — a picture behind them, a name on one line, a switch in the
+     corner and their presses on one row. */
+  layout?: 'rows' | 'tiles' | 'cards'
   head?: string
   head_parts?: MarkedText
   empty?: string

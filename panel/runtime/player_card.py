@@ -86,7 +86,7 @@ def recall_for(profiles_dir: str, profile: str) -> dict:
                 pass
 
 
-def face_link(uid: str, pic_ver: int = 0) -> str:
+def face_link(uid: str, pic_ver: int = 0, head=None) -> str:
     """The picture this character draws, as a link the phone can ask for — or `""`.
 
     The same route, the same folder and the same rules every other face on this panel
@@ -96,6 +96,15 @@ def face_link(uid: str, pic_ver: int = 0) -> str:
     A character who never uploaded a photo has no picture at all. There is no head-icon id
     on the client's own character object (probed, #2061), so the honest answer is «no
     face» and the front-end draws the account's initial — never somebody else's art.
+
+    `head` is that id where a caller DOES have one — every player in the register carries
+    the `headSkinId` their base tile named (#2119) — and it is the built-in avatar drawn
+    for somebody who never uploaded a photo. An id the sprite table cannot place answers
+    `""` rather than somebody else's art, exactly as it does everywhere else.
+
+    **Not for the Tk thread the first time a uid is asked** (`player_faces.face_for`): the
+    lookup walks a few thousand md5 sums. A caller that draws a list of faces resolves
+    them on a worker and holds what it found.
     """
     uid = str(uid or "").strip()
     if not uid:
@@ -103,7 +112,7 @@ def face_link(uid: str, pic_ver: int = 0) -> str:
     try:
         import player_faces
 
-        path = player_faces.face_for(uid)
+        path = player_faces.face_for(uid, head)
     except Exception:                        # noqa: BLE001 — a picture, never the page
         return ""
     if not path:

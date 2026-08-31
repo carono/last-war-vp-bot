@@ -217,10 +217,12 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
     # `fields` and `note` are the settings shape (#1976): a card that SETS rather than
     # shows. A field is a knob — its own id, a label key, a kind and a value — and the
     # renderer draws the control the kind names.
-    # `layout` is how a card's ITEMS are drawn (#1999): absent or `rows` is the wide
-    # row a list has always been, `tiles` is a wrap of small buttons for a card whose
-    # items are places. Only those two — the renderer knows no third, and a card asking
-    # for one would silently fall back to rows.
+    # `layout` is how a card's ITEMS are drawn (#1999, #2119): absent or `rows` is the
+    # wide row a list has always been, `tiles` is a wrap of small buttons for a card
+    # whose items are places, and `cards` is the card an errand is drawn as — a picture
+    # behind it, the name on one line, a switch in the corner — for a card whose items
+    # have a FACE. Only those three: the renderer knows no fourth, and a card asking for
+    # one would silently fall back to rows.
     allowed_card = {"title", "head", "rows", "items", "empty", "search", "actions",
                     "fields", "note", "flow", "layout"}
     # `avatar` is a LINK to the panel's own picture route, not bytes and not a word: the
@@ -240,7 +242,7 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
         for card in view["cards"]:
             extra = set(card) - allowed_card
             assert not extra, f"{tab_id}: card has {sorted(extra)}"
-            assert card.get("layout", "rows") in ("rows", "tiles"), (
+            assert card.get("layout", "rows") in ("rows", "tiles", "cards"), (
                 f"{tab_id}: card layout {card.get('layout')!r}")
             for item in card.get("items") or ():
                 extra = set(item) - allowed_item

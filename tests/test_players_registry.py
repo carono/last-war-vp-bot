@@ -601,6 +601,11 @@ def _bare_tab(tmp):
     tab._merging = False
     tab._armed_forget = (None, 0.0)
     tab._detail_uid = ""
+    #: The faces the screen has already resolved. Held BUSY on purpose: the tab resolves
+    #: them on a worker that goes looking through the game client's own picture cache
+    #: (#2119), and a test has neither that cache nor any business starting a thread.
+    tab._faces = {}
+    tab._faces_busy = True
     return tab
 
 
@@ -684,6 +689,92 @@ def test_a_press_from_the_phone_moves_the_same_filter_the_window_shows():
         assert tab._filter["level_min"] == 20
         tab.web_press("reset", {})
         assert tab._filter["server"] == "" and tab._filter["level_min"] is None
+
+
+def test_the_register_is_drawn_as_cards_with_room_for_a_face():
+    """«Переделай таблицу игроков на карточки» (#2119), and one card is the ERRAND card.
+
+    Two halves, both worth pinning: the card says WHICH layout — nine columns of a table
+    on a phone is nine columns nobody reads — and every item carries the slot the face
+    goes in, so a screen drawn before the worker has looked is a screen of cards without
+    pictures rather than a screen of holes.
+    """
+    with _tmpdir() as tmp:
+        tab = _bare_tab(tmp)
+        _swept_into(tab._registry, [_swept()], now=time.time())
+        view = tab.web_view()
+        listed = [c for c in view["cards"] if c.get("title") == "players.web.list"]
+        assert listed, "the list card is gone"
+        assert listed[0].get("layout") == "cards", listed[0].get("layout")
+        for item in listed[0]["items"]:
+            assert "avatar" in item, "an item with no room for a face"
+            assert item["avatar"] == "", "a face was resolved on the Tk thread"
+        # …and one the worker HAS found travels as the link the browser asks for.
+        tab._faces["1000000000000001"] = "/api/avatar?face=1000000000000001.jpg"
+        again = tab.web_view()
+        drawn = [c for c in again["cards"] if c.get("title") == "players.web.list"][0]
+        assert drawn["items"][0]["avatar"].startswith("/api/avatar?face=")
+
+
+def test_the_phone_can_move_the_sort_the_window_presses_headings_for():
+    """WHAT «грид не обновляется» ACTUALLY WAS (#2119).
+
+    The sort is saved with the profile, and one press of the «Игрок» heading at the
+    machine left it «by name, ascending» for good. The window says so with an arrow on
+    the heading; the phone could neither see it nor move it — so the same sixty names
+    out of three hundred thousand came back on every poll, for ever, while the register
+    behind them grew by hundreds a minute. The list was not stale: it was SORTED, and
+    nothing on the screen said by what.
+    """
+    with _tmpdir() as tmp:
+        tab = _bare_tab(tmp)
+        now = time.time()
+        _swept_into(tab._registry, [_swept(uid="1000000000000001", name="Aaa")],
+                    now=now - 3600)
+        _swept_into(tab._registry, [_swept(uid="1000000000000002", name="Zzz")], now=now)
+
+        # It opens on the freshest, which is what a register is for.
+        assert [r["name"] for r in tab.visible()] == ["Zzz", "Aaa"]
+        # …and where it stands is ON THE SCREEN, in words, above the button that moves it.
+        rows = {row["label"]: row["value"] for row in
+                [r for c in tab.web_view()["cards"] for r in c.get("rows") or ()]}
+        assert "players.filter.sort" in rows
+        assert rows["players.filter.sort"].startswith(tab.rt.words["players.col.seen"])
+
+        tab.web_press("sortway", {})
+        assert [r["name"] for r in tab.visible()] == ["Aaa", "Zzz"], "the way did not turn"
+        tab.web_press("sortway", {})
+        tab.web_press("sort", {})
+        assert tab._sort[0] != "seen", "the column did not step"
+        # Every step is a column the register can actually order by, and it comes home.
+        seen = {tab._sort[0]}
+        for _ in range(12):
+            tab.web_press("sort", {})
+            assert tab._sort[0] in reg.SORT_KEYS, tab._sort[0]
+            seen.add(tab._sort[0])
+        assert "seen" in seen, "the cycle never returns to what it opened on"
+
+
+def test_the_search_from_the_phone_searches_the_REGISTER():
+    """…and not the sixty rows already on the screen (#2119).
+
+    The renderer's own box narrows what is drawn, which on a register of three hundred
+    thousand answers «нет такого игрока» about somebody who is plainly in it. The press
+    writes the same `text` filter the window's box writes, so the narrowing happens in
+    the database and the answer comes back out of the whole book.
+    """
+    with _tmpdir() as tmp:
+        tab = _bare_tab(tmp)
+        now = time.time()
+        _swept_into(tab._registry, [_swept(uid="1000000000000001", name="Aaa")], now=now)
+        _swept_into(tab._registry, [_swept(uid="1000000000000002", name="Zzz")], now=now)
+        assert tab.web_press("search", {"text": "zz"})["ok"] is True
+        assert [r["name"] for r in tab.visible()] == ["Zzz"]
+        # A press carrying no word at all is refused rather than read as «everything»,
+        # for the same reason «Метка» refuses one (#1371).
+        assert tab.web_press("search", {})["ok"] is False
+        assert tab.web_press("search", {"text": ""})["ok"] is True
+        assert len(tab.visible()) == 2
 
 
 def test_forgetting_from_the_phone_asks_once_before_it_does_it():

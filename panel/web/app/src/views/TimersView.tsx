@@ -1,6 +1,11 @@
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { post } from '../api'
 import { span, t, when } from '../i18n'
+/* THE CARD IS NOT THIS FILE'S ANY MORE (#2119). It was written here for the errands and
+ * it is now the one card every list on this front-end is drawn as — the register of
+ * players is the second — so it lives in `ui/` and this screen is one of its callers.
+ * Nothing about how a timer, a listener or a standing order READS changed with it. */
+import { ErrandCard, ErrandSwitch } from '../ui/ErrandCard'
 import { FieldRow } from '../ui/FieldRow'
 import { Modal } from '../ui/Modal'
 import { useToast } from '../ui/Toast'
@@ -58,150 +63,18 @@ function useGear(errand: string, title: string, options: Field[] | undefined, re
   }
 }
 
-/* THE «i» (#2061), and it exists because the NAME got shorter.
- *
- * The person's words: «слишком длинные названия, сократи, должны быть лаконичные, а
- * подробное описание вынеси в кнопку i». A card's head used to carry the whole sentence
- * — «Секретки: собирать по созреванию, вскрывать ящики, обновлять и отправлять» — which
- * is three lines on a phone and the reason thirty cards could not be skimmed. The panel
- * now sends both (`panel/web/api.py`): the short label as `title` and the sentence as
- * `about`. An errand whose label has no short form sends an empty `about` and draws no
- * «i» at all, rather than one that opens the title again.
- */
-function useAbout(title: string, about?: string) {
-  const [open, setOpen] = useState(false)
-  if (!about) return { button: null, panel: null }
-  return {
-    button: (
-      <button
-        className="go icon"
-        title={t('web.ui.about')}
-        aria-label={t('web.ui.about')}
-        onClick={() => setOpen(true)}
-      >
-        {'ℹ'}
-      </button>
-    ),
-    panel: open ? (
-      <Modal title={title} onClose={() => setOpen(false)}>
-        <p>{about}</p>
-      </Modal>
-    ) : null,
-  }
-}
-
-/* THE GAME'S OWN PICTURE FOR AN ERRAND (#2019), and since #2061 it is the CARD'S
- * BACKGROUND rather than a stamp beside the name — the person's words: «картинка должна
- * быть большая и фоном, чтобы аккуратно была на карточке».
- *
- * A link and not a blob: the panel sends `/api/errandicon?icon=…` and the browser fetches
- * each sprite once, exactly as it already does for a player's face. The URL rides a
- * custom property because the SIZE, the position, the fade and the scrim over it are
- * decisions of the stylesheet, not of this component — it hands over one string and
- * nothing else.
- *
- * A machine that has not extracted the art (or an errand the client has no sprite for —
- * three of thirty-six, `tools/data/errand_icons.json`) sends nothing, the card gets no
- * `art` class, and it draws exactly as a card drew before this existed. That is the
- * honest answer: a plain card, never a broken frame or a grey block where a picture
- * failed.
- *
- * IT COSTS NO HEIGHT. The picture is painted by two pseudo-elements taken out of the
- * flow, so a card is the size its text makes it, which is the size it was (#1999,
- * 5daa8eb2 — the compactness was fought for and a background is not a reason to give it
- * back). Measured on an emulated iPhone 15 over the live list: 35 cards, min 93 px,
- * average 159 px, max 241 px, before and after. */
-function artStyle(icon?: string): CSSProperties | undefined {
-  if (!icon) return undefined
-  // `url("…")` rather than the bare link: a sprite name is the game's own file name and
-  // may hold anything a file name may hold.
-  return { ['--art' as string]: 'url("' + icon + '")' } as CSSProperties
-}
-
-/* THE SWITCH, AND IT IS THE TOP-RIGHT CORNER OF THE CARD (#2061) — the person's words:
- * «чекбокс включения/выключения перемести в правый верхний угол».
- *
- * It was a `SwitchRow`, which makes the WHOLE row the target: right for a form, wrong
- * for a card whose head also holds a picture and a name that may wrap. Here the box is
- * its own target and the name is not part of it — a tap meant for the title used to
- * switch the errand off. It keeps `--tap` and carries the errand's name as its
- * `aria-label`, so nothing is lost to somebody reading the page aloud. */
-function ErrandSwitch({ title, on, onToggle }: {
-  title: string
-  on: boolean
-  onToggle: (want: boolean) => Promise<void>
-}) {
-  const [busy, setBusy] = useState(false)
-  /* The LABEL is the target and the box is what is drawn: a checkbox 28 px tall is
-     under half a fingertip, and every other control on this front-end is `--tap`. */
-  return (
-    <label className="errand-switch">
-    <input
-      type="checkbox"
-      checked={on}
-      disabled={busy}
-      aria-label={title}
-      title={title}
-      onChange={async (e) => {
-        const want = e.target.checked
-        setBusy(true)
-        try {
-          await onToggle(want)
-        } finally {
-          setBusy(false)
-        }
-      }}
-    />
-    </label>
-  )
-}
-
-/* ONE LIVE LINE UNDER THE BLOCK (#2019) — «+377 023 ждёт сбора», «12 стягов сегодня».
- *
- * IT COST NOTHING TO KNOW. Every number here came off something the panel already had
- * (`panel/runtime/errand_stats.py`); nothing on this page asks the game, which is the
- * rule a screen of a dozen polled blocks must obey above all others.
- *
- * SO IT SAYS HOW OLD IT IS. A reading with an age is a reading a person can judge; one
- * without is a number that might be from yesterday and looks like now. A source with no
- * clock of its own — a day's tally — sends `age: null` and says nothing, because
- * «сегодня» is already the whole truth about when it is from. */
-function Stat({ stat }: { stat?: ErrandStat | null }) {
-  if (!stat || !stat.key) return null
-  const age = stat.age
-  const old = typeof age === 'number' && age >= 0 ? t('timers.stat.age', { span: span(age) }) : ''
-  return (
-    <p className="stat small">
-      <b>{t(stat.key, stat.fmt)}</b>
-      {old ? <span className="muted"> · {old}</span> : null}
-    </p>
-  )
-}
-
 /* ONE BLOCK, THREE KINDS OF ERRAND — the person's words: «таймеры сделай так же
  * небольшими карточками, как и триггеры».
  *
  * A timer, a listener and a standing order are the same thing to whoever is reading the
  * page: something that runs by itself, with a switch, a picture, a line saying what it
- * is waiting for and a reading of what it has brought in. They were drawn by three
- * near-identical functions and laid out two different ways, so the same fact was told in
- * two shapes on one screen. Now there is one block and one grid.
+ * is waiting for and a reading of what it has brought in. They are ONE card
+ * (`ui/ErrandCard.tsx`) and this is what an errand brings to it: the gear with its own
+ * knobs, the switch that turns it on, and — for a timer — the «▶» that plays it now.
  *
- * THE CARD IS THREE ROWS AND THE ORDER OF THEM IS THE POINT (#2061): the name with its
- * switch in the corner, what it is waiting for and what it has brought in, and — last —
- * the signs that ACT: «i», «⚙», «▶». The buttons used to sit on the head row beside the
- * switch, and at 280 px (the narrowest a card gets in the grid) three of them and a
- * switch left the name about thirty pixels. They are one short row of their own now, and
- * a card with nothing to press does not draw it.
- *
- * The buttons are SIGNS rather than words: «ⓘ», «⚙» and «▶», each with the panel's own
- * sentence on it as a title and as an aria-label. A «Запустить» spelled out is half the
- * width of a card on a phone, and this is the one screen where every card carries one.
- *
- * What a TIMER keeps that a listener has not: its schedule, its next firing and its last
- * result on the fact line, and the «▶» that plays it now. What it does NOT get back is
- * «Изменить / Дублировать / Удалить» — the person removed those from this screen
- * (bfb8418d) and they stay removed; the window still has all three.
+ * What an errand does NOT get back is «Изменить / Дублировать / Удалить»: the person
+ * removed those from this screen (bfb8418d) and they stay removed; the window still has
+ * all three.
  */
 function ErrandBlock({
   icon,
@@ -231,37 +104,19 @@ function ErrandBlock({
   run?: ReactNode
 }) {
   const gear = useGear(errand, title, options, refresh)
-  const info = useAbout(title, about)
-  const acts = [info.button, gear.button, run].filter(Boolean)
-  /* A CARD THAT IS OFF LOOKS OFF (#2061) — «когда чекбокс выключен, вся карточка должна
-     менять цвет, чтобы было видно, что она выключена». A screen of thirty cards is read
-     by its colour before it is read by its switches, and a small grey box in the corner
-     is not a colour. */
   return (
-    <div
-      className={'item errand' + (icon ? ' art' : '') + (on ? '' : ' off')}
-      style={artStyle(icon)}
-    >
-      {/* ONE BUBBLE, NOT FOUR (#2061). The picture is at full brightness on the left, so
-          the words need a panel of their own — and it is a single element around all of
-          them rather than a background on each row: four paddings cost four times the
-          height, and this card's height is fought for (#1999). A card with no picture
-          gets no bubble at all and draws exactly as it did. */}
-      <div className="errand-body">
-        <div className="errand-head">
-          <span className="title">{title}</span>
-          <ErrandSwitch title={title} on={on} onToggle={onToggle} />
-        </div>
-        <p className="muted small facts">
-          {queued ? <span className="pill warn">{t('web.ui.queued')}</span> : null}
-          {facts}
-        </p>
-        <Stat stat={stat} />
-        {acts.length ? <div className="errand-acts">{acts}</div> : null}
-      </div>
-      {gear.panel}
-      {info.panel}
-    </div>
+    <ErrandCard
+      icon={icon}
+      title={title}
+      about={about}
+      on={on}
+      facts={facts}
+      queued={queued}
+      stat={stat}
+      switchNode={<ErrandSwitch title={title} on={on} onToggle={onToggle} />}
+      acts={[gear.button, run].filter(Boolean)}
+      sheets={gear.panel}
+    />
   )
 }
 

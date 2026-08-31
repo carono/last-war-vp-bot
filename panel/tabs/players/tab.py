@@ -69,6 +69,26 @@ is the phone's version of the window's confirmation dialog — and the same two 
 presses, «Перейти» and «Подробно», the second of which opens the same list as a card at
 the top of the screen.
 
+## The phone draws CARDS, and it can sort and search the register (#2119)
+
+The list is not a table on the phone: nine columns is nine columns nobody reads on a
+handset, so each player is the same card an errand is drawn as
+(`panel/web/app/src/ui/ErrandCard.tsx`) — their own face out of the client's picture
+cache behind it, their name on one line, the level, power, alliance, place and «когда
+виден» under it, and the four presses on one row. The faces are resolved on a worker and
+never in `web_view`: the first lookup for a uid walks a few thousand md5 sums.
+
+**And the phone can move the SORT, which is what «грид не обновляется» turned out to
+be.** The sort is saved with the profile, so one press of the «Игрок» heading at the
+machine left it «by name, ascending» for good — and the phone, which had headings
+neither to press nor to read, showed the same sixty names out of three hundred thousand
+on every poll while the register behind them grew by hundreds a minute. Nothing was
+stale and nothing was broken; the list was SORTED and no front-end said by what. It is a
+row above the buttons now (`players.filter.sort`) with two presses beside it, exactly as
+every other filter on this screen is. The renderer's own search box narrows only what is
+already drawn, so «Поиск» is a press too: it writes the same `text` filter the window's
+box writes, and the narrowing happens in the database.
+
 ## The one thing here that touches the client
 
 The coordinate press, and nothing else (#1371). Jumping the camera to a tile is a person
@@ -118,6 +138,14 @@ COLUMNS = (
     ("source", 90, "w"),
     ("note", 160, "w"),
 )
+
+#: WHAT THE PHONE'S «Сортировка» STEPS THROUGH — the sortable columns, in the window's
+#: own order, taken from :data:`COLUMNS` rather than written out a second time. The
+#: window sorts by pressing a heading and the phone had no way to sort at all, which is
+#: what «грид не обновляется» turned out to be (#2119): a sort saved as «по имени» from
+#: one press at the machine left the phone showing the same sixty names out of three
+#: hundred thousand for ever, with nothing on the screen saying why.
+SORT_STEPS = tuple(col for col, _w, _a in COLUMNS if col in reg.SORT_KEYS)
 
 #: The column a click JUMPS from. A coordinate printed anywhere in the panel is a place
 #: you can go (`panel/widgets.py`, the log's own links), and a table that prints one and
@@ -204,6 +232,12 @@ class PlayersTab(PanelTab):
         # The filter, as ONE dict the window's variables write into and the phone's
         # presses move. Two front-ends, one state (`docs/panel-tabs.md`).
         self._filter = dict(BLANK_FILTER)
+        #: uid -> the link to that player's face, `""` when there is none to draw. Filled
+        #: on a worker and never in `web_view`: the first lookup for a uid walks a few
+        #: thousand md5 sums (`tools/lib/player_faces.py`), and `web_view` runs on the Tk
+        #: thread every open profile shares.
+        self._faces = {}
+        self._faces_busy = False
         self._tree = None
         self._vars = {}
 
@@ -529,9 +563,24 @@ class PlayersTab(PanelTab):
         if column not in reg.SORT_KEYS:
             return
         down = not self._sort[1] if self._sort and self._sort[0] == column else True
-        self._sort = (column, down)
-        self._label_headings()
-        self._render()
+        self._set_sort(column, down)
+
+    def _set_sort(self, column: str, down: bool) -> None:
+        """The sort moved — ONE definition of it, on both front-ends (#2119).
+
+        The window presses a heading and the phone steps through :data:`SORT_STEPS`; both
+        end here, so the headings' arrows say what the phone's row says and neither can
+        drift into meaning something the other does not.
+        """
+        self._sort = (column, bool(down))
+        if self.drawn:
+            self._label_headings()
+            self._render()
+
+    def sort_name(self) -> str:
+        """What the sort is called, as a person reads it: «Виден ↓»."""
+        column, down = self._sort or reg.DEFAULT_SORT
+        return self.t("players.col." + column) + (" \u2193" if down else " \u2191")
 
     # -- drawing ------------------------------------------------------------
     def _render(self) -> None:
@@ -792,12 +841,18 @@ class PlayersTab(PanelTab):
         """
         shown = self.visible(limit=MAX_WEB)
         now = time.time()
+        self._want_faces(shown)
         items = [self._web_item(row, now) for row in shown]
         head = {"title": "tab.players",
                 "rows": self._web_filter_rows(len(shown)),
                 "actions": self._web_filter_actions()}
-        card = {"title": "players.web.list", "search": True, "items": items,
-                "empty": "players.empty"}
+        # CARDS, NOT A TABLE (#2119) — the person's words: «переделай таблицу игроков на
+        # карточки». The same card an errand is drawn as (`ui/ErrandCard.tsx`): the
+        # picture at full brightness behind it, the words in one bubble over it, the name
+        # on one line. Not a fourth shape of its own — a row of nine columns on a phone
+        # is nine columns nobody can read, and there were already three shapes too many.
+        card = {"title": "players.web.list", "search": True, "layout": "cards",
+                "items": items, "empty": "players.empty"}
         cards = [head, card]
         detail = self._web_detail_card()
         if detail is not None:
@@ -807,6 +862,37 @@ class PlayersTab(PanelTab):
         return {"cards": cards, "now": now,
                 "actions": [{"id": "refresh", "label": "players.refresh"},
                             {"id": "reset", "label": "players.filters.reset"}]}
+
+    def _want_faces(self, rows) -> None:
+        """Resolve the faces of the rows on screen — ON A WORKER, never here.
+
+        A face costs a walk of a few thousand md5 sums the first time a uid is asked
+        (`tools/lib/player_faces.py`), and this is the Tk thread every open profile
+        shares. So a screen draws the faces already found and asks for the rest; the poll
+        a couple of seconds later has them. A player with no picture is remembered as
+        having none, so nobody is looked for twice.
+
+        Nothing here asks the GAME anything — the pictures are files the client
+        downloaded for itself, and the register's rule stands unbroken.
+        """
+        wanted = [(str(row.get("uid")), row.get("head")) for row in rows
+                  if str(row.get("uid")) not in self._faces]
+        if not wanted or self._faces_busy:
+            return
+        self._faces_busy = True
+        threading.Thread(target=self._faces_work, args=(wanted,),
+                         daemon=True).start()
+
+    def _faces_work(self, wanted) -> None:
+        from ...runtime import player_card
+        try:
+            for uid, head in wanted:
+                try:
+                    self._faces[uid] = player_card.face_link(uid, head=head)
+                except Exception:            # noqa: BLE001 — a picture, never the page
+                    self._faces[uid] = ""
+        finally:
+            self._faces_busy = False
 
     def _web_detail_card(self):
         """The phone's «Подробно» — the window's dialog, as a card that can be closed.
@@ -841,6 +927,12 @@ class PlayersTab(PanelTab):
             {"label": "players.web.shown",
              "value": self.t("players.counter", shown=on_screen,
                              hidden=max(len(self._registry) - on_screen, 0))},
+            # WHERE THE SORT STANDS (#2119). It is a filter of a kind — it decides which
+            # sixty of three hundred thousand rows are the ones on screen — and it was
+            # the only one of them the phone could neither see nor move.
+            {"label": "players.filter.sort", "value": self.sort_name()},
+            {"label": "players.filter.text",
+             "value": (self._filter.get("text") or "").strip() or "\u2014"},
             {"label": "players.filter.level", "value": self._step_value("level_min")},
             {"label": "players.filter.power",
              "value": human_power(self._filter.get("power_min"))},
@@ -867,6 +959,17 @@ class PlayersTab(PanelTab):
         is on the rows above (`_web_filter_rows`).
         """
         return [
+            {"id": "sort", "label": "players.web.sort"},
+            {"id": "sortway", "label": "players.web.sortway"},
+            # THE SEARCH THAT SEARCHES THE REGISTER, and not the sixty rows already
+            # drawn (#2119). The renderer's own box narrows what is on the screen, which
+            # on a register of three hundred thousand answers «нет такого игрока» about
+            # somebody who is plainly in it. This one carries the typed word to the same
+            # `text` filter the window's box writes, so the search is done in the
+            # database and the sixty come back from the whole book.
+            {"id": "search", "label": "players.web.search",
+             "prompt": "players.web.search.prompt",
+             "value": self._filter.get("text") or ""},
             {"id": "level", "label": "players.web.level"},
             {"id": "power", "label": "players.web.power"},
             {"id": "server", "label": "players.web.server"},
@@ -884,6 +987,12 @@ class PlayersTab(PanelTab):
             self.ago(now - float(row.get("last_seen") or 0)),
         ) if bit)
         item = {"text": row.get("name") or uid, "detail": detail,
+                # The face the client itself downloaded, as a LINK — the browser fetches
+                # each one once. `""` until the worker has looked, and `""` for good when
+                # the player uploaded nothing and their built-in avatar is one the sprite
+                # table cannot place: then the card draws its words and no picture, which
+                # is the honest answer rather than somebody else's art.
+                "avatar": self._faces.get(uid) or "",
                 "facts": [{"label": "players.col.source",
                            "value": self.freshest(row, now) or "—"}],
                 "actions": [
@@ -910,6 +1019,25 @@ class PlayersTab(PanelTab):
             return {"ok": True}
         if action in ("level", "power", "server", "seen", "noted"):
             return {"ok": self._step_filter(action)}
+        if action in ("sort", "sortway"):
+            column, down = self._sort or reg.DEFAULT_SORT
+            if action == "sortway":
+                self._set_sort(column, not down)
+            else:
+                steps = SORT_STEPS
+                index = ((steps.index(column) + 1) % len(steps)
+                         if column in steps else 0)
+                self._set_sort(steps[index], down)
+            return {"ok": True}
+        if action == "search":
+            if "text" not in args:
+                return {"ok": False, "reason": "players.web.no_text"}
+            text = str(args.get("text") or "").strip()
+            self._filter["text"] = text
+            if self.drawn:
+                # Writing the variable is what repaints: it is traced (`_var`).
+                self._vars["text"].set(text)
+            return {"ok": True}
         if action == "note":
             uid = str(args.get("uid") or "")
             # A PRESS THAT CARRIES NO TEXT AT ALL IS NOT «СТЕРЕТЬ» (#1371). The

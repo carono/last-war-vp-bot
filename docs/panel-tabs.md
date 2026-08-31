@@ -990,6 +990,31 @@ warzone number, a player — is left a plain tile with whatever buttons it came 
 Nothing is guessed here: the panel marks the coordinates it sends
 (`panel/web/coordlinks.py`), and a tile is a button exactly when there is a mark to press.
 
+**A card of things with a FACE is drawn as the card an errand is** (#2119). A card may
+say `"layout": "cards"`, and then its `items` are laid out on the same grid the errands
+are and each one drawn by `panel/web/app/src/ui/ErrandCard.tsx`: the picture at full
+brightness behind the card (`avatar` — a face — or `icon`), the words in ONE bubble over
+it, the name on a single line cut with an ellipsis, the item's `toggle` as the switch in
+the top-right corner, its `pill`, its `state` and its facts on the line under the name,
+and its `actions` on one short row at the bottom, beside the gear its `options` open.
+
+It is deliberately **not** a fourth shape. The card was written for the errands
+(5daa8eb2, #2061) and it moved into `ui/` the day the register of players needed one —
+«A control that exists twice is written once» (`CLAUDE.md`). Improve that component; do
+not fork it, and do not invent a fifth layout for the next list.
+
+The person's words: «переделай таблицу игроков на карточки». «Игроки» is the first
+caller — a register of three hundred thousand people was nine columns of a table, which
+on a phone is nine columns nobody reads.
+
+**A face is resolved on a WORKER, never inside `web_view`.** The first lookup for a uid
+walks a few thousand md5 sums through the client's own picture cache
+(`tools/lib/player_faces.py`), and `web_view` runs on the Tk thread every open profile
+shares. So a tab holds `uid -> link`, hands over what it has already found and asks for
+the rest in the background; the next poll draws them. A player with no picture is
+remembered as having none, and their card simply has no picture — never somebody else's
+art.
+
 **A card may SET rather than show** (#1976). `fields` is a list of knobs — `key` (the
 knob's own id, data), `label` and an optional `hint` (locale keys), `kind` (`switch`,
 `number` or `text`, decided by the type the knob was DECLARED with, never guessed from

@@ -2619,7 +2619,11 @@ def test_there_is_one_modal_and_every_gear_opens_it():
         text = path.read_text(encoding="utf-8")
         if "\u2699" not in text and "⚙" not in text:
             continue
-        assert "from '../ui/Modal'" in text or "from './ui/Modal'" in text, \
+        # …by whichever way round the file reaches it: a view says `../ui/Modal`, and a
+        # component that lives in `ui/` beside it says `./Modal` (#2119, when the card
+        # every list is drawn as moved there).
+        wanted = ("from '../ui/Modal'", "from './ui/Modal'", "from './Modal'")
+        assert any(way in text for way in wanted), \
             f"{path.name} draws a gear and does not open the one modal"
         assert "<Modal" in text, f"{path.name} imports the modal and opens something else"
 

@@ -960,7 +960,18 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
 /* THE NAME TAKES THE ROW AND THE SWITCH TAKES THE CORNER (#2061). The name is short now
    — the sentence it was cut out of is behind the «i» — so it fits beside a picture and a
    switch at the narrowest a card gets (280 px). */
-.errand-head .title { flex: 1 1 auto; min-width: 0; font-size: 14px; }
+/* …AND IT IS ONE LINE WHETHER OR NOT THERE IS A PICTURE (#2119). It was cut with an
+   ellipsis only inside the bubble a picture puts behind it, which was every errand and
+   no player without a face: a register of three hundred thousand names has plenty that
+   wrap to three lines and make the column ragged. One line, everywhere. */
+.errand-head .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* «Чекбокс включения/выключения перемести в правый верхний угол» (#2061). The LABEL is
    the tap target, thumb-tall like everything else here; the box inside it is the same

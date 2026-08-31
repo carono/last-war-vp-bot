@@ -4,6 +4,7 @@ import { get, post } from '../api'
 import { t, when } from '../i18n'
 import { pressWord } from '../ui/press'
 import { useToast } from '../ui/Toast'
+import { ErrandCard, ErrandSwitch } from '../ui/ErrandCard'
 import { FieldRow } from '../ui/FieldRow'
 import { Modal } from '../ui/Modal'
 import { firstPlace, Marked, useJump } from '../ui/Coord'
@@ -188,6 +189,86 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
   )
 }
 
+/* ONE ITEM OF A `layout: "cards"` CARD (#2119) — the SAME card an errand is drawn as.
+ *
+ * The person's words: «переделай таблицу игроков на карточки». A register of three
+ * hundred thousand players was nine columns of a table, which on a phone is nine columns
+ * nobody reads; and the shape it becomes is deliberately not a fourth one of this
+ * front-end's own. It is `ui/ErrandCard.tsx`: the picture at full brightness behind the
+ * card, the words in one bubble over it, the name on a single line, the switch — where
+ * the item has one — in the top-right corner, and the presses on one short row at the
+ * bottom.
+ *
+ * WHAT A PLAYER BRINGS TO IT: their own face out of the client's cache as the picture,
+ * their name, and one line of facts — the level, the power, the alliance, where they
+ * stand and when they were last seen. Their mark goes on that line too, because a mark
+ * is the reason somebody looks a player up.
+ *
+ * The gear is the SAME sheet a tile's is (`useItemGear`) — one modal on this front-end
+ * and never a second (`CLAUDE.md`).
+ */
+function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; screen: string; after: () => void }) {
+  const gear = useItemGear(item, screen, after)
+  const title = item.label ? t(item.label) : item.text || ''
+  /* Everything the card says under its name, as one line: what the row is (`detail`),
+     the mark on it (`note`), each fact with its own word, and the countdown. A tile
+     leaves the prose off on purpose (#1999) — a card has the room for it, and on a
+     player that prose IS the answer. */
+  const bits: ReactNode[] = []
+  if (item.detail) bits.push(<Marked key="d" text={item.detail} parts={item.detail_parts} />)
+  if (item.note) bits.push(<Marked key="n" text={item.note} parts={item.note_parts} />)
+  bits.push(
+    ...(item.facts || []).map((f, i) => (
+      <span key={'f' + i}>
+        {t(f.label)}{' '}
+        {f.value_parts ? <Marked text={f.value} parts={f.value_parts} /> : f.translate && f.value ? t(f.value) : f.value}
+      </span>
+    )),
+  )
+  if (item.until) bits.push(<span key="u">{when(item.until, now || item.until)}</span>)
+  const facts: ReactNode[] = []
+  bits.forEach((bit, i) => {
+    if (i) facts.push(<span key={'s' + i}>{' · '}</span>)
+    facts.push(bit)
+  })
+  return (
+    <ErrandCard
+      icon={item.avatar || item.icon}
+      title={title}
+      on={item.toggle ? item.toggle.value !== false : true}
+      facts={facts}
+      pill={item.pill}
+      state={item.state}
+      /* THE ONE SWITCH THIS ROW IS ABOUT (#2068), in the corner every other card keeps
+         it in. It is still the screen's own `set` press, so nothing about what the
+         switch MEANS lives here. */
+      switchNode={
+        item.toggle ? (
+          <ErrandSwitch
+            title={title}
+            on={item.toggle.value !== false}
+            onToggle={async (want) => {
+              await post<PressAnswer>('/api/screen/press', {
+                id: screen,
+                action: 'set',
+                args: { key: item.toggle!.key, value: want },
+              })
+              after()
+            }}
+          />
+        ) : null
+      }
+      acts={[
+        gear.button,
+        ...(item.actions || []).map((action) => (
+          <PressButton key={action.id} action={action} screen={screen} after={after} />
+        )),
+      ].filter(Boolean)}
+      sheets={gear.sheet}
+    />
+  )
+}
+
 /* ONE ITEM OF A `layout: "tiles"` CARD — a small button rather than a wide row (#1999).
  *
  * The person's words: «карта, секретки грабеж: делаем не грид с секретками в одну строку,
@@ -360,9 +441,11 @@ function Card({
     const hay = ((item.text || '') + ' ' + (item.detail || '') + ' ' + (item.note || '')).toLowerCase()
     return hay.includes(needle)
   })
-  // A card of PLACES draws them as small buttons (#1999): `layout` is the tab's own
-  // word for it, so nothing here guesses from a title or a count.
+  // A card of PLACES draws them as small buttons (#1999); a card of THINGS WITH A FACE
+  // draws them as the card an errand is (#2119). `layout` is the tab's own word for it,
+  // so nothing here guesses from a title or a count.
   const tiled = card.layout === 'tiles'
+  const carded = card.layout === 'cards'
   const page = tiled ? PAGE_TILES : PAGE_ITEMS
   const [shown, setShown] = useState(page)
   // A narrowed search starts from the top again: «показать ещё» over a list that has
@@ -411,6 +494,14 @@ function Card({
         <div className="minis">
           {items.slice(0, shown).map((item, i) => (
             <MiniItem key={i} item={item} now={now} screen={screen} after={after} />
+          ))}
+        </div>
+      ) : carded ? (
+        /* The same grid the errands are laid out on — one column on a phone, more as
+           the page grows, decided by the stylesheet rather than by a breakpoint. */
+        <div className="tiles">
+          {items.slice(0, shown).map((item, i) => (
+            <CardItem key={i} item={item} now={now} screen={screen} after={after} />
           ))}
         </div>
       ) : (
