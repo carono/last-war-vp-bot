@@ -27,9 +27,11 @@ through the runtime it was started with; `log_message` alone belongs to the wind
 """
 from __future__ import annotations
 
+import errno
 import secrets
 import ssl
 import threading
+import time
 
 from .. import profile as profilemod
 from ..web import server as webmod
@@ -52,6 +54,21 @@ _KEYS = ("enabled", "port", "host", "token", "cert", "key")
 #: here, and this is a fact about it rather than about a runtime.
 _LOCK = threading.RLock()
 _SERVER = None
+
+#: How long a taken port is WAITED FOR before the remote control is switched off (#2068).
+#: A panel's own restart is the ordinary reason it is taken: the replacement is spawned
+#: while the old process is still letting go, and on Windows the port is now taken
+#: EXCLUSIVELY (`panel/web/server.py::_Server`), so what used to be a silent share is a
+#: refusal. Whoever holds it is on the way out, so this is a wait of a few seconds
+#: dressed as a minute — and a minute of quiet retrying is better than a machine whose
+#: only door closed itself because two processes overlapped by one second.
+BUSY_WAIT_SEC = 60.0
+
+#: How often the wait above tries again.
+BUSY_RETRY_SEC = 1.0
+
+#: The retry in flight, so a second `apply` does not start a second one.
+_WAITING = None
 
 
 # -- the setting ------------------------------------------------------------
@@ -148,8 +165,22 @@ def apply(rt) -> bool:
                                       certfile=values["cert"].strip(),
                                       keyfile=values["key"].strip())
             server.start()
-        except OSError:
+        except OSError as exc:
             _SERVER = None
+            # THE PORT IS TAKEN, AND USUALLY BY THE PROCESS THIS ONE REPLACES (#2068).
+            # Waited for on a thread of its own rather than answered here: `apply` is
+            # called from the Tk thread during the boot, and a person pressing a
+            # checkbox is owed an answer now. The setting stays ON while the wait runs,
+            # so a restart that overlaps by a second comes back with its door open.
+            #
+            # ONLY «in use», and the difference matters: an address this machine does
+            # not have is not going to become ours by asking again, so that one is still
+            # answered at once by switching the setting off. Waiting on it would leave a
+            # ticked switch and nothing listening for a minute — the exact state this
+            # whole path exists to prevent.
+            if _is_in_use(exc):
+                _wait_for_the_port(rt, values)
+                return False
             save({"enabled": False})
             _say(rt, "web.log.busy", port=port_number(values))
             return False
@@ -168,6 +199,58 @@ def apply(rt) -> bool:
         _SERVER = server
     _say(rt, "web.log.started", port=server.bound_port())
     return True
+
+
+def _is_in_use(exc: OSError) -> bool:
+    """Is this «somebody is on that port» rather than «that is not my address»?
+
+    `WSAEADDRINUSE` is 10048 and Python maps it to `errno.EADDRINUSE` on Windows, but
+    the raw number is checked too: the mapping is a detail of the runtime and the answer
+    here decides whether the panel waits a minute or gives up at once.
+    """
+    return exc.errno in (errno.EADDRINUSE, 10048) or getattr(exc, "winerror", 0) == 10048
+
+
+def _wait_for_the_port(rt, values: dict) -> None:
+    """Keep trying to bind for :data:`BUSY_WAIT_SEC`, then switch the setting off.
+
+    THE ORDINARY CASE IS A RESTART OF THIS VERY PANEL. «⟳ Перезапустить панель» spawns
+    the replacement and then goes down, so for a moment there are two processes and one
+    port. That used to be invisible on Windows, where `SO_REUSEADDR` let them share it —
+    which is the bug this ticket is about: two panels, one port, and a browser reaching
+    whichever the kernel picked. With the port taken exclusively the overlap is a real
+    refusal, and switching the remote control off over it would mean every restart is a
+    coin toss on whether the machine still has a door.
+
+    So it is waited out. The setting is only switched off when the port is STILL taken
+    after a minute, which is somebody else's server rather than an overlap, and then the
+    log says so exactly as it did before.
+    """
+    global _WAITING
+
+    with _LOCK:
+        if _WAITING is not None and _WAITING.is_alive():
+            return
+
+        def _wait() -> None:
+            deadline = time.monotonic() + BUSY_WAIT_SEC
+            while time.monotonic() < deadline:
+                time.sleep(BUSY_RETRY_SEC)
+                if not settings()["enabled"]:
+                    return                   # switched off while we were waiting
+                with _LOCK:
+                    if _SERVER is not None and _SERVER.running:
+                        return
+                if apply(rt):
+                    return
+                with _LOCK:
+                    if _WAITING is not threading.current_thread():
+                        return               # a later attempt took over the waiting
+            save({"enabled": False})
+            _say(rt, "web.log.busy", port=port_number(values))
+
+        _WAITING = threading.Thread(target=_wait, name="web-port-wait", daemon=True)
+        _WAITING.start()
 
 
 def restart(rt) -> bool:

@@ -1172,6 +1172,21 @@ close that worked (`panel/runtime/profile_control.py::_tell_the_service` →
 person moves it. The service files the newer list over the older one and needs no new
 frame kind, so an older service loses nothing.
 
+### What taking the port alone cost, and what it bought back
+
+Live, on the first restart after the fix: the panel came back with **no web server at
+all** and the setting switched off. «⟳ Перезапустить панель» spawns the replacement and
+then goes down, so for about a second there are two processes and one port — and the
+share that used to hide that overlap was the very flag this ticket removed. The refusal
+was then honest and immediate, and `web_control.apply` did what it has always done with a
+taken port: switched the remote control off. On a machine whose only door is that port,
+every restart would have been a coin toss.
+
+So a taken port is now WAITED for — a minute, on a thread of its own, with the setting
+left on — and only said as «занят» when it is still taken at the end of it. «In use» is
+told apart from «not my address» by the errno: an address this machine does not have is
+never going to become ours by asking again, and is still answered at once.
+
 What made this expensive to find is that every symptom pointed at the profile: it was
 drawn as closed, the press was refused, and the log the browser could reach had nothing in
 it — because the log with the evidence belonged to the other process. **On a machine that

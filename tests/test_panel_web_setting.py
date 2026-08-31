@@ -28,6 +28,7 @@ import os
 import socket
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -231,6 +232,79 @@ def test_a_socket_that_cannot_be_bound_switches_the_setting_back_off():
             assert [key for _tag, key, _fmt in said.lines] == ["web.log.busy"], said.lines
         finally:
             webctl.stop()
+
+
+def test_a_port_the_panel_it_replaces_still_holds_is_WAITED_for():
+    """A restart overlaps by a second, and that must not close the machine's door (#2068).
+
+    «⟳ Перезапустить панель» spawns the replacement and then goes down, so for a moment
+    there are two processes and one port. On Windows that used to be invisible —
+    `SO_REUSEADDR` let both bind, which is the bug of this ticket — and now that the port
+    is taken exclusively the overlap is a real refusal. Switching the remote control off
+    over it would make every restart a coin toss on whether the panel still has a door,
+    so «занят» is waited out and only said when it is still true a minute later.
+
+    Staged with a plain socket holding the port, which IS «in use» on both platforms —
+    unlike the address in the test above, which is «not mine to bind» and still answered
+    at once.
+    """
+    with _Profiles():
+        port = _free_port()
+        holder = socket.socket()
+        holder.bind(("127.0.0.1", port))
+        holder.listen(1)
+        said = _Runtime()
+        waited, webctl.BUSY_WAIT_SEC = webctl.BUSY_WAIT_SEC, 10.0
+        retry, webctl.BUSY_RETRY_SEC = webctl.BUSY_RETRY_SEC, 0.1
+        try:
+            webctl.save({"enabled": True, "host": "127.0.0.1", "port": str(port),
+                         "token": "t0k"})
+            assert webctl.apply(said) is False, "it bound a port somebody else holds"
+            assert webctl.settings()["enabled"] is True, \
+                "a one-second overlap switched the remote control off"
+            assert said.lines == [], said.lines
+            # …the panel it replaces goes down, and the door opens with nobody pressing
+            holder.close()
+            for _ in range(100):
+                if webctl.serving() is not None:
+                    break
+                time.sleep(0.1)
+            server = webctl.serving()
+            assert server is not None and server.bound_port() == port, "it never came up"
+            assert webctl.settings()["enabled"] is True
+        finally:
+            webctl.BUSY_WAIT_SEC, webctl.BUSY_RETRY_SEC = waited, retry
+            webctl.stop()
+            try:
+                holder.close()
+            except OSError:
+                pass
+
+
+def test_a_port_that_is_STILL_held_a_minute_later_switches_the_setting_off():
+    """The wait is a wait, not a licence to tick a switch over nothing listening."""
+    with _Profiles():
+        port = _free_port()
+        holder = socket.socket()
+        holder.bind(("127.0.0.1", port))
+        holder.listen(1)
+        said = _Runtime()
+        waited, webctl.BUSY_WAIT_SEC = webctl.BUSY_WAIT_SEC, 0.6
+        retry, webctl.BUSY_RETRY_SEC = webctl.BUSY_RETRY_SEC, 0.1
+        try:
+            webctl.save({"enabled": True, "host": "127.0.0.1", "port": str(port),
+                         "token": "t0k"})
+            assert webctl.apply(said) is False
+            for _ in range(100):
+                if not webctl.settings()["enabled"]:
+                    break
+                time.sleep(0.1)
+            assert webctl.settings()["enabled"] is False, "it waited for ever"
+            assert [key for _tag, key, _fmt in said.lines] == ["web.log.busy"], said.lines
+        finally:
+            webctl.BUSY_WAIT_SEC, webctl.BUSY_RETRY_SEC = waited, retry
+            webctl.stop()
+            holder.close()
 
 
 class _Runtime:
