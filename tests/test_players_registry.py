@@ -755,6 +755,38 @@ def test_the_phone_can_move_the_sort_the_window_presses_headings_for():
         assert "seen" in seen, "the cycle never returns to what it opened on"
 
 
+def test_a_filter_at_any_is_not_a_reading_and_takes_no_room():
+    """Measured, not guessed (#2119): seven «любой / когда угодно / нет / —» rows filled
+    the whole first screen of an iPhone, so the first PLAYER stood below the fold.
+
+    What always stands is the two counts and the sort — those three decide which sixty of
+    the register are on the screen. A filter appears the moment it is set, which is
+    exactly when somebody is asking why the list is so short.
+    """
+    with _tmpdir() as tmp:
+        tab = _bare_tab(tmp)
+        _swept_into(tab._registry, [_swept(server_id=100)], now=time.time())
+        labels = lambda: [r["label"] for c in tab.web_view()["cards"]
+                          for r in c.get("rows") or ()]
+        opened = labels()
+        assert "players.filter.sort" in opened, "the sort has to be readable"
+        for quiet in ("players.filter.server", "players.filter.seen",
+                      "players.filter.noted", "players.filter.level",
+                      "players.filter.power", "players.filter.text"):
+            assert quiet not in opened, f"{quiet} is drawn while it narrows nothing"
+
+        tab.web_press("server", {})
+        tab.web_press("noted", {})
+        tab.web_press("search", {"text": "aaa"})
+        set_now = labels()
+        for loud in ("players.filter.server", "players.filter.noted",
+                     "players.filter.text"):
+            assert loud in set_now, f"{loud} is set and says so nowhere"
+        # …and «Сбросить» puts the screen back to its three lines.
+        tab.web_press("reset", {})
+        assert "players.filter.server" not in labels()
+
+
 def test_the_search_from_the_phone_searches_the_REGISTER():
     """…and not the sixty rows already on the screen (#2119).
 

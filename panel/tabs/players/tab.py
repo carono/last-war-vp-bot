@@ -921,30 +921,45 @@ class PlayersTab(PanelTab):
         cannot spell its own value — and a cycle whose current value is invisible is a
         control nobody can use. So the state is read off these rows and the buttons only
         move it, which is also how the window reads: boxes above, «Сбросить» beside.
+
+        A FILTER AT «ЛЮБОЙ» IS NOT SHOWN (#2119, measured). Seven rows saying «любой
+        сервер», «когда угодно», «нет», «—» filled the whole first screen of an iPhone,
+        so the first player stood below the fold and the page a person opened to look at
+        players opened on a page of dashes. A filter that narrows nothing is not a
+        reading — it is furniture. What is always here is the two counts and the SORT,
+        because those three are what decide WHICH sixty of three hundred thousand are on
+        the screen; the rest appear the moment they are set, which is exactly when
+        somebody needs to see them («почему список такой короткий»).
         """
-        return [
+        rows = [
             {"label": "players.web.total", "value": str(len(self._registry))},
             {"label": "players.web.shown",
              "value": self.t("players.counter", shown=on_screen,
                              hidden=max(len(self._registry) - on_screen, 0))},
-            # WHERE THE SORT STANDS (#2119). It is a filter of a kind — it decides which
-            # sixty of three hundred thousand rows are the ones on screen — and it was
-            # the only one of them the phone could neither see nor move.
+            # WHERE THE SORT STANDS. It is a filter of a kind — it decides which sixty
+            # of three hundred thousand are the ones on screen — and it was the only one
+            # the phone could neither see nor move, which is what «грид не обновляется»
+            # turned out to be.
             {"label": "players.filter.sort", "value": self.sort_name()},
-            {"label": "players.filter.text",
-             "value": (self._filter.get("text") or "").strip() or "\u2014"},
-            {"label": "players.filter.level", "value": self._step_value("level_min")},
-            {"label": "players.filter.power",
-             "value": human_power(self._filter.get("power_min"))},
-            {"label": "players.filter.server",
-             "value": (self._filter.get("server")
-                       or self.t("players.server.any"))},
-            {"label": "players.filter.seen",
-             "value": self.t("players.seen." + (self._filter.get("seen") or "any"))},
-            {"label": "players.filter.noted",
-             "value": self.t("players.on" if self._filter.get("noted")
-                             else "players.off")},
         ]
+        text = (self._filter.get("text") or "").strip()
+        if text:
+            rows.append({"label": "players.filter.text", "value": text})
+        if self._filter.get("level_min") is not None:
+            rows.append({"label": "players.filter.level",
+                         "value": self._step_value("level_min")})
+        if self._filter.get("power_min") is not None:
+            rows.append({"label": "players.filter.power",
+                         "value": human_power(self._filter.get("power_min"))})
+        if self._filter.get("server"):
+            rows.append({"label": "players.filter.server",
+                         "value": str(self._filter.get("server"))})
+        if (self._filter.get("seen") or "any") != "any":
+            rows.append({"label": "players.filter.seen",
+                         "value": self.t("players.seen." + self._filter["seen"])})
+        if self._filter.get("noted"):
+            rows.append({"label": "players.filter.noted", "value": self.t("players.on")})
+        return rows
 
     def _step_value(self, key: str) -> str:
         value = self._filter.get(key)
