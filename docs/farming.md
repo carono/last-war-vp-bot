@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **35%** — 61 of 174
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **34%** — 61 of 179
 
-🟩 61 done · 🟨 81 partly · 🟥 32 not automated
+🟩 61 done · 🟨 84 partly · 🟥 34 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -179,6 +179,14 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Assembling the treasure from map pieces
 - 🟡 Collecting the two VIP rewards from the profile card — the daily chest of VIP points and the daily gift of items, both taken in one press with no window opened, from the base or from the world map alike. What is on offer is asked of the game rather than counted by the panel, so a day already collected is a clean no-op that says so, and a claim the game refuses is reported as refused instead of being written down as done; the run also lists the one-off chest for each VIP level ever reached, which it reads and does not touch. Can run on its own every hour from «Таймеры» (off by default). Read correctly on a live account, but neither reward could be watched arriving — both of the day's had already been taken
 - ❌ Collecting mail rewards
+
+### Alert tower
+
+- 🟡 The training run in the forbidden zone — one press works the whole thing: it claims every task the zone has already finished, hands in what the unfinished ones ask for when the bag holds enough of it, collects what the finished march brought back, opens the surprise box if one is waiting, and sends the squad in again when the day's start has not been spent. The march itself walks by itself for four hours; nothing here opens a window, taps the tower or moves the camera. Proven live in a single sitting: ten task rewards claimed, one task paid with exactly what it asked for, and a fresh march started — but a whole day of it has not been watched yet
+- 🟡 The tower's own page — the stage the account is on, how many tasks are waiting to be claimed and how many are still running, how many of the running ones the bag could pay for right now, the starts left today, how long the march still has, whether a surprise box is waiting, and the boss's strength beside the squad's. The page reads the tower when you first open it and then only when you ask, so nothing is being asked of the game in the background. Three switches say what the press is allowed to do: hand things in, open the box, send the squad again
+- 🟡 Working the tower on a schedule — a switch in the panel and the whole routine runs with nobody watching. It does not check on a clock of its own: the game says when the march ends and the run books its next turn for a minute after that, so the panel is quiet in between. Switched off until you turn it on, and not yet watched through a live day
+- ❌ Fighting the tasks that want a battle, and challenging the tower's boss by hand — both are read and reported, neither is pressed
+- ❌ Helping an alliance mate with a task of theirs
 
 ### Resources
 

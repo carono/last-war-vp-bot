@@ -660,6 +660,23 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.play_frontline_breakthrough",
     ),
     Timer(
+        name="work_alert_tower",
+        scenario=("work_alert_tower",),
+        # AN HOUR, and the row rarely uses it: the training march is four hours long and
+        # the recipe hands back `next_run_in` off the game's own clock — a minute after
+        # the march ends, which is when there is loot and a start to spend. The hour is
+        # what is left when the client would not answer at all.
+        interval_sec=3600,
+        retry_sec=600,
+        enabled=False,
+        # THE THREE PERMISSIONS the run acts under, and their one home: what it may
+        # hand over, whether it may open the box, whether it may spend the day's start.
+        # Drawn by the gear on this board and on «Вышка оповещения» alike
+        # (`panel/runtime/errand_args.py`), stored here and nowhere else.
+        args={"give_goods": 1, "start_run": 1, "take_box": 1},
+        label_key="timers.item.work_alert_tower",
+    ),
+    Timer(
         name="perform_arms_race",
         scenario=("perform_arms_race",),
         # A PERIOD THIS ROW NEVER USES WHILE THE GAME IS ANSWERING. «Гонка вооружений»
