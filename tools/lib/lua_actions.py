@@ -3522,6 +3522,11 @@ local function push(dir, cmd, info)
   end end
 local function jint(s, k)
   return tonumber(s:match('"' .. k .. '"%s*:%s*(%-?%d+)')) end
+-- …and the same field when the client quotes it. `treasureId` is a NUMBER written as a
+-- string in the share blob ("treasureId":"25193"), and it is the chest's TYPE — the one
+-- thing a day-limit refusal is actually about (#2092), so it is read wherever it travels.
+local function jnum(s, k)
+  return tonumber(s:match('"' .. k .. '"%s*:%s*"?(%-?%d+)"?')) end
 local function harvest(cmd, obj)
   local A = DataCenter.__lw_treasure_auto
   if not A or not A.on then return end
@@ -3600,9 +3605,12 @@ local function harvest(cmd, obj)
     if not known and not spent and not A.seen[key] then
       A.seen[key] = nowms()
       A.targets = A.targets or {}
+        local cfg = tonumber(getdata(obj, "treasureId"))
+                  or tonumber(getdata(obj, "cfgId")) or 0
       A.targets[#A.targets+1] = {uuid = u, pid = 0, x = 0, y = 0, server = 0,
                                  at = nowms(), dug = nowms(), dug_by = "push",
-                                 claim_only = true, plan = "claim", src = "dig-feed"}
+                                 claim_only = true, plan = "claim", src = "dig-feed",
+                                 cfg = cfg}
       A.news = (A.news or 0) + 1
     end
     -- …AND IT IS ANSWERED IN THE SAME FRAME IT ARRIVED. The watch would get to this chest
@@ -3645,7 +3653,8 @@ local function harvest(cmd, obj)
   local sid = jint(blob, "sid")
   A.targets = A.targets or {}
   A.targets[#A.targets+1] = {uuid=uuid, pid=pid, x=x, y=y,
-                             server=sid or 0, at=nowms(), src="chat"}
+                             server=sid or 0, at=nowms(), src="chat",
+                             cfg=jnum(blob, "treasureId") or 0}
   A.news = (A.news or 0) + 1
 end
 """
@@ -3947,6 +3956,14 @@ TREASURE_ERR_DAY_LIMIT = "activity_sports_uitips_015"
 #: refused is held until the reset (its group is full, whichever one it is), and the whole
 #: errand stands down only when EVERY counter the client keeps says full.
 #:
+#: AND THE HOLD IS THE TYPE'S, NOT THE CHEST'S (#2092). Holding the one chest that was
+#: refused left every other chest of the same kind to be marched at and refused in its own
+#: turn — the errand going on catching a type that cannot pay, which is what was reported.
+#: `A.day_bad` shuts the KIND (the chest's own cfg id, carried from all three doors) until
+#: the reset, filled by the server's refusal and by the client's own
+#: `CheckTreasureReachDailyLimit(<cfgId>)`, and stamped with `activity_detect_dig_times_
+#: expire` so the stamp moving opens every type at once.
+#:
 #: The reset is the game's own and is never computed here: the same manager carries
 #: `activity_detect_dig_times_expire`, read live as `1787709600000` = 2026-08-26 02:00 UTC,
 #: the ordinary daily boundary. A client that cannot be asked (no manager yet) falls back
@@ -4096,7 +4113,12 @@ def treasure_auto_check() -> str:
         "local until_ms = tonumber(A.day_until) or 0 "
         "local stop = (A.day_full and until_ms > 0) and true or false "
         "for _, t in ipairs(A.targets or {}) do if not t.done then "
-        "local held = stop or ((tonumber(t.hold_until) or 0) > 0 "
+        # …and neither is a chest whose TYPE the day is full of, whatever its own stamp
+        # says: the watch may not have beaten since it was heard (#2092).
+        "local cfg = tonumber(t.cfg) or 0 "
+        "local bad = (cfg > 0 and until_ms > 0 "
+        "and (A.day_bad or {})[tostring(cfg)] ~= nil) and true or false "
+        "local held = stop or bad or ((tonumber(t.hold_until) or 0) > 0 "
         "and until_ms > 0 and (tonumber(A.tick_at) or 0) < tonumber(t.hold_until)) "
         "if not held then return true end end end "
         # ON THE MAP IS REASON ENOUGH. There is no period to compare against any more:
@@ -4178,6 +4200,36 @@ D.__lw_treasure_auto.tick = function()
       -- day is spent» would stand the errand down on a client that had not been asked.
       if seen == 0 then full = false end
       A.day_full, A.day_groups = full, table.concat(words, ",")
+      -- …AND THE SAME QUESTION PER TYPE, WHICH IS THE ONE THE ERRAND ACTS ON (#2092).
+      -- The allowance is a counter per treasure TYPE, so «the day's limit» is never a
+      -- fact about a chest: the moment one chest of a type is refused, every other chest
+      -- of that type — the ones on the list and the ones nobody has heard of yet — is
+      -- worth nothing until the reset. `A.day_bad` is that exclusion, keyed by the type's
+      -- own cfg id, and it is filled from two places: the client's own gate, asked here
+      -- for every type on the list, and the server's refusal, which is the authority and
+      -- is kept whatever the client's copy of the books says.
+      -- THE EXCLUSION BELONGS TO A DAY, AND THE DAY IS THE GAME'S. `activity_detect_dig_
+      -- times_expire` is the boundary this very counter resets at, so the stamp MOVING is
+      -- the reset happening — and every type shut against the old stamp is open again,
+      -- with nothing pressed and no clock of this machine's consulted.
+      local stamp = tonumber(A.day_reset) or 0
+      if (tonumber(A.day_bad_stamp) or 0) ~= stamp then
+        A.day_bad, A.day_bad_stamp = {}, stamp
+      end
+      local bad = {}
+      for k, v in pairs(A.day_bad or {}) do if v == "server" then bad[k] = "server" end end
+      local types = {}
+      for _, t in ipairs(A.targets or {}) do
+        local c = tonumber(t.cfg) or 0
+        if c > 0 and not t.done then types[c] = true end
+      end
+      for c in pairs(types) do
+        local reached = false
+        pcall(function()
+          reached = dm:CheckTreasureReachDailyLimit(c) and true or false end)
+        if reached then bad[tostring(c)] = bad[tostring(c)] or "client" end
+      end
+      A.day_bad = bad
     end
     -- …and the reset the hold ends at. The game's own stamp where there is one; a short
     -- blind hold where there is not, so a client that cannot be asked retries in an hour
@@ -4196,6 +4248,8 @@ D.__lw_treasure_auto.tick = function()
     -- no restart, no hand on the panel, and the next beat works the queue it was holding.
     day_until = 0
     A.day_full = false
+    -- …and the types with them: the exclusion is the day's, so it ends when the day does.
+    A.day_bad = {}
   end
   A.day_until = day_until
   local wm = DataCenter.WorldMarchDataManager
@@ -4270,6 +4324,17 @@ D.__lw_treasure_auto.tick = function()
       t.hold_until = day_until
       t.hold_why = "day-limit"
       t.claimed, t.tries = nil, 0
+      -- AND THE TYPE WITH IT (#2092). Holding the one chest that was refused left every
+      -- other chest of the same type on the list — and every one heard afterwards — to be
+      -- marched at and claimed until it was refused in its own turn, which is the whole of
+      -- «нужно исключить из слушателя этот тип сокровища до следующего сброса». The
+      -- refusal is the server's, so it outranks the client's own counters and is kept
+      -- across every re-read of them until the reset stamp passes.
+      local c = tonumber(t.cfg) or 0
+      if c > 0 then
+        A.day_bad = A.day_bad or {}
+        A.day_bad[tostring(c)] = "server"
+      end
       A.limit_at, A.limit_last = now, tostring(code)
       A.limit_all = (tonumber(A.limit_all) or 0) + 1
       -- …and ask the client again on the next beat rather than in five seconds: its own
@@ -4409,6 +4474,16 @@ D.__lw_treasure_auto.tick = function()
        -- every counter the client keeps says full there is no chest anywhere on the map
        -- this account can be paid for, and the honest thing is to send nothing until the
        -- day resets.
+       -- A TYPE THE DAY IS FULL OF IS EXCLUDED WHOLE (#2092): the chest that was
+       -- refused, its neighbours on the list, and the ones the ears bring in afterwards.
+       -- Nothing here is counted on this side — the type is excluded because the server
+       -- refused it or the client's own gate says the counter is spent, and it comes back
+       -- when the game's own reset stamp passes.
+       local tc = tonumber(t.cfg) or 0
+       if day_until > 0 and tc > 0 and (A.day_bad or {})[tostring(tc)] ~= nil then
+         t.hold_until, t.hold_why = day_until, "day-limit-type"
+         t.claimed, t.tries = nil, 0
+       end
        local day_stop = (A.day_full and day_until > 0) and true or false
        if (tonumber(t.hold_until) or 0) > 0 or day_stop then
          t.state = "day-limit"
@@ -4681,15 +4756,23 @@ local function look()
                   seen_here.claim_only = false
                   seen_here.src = tostring(seen_here.src or "?") .. "+eye"
                 end
+                if (tonumber(seen_here.cfg) or 0) == 0 then
+                  pcall(function() seen_here.cfg = tonumber(info.cfgId)
+                    or tonumber(info.treasureId) or 0 end)
+                end
               else
                 local who = "" pcall(function() who = tostring(info.ownerUid or "") end)
                 local exp = 0 pcall(function() exp = tonumber(info.expireTime) or 0 end)
                 A.seen = A.seen or {}
                 A.seen[key] = A.seen[key] or now
                 A.targets = A.targets or {}
+                local cfg = 0
+                pcall(function() cfg = tonumber(info.cfgId)
+                  or tonumber(info.treasureId) or 0 end)
                 A.targets[#A.targets+1] = {uuid = uuid, pid = base + tx, x = tx, y = ty,
                   server = tonumber(info.serverId) or srv, at = now, src = "eye",
-                  expire = exp, dug = ((who ~= "" and who ~= "0") and now or nil)}
+                  expire = exp, cfg = cfg,
+                  dug = ((who ~= "" and who ~= "0") and now or nil)}
                 A.news = (tonumber(A.news) or 0) + 1
               end
             end
@@ -4947,7 +5030,12 @@ def treasure_auto_step() -> str:
         # squad, a walk and a dig for nothing. `hold_until` is this chest's own group being
         # full; `day_full` is every counter the client keeps saying so, which stands the
         # send half down altogether until the day resets.
-        "elseif (tonumber(t.hold_until) or 0) > 0 or A.day_full then "
+        # …and a chest of a TYPE the day is full of gets none either (#2092), whether or
+        # not the watch has stamped its hold yet: the exclusion is the type's, so a chest
+        # heard a moment ago is as unpayable as the one that was refused.
+        "elseif (tonumber(t.hold_until) or 0) > 0 or A.day_full "
+        "or ((tonumber(t.cfg) or 0) > 0 and (tonumber(A.day_until) or 0) > 0 "
+        "and (A.day_bad or {})[tostring(tonumber(t.cfg))] ~= nil) then "
         "mine[#mine+1] = {t, 'day-limit'} "
         "else "
         # New: the nearest free squad goes out. `fi` walks the free list so two chests
@@ -5045,6 +5133,17 @@ def treasure_auto_step() -> str:
         "хожу]' or '') "
         ".. (((A.day_groups or '') ~= '' and (tonumber(A.t_held) or 0) > 0) "
         "and (' day=[' .. tostring(A.day_groups) .. ']') or '') "
+        # THE TYPES THAT ARE SHUT, said out loud (#2092). `held=` counts chests and a
+        # person reading it cannot tell one unlucky chest from a whole kind of chest the
+        # day has closed; this names the kinds, and how each of them was closed — the
+        # server refusing a claim, or the client's own counter being spent.
+        ".. ((function() local w = {} "
+        "for c, how in pairs(A.day_bad or {}) do "
+        "w[#w+1] = tostring(c) .. '/' .. tostring(how) end "
+        "if #w == 0 or (tonumber(A.day_until) or 0) <= 0 then return '' end "
+        "table.sort(w) "
+        "return ' day-types=[' .. table.concat(w, ',') "
+        ".. ' — эти типы сокровищ исключены до сброса суток]' end)()) "
         ".. ((A.gone_last and now > 0 and (tonumber(A.gone_last_at) or 0) > 0 "
         "and now - A.gone_last_at < 60000) "
         "and (' dropped=[' .. tostring(A.gone_last) "
@@ -5364,6 +5463,8 @@ local function scrape(cx, cy)
                               server = tonumber(get(info, "serverId")) or srv,
                               expire = tonumber(get(info, "expireTime")) or 0,
                               owner = who,
+                              cfg = tonumber(get(info, "cfgId"))
+                                    or tonumber(get(info, "treasureId")) or 0,
                               alliance = tostring(get(info, "allianceId") or ""),
                               dug = (who ~= "" and who ~= "0")}
             end
@@ -5503,6 +5604,8 @@ for ty = y0, y1 do
                             server = tonumber(get(info, "serverId")) or srv,
                             expire = tonumber(get(info, "expireTime")) or 0,
                             owner = who,
+                            cfg = tonumber(get(info, "cfgId"))
+                                  or tonumber(get(info, "treasureId")) or 0,
                             alliance = tostring(get(info, "allianceId") or ""),
                             dug = (who ~= "" and who ~= "0")}
           end
@@ -5606,6 +5709,8 @@ def treasure_scan_harvest() -> str:
         "seen_here.src = tostring(seen_here.src or '?') .. '+scan' "
         "grown = grown + 1 "
         "else known = known + 1 end "
+        "if (tonumber(seen_here.cfg) or 0) == 0 then "
+        "seen_here.cfg = tonumber(f.cfg) or 0 end "
         "else "
         "A.seen = A.seen or {} A.seen[key] = A.seen[key] or now "
         "A.targets = A.targets or {} "
@@ -5615,7 +5720,7 @@ def treasure_scan_harvest() -> str:
         # than rediscovered by whoever looks next.
         "A.targets[#A.targets+1] = {uuid = f.uuid, pid = f.pid, x = f.x, y = f.y, "
         "server = tonumber(f.server) or 0, at = now, src = 'scan', "
-        "expire = tonumber(f.expire) or 0, "
+        "expire = tonumber(f.expire) or 0, cfg = tonumber(f.cfg) or 0, "
         "plan = (f.dug and 'claim' or 'march'), "
         "dug_by = (f.dug and 'tile' or nil), "
         "dug = (f.dug and now or nil)} "

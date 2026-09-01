@@ -1211,6 +1211,44 @@ What the errand does instead has two halves, both in `_TREASURE_TICK`:
 The counters are read locally — no message leaves, nothing on screen moves — at most every
 `TREASURE_DAY_LIMIT_ASK_MS`, and at once on a refusal, which is the moment they change.
 
+### …and what it holds is the TYPE, not the chest (#2092)
+
+The design above was right about the group and wrong about what it applied the verdict to:
+`hold_until` was written on the ONE chest whose claim had been refused. Every other chest
+of the same kind — the ones already on the list and every one the three doors brought in
+afterwards — went on being marched at, dug and claimed until each was refused in its own
+turn. That is «слушатель продолжает ловить этот тип» from the inside, and it is what was
+reported twice.
+
+The kind is the chest's own cfg id (`treasureId` on the wire, `cfgId` on the tile), and it
+now travels with the target from all three doors: the chat share carries it as a quoted
+number in the attachment blob, the dig feed carries it when the message has it, and the
+point manager answers it for a tile the client holds. A chest that arrives without one is
+held the old way — one chest, one hold — which is strictly what happened before.
+
+`A.day_bad` is the exclusion, keyed by that cfg id, and there are exactly two ways in:
+
+* **the server refusing a claim** (`activity_sports_uitips_015`), which is the authority
+  and survives every re-read of the client's own books;
+* **the client's own gate** — `CheckTreasureReachDailyLimit(<cfgId>)`, asked for each type
+  on the list at most every `TREASURE_DAY_LIMIT_ASK_MS`. This is the half that costs
+  nothing at the server: a type the client already knows is spent is held the moment the
+  first chest of it is heard, with no claim sent to find out.
+
+And one way out: **the game's own reset stamp moving.** `activity_detect_dig_times_expire`
+is the boundary this very counter resets at, so the exclusions are stamped with it
+(`A.day_bad_stamp`) and a new stamp opens every type at once. No clock of this machine's is
+involved, nothing has to be pressed, and a restart of the panel changes nothing because the
+table lives in the game VM.
+
+The report says it in words — `day-types=[<cfgId>/server,<cfgId>/client — эти типы сокровищ
+исключены до сброса суток]` — and so does the recipe's `shut-types=`, because a queue that
+stalls without saying why is the same silence #1898 and #1965 were both about.
+
+Pinned by four tests in `tests/test_treasure_auto.py`: the second chest of a refused type
+gets neither a claim nor a squad, a chest of another type is worked exactly as before, the
+client's own verdict shuts a type before any refusal, and the reset opens it again.
+
 **The reset is never computed on this side.** `activity_detect_dig_times_expire` is the
 game's own boundary for this very counter, so the day is the GAME's day and no clock of
 this machine's is involved. A client that cannot be asked at all — the manager not there

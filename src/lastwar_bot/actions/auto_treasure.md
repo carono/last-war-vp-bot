@@ -56,6 +56,15 @@
 # reset stamp. The allowance is counted per treasure GROUP, measured live: one group full
 # and another with room in the same read, so a refusal holds the chest it was sent for and
 # the errand only stands down altogether when every counter the client keeps says full.
+#
+# …AND IT HOLDS THE WHOLE TYPE, NOT THE ONE CHEST (#2092). Holding only the chest that was
+# refused left every other chest of the same kind — the ones already queued and every one
+# the ears brought in afterwards — to be marched at, dug and refused in its own turn, which
+# is «слушатель продолжает ловить этот тип» said from the inside. The kind is the chest's
+# own cfg id, carried by all three doors, and it is shut two ways: by the server refusing a
+# claim, and by the client's own gate (`CheckTreasureReachDailyLimit`) saying that counter
+# is spent before anything is sent at all. It opens when the game's reset stamp moves —
+# never on this machine's clock, and never because somebody pressed something.
 
 # THE BRANCH IS TAKEN BY THE CHEST'S STATUS, THE SECOND IT IS HEARD (#1886): still being
 # dug — a squad goes; already dug — the gift is claimed and no squad is spent at all. And
@@ -172,9 +181,9 @@ LOG "the line above is what the run did: sent= marches that went out, claimed= c
 # game's own verdict on each. Read live while the refusals were arriving, the counters
 # disagreed — one group full, another with room — which is why one refusal holds the chest
 # it was sent for and never the whole errand.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'the auto errand has never been armed' end local until_ms = tonumber(A.day_until) or 0 return 'full=' .. ((A.day_full and until_ms > 0) and 1 or 0) .. ' held=' .. tostring(A.t_held or 0) .. ' refused=' .. tostring(A.limit_all or 0) .. ' groups=[' .. tostring(A.day_groups or '') .. '] reset=' .. tostring(A.day_reset or 0) end)() INTO day
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'the auto errand has never been armed' end local until_ms = tonumber(A.day_until) or 0 local w = {} for c, how in pairs(A.day_bad or {}) do w[#w+1] = tostring(c) .. '/' .. tostring(how) end table.sort(w) return 'full=' .. ((A.day_full and until_ms > 0) and 1 or 0) .. ' held=' .. tostring(A.t_held or 0) .. ' refused=' .. tostring(A.limit_all or 0) .. ' groups=[' .. tostring(A.day_groups or '') .. '] shut-types=[' .. table.concat(w, ',') .. '] reset=' .. tostring(A.day_reset or 0) end)() INTO day
 
-LOG "the day's reward allowance: {day} — full=1 is «дневной лимит наград исчерпан — до сброса суток за кладами не хожу»: nothing is claimed and no squad is sent while it stands. held= chests standing still for it, refused= claims the server has answered «day times limit» since the client started, groups= the client's own counter per treasure group with /full on the ones that are spent — a group that is not full is exactly why one refusal never stands the whole errand down — and reset= the game's own stamp the hold ends at, so the day turning over lets every chest go by itself, with no restart and no hand on the panel"
+LOG "the day's reward allowance: {day} — full=1 is «дневной лимит наград исчерпан — до сброса суток за кладами не хожу»: nothing is claimed and no squad is sent while it stands. held= chests standing still for it, refused= claims the server has answered «day times limit» since the client started, groups= the client's own counter per treasure group with /full on the ones that are spent — a group that is not full is exactly why one refusal never stands the whole errand down — shut-types= the treasure TYPES excluded until the reset with how each was shut (/server = a claim was refused, /client = the client's own counter says spent), which is what stops the ear queueing the same kind of chest all day — and reset= the game's own stamp the hold ends at, so the day turning over lets every chest and every type go by itself, with no restart and no hand on the panel"
 
 # WHAT THE WATCH ITSELF IS DOING, read apart from the press. The report above is written by
 # a press; this is written by the thing that runs between presses, and the two disagreeing

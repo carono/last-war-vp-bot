@@ -149,15 +149,15 @@ def _vm(squads=((1, 3000, False), (2, 3000, False), (3, 3000, False)),
 
 
 def _announce(lua, uuid=_UUID, xy=_NEAR, server=_SERVER, key="attachmentId",
-              plain: bool = False) -> None:
+              plain: bool = False, cfg: int = 25195) -> None:
     """The chat post that announces a chest, with the blob under `key`.
 
     Field order and spacing are the client's own (`shareType` first, `x`/`y` in the
     middle) so the parser is exercised against the shape rather than against a tidy one.
     """
     blob = ('{"shareType":27,"y":%d,"x":%d,"uuid":%d,"worldType":0,"worldId":0,'
-            '"sid":%d,"treasureId":"25195","oname":"1000000000000001"}'
-            % (xy[1], xy[0], uuid, server))
+            '"sid":%d,"treasureId":"%d","oname":"1000000000000001"}'
+            % (xy[1], xy[0], uuid, server, cfg))
     body = ('{msg="?", %s=%s}' % (key, _lua_str(blob)) if plain
             else '{__keys={"msg","%s"}, msg="?", %s=%s}' % (key, key, _lua_str(blob)))
     lua.execute('SFSNetwork.HandleMessage("world.treasure.share.chat", %s)' % body)
@@ -167,7 +167,7 @@ def _lua_str(s: str) -> str:
     return "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
-def _dug(lua, uuid=_UUID, plain: bool = True) -> None:
+def _dug(lua, uuid=_UUID, plain: bool = True, cfg: int = 25195) -> None:
     """The alliance's own feed: one of these per member who has finished digging.
 
     `plain` is the shape an INCOMING message really has — a bare Lua table, with no
@@ -175,8 +175,9 @@ def _dug(lua, uuid=_UUID, plain: bool = True) -> None:
     `push.detect.treasure.claim`: `KEYS[] PAIRS[operator=table uuid=…]`. The default is
     the real one; `plain=False` is the SFSObject shape an outgoing message has.
     """
-    body = ('{uuid=%d, operator={}}' % uuid if plain
-            else '{__keys={"uuid","operator"}, uuid=%d, operator={}}' % uuid)
+    body = ('{uuid=%d, operator={}, treasureId=%d}' % (uuid, cfg) if plain
+            else '{__keys={"uuid","operator"}, uuid=%d, operator={}, treasureId=%d}'
+                 % (uuid, cfg))
     lua.execute('SFSNetwork.HandleMessage("push.detect.treasure.claim", %s)' % body)
 
 
@@ -1987,9 +1988,10 @@ def test_one_group_being_full_does_not_stand_the_whole_errand_down():
     assert int(state["full"]) == 0, state
     assert "/full" in str(state["groups"]), state
 
-    #: a second chest, heard after the refusal, is claimed exactly as before
+    #: a second chest, of ANOTHER type, heard after the refusal — claimed exactly as
+    #: before: the refusal shut the type it was about and nothing wider (#2092)
     before = len(_claims(lua))
-    _dug(lua, uuid=_OTHER_UUID)
+    _dug(lua, uuid=_OTHER_UUID, cfg=25196)
     assert len(_claims(lua)) > before, "the group with room is still worked"
 
 
@@ -2056,6 +2058,104 @@ def test_a_chest_the_day_is_holding_is_not_a_reason_to_wake_the_errand():
     _day_manager(lua, groups=((602, 0, False), (39, 0, False)))
     lua.execute("DataCenter.__lw_treasure_auto.tick()")
     assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "after the reset"
+
+
+# --- the type is excluded, not the chest (#2092) -----------------------------------
+
+def _types(lua) -> dict:
+    """Which treasure types the errand is holding shut, and what shut them."""
+    bad = lua.eval("DataCenter.__lw_treasure_auto.day_bad or {}")
+    return {str(k): str(v) for k, v in (bad.items() if bad is not None else [])}
+
+
+def test_the_refused_type_is_shut_for_the_day_and_not_only_the_refused_chest():
+    """The repeat of the request (#2092): «исключить из слушателя этот тип сокровища».
+
+    The allowance is counted per treasure TYPE, so a refusal is a verdict on the KIND of
+    chest and never on the tile. Holding the one chest that was refused left every other
+    chest of that kind — the ones already on the list, and every one the ears brought in
+    afterwards — to be marched at, dug and claimed until each was refused in its own turn.
+    """
+    if not _needs_lua("the refused type is shut"):
+        return
+    lua = _vm()
+    _day_manager(lua, groups=((25195, 10, False), (25196, 0, False)))
+    _dug(lua, cfg=25195)
+    assert len(_claims(lua)) == 1
+
+    _refused(lua, lua_actions.TREASURE_ERR_DAY_LIMIT, "day times limit 2")
+    _step(lua)
+    assert _types(lua) == {"25195": "server"}, _types(lua)
+
+    #: a SECOND chest of the same type, heard after the refusal — no claim, no squad
+    before, marched = len(_claims(lua)), len(_marched(lua))
+    _announce(lua, uuid=_OTHER_UUID, cfg=25195)
+    report = _step(lua)
+
+    assert len(_claims(lua)) == before, _claims(lua)
+    assert len(_marched(lua)) == marched, "no squad is spent on a type that cannot pay"
+    assert "day-types=[25195/server" in report, report
+    assert _why(lua, _OTHER_UUID) is None, "it is held, not written off — it is still there"
+
+
+def test_a_chest_of_another_type_is_worked_exactly_as_before():
+    """The other half of the same measurement: the allowance is PER type.
+
+    Shutting the whole errand on one refusal writes off a type that still has room — which
+    is why the exclusion is keyed by the chest's own cfg id and by nothing wider.
+    """
+    if not _needs_lua("another type is still worked"):
+        return
+    lua = _vm()
+    _day_manager(lua, groups=((25195, 10, False), (25196, 0, False)))
+    _dug(lua, cfg=25195)
+    _refused(lua, lua_actions.TREASURE_ERR_DAY_LIMIT, "day times limit 2")
+    _step(lua)
+
+    before = len(_claims(lua))
+    _dug(lua, uuid=_OTHER_UUID, cfg=25196)
+    assert len(_claims(lua)) > before, "the type with room is still claimed at once"
+
+
+def test_the_type_the_client_says_is_spent_is_shut_before_any_refusal():
+    """The client keeps the same books, so the first refusal need not be paid for twice.
+
+    `CheckTreasureReachDailyLimit` is the game's own verdict per type; a chest of a type it
+    calls spent is held the moment it is heard, with nothing sent at the server to find out.
+    """
+    if not _needs_lua("the client's own verdict shuts a type"):
+        return
+    lua = _vm()
+    _day_manager(lua, groups=((25195, 10, True), (25196, 0, False)))
+    _announce(lua, cfg=25195)
+    report = _step(lua)
+
+    assert _marched(lua) == [], "no squad on a type the client itself calls spent"
+    assert _claims(lua) == [], _claims(lua)
+    assert _types(lua) == {"25195": "client"}, _types(lua)
+    assert "day-types=[25195/client" in report, report
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, \
+        "and it is not a reason to wake the errand either"
+
+
+def test_the_shut_type_opens_again_when_the_game_says_the_day_turned_over():
+    """Until the next reset, and the reset is the GAME's — never this machine's clock."""
+    if not _needs_lua("the type opens after the reset"):
+        return
+    lua = _vm()
+    _day_manager(lua, groups=((25195, 10, False), (25196, 0, False)),
+                 reset_in_ms=600000)
+    _dug(lua, cfg=25195)
+    _refused(lua, lua_actions.TREASURE_ERR_DAY_LIMIT, "day times limit 2")
+    _step(lua)
+    before = len(_claims(lua))
+
+    lua.execute("NOW = NOW + 700000")
+    _day_manager(lua, groups=((25195, 0, False), (25196, 0, False)))
+    _step(lua)
+
+    assert _types(lua) == {}, _types(lua)
+    assert len(_claims(lua)) > before, "the chest of that type is claimed again"
 
 
 def _run() -> int:
