@@ -103,6 +103,12 @@ class StatusPoll:
         #: The last verdict said out loud, so a light that has not moved is a heartbeat
         #: in `debug.log` and a light that HAS is news (:meth:`_note_verdict`).
         self._said_verdict = None
+        #: WHETHER THE CLIENT WAS IN THE GAME at the previous poll, so that ENTERING it
+        #: can be noticed (#2075). `None` while nothing has been read. The strip along the
+        #: top of every screen reads the character once and holds it for ever; a fresh
+        #: login is the one fact that can have changed it, and this is where that fact is
+        #: seen. It is a transition and never a clock — the poll runs anyway.
+        self._was_playing = None
         #: The crash watchdog's own bookkeeping: consecutive dead readings, when the
         #: last one was taken (a strike is a fresh LOOK, not the same cached walk seen
         #: twice — #1702), whether the client was ever up, when it was last put back and
@@ -210,6 +216,17 @@ class StatusPoll:
 
         playing = (True if session == game_clock.IN_SESSION
                    else False if session == game_clock.LOGIN_SCREEN else None)
+        # …AND THE MOMENT IT ENTERS THE GAME IS NEWS FOR THE HEADER (#2075). Somebody has
+        # just logged in — possibly as somebody else — so the name, the level and the face
+        # are worth asking for again. The strip takes no reading on a clock, so this
+        # transition is the door: it fires on false/unknown -> true and on nothing else,
+        # and the reading itself still waits for a free link.
+        if playing and self._was_playing is not True:
+            try:
+                rt.header.mark_stale(place=True, who=True)
+            except Exception:                 # noqa: BLE001 — a hint, never the poll
+                pass
+        self._was_playing = playing
         # …AND WHETHER THE ACCOUNT HAS BEEN TAKEN (#2061). The kick was read on every
         # poll already — the recovery acts on it — and the LIGHT was never told, so a
         # client whose last server probe answered before the kick showed green while

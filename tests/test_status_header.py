@@ -12,6 +12,9 @@ than looks:
 * **a client that answered nothing is not a client standing nowhere** — the previous
   place stays, with its age climbing, and a header that has never read anything says so
   rather than naming a scene;
+* **and the CHARACTER outlives the link altogether** (#2075) — the name, the level and the
+  face were written down when they were read, so a lost client, a kick or a restart draws
+  the account the panel knows instead of a blank strip, and only a NEW LOGIN asks again;
 * **and the route carries it**, so the phone gets it without a second poll.
 
 Needs no game and no display: the runtime here is a stand-in that records what it was
@@ -54,10 +57,25 @@ class _Outcome:
         self.ctx = type("Ctx", (), {"vars": dict(variables)})()
 
 
+class _Store:
+    """The one database, reduced to the row the player card lives in."""
+
+    def __init__(self, card=None) -> None:
+        self.card = card
+
+    def blob_get(self, name: str):
+        return self.card if name == "player_card" else None
+
+    def blob_set(self, name: str, value) -> None:
+        if name == "player_card":
+            self.card = dict(value)
+
+
 class _Runtime:
     """The panel's runtime, reduced to what the header touches."""
 
-    def __init__(self) -> None:
+    def __init__(self, store=None) -> None:
+        self.store = store
         self.game = _Link()
         self.gate = _Gate()
         self.played: list = []
@@ -100,7 +118,11 @@ def test_place_line_is_read_as_written() -> None:
 
 def test_who_line_takes_the_two_fields_it_draws() -> None:
     got = headermod.parse_who("Player1;;35;;100000000;;[AL1] Alliance One;;67;;0;;0")
-    assert got == {"nick": "Player1", "level": 35}, got
+    assert got == {"nick": "Player1", "level": 35, "uid": "", "pic_ver": 0}, got
+    # …and the two fields that find the FACE when the line carries them (#2061).
+    got = headermod.parse_who(
+        "Player1;;35;;100000000;;[AL1] Alliance One;;67;;0;;0;;1000000000000001;;4")
+    assert got["uid"] == "1000000000000001" and got["pic_ver"] == 4, got
     assert headermod.parse_who("") == {}
 
 
@@ -190,6 +212,61 @@ def test_nothing_read_yet_names_no_scene() -> None:
     state = _header(rt, clock).state()
     assert state["scene"] == "" and state["age"] == -1, state
     assert state["nick"] == "" and state["server"] == 0, state
+
+
+def test_the_character_survives_a_link_that_is_not_there() -> None:
+    """#2075: a panel that cannot reach the client draws the account it last read.
+
+    The card was written down on the reading that DID happen, so a closed client, a kick
+    or a restart is not «no account» — it is the same account with an old reading.
+    """
+    card = {"nick": "Player1", "level": 35, "uid": "", "pic_ver": 0}
+    rt, clock = _Runtime(_Store(card)), _Clock()
+    rt.game.busy = True                       # nothing can be read at all
+    state = _header(rt, clock).state()
+    assert rt.played == [], rt.played
+    assert state["nick"] == "Player1" and state["level"] == 35, state
+    # …and the PLACE is not invented from memory: it has moved and nobody knows where.
+    assert state["scene"] == "" and state["age"] == -1, state
+
+
+def test_a_remembered_card_is_a_floor_and_never_a_verdict() -> None:
+    """It fills the strip, and the real reading still happens and still wins."""
+    rt, clock = _Runtime(_Store({"nick": "Player1", "level": 35})), _Clock()
+    rt.answers[headermod.WHO_ACTION] = _Outcome(player_card="Player2;;41;;0;;;;0;;0;;0")
+    rt.answers[headermod.WHERE_ACTION] = _Outcome(player_place="city;;;;0;;935;;935")
+    state = _header(rt, clock).state()
+    assert state["nick"] == "Player2" and state["level"] == 41, state
+
+
+def test_a_reading_that_came_back_empty_does_not_erase_the_character() -> None:
+    """The login screen answers nothing plausibly; that is not «no character»."""
+    rt, clock = _Runtime(_Store()), _Clock()
+    rt.answers[headermod.WHO_ACTION] = _Outcome(player_card="Player1;;35;;0;;;;0;;0;;0")
+    rt.answers[headermod.WHERE_ACTION] = _Outcome(player_place="city;;;;0;;935;;935")
+    head = _header(rt, clock)
+    head.state()
+    rt.answers[headermod.WHO_ACTION] = _Outcome(player_card="")   # kicked, or logged out
+    head.mark_stale(place=False, who=True)
+    clock.now += 60
+    state = head.state()
+    assert state["nick"] == "Player1" and state["level"] == 35, state
+
+
+def test_no_card_written_down_leaves_the_strip_as_empty_as_it_was() -> None:
+    rt, clock = _Runtime(_Store()), _Clock()
+    rt.game.busy = True
+    state = _header(rt, clock).state()
+    assert state["nick"] == "" and state["level"] == 0 and state["avatar"] == "", state
+
+
+def test_entering_the_game_is_what_re_reads_the_character() -> None:
+    """The one NEW FACT about a name and a level is a fresh login, and the status poll
+    is where it is seen — a transition, never a clock (`CLAUDE.md`)."""
+    source = (_REPO / "panel" / "runtime" / "status.py").read_text(encoding="utf-8")
+    assert "if playing and self._was_playing is not True:" in source
+    assert "rt.header.mark_stale(place=True, who=True)" in source
+    assert "self._was_playing = playing" in source
 
 
 def test_the_route_carries_the_header() -> None:

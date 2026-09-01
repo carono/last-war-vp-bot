@@ -50,9 +50,20 @@ it is ever worth making a robbery wait. A busy link is therefore left alone
 altogether, first reading included (see :meth:`StatusHeader._may_play` for what forcing
 it cost).
 
-NOTHING IS WRITTEN DOWN. Where the player is standing is worth nothing after a restart —
-it has moved — so this is memory and not a table in `panel.db` (`CLAUDE.md`, «Game data
-lives only in the database», which governs data meant to SURVIVE a restart).
+THE PLACE IS MEMORY, THE CHARACTER IS REMEMBERED. Where the player is standing is worth
+nothing after a restart — it has moved — so that half is memory and not a table in
+`panel.db` (`CLAUDE.md`, «Game data lives only in the database», which governs data meant
+to SURVIVE a restart). The character is the opposite: a name never changes and a level
+changes a few times a season, so it is written down on every reading and picked up again
+on the first look (:meth:`StatusHeader._seed`, `panel/runtime/player_card.py`). That is
+what stops a lost link, a kick (#2071) or a restart from emptying the strip about an
+account the panel knows: nothing is CLEARED by a failure — a reading that came back with
+nothing leaves the last one on screen, and only a better reading replaces it (#2075).
+
+A NEW LOGIN IS A NEW FACT, and it is the one thing that re-reads the character. The status
+poll already knows when a client goes from the login screen into the game
+(`panel/runtime/status.py`), and it opens the door below on that transition — an EVENT, not
+a clock.
 
 NOTHING IS TRUSTED FROM A CLIENT THAT HAS NOT LOGGED IN. That gate is inside both
 scenarios, where it costs nothing: each reads the game's own clock first and answers an
@@ -169,6 +180,13 @@ class StatusHeader:
         # screen with its true age.
         self._where_want = True
         self._who_want = True
+        # WHETHER THE LAST KNOWN CARD HAS BEEN PICKED UP YET (#2075). The name, the level
+        # and the face were written down the last time this account WAS read
+        # (`panel/runtime/player_card.py`), so a panel whose client is closed, kicked or
+        # not started yet draws the character it knows instead of a blank strip. Done on
+        # the first look rather than here, because `rt.store` opens the database lazily
+        # and a runtime is built before its profile has one.
+        self._seeded = False
 
     # -- what the route draws -------------------------------------------------
     def state(self, now: float | None = None) -> dict:
@@ -179,6 +197,7 @@ class StatusHeader:
         this answers with whatever is already in memory.
         """
         now = self._clock() if now is None else now
+        self._seed()
         self._maybe_read(now)
         out = {
             "nick": str(self._who.get("nick") or ""),
@@ -219,6 +238,45 @@ class StatusHeader:
         if who:
             self._who_want = True
             self._who_hold = 0.0
+
+    # -- what was known before this panel started ------------------------------
+    def _seed(self) -> None:
+        """The last card this account was read with, before the game is asked (#2075).
+
+        WHY THERE IS ONE. The character half of the strip is not a place: a name does not
+        change, and a level changes a few times a season, so what was read once is still
+        true when the link goes down, when the account is kicked (#2071) and after the
+        panel restarts. It was already being written down for the account picker, and the
+        header was the one reader that ignored it — so a lost client emptied the strip and
+        the person was shown «no account» about an account the panel knew perfectly well.
+
+        It is a FLOOR and never a verdict: the wants stay up, so the first free moment on
+        the link still takes a real reading and overwrites this one. A card with no name is
+        no card, and leaves the strip exactly as empty as it was.
+        """
+        if self._seeded:
+            return
+        self._seeded = True
+        try:
+            from . import player_card as cardmod
+
+            card = cardmod.recall(getattr(self._rt, "store", None))
+        except Exception:                # noqa: BLE001 — a memory, never the page
+            return
+        nick = str(card.get("nick") or "")
+        if not nick:
+            return
+        self._who = {"nick": nick, "level": int(card.get("level") or 0),
+                     "uid": str(card.get("uid") or ""),
+                     "pic_ver": int(card.get("pic_ver") or 0)}
+        # …and the face with it. The lookup walks the face folder once per process and is
+        # a dictionary hit ever after (`player_card.face_link`), and this runs on the
+        # route that already resolves exactly this link for every CLOSED profile in the
+        # account list — never on the Tk thread, which does not call `state()` at all.
+        try:
+            self._avatar = cardmod.face_link(self._who["uid"], self._who["pic_ver"])
+        except Exception:                # noqa: BLE001 — a picture, never the page
+            self._avatar = ""
 
     # -- the one reading -------------------------------------------------------
     def _maybe_read(self, now: float) -> None:
@@ -308,7 +366,10 @@ class StatusHeader:
         who = parse_who(got.get(WHO_VARIABLE, ""))
         if not who:
             # Not read, so not remembered as read: the want stays up and the next look
-            # after the backoff asks again.
+            # after the backoff asks again. What must NOT happen is the name and the level
+            # being cleared (#2075) — a client at the login screen, or one that has just
+            # been kicked, is not an account with no character. The strip keeps what it
+            # knows until something better arrives.
             self._who_hold = self._clock() + RETRY_SEC
             return
         self._who = who

@@ -106,14 +106,16 @@ had. The check is the same round trip, so it is free. It is the identical gate
 
 ## 7. The answer's shape
 
-One variable, `player_card`, seven fields separated by `;;` — a name may contain spaces,
+One variable, `player_card`, nine fields separated by `;;` — a name may contain spaces,
 so the separator is not one:
 
 ```
-Player1;;35;;100000000;;[AL1] Alliance One;;67;;1700000000000;;1600000000000
+Player1;;35;;100000000;;[AL1] Alliance One;;67;;1700000000000;;1600000000000;;1000000000000001;;4
 ```
 
-`nick ;; level ;; power ;; alliance ;; stamina ;; stamina_full_ms ;; reg_ms`. The window's
+`nick ;; level ;; power ;; alliance ;; stamina ;; stamina_full_ms ;; reg_ms ;; uid ;;
+pic_ver`. The last two are what finds the character's photo on disk (#2061) and never
+leave the panel — what travels to a front-end is a link into `/api/avatar`. The window's
 card draws the first three (it is being retired, so nothing new goes into it); the phone's
 card draws all six readings from the same `fetch()`.
 
@@ -135,3 +137,28 @@ deliberately does not**, and the reason is what the values are:
 So the card is read when the tab is opened and when «Обновить» is pressed, at one VM round
 trip a time. An ear would cost a subscription, and would fire on events that cannot change
 any of these six values.
+
+## 9. Held across a lost link — the card outlives the client (#2075)
+
+The values above are the ones this file has just argued cannot change while nobody is
+playing, and that has a consequence the header got wrong until #2075: **a client that
+cannot be reached is not an account with no character.**
+
+So the strip along the top of the web panel keeps three things:
+
+* the reading it took, in memory, for as long as the profile is open;
+* the same reading written down (`panel/runtime/player_card.py`, one row per profile in the
+  one database), which is what the account picker draws a CLOSED profile from;
+* and, since #2075, the header itself picks that row up on its first look, so a panel that
+  restarts while the client is down, a client that is kicked (#2071) and a link that goes
+  away draw the account the panel already knows rather than a blank.
+
+Nothing is ever CLEARED by a failure: a play that came back empty — the login screen
+answers exactly that — leaves the last reading on screen and books a retry. The only thing
+that replaces a card is a better card.
+
+**What re-reads it is a new login, and nothing else.** The status poll already learns on
+every round whether the client is in the game or at the login screen
+(`tools/lib/game_clock.py`); the transition into the game is the event, and it opens the
+header's `mark_stale(who=True)` door. That is a fact arriving, not a clock — the poll runs
+anyway, and the reading itself still waits for a free link.
