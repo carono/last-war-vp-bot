@@ -415,9 +415,14 @@ def test_the_errands_with_an_ability_offer_it_and_the_four_without_do_not():
     # and the reading has not been put on the board, so the row offers the press and goes
     # on saying «неизвестно». Its listener (`push.daily.quest`) is «when the game says
     # so» and not a way to ask for it now, which is exactly what this row is for.
+    #
+    # `arena` is the eighth and the same shape again (#2081): the 3v3 challenge can be
+    # played — the scenario keeps its own gates, stopping on a shut event, a spent day
+    # and wins already made — while the row goes on saying «неизвестно», because a
+    # reading here is two game requests on every refresh of the board.
     blind = [e.key for e in modelmod.BLIND_ERRANDS if e.runnable]
     assert blind == ["truck_reward", "radar", "radar_march", "radar_all",
-                     "alliance_gifts", "daily_quests", "ministry"], blind
+                     "alliance_gifts", "arena", "daily_quests", "ministry"], blind
     assert modelmod.BY_KEY["ministry"].run_key == "checklist.run.ministry"
 
 

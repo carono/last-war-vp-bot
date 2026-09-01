@@ -557,6 +557,27 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.attack_codename_daily",
     ),
     Timer(
+        name="arena_3v3_battles",
+        scenario=("arena_3v3_battles",),
+        # AN HOUR, not a day, and the reason is the retry rather than the reward: the
+        # wins are a day's worth and the recipe asks the server how many are still
+        # missing, so a run that finds them made is a clean no-op costing two reads.
+        # An hour is what makes a day whose first attempt landed on a client that was
+        # loading, or in the minutes an event window was shut, finish itself anyway.
+        interval_sec=3600,
+        # Fifteen minutes. A run FAILS only when a battle could not be made at all —
+        # no opponent came back, the send was refused, the client stopped answering —
+        # and every one of those mends itself in minutes. A spent day and a shut event
+        # are a STOP, so neither costs a retry.
+        retry_sec=900,
+        enabled=False,
+        # The day's target and the ceiling on one run. Five wins is what the game's own
+        # daily reward asks for; the cap is the day's 30 challenges, and the server's
+        # count is what actually stops the loop.
+        args={"wins": 5, "cap": 30},
+        label_key="timers.item.arena_3v3_battles",
+    ),
+    Timer(
         name="sweep_star_servers",
         scenario=("sweep_star_servers",),
         # FOUR HOURS, and the number is about RIPENING rather than about how long a lap

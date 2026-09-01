@@ -5,7 +5,7 @@
 <!-- progress:start -->
 🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **34%** — 61 of 179
 
-🟩 61 done · 🟨 84 partly · 🟥 34 not automated
+🟩 61 done · 🟨 85 partly · 🟥 33 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -268,7 +268,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Arena
 
 - ❌ Apex arena
-- ❌ 3-on-3 battle
+- 🟡 3-on-3 battle — presses «Challenge», fights the matched opponent with the three squads standing in the arena line-up, and keeps going until the day's five wins are in or its thirty challenges run out; how many wins and challenges are left is read out of the game, so a day played by hand costs nothing. The line-up itself is still the person's to arrange, and «Storm arena» is a different event nobody has done yet
 - ❌ Free diamonds
 
 ### Heroes
@@ -369,7 +369,7 @@ The routine as it is actually played, against what the bot covers.
 | Alliance gifts | ✅ · on a schedule 🟡 |
 | Golden eggs and lucky gifts in chat | ❌ |
 | Supplies, secret training, quests | ✅ the day's finished quests, claimed and read back · 🟡 the progress-bar chests · ❌ supplies and secret training |
-| Arena | ❌ |
+| Arena | 🟡 the 3-on-3 battles up to the day's five wins · ❌ apex arena, free diamonds |
 | Help alliancemates who ask | ✅ |
 | Fire the profession skills that came off cooldown | 🟡 the no-target ones · ❌ the targeted ones |
 | General's challenge, free heroes in the tavern | ❌ |
