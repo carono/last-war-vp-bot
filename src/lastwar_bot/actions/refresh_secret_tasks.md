@@ -116,6 +116,11 @@ ARGS dispatch = 1
 # Turning it off is what `dispatch` used to mean on its own: the leftovers go too.
 ARGS only_ur = 1
 
+# THE LEAD the next appointment is booked with, in seconds (#2073). The nearest finish
+# minus this: the panel is standing there when the task ripens rather than arriving
+# after it, and `collect_secret_tasks.md` waits the last seconds out in the game.
+ARGS lead = 45
+
 # 1. Park the rule where the presses can read it — `TAP` takes no arguments — and stamp
 #    the purse the budget is measured from. `__lw_ref_onlyur_want` arms the SEND ITSELF:
 #    the questions below are asked so this recipe can close the popup politely and say
@@ -331,13 +336,19 @@ READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_march) or 0) I
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_nextfree) or 0) INTO next_free
 LOG "secret post: idle={idle} non-UR={nonur} UR={ur} out={running} tickets={tickets} diamonds={diamonds} price={price} marches={marching}/{marches} next-free={next_free}s"
 
-# 9. What is left unsent is not abandoned. The nearest squad's own finish time — which the
-#    client knows to the millisecond — becomes this errand's next turn, plus a minute so
-#    the hero is really back. Nothing left over, or nothing out: `0`, and the timer's own
-#    period stands.
-READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local idle=tonumber(M.__lw_ref_idle) or 0 if idle<=0 then return 0 end local free=tonumber(M.__lw_ref_nextfree) or 0 if free<=0 then return 0 end return free+60 end)() INTO next_run_in
-IF idle > 0
-    LOG "{idle} task(s) still waiting for a squad — coming back in {next_run_in} s, when the nearest one is home"
+# 9. What is left unsent is not abandoned, AND NEITHER IS WHAT IS ABOUT TO RIPEN. The
+#    nearest squad's own finish time — which the client knows to the millisecond — is the
+#    moment a hero is free AND the moment a finished task stops being safe (#2073), so the
+#    turn is booked a little BEFORE it rather than a minute after. Nothing out at all: `0`,
+#    and the timer's own period stands.
+#
+#    THE `idle` GATE IS GONE, and that was the second half of the missed window: a run
+#    that had just sent every task it had left `next_run_in` at zero, so the appointment
+#    the day's errand was about to keep was overwritten with «the row's period stands» —
+#    a day. What is out has to be claimed whether or not anything is standing idle.
+READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local free=tonumber(M.__lw_ref_nextfree) or 0 if free<=0 then return 0 end local n=free-{lead} if n<10 then n=10 end return math.floor(n) end)() INTO next_run_in
+IF next_run_in > 0
+    LOG "{idle} task(s) still idle, the nearest squad is home in {next_free} s — coming back in {next_run_in} s, a little before it"
 
 # 10. Leave the screen as it was found.
 TAP close_secret_post

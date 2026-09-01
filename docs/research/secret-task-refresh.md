@@ -514,3 +514,63 @@ it is only where a day with nothing running starts from. Live end to end on a se
 account: claim (nothing due), boxes (none left), the cycle (no non-UR to refresh), the
 send refused for want of heroes and said so — and «back in 5377 s, when the first of them
 finishes».
+
+## The window that was being missed, and the four things that were missing it (#2073)
+
+The operator's report: «Плохо сделан таймер сбора наших секретных заданий, время
+пропускается, их могут украсть». A finished task of the account's OWN is robbable until
+its reward is claimed — the same `hero.dispatch.steal` this bot spends five of a day on
+strangers, pointed back at us — so every minute between «выполнено» and «получено» is a
+minute somebody else may be paid for. The appointment machinery was already there
+(`next_run_in`, above); what it did in practice was arrive late, and sometimes not at all.
+
+Read off the code rather than guessed, four separate defects, each of which alone loses
+the window:
+
+1. **The turn was booked half a minute AFTER the finish** (`free + 30`), on top of the
+   scheduler's own tick — `TICK_SEC = 20`, so an appointment is kept up to twenty seconds
+   after it is due — and on top of the run's preamble. Fifty to sixty seconds of a ripe
+   task standing in the open, by construction, on the happy path.
+2. **A run that FAILED booked nothing at all.** `Errands._honour_next_run` was the last
+   thing a *successful* run did; a recipe that raised half way through left no `due_at`,
+   and `due_names` then fell back on the row's period. For `secret_tasks_day` that period
+   is `DAY_SEC` anchored to the server's midnight — so ONE failed run stopped the claiming
+   until the next reset.
+3. **A successful run could book zero over its own good reading.** `refresh_secret_tasks`
+   step 9 was gated on `idle > 0`: a run that had just sent every task it had wrote
+   `next_run_in = 0`, and zero means «the row's period stands» — the same lost day as (2),
+   reached from a run that worked perfectly.
+4. **The retry hold outranks the appointment.** `due_names` sits out
+   `now - failed_at < retry_sec` *before* it ever looks at `due_at`, and this row's
+   `retry_sec` was 1800. A client that was briefly not answering therefore silenced a
+   game-named appointment for half an hour.
+
+### What was done
+
+* **The last stretch is waited out inside the run, not on the schedule.** The client holds
+  every running task's `completionTime` to the millisecond, so
+  `collect_secret_tasks.md` now scans (a walk over the client's own table — no question
+  goes to the server), and while something ripens within `ripe_wait` seconds it sleeps
+  `ripe_poll` and presses «Получить» again. `claim_secret_task_rewards` is `xall` over
+  `GetSingleTaskRewardableCount`, so a round that finds the task still counting down
+  presses nothing. This is the same shape as the star sprint of #1294 and for the same
+  reason: seconds decide, and only there.
+  `ripe_wait` defaults to **0** — the button on the tab claims what is ripe and returns —
+  and the day's errand passes **150** down through `CALL`.
+* **The appointment is booked with a LEAD** (`ARGS lead = 45`): the nearest finish MINUS
+  the lead, floored at ten seconds, so the run is already under way when the task ripens.
+* **It is booked THREE times, early first.** `collect_secret_tasks` books before any of
+  the spending starts, `refresh_secret_tasks` books again on its way out, and
+  `work_secret_tasks` overwrites with the freshest scan. A run that dies anywhere after
+  the first of them still leaves a good appointment behind.
+* **`Errands._run_errand` honours it from the `finally`**, so a FAILED run keeps whatever
+  it had read. A recipe that never reached such a line leaves nothing in its variables and
+  the call is a no-op, exactly as before.
+* **`refresh_secret_tasks` step 9 lost its `idle` gate.** What is out has to be claimed
+  whether or not anything is standing idle.
+* **`secret_tasks_day.retry_sec` 1800 -> 300.** The hold is the one thing that outranks
+  the game's own appointment, and half an hour of it is half an hour of a finished task
+  standing on the map.
+
+Worst case on the happy path is now: fires between 45 and 25 seconds before the finish,
+polls every 3 s, claims within about three seconds of the server turning the task over.

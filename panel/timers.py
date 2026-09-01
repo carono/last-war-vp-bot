@@ -460,9 +460,13 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # running starts from. Being a whole day it is anchored to the server's own
         # midnight (:data:`DAY_SEC`), which is what «раз в сутки» means for a quota.
         interval_sec=DAY_SEC,
-        # A failure here is a client that was not answering. Half an hour, because the
-        # day has hours in it and a stuck run must not spin at the game.
-        retry_sec=1800,
+        # FIVE MINUTES, and it was half an hour until #2073. A failure here is a client
+        # that was not answering — and the retry hold is the one thing that outranks the
+        # appointment the game named (:meth:`Catalogue.due_names` sits it out before it
+        # ever looks at `due_at`). Half an hour of that is half an hour of a finished task
+        # standing on the map to be robbed, and a client that is not answering costs one
+        # cheap refusal to find out. Five minutes is still ten times the tick.
+        retry_sec=300,
         enabled=False,
         # THE RULE, WRITTEN DOWN WHERE BOTH FRONT-ENDS CAN REACH IT (#2022). The knobs
         # were on «Командный пункт», which is dev-only — so on a live profile the day's

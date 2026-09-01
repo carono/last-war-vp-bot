@@ -47,6 +47,15 @@ ARGS only_ur = 1
 ARGS boxes = 0
 ARGS batch = 100
 
+# THE TWO NUMBERS THAT DECIDE WHETHER A RIPE TASK IS OURS OR SOMEBODY ELSE'S (#2073).
+# A finished task of ours is robbable until its reward is taken, so the run is booked to
+# arrive `lead` seconds BEFORE the nearest finish and then waits the last stretch out in
+# the game (`ripe_wait`), claiming the instant the server turns the task over. The
+# schedule's own tick is twenty seconds, so an appointment booked ON the instant is an
+# appointment kept up to twenty seconds after it.
+ARGS lead = 45
+ARGS ripe_wait = 150
+
 # 1-2. Claim what has ripened and open the boxes it paid out in.
 CALL collect_secret_tasks
 
@@ -55,12 +64,19 @@ CALL refresh_secret_tasks
 
 # 5. Book the next turn on the GAME's clock, not on the row's period. The nearest running
 #    task's finish is the moment the next reward may be claimed AND the moment the next
-#    heroes are home — one number for both, plus half a minute so the server has really
-#    turned it over. Nothing running: `0`, and the daily anchor stands.
-READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local free=tonumber(M.__lw_ref_nextfree) or 0 if free<=0 then return 0 end return free+30 end)() INTO next_run_in
+#    heroes are home — one number for both, LESS the lead, so the run is under way before
+#    the task ripens instead of half a minute after it (#2073). Nothing running: `0`, and
+#    the daily anchor stands.
+#
+#    This is the freshest of THREE bookings the run makes, and the other two are why it is
+#    not the only one: `collect_secret_tasks` books before any of the spending happens and
+#    `refresh_secret_tasks` books again on its way out, so a run that FAILS half way still
+#    leaves a good appointment behind. A run that leaves none falls back on the row's
+#    period, and the row's period is a whole day.
+READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local free=tonumber(M.__lw_ref_nextfree) or 0 if free<=0 then return 0 end local n=free-{lead} if n<10 then n=10 end return math.floor(n) end)() INTO next_run_in
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_run) or 0) INTO running
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_idle) or 0) INTO idle
 IF next_run_in > 0
-    LOG "the day's secret tasks: {running} out, {idle} still idle — back in {next_run_in} s, when the first of them finishes"
+    LOG "the day's secret tasks: {running} out, {idle} still idle — back in {next_run_in} s, a little before the first of them finishes"
 ELSE
     LOG "the day's secret tasks: nothing is out ({idle} idle) — nothing to wait for, the row's own period stands"

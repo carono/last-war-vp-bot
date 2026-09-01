@@ -744,7 +744,6 @@ class Schedule:
                 except Exception:            # noqa: BLE001
                     self.rt.dbg("timers").warning("report of %s failed", name,
                                                   exc_info=True)
-            self._honour_next_run(name, ctx)
             if spent and record is not None:
                 # THE FINISHED RUN, NOT A PAIR OF NUMBERS READ OFF IT (#1281). What to
                 # count and how much of it is the errand's own rule, and it has to be
@@ -756,6 +755,15 @@ class Schedule:
                 record(ctx)
             return True
         finally:
+            # BOOKED WHETHER OR NOT THE RUN GOT TO THE END (#2073). It used to be the
+            # last thing a SUCCESSFUL run did, so a recipe that FAILed half way left no
+            # appointment at all and the row fell back on its own period — and for
+            # `secret_tasks_day` that period is a whole day, which is a whole day of
+            # ripe tasks sitting there to be robbed. A recipe that books early (as that
+            # one now does, three times over) keeps what it read; one that never reached
+            # such a line leaves nothing in its variables and this is a no-op, exactly
+            # as before.
+            self._honour_next_run(name, ctx)
             self._note_presses(ctx)
             self.rt.game.release()
             self.rt.game.on_settled()
