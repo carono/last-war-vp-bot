@@ -239,6 +239,11 @@ READ_ERRANDS: tuple = (
     Errand("visitors_gifts", "gifts_pending", scenario="collect_visitor_gifts"),
     Errand("skills", "skills_ready", scenario="occupation_skills"),
     Errand("decorations", "decorations", scenario="upgrade_decorations"),
+    # The gifts sitting in the Mail, and the one line of the board whose reading is
+    # FREE (#2090): the badge each mail tab draws is a number the client already
+    # keeps, so the count of what is unclaimed costs no request. The press collects
+    # every tab standing above zero (`actions/collect_mail_gifts.md`).
+    Errand("mail_gifts", "mail_gifts", scenario="collect_mail_gifts"),
     Errand("secret_steals", "steal_left", QUOTA, cap="steal_cap"),
     Errand("ghost_steals", "ghost_left", QUOTA, cap="ghost_cap", gate="ghost_open"),
 )

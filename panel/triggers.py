@@ -607,6 +607,27 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.daily_quests",
     ),
     Trigger(
+        name="mail_gifts",
+        # A letter with an attachment draws a red badge on its mail tab, and the tab's own
+        # button takes the lot. The letter announces itself as `push.mail`, so that is
+        # what this waits for — nothing here polls the mail (CLAUDE.md, «читаем один раз,
+        # дальше слушаем»).
+        #
+        # It fires on EVERY letter, gift or not, and that is affordable because the
+        # recipe's gate is local: `collect_mail_gifts.md` reads the badge the client
+        # already keeps (`MailDataManager.group[<tab>].unrewardCount`) and presses only
+        # the tabs standing above zero. A letter with nothing attached is one VM round
+        # trip that asks the server for nothing at all.
+        kind=KIND_WIRE,
+        event_pattern="push.mail",
+        scenario=("collect_mail_gifts",),
+        enabled=False,
+        # Deliberately NOT «сразу, без очереди»: a gift in the mail is not a race. It sits
+        # in the letter until the letter expires, weeks away, so this can take its turn
+        # behind work that is timed.
+        label_key="triggers.item.mail_gifts",
+    ),
+    Trigger(
         name="firework_collect",
         # A firework burning over somebody's base drops gift boxes for everyone around,
         # and the game announces every box that is taken — ours and everyone else's — as

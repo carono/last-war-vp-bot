@@ -68,7 +68,7 @@ CODENAME_SHUT = "open=0 attacks=0 need=3 left=3 maxdmg=12607399171 targets=0 unt
 #: A reading with everything answered — the shape the live game sends back.
 FULL = ("base_ready=4 trucks_ready=0 donate_left=17 help_waiting=0 recruit_pending=2 "
         "gifts_pending=0 skills_ready=1 wounded=0 healed_ready=0 queues_help=3 "
-        "decorations=0 steal_left=2 steal_cap=5 ghost_open=1 ghost_left=5 ghost_cap=5 "
+        "decorations=0 mail_gifts=0 steal_left=2 steal_cap=5 ghost_open=1 ghost_left=5 ghost_cap=5 "
         "trucks_send_left=5 trucks_send_cap=5 trucks_idle=3")
 
 
@@ -378,7 +378,12 @@ def test_the_errands_with_an_ability_offer_it_and_the_four_without_do_not():
     runnable = [e.key for e in modelmod.READ_ERRANDS if e.runnable]
     assert runnable == ["base_resources", "hospital_collect", "hospital_heal",
                         "alliance_help", "alliance_donate", "visitors_recruit",
-                        "visitors_gifts", "skills", "decorations"], runnable
+                        "visitors_gifts", "skills", "decorations",
+                        # …and the Mail's gifts (#2090): a line whose reading is the
+                        # badge the client already keeps, so it costs no request, and
+                        # whose press is the tab's own «собрать всё» on every tab
+                        # standing above zero.
+                        "mail_gifts"], runnable
     silent = [e.key for e in modelmod.READ_ERRANDS if not e.runnable]
     assert silent == ["trucks", "queues_help", "secret_steals", "ghost_steals"], silent
 
