@@ -1249,6 +1249,26 @@ Pinned by four tests in `tests/test_treasure_auto.py`: the second chest of a ref
 gets neither a claim nor a squad, a chest of another type is worked exactly as before, the
 client's own verdict shuts a type before any refusal, and the reset opens it again.
 
+**What the live client answered about the two ids, and what is still open.** Asked on
+2026-09-01, as a pure local read of the manager (a throwaway `actions/dev/_t…` recipe of
+the kind that is git-ignored — nothing was sent to the server):
+
+| what was asked | what the client answered |
+|---|---|
+| `dailyGot` keys | one counter, key `602`, a Lua **number** — a GROUP id, not a chest's cfg id |
+| `CheckTreasureReachDailyLimit(602)` | `true` |
+| `TreasureTemplateManager` as a global | `nil` — the name is a constant inside the gate, not a table any chunk can reach |
+
+So the two ids are genuinely different — a chest carries `25193`-shaped cfg ids and the
+day's counters are keyed `602`-shaped — and **nothing global maps one to the other**. That
+makes the SERVER's refusal the working half of the exclusion: it names the chest whose
+claim was refused, and the chest's own cfg id is what the type is keyed by. The client-side
+half asks the gate with the chest's cfg id, which this build's gate does not appear to
+accept; it is kept because it is one guarded local call that costs nothing and would shut a
+type before the first refusal on any build that does accept one. **Anybody who finds the
+cfg → group mapping should wire it in here** — the exclusion would then never need to pay
+for a refusal at all.
+
 **The reset is never computed on this side.** `activity_detect_dig_times_expire` is the
 game's own boundary for this very counter, so the day is the GAME's day and no clock of
 this machine's is involved. A client that cannot be asked at all — the manager not there

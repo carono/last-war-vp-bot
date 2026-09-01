@@ -3964,6 +3964,13 @@ TREASURE_ERR_DAY_LIMIT = "activity_sports_uitips_015"
 #: `CheckTreasureReachDailyLimit(<cfgId>)`, and stamped with `activity_detect_dig_times_
 #: expire` so the stamp moving opens every type at once.
 #:
+#: THE SERVER'S REFUSAL IS THE WORKING HALF, measured 2026-09-01: `dailyGot` is keyed by a
+#: GROUP id (a small number) while a chest carries a `25193`-shaped cfg id, and
+#: `TreasureTemplateManager` is not reachable as a global, so nothing maps one to the
+#: other. The gate is still asked with the chest's cfg — one guarded local call, no message
+#: leaves — because a build whose gate accepts one would shut the type before the first
+#: refusal is paid for. Wire the mapping in here if it is ever found.
+#:
 #: The reset is the game's own and is never computed here: the same manager carries
 #: `activity_detect_dig_times_expire`, read live as `1787709600000` = 2026-08-26 02:00 UTC,
 #: the ordinary daily boundary. A client that cannot be asked (no manager yet) falls back
