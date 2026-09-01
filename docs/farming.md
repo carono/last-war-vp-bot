@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **35%** — 61 of 173
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **35%** — 61 of 174
 
-🟩 61 done · 🟨 80 partly · 🟥 32 not automated
+🟩 61 done · 🟨 81 partly · 🟥 32 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -78,6 +78,7 @@ that payout thrown away. (Previously logged under Ministry as "the buffs a servi
 minister hands out" — the recording shows it is the profession tree, not a post.)
 
 - 🟡 Firing the skills that need no target — production, instant collect, speed-up chest, a survivor, an instant step off the build or research queue: one press each, no window opened, whatever is off cooldown. The press is proven against the live game, but no charge was free to spend, so a run has not been confirmed in-game yet
+- 🟡 Firing them on a schedule — one switch in the panel and the ready ones are used with nobody watching, so a charge is never left to sit out its day. The bot does not check every hour: the game itself says when the next charge lands, and the run books its own next turn for that moment — normally a day away, and the panel is quiet in between. A client that is not logged in is not counted as «nothing to do»: that turn is retried in a few minutes instead. Switched off until you turn it on, and not yet watched through a live day
 - ❌ The skills that need a target — helping an alliancemate's build or research, planting the siege banner: they want a world point and nothing picks one yet
 
 ### Alliance support

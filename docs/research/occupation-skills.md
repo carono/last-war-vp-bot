@@ -196,6 +196,34 @@ recipe is safe to put in a routine that runs across accounts of different ages.
 **Still unproven:** the server accepting a press this code path produced. Until a
 charge is available and a run is confirmed in-game, the feature stays 🟡.
 
+## On a clock — and the clock is the game's
+
+The recipe is a timer row (`occupation_skills`, `panel/timers.py`), switched off until
+somebody turns it on. What matters is that its period is a FALLBACK and not the
+schedule: a charge recovers on a countdown the server sets — the press's own reply
+carries it as `recover.cdEndTime` — so the run reads the soonest of those instants over
+the profession's no-target skills and hands it back as `next_run_in` (seconds from now,
+plus a minute's margin; `docs/dsl.md`). The schedule books that turn and asks nothing in
+between. A row on an hourly period would put twenty-three questions to the game for
+every one that had an answer, which is exactly what «читаем один раз, остальное слушаем»
+forbids.
+
+The reading skips `Locked`, `Covered` and `None` nodes for the same reason
+`skill_cooldown_remaining` returns `-1` for them, and it skips whatever the re-fire
+guard has stamped in the last two minutes — a skill just fired still reads `Normal`
+until the reply lands, and booking the next turn off that would ask again at once. When
+nothing at all is readable — no mastery data, no learned active skill — the answer is
+`0`, which leaves the row's own six hours standing. A reading that fails costs one
+ordinary turn and can never quietly stop the timer.
+
+The gate at the top of the recipe is the same count the press uses
+(`MasterySkillState == Normal` over the profession's own tree, never a written-down list
+of ids — a season adding a node would leave the list pressing last season's set). It
+distinguishes three answers where a bare count has two: a number is what to fire, `0` is
+an honest «nothing ripe», and `-1` is a client that cannot answer for the tree at all —
+the login screen, which answers everything and knows nothing. The last is a FAILED run,
+so the errand is retried in minutes rather than written off as done for the day.
+
 ## The re-fire guard
 
 `TAP use_profession_skill xall` re-reads the ready count between presses. The count

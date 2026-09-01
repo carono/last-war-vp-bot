@@ -409,6 +409,25 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.tavern_free_pull",
     ),
     Timer(
+        name="occupation_skills",
+        scenario=("occupation_skills",),
+        # SIX HOURS, AND IT IS THE FALLBACK RATHER THAN THE SCHEDULE. Every one of the
+        # profession's active charges recovers on a countdown the SERVER sets — the reply
+        # to a press carries it (`recover.cdEndTime`), 23.5 h for most of them and up to
+        # 71.5 for the banner — so the run reads the soonest of those instants and books
+        # its own next turn with it (:data:`NEXT_RUN_VAR`). Nothing here polls anything:
+        # this period only decides when to look again after a run that could not read a
+        # clock at all (a client that was not logged in, a tree with nothing learned).
+        interval_sec=21600,
+        # A failure is a client that could not answer for the mastery tree — the login
+        # screen answers everything and knows nothing (`project_login_screen_lies`), and
+        # the recipe FAILs rather than call an unreadable tree an empty one. That mends
+        # itself in minutes.
+        retry_sec=300,
+        enabled=False,
+        label_key="timers.item.occupation_skills",
+    ),
+    Timer(
         name="apply_ministry_interior",
         scenario=("apply_ministry_interior",),
         # Half an hour, and the retry is the same half hour on purpose. The recipe ends
