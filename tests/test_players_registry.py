@@ -601,11 +601,13 @@ def _bare_tab(tmp):
     tab._merging = False
     tab._armed_forget = (None, 0.0)
     tab._detail_uid = ""
-    #: The faces the screen has already resolved. Held BUSY on purpose: the tab resolves
-    #: them on a worker that goes looking through the game client's own picture cache
-    #: (#2119), and a test has neither that cache nor any business starting a thread.
+    #: The faces the screen has already resolved. Pre-filled per uid by the tests that
+    #: fetch a page: resolving one goes looking through the game client's own picture
+    #: cache (#2119), which a test has neither of nor any business walking.
     tab._faces = {}
-    tab._faces_busy = True
+    #: WHERE THE PHONE'S PAGE STANDS, and what says the list has moved (#2133).
+    tab._page = 0
+    tab._stamp = 0
     return tab
 
 
@@ -696,8 +698,12 @@ def test_the_register_is_drawn_as_cards_with_room_for_a_face():
 
     Two halves, both worth pinning: the card says WHICH layout — nine columns of a table
     on a phone is nine columns nobody reads — and every item carries the slot the face
-    goes in, so a screen drawn before the worker has looked is a screen of cards without
-    pictures rather than a screen of holes.
+    goes in, so a screen drawn before the pictures were looked for is a screen of cards
+    without pictures rather than a screen of holes.
+
+    The items themselves are no longer in the view (#2133): a page is a thousand cards
+    and the view is re-read every two and a half seconds, so the card says `paged` and
+    the rows come off `/api/screen/data`.
     """
     with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
@@ -705,26 +711,116 @@ def test_the_register_is_drawn_as_cards_with_room_for_a_face():
         view = tab.web_view()
         listed = [c for c in view["cards"] if c.get("title") == "players.web.list"]
         assert listed, "the list card is gone"
-        assert listed[0].get("layout") == "cards", listed[0].get("layout")
-        for item in listed[0]["items"]:
+        card = listed[0]
+        assert card.get("layout") == "cards", card.get("layout")
+        assert not card.get("items"), "a page of a thousand cards is riding the poll again"
+        paged = card.get("paged") or {}
+        assert paged.get("kind") == "page", paged
+        assert int(paged.get("size") or 0) > 60, "the page is still the old sixty"
+        assert str(paged.get("stamp") or "") != "", "nothing says when to come and look"
+
+        page = tab.web_data("page", {})
+        assert page["page"] == 0 and page["pages"] == 1 and page["total"] == 1, page
+        for item in page["items"]:
             assert "avatar" in item, "an item with no room for a face"
-            assert item["avatar"] == "", "a face was resolved on the Tk thread"
-        # …and one the worker HAS found travels as the link the browser asks for.
+        # …and a face already found travels as the link the browser asks for.
         tab._faces["1000000000000001"] = "/api/avatar?face=1000000000000001.jpg"
-        again = tab.web_view()
-        drawn = [c for c in again["cards"] if c.get("title") == "players.web.list"][0]
-        assert drawn["items"][0]["avatar"].startswith("/api/avatar?face=")
+        again = tab.web_data("page", {})
+        assert again["items"][0]["avatar"].startswith("/api/avatar?face=")
+        # A reading nobody asked for is not answered at all.
+        assert tab.web_data("nonsense", {}) is None
+
+
+def test_the_page_is_a_thousand_and_it_can_be_turned():
+    """WHAT «данные не обновляются при обходе карты» ACTUALLY WAS (#2133).
+
+    The phone was given sixty rows of a register of three hundred and twenty-six
+    thousand, under a sort saved as «по имени, по возрастанию» — so the first sixty names
+    of the alphabet were on the screen, and they are the first sixty names of the
+    alphabet whatever the map finds. Nothing was stale; the page was simply the wrong
+    sixty, for ever.
+    """
+    from panel.tabs.players.tab import WEB_PAGE
+
+    with _tmpdir() as tmp:
+        tab = _bare_tab(tmp)
+        many = [_swept(uid="10000000000%05d" % i, name="P%05d" % i)
+                for i in range(WEB_PAGE + 5)]
+        _swept_into(tab._registry, many, now=time.time())
+        tab._faces.update({str(row.uid if hasattr(row, "uid") else ""): "" for row in ()})
+        tab._set_sort("name", False)             # ascending, the very sort that hid it
+        for row in tab._registry.search({}, ("name", False)):
+            tab._faces[str(row["uid"])] = ""     # no picture cache in a test
+
+        first = tab.web_data("page", {})
+        assert first["total"] == WEB_PAGE + 5
+        assert first["pages"] == 2 and first["page"] == 0
+        assert len(first["items"]) == WEB_PAGE, len(first["items"])
+
+        assert tab.web_press("page_prev", {}).get("ok") is False, "page 0 has a «before»"
+        assert tab.web_press("page_next", {}).get("ok") is True
+        second = tab.web_data("page", {})
+        assert second["page"] == 1 and len(second["items"]) == 5, second["page"]
+        assert second["items"][0]["text"] != first["items"][0]["text"], "the page did not move"
+        assert tab.web_press("page_next", {}).get("ok") is False, "the last page has a «next»"
+
+        # A NARROWED FILTER COMES HOME. Standing on page 2 and typing a word that leaves
+        # one row must not answer «пусто» about a register that plainly has that row.
+        tab.web_press("page_next", {})
+        tab.web_press("search", {"text": "P00007"})
+        narrowed = tab.web_data("page", {})
+        assert narrowed["page"] == 0 and narrowed["total"] == 1, narrowed
+
+        # …and the typed word travels with the FETCH too, without touching the filter.
+        tab.web_press("reset", {})
+        typed = tab.web_data("page", {"needle": "P00007"})
+        assert typed["total"] == 1, typed
+        assert tab._filter["text"] == "", "the renderer's box overwrote the saved filter"
+
+
+def test_the_lap_of_the_map_moves_the_stamp_the_phone_watches():
+    """The whole point of the page not riding the poll (#2133).
+
+    A thousand cards cannot travel every two and a half seconds, so the phone fetches
+    them when the STAMP moves — and if a merge that wrote rows did not move it, a lap of
+    the map would write nine thousand sightings an hour and the cards would never change,
+    which is the report this task began as.
+    """
+    with _tmpdir() as tmp:
+        tab = _bare_tab(tmp)
+        stamp = lambda: tab.web_view()["cards"][1]["paged"]["stamp"]
+        was = stamp()
+        _swept_into(tab._registry, [_swept()], now=time.time())
+        tab._moved()                              # what `_merge` does when it wrote rows
+        assert stamp() != was, "a lap that wrote rows told the phone nothing"
+
+        for press, args in (("noted", {}), ("reset", {}), ("level", {}),
+                            ("search", {"text": "aa"}),
+                            ("set", {"key": "sort", "value": "power"})):
+            was = stamp()
+            tab.web_press(press, args)
+            assert stamp() != was, f"{press} left the cards where they were"
+
+        # …AND A PRESS THAT WAS REFUSED MOVES NOTHING: «Вперёд» on the last page is the
+        # one press a person makes over and over, and a stamp it bumped would fetch a
+        # thousand rows again for every one of them.
+        was = stamp()
+        assert tab.web_press("page_next", {}).get("ok") is False
+        assert stamp() == was, "a refused page turn re-fetched the page"
 
 
 def test_the_phone_can_move_the_sort_the_window_presses_headings_for():
-    """WHAT «грид не обновляется» ACTUALLY WAS (#2119).
+    """WHAT «грид не обновляется» ACTUALLY WAS (#2119), and how it is moved (#2133).
 
     The sort is saved with the profile, and one press of the «Игрок» heading at the
     machine left it «by name, ascending» for good. The window says so with an arrow on
     the heading; the phone could neither see it nor move it — so the same sixty names
     out of three hundred thousand came back on every poll, for ever, while the register
-    behind them grew by hundreds a minute. The list was not stale: it was SORTED, and
-    nothing on the screen said by what.
+    behind them grew by hundreds a minute.
+
+    It is two DROPDOWNS now and no longer two cycling presses: a cycle whose next value
+    nobody can see is a control people press until it lands, and nine columns is eight
+    presses and eight re-reads to reach «мощь».
     """
     with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
@@ -735,24 +831,29 @@ def test_the_phone_can_move_the_sort_the_window_presses_headings_for():
 
         # It opens on the freshest, which is what a register is for.
         assert [r["name"] for r in tab.visible()] == ["Zzz", "Aaa"]
-        # …and where it stands is ON THE SCREEN, in words, above the button that moves it.
-        rows = {row["label"]: row["value"] for row in
-                [r for c in tab.web_view()["cards"] for r in c.get("rows") or ()]}
-        assert "players.filter.sort" in rows
-        assert rows["players.filter.sort"].startswith(tab.rt.words["players.col.seen"])
+        # …and where it stands is ON THE SCREEN, as the two knobs that move it.
+        fields = {f["key"]: f for c in tab.web_view()["cards"]
+                  for f in c.get("fields") or ()}
+        assert set(fields) == {"sort", "sortway"}, sorted(fields)
+        assert fields["sort"]["kind"] == "choice" and fields["sortway"]["kind"] == "choice"
+        assert fields["sort"]["value"] == "seen", fields["sort"]["value"]
+        assert fields["sortway"]["value"] == "desc", fields["sortway"]["value"]
+        # Every option is a column the register can actually order by, and it says what
+        # it is called in the panel's own words rather than as a key to translate.
+        for option in fields["sort"]["options"]:
+            assert option["value"] in reg.SORT_KEYS, option
+            assert option["text"] != "players.col." + option["value"], option
 
-        tab.web_press("sortway", {})
+        assert tab.web_press("set", {"key": "sortway", "value": "asc"}).get("ok")
         assert [r["name"] for r in tab.visible()] == ["Aaa", "Zzz"], "the way did not turn"
-        tab.web_press("sortway", {})
-        tab.web_press("sort", {})
-        assert tab._sort[0] != "seen", "the column did not step"
-        # Every step is a column the register can actually order by, and it comes home.
-        seen = {tab._sort[0]}
-        for _ in range(12):
-            tab.web_press("sort", {})
-            assert tab._sort[0] in reg.SORT_KEYS, tab._sort[0]
-            seen.add(tab._sort[0])
-        assert "seen" in seen, "the cycle never returns to what it opened on"
+        assert tab.web_press("set", {"key": "sort", "value": "name"}).get("ok")
+        assert tab._sort[0] == "name", tab._sort
+        # …and a value the register cannot order by is refused in words, never applied.
+        for bad in ({"key": "sort", "value": "haircut"},
+                    {"key": "sortway", "value": "sideways"}):
+            answer = tab.web_press("set", bad)
+            assert answer.get("ok") is False and answer.get("reason"), (bad, answer)
+        assert tab._sort == ("name", False), tab._sort
 
 
 def test_a_filter_at_any_is_not_a_reading_and_takes_no_room():
@@ -769,7 +870,10 @@ def test_a_filter_at_any_is_not_a_reading_and_takes_no_room():
         labels = lambda: [r["label"] for c in tab.web_view()["cards"]
                           for r in c.get("rows") or ()]
         opened = labels()
-        assert "players.filter.sort" in opened, "the sort has to be readable"
+        # THE SORT IS A KNOB NOW, not a reading (#2133) — see the test above.
+        assert "players.filter.sort" not in opened, "the sort is drawn twice"
+        assert any(f["key"] == "sort" for c in tab.web_view()["cards"]
+                   for f in c.get("fields") or ()), "the sort cannot be seen at all"
         for quiet in ("players.filter.server", "players.filter.seen",
                       "players.filter.noted", "players.filter.level",
                       "players.filter.power", "players.filter.text"):

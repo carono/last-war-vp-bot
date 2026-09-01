@@ -83,11 +83,35 @@ be.** The sort is saved with the profile, so one press of the «Игрок» hea
 machine left it «by name, ascending» for good — and the phone, which had headings
 neither to press nor to read, showed the same sixty names out of three hundred thousand
 on every poll while the register behind them grew by hundreds a minute. Nothing was
-stale and nothing was broken; the list was SORTED and no front-end said by what. It is a
-row above the buttons now (`players.filter.sort`) with two presses beside it, exactly as
-every other filter on this screen is. The renderer's own search box narrows only what is
-already drawn, so «Поиск» is a press too: it writes the same `text` filter the window's
-box writes, and the narrowing happens in the database.
+stale and nothing was broken; the list was SORTED and no front-end said by what. The
+renderer's own search box narrows only what is already drawn, so «Поиск» is a press too:
+it writes the same `text` filter the window's box writes, and the narrowing happens in
+the database.
+
+## …and it PAGES the register, a thousand at a time (#2133)
+
+#2119 said what was wrong and fixed half of it. The other half was the sixty. Measured
+live while the report was being made: the capture's checkpoint held 203 fresh players,
+the merge wrote 9 743 sightings in an hour, and the saved sort was «по имени, по
+возрастанию» — so the first sixty names of the alphabet were on screen, and they are the
+first sixty names of the alphabet whatever the map does. «Обновление данных игроков не
+работает при обходе карты» was a page of sixty telling the truth about a register of
+326 000.
+
+Three things came out of it, and each is a rule rather than a repair:
+
+* **A page is a thousand** (:data:`WEB_PAGE`), cut in SQL with a `LIMIT … OFFSET`, and
+  the pager is two presses on the list card with «страница N из M» beside them.
+* **A page does not ride the poll.** A thousand cards is some six hundred kilobytes and
+  the screen is re-read every two and a half seconds, so the card carries `paged` and no
+  items, and the phone fetches them off `/api/screen/data` (:meth:`PlayersTab.web_data`)
+  when the card's STAMP moves. The stamp moves when a merge wrote rows, when the page
+  turned, when the sort or a filter changed, and when a face arrived — so a lap of the
+  map refreshes the cards BY ITSELF, and a lap that found nothing costs one unchanged
+  integer.
+* **The sort is two dropdowns**, not two cycling presses. A cycle whose next value nobody
+  can see is a control people press until it lands, and nine columns is eight presses and
+  eight re-reads to reach «мощь».
 
 ## The one thing here that touches the client
 
@@ -122,9 +146,27 @@ MERGE_EVERY_MS = 20_000
 #: truncation reads as «that is all there was».
 MAX_SHOWN = 400
 
-#: …and how many the phone gets, which is smaller again: the whole screen is rebuilt
-#: into the DOM on every poll.
-MAX_WEB = 60
+#: …AND HOW MANY THE PHONE GETS AT A TIME — one PAGE of the register (#2133).
+#:
+#: It was sixty, on the reasoning that the whole screen is rebuilt into the DOM on every
+#: poll. That reasoning was sound about the POLL and wrong about the page, and it is
+#: what «данные игроков не обновляются при обходе карты» actually was: sixty rows out of
+#: three hundred and twenty-six thousand, under a sort saved as «по имени, по
+#: возрастанию», are the same sixty names for ever. The lap ran, the register took nine
+#: thousand seven hundred sightings an hour, and not one of them could reach the screen.
+#:
+#: So the page is a thousand, and the poll is no longer what carries it: a card that
+#: declares `paged` is fetched off `/api/screen/data` (`web_data`) when its STAMP moves,
+#: which is when a merge wrote something, when the page turned, or when the sort or a
+#: filter changed. A lap that adds nothing changes no stamp and costs nothing.
+WEB_PAGE = 1000
+
+#: How long :meth:`PlayersTab.web_data` may spend resolving faces it has not seen before.
+#: A uid nobody has looked up costs about 10 ms (`tools/lib/player_faces.py` hashes
+#: `uid_0` … `uid_4000`), so a thousand fresh ones would be ten seconds of an HTTP
+#: worker. A page therefore fills in over a few readings and the ones already found are
+#: free — and a card with no picture draws its words, which is the honest answer.
+FACE_BUDGET_SEC = 1.0
 
 #: The columns, in order: (id, width, anchor).
 COLUMNS = (
@@ -146,6 +188,13 @@ COLUMNS = (
 #: one press at the machine left the phone showing the same sixty names out of three
 #: hundred thousand for ever, with nothing on the screen saying why.
 SORT_STEPS = tuple(col for col, _w, _a in COLUMNS if col in reg.SORT_KEYS)
+
+#: WHICH WAY, as the two values the choice offers (#2133). The phone had one press that
+#: CYCLED the column and another that flipped the direction, and a cycle whose next value
+#: nobody can see is a control people press until it lands — over three hundred thousand
+#: rows that is eight presses to reach «мощь». Two dropdowns say where they stand and go
+#: straight there, which is what the window's headings already do.
+SORT_WAYS = ("desc", "asc")
 
 #: The column a click JUMPS from. A coordinate printed anywhere in the panel is a place
 #: you can go (`panel/widgets.py`, the log's own links), and a table that prints one and
@@ -237,7 +286,16 @@ class PlayersTab(PanelTab):
         #: thousand md5 sums (`tools/lib/player_faces.py`), and `web_view` runs on the Tk
         #: thread every open profile shares.
         self._faces = {}
-        self._faces_busy = False
+        #: WHICH PAGE OF THE REGISTER THE PHONE IS ON, counted from zero (#2133). State
+        #: rather than a query parameter so that everything which INVALIDATES a page —
+        #: a filter, a sort, a search — resets it in the one place it is set
+        #: (:meth:`_turned`), instead of in each of the six presses that move one.
+        self._page = 0
+        #: WHAT SAYS THE LIST HAS MOVED. Anything that changes what a page holds bumps
+        #: it, and the phone re-fetches the page only when it has changed — that is what
+        #: puts a lap of the map back on the screen without a card of a thousand players
+        #: riding the two-and-a-half-second poll.
+        self._stamp = 0
         self._tree = None
         self._vars = {}
 
@@ -484,6 +542,11 @@ class PlayersTab(PanelTab):
         if added:
             self.rt.say("players", "players.log.merged", added=added,
                         total=len(self._registry))
+            # THE LAP REACHES THE PHONE (#2133). The window repaints below; the web's
+            # page of a thousand is fetched on its own and only when this moves, so
+            # without this line a lap could write nine thousand sightings an hour into
+            # the register and the cards on screen would never once change.
+            self._moved()
         self.post(self._render)
 
     # -- filtering ----------------------------------------------------------
@@ -507,10 +570,12 @@ class PlayersTab(PanelTab):
         self._filter["circle"] = (tuple(circle) if all(v is not None for v in circle)
                                   else None)
         self._filter["noted"] = bool(self._noted.get())
+        self._turned()
         self._render()
 
     def _on_choice(self, key: str, steps, index: int) -> None:
         self._filter[key] = steps[max(index, 0)]
+        self._turned()
         self._render()
 
     def server_steps(self) -> list:
@@ -525,6 +590,7 @@ class PlayersTab(PanelTab):
     def _pick_server(self, index: int) -> None:
         steps = self.server_steps()
         self._filter["server"] = steps[max(index, 0)] if index < len(steps) else ""
+        self._turned()
         self._render()
 
     def _reset_filters(self) -> None:
@@ -538,6 +604,7 @@ class PlayersTab(PanelTab):
         time, and the two spellings promptly disagreed about what «any server» is.
         """
         self._filter.update(BLANK_FILTER)
+        self._turned()
         if not self.drawn:
             return
         for var in self._vars.values():
@@ -559,6 +626,28 @@ class PlayersTab(PanelTab):
         """
         return self._registry.search(self._filter, self._sort, limit=limit)
 
+    # -- what the phone's page is made of -----------------------------------
+    def _moved(self) -> None:
+        """The list holds something else now — let the phone know to come and look.
+
+        Called by everything that changes WHAT a page contains: a merge that wrote
+        rows, a filter, a sort, a page turn, a mark, a forgetting. It is a counter and
+        not a hash of the page: the point is «different from last time», and a thousand
+        rows hashed on every merge would be the cost the fetch is being moved to avoid.
+        """
+        self._stamp += 1
+
+    def _turned(self, page: int = 0) -> None:
+        """Go to `page`, and say the list moved. THE ONE PLACE THE PAGE IS SET.
+
+        A narrowed filter, a new sort or a typed search leave page 200 pointing at rows
+        that are not there any more, so every one of them comes through here and lands
+        on the first page. Six presses each remembering to do that is five that will
+        eventually forget.
+        """
+        self._page = max(int(page or 0), 0)
+        self._moved()
+
     def _sort_by(self, column: str) -> None:
         if column not in reg.SORT_KEYS:
             return
@@ -573,6 +662,9 @@ class PlayersTab(PanelTab):
         drift into meaning something the other does not.
         """
         self._sort = (column, bool(down))
+        # A NEW ORDER IS A NEW FIRST PAGE (#2133): page 40 of «по имени» is nobody's
+        # page 40 of «по мощи», and landing there shows a thousand strangers.
+        self._turned()
         if self.drawn:
             self._label_headings()
             self._render()
@@ -748,6 +840,7 @@ class PlayersTab(PanelTab):
         ok = self._registry.set_note(uid, text)
         if ok:
             self.say("players", "players.log.noted", uid=uid)
+            self._moved()
             self._render()
         return ok
 
@@ -768,6 +861,7 @@ class PlayersTab(PanelTab):
         ok = self._registry.forget(uid)
         if ok:
             self.rt.say("players", "players.log.forgotten", uid=uid)
+            self._moved()
             self._render()
         return ok
 
@@ -794,6 +888,9 @@ class PlayersTab(PanelTab):
         sort = (raw or {}).get("sort")
         if isinstance(sort, (list, tuple)) and len(sort) == 2:
             self._sort = (str(sort[0]), bool(sort[1]))
+        # A RESTORED SORT IS A LIST THAT HAS MOVED, and a page number from before the
+        # panel restarted means nothing against it.
+        self._turned()
         if self.drawn:
             self._filter_to_widgets()
             self._label_headings()
@@ -839,20 +936,29 @@ class PlayersTab(PanelTab):
         (`docs/panel-tabs.md`). A phone that narrows to «35, server 100» leaves the
         window's boxes reading exactly that.
         """
-        shown = self.visible(limit=MAX_WEB)
         now = time.time()
-        self._want_faces(shown)
-        items = [self._web_item(row, now) for row in shown]
         head = {"title": "tab.players",
-                "rows": self._web_filter_rows(len(shown)),
+                "rows": self._web_filter_rows(),
+                "fields": self._web_sort_fields(),
                 "actions": self._web_filter_actions()}
         # CARDS, NOT A TABLE (#2119) — the person's words: «переделай таблицу игроков на
         # карточки». The same card an errand is drawn as (`ui/ErrandCard.tsx`): the
         # picture at full brightness behind it, the words in one bubble over it, the name
         # on one line. Not a fourth shape of its own — a row of nine columns on a phone
         # is nine columns nobody can read, and there were already three shapes too many.
+        #
+        # AND ITS ITEMS ARE NOT HERE (#2133). `paged` says «this card's rows come off
+        # `/api/screen/data`, and only when `stamp` moves»: a page of a thousand cards is
+        # some six hundred kilobytes, and this view is re-read every two and a half
+        # seconds. The stamp moves when a merge wrote something, when the page turned and
+        # when the sort or a filter changed — so a lap of the map refreshes the cards by
+        # itself, and a lap that found nothing costs one unchanged integer.
         card = {"title": "players.web.list", "search": True, "layout": "cards",
-                "items": items, "empty": "players.empty"}
+                "paged": {"kind": "page", "size": WEB_PAGE,
+                          "stamp": str(self._stamp)},
+                "empty": "players.empty",
+                "actions": [{"id": "page_prev", "label": "players.web.page.prev"},
+                            {"id": "page_next", "label": "players.web.page.next"}]}
         cards = [head, card]
         detail = self._web_detail_card()
         if detail is not None:
@@ -863,36 +969,38 @@ class PlayersTab(PanelTab):
                 "actions": [{"id": "refresh", "label": "players.refresh"},
                             {"id": "reset", "label": "players.filters.reset"}]}
 
-    def _want_faces(self, rows) -> None:
-        """Resolve the faces of the rows on screen — ON A WORKER, never here.
+    def _faces_for(self, rows) -> None:
+        """Resolve the faces of the rows on this page — ON THE WORKER, with a budget.
 
         A face costs a walk of a few thousand md5 sums the first time a uid is asked
-        (`tools/lib/player_faces.py`), and this is the Tk thread every open profile
-        shares. So a screen draws the faces already found and asks for the rest; the poll
-        a couple of seconds later has them. A player with no picture is remembered as
-        having none, so nobody is looked for twice.
+        (`tools/lib/player_faces.py`), so a page of a thousand strangers is ten seconds.
+        This runs inside :meth:`web_data`, which is already off the Tk thread, and it
+        stops after :data:`FACE_BUDGET_SEC`: the cards at the top of the page — the ones
+        a person is looking at — get their picture now, and the rest fill in over the
+        next few readings because what was found is kept. A player with no picture is
+        remembered as having none, so nobody is looked for twice.
 
         Nothing here asks the GAME anything — the pictures are files the client
         downloaded for itself, and the register's rule stands unbroken.
         """
-        wanted = [(str(row.get("uid")), row.get("head")) for row in rows
-                  if str(row.get("uid")) not in self._faces]
-        if not wanted or self._faces_busy:
-            return
-        self._faces_busy = True
-        threading.Thread(target=self._faces_work, args=(wanted,),
-                         daemon=True).start()
-
-    def _faces_work(self, wanted) -> None:
         from ...runtime import player_card
-        try:
-            for uid, head in wanted:
-                try:
-                    self._faces[uid] = player_card.face_link(uid, head=head)
-                except Exception:            # noqa: BLE001 — a picture, never the page
-                    self._faces[uid] = ""
-        finally:
-            self._faces_busy = False
+        until = time.monotonic() + FACE_BUDGET_SEC
+        found = False
+        for row in rows:
+            uid = str(row.get("uid"))
+            if uid in self._faces:
+                continue
+            if time.monotonic() > until:
+                break
+            try:
+                self._faces[uid] = player_card.face_link(uid, head=row.get("head"))
+            except Exception:                # noqa: BLE001 — a picture, never the page
+                self._faces[uid] = ""
+            found = True
+        # A FACE THAT ARRIVED IS A REASON TO COME BACK, and the only one: when a page has
+        # no strangers left this stops moving and the phone stops fetching.
+        if found:
+            self._moved()
 
     def _web_detail_card(self):
         """The phone's «Подробно» — the window's dialog, as a card that can be closed.
@@ -914,7 +1022,7 @@ class PlayersTab(PanelTab):
         return {"title": "players.details.card", "rows": rows,
                 "actions": [{"id": "details_close", "label": "players.details.close"}]}
 
-    def _web_filter_rows(self, on_screen: int) -> list:
+    def _web_filter_rows(self) -> list:
         """WHERE EACH FILTER STANDS, in words, above the buttons that step it.
 
         The renderer says a button's label with no arguments, so a cycling button
@@ -931,16 +1039,12 @@ class PlayersTab(PanelTab):
         the screen; the rest appear the moment they are set, which is exactly when
         somebody needs to see them («почему список такой короткий»).
         """
+        # WHERE THE PAGE STANDS is NOT here: it needs a COUNT over the filter, and
+        # this method runs on the Tk thread every open profile shares. The page, how many
+        # there are and how many the filter kept ride the page's own answer instead
+        # (:meth:`web_data`), which is on a worker.
         rows = [
             {"label": "players.web.total", "value": str(len(self._registry))},
-            {"label": "players.web.shown",
-             "value": self.t("players.counter", shown=on_screen,
-                             hidden=max(len(self._registry) - on_screen, 0))},
-            # WHERE THE SORT STANDS. It is a filter of a kind — it decides which sixty
-            # of three hundred thousand are the ones on screen — and it was the only one
-            # the phone could neither see nor move, which is what «грид не обновляется»
-            # turned out to be.
-            {"label": "players.filter.sort", "value": self.sort_name()},
         ]
         text = (self._filter.get("text") or "").strip()
         if text:
@@ -974,8 +1078,8 @@ class PlayersTab(PanelTab):
         is on the rows above (`_web_filter_rows`).
         """
         return [
-            {"id": "sort", "label": "players.web.sort"},
-            {"id": "sortway", "label": "players.web.sortway"},
+            # THE SORT IS TWO DROPDOWNS NOW and no longer two cycling presses (#2133) —
+            # see :meth:`_web_sort_fields`.
             # THE SEARCH THAT SEARCHES THE REGISTER, and not the sixty rows already
             # drawn (#2119). The renderer's own box narrows what is on the screen, which
             # on a register of three hundred thousand answers «нет такого игрока» about
@@ -991,6 +1095,76 @@ class PlayersTab(PanelTab):
             {"id": "seen", "label": "players.web.seen"},
             {"id": "noted", "label": "players.web.noted"},
         ]
+
+    def _web_sort_fields(self) -> list:
+        """THE SORT, AS TWO DROPDOWNS — «Сортировать по» and «Порядок» (#2133).
+
+        The person asked for «возможность сортировки», and what the phone had was two
+        CYCLING presses (#2119): one stepped the column and the other flipped the
+        direction, and neither could say where the next press would land. Over nine
+        columns that is up to eight presses and a re-read between each of them to reach
+        «мощь». A `choice` is the control this front-end already draws for exactly this
+        (`ui/FieldRow.tsx`), so nothing new is written and the value goes back through
+        the screen's own `set` press.
+
+        The option TEXTS are said here rather than sent as keys, because a `Field`'s
+        options are data (`docs/panel-tabs.md`) — the panel translates, the phone shows.
+        """
+        column, down = self._sort or reg.DEFAULT_SORT
+        return [
+            {"key": "sort", "label": "players.filter.sort", "kind": "choice",
+             "value": column,
+             "options": [{"value": name, "text": self.t("players.col." + name)}
+                         for name in SORT_STEPS]},
+            {"key": "sortway", "label": "players.web.sortway", "kind": "choice",
+             "value": "desc" if down else "asc",
+             "options": [{"value": way, "text": self.t("players.sortway." + way)}
+                         for way in SORT_WAYS]},
+        ]
+
+    def web_data(self, kind: str, args: dict) -> "dict | None":
+        """ONE PAGE OF THE REGISTER — a thousand cards, off the Tk thread (#2133).
+
+        The person asked for pages of a thousand, and a thousand cards is some six
+        hundred kilobytes: far too much to ride the screen's two-and-a-half-second poll,
+        which is what `web_data` exists for. So the card in the view carries `paged` and
+        no items, and this answers with them when the phone comes to ask.
+
+        **On an HTTP worker thread**, so it touches no widget and no Tk variable — the
+        register's own database and the picture cache, both of which are safe there and
+        both of which take long enough to be felt on the loop four open profiles share.
+
+        `needle` is what the person typed into the renderer's search box. It narrows the
+        WHOLE register here rather than the page already drawn, which is the difference
+        between «нет такого игрока» and finding them: a box that searches a thousand of
+        three hundred and twenty-six thousand rows answers about the thousand.
+        """
+        if kind != "page":
+            return None
+        needle = str((args or {}).get("needle") or "").strip()
+        # The typed word does not overwrite the saved filter — it narrows on top of what
+        # the page already stands at, and stops narrowing when the box is cleared.
+        chosen = dict(self._filter, text=needle) if needle else dict(self._filter)
+        now = time.time()
+        total = self._registry.count(chosen, now=now)
+        pages = max(1, -(-total // WEB_PAGE))
+        # A PAGE PAST THE END IS THE LAST PAGE, never an empty screen: a filter typed
+        # while standing on page 200 leaves the number pointing at nothing, and «пусто»
+        # about a register that plainly has rows is the worst answer available.
+        page = min(max(self._page, 0), pages - 1)
+        rows = self._registry.search(chosen, self._sort, limit=WEB_PAGE,
+                                     offset=page * WEB_PAGE, now=now)
+        self._faces_for(rows)
+        items = [self._web_item(row, now) for row in rows]
+        # EVERY COORDINATE ON A CARD IS A PLACE TO GO (#1982). The screen route marks
+        # its own payload (`panel/web/coordlinks.py`); this one is answered by a
+        # different route, so it marks its own — otherwise a player's place would be a
+        # link on every list in the panel except the register of players.
+        from ...web import coordlinks
+        for item in items:
+            coordlinks.mark_item(item)
+        return {"items": items, "page": page, "pages": pages, "total": total,
+                "size": WEB_PAGE}
 
     def _web_item(self, row: dict, now: float) -> dict:
         uid = str(row.get("uid"))
@@ -1034,21 +1208,42 @@ class PlayersTab(PanelTab):
             return {"ok": True}
         if action in ("level", "power", "server", "seen", "noted"):
             return {"ok": self._step_filter(action)}
-        if action in ("sort", "sortway"):
+        if action == "set":
+            # THE SORT, MOVED BY ITS OWN DROPDOWN (#2133). One handler for this tab's
+            # knobs, which is the contract every screen's `set` press keeps.
+            key, value = str(args.get("key") or ""), str(args.get("value") or "")
             column, down = self._sort or reg.DEFAULT_SORT
-            if action == "sortway":
-                self._set_sort(column, not down)
-            else:
-                steps = SORT_STEPS
-                index = ((steps.index(column) + 1) % len(steps)
-                         if column in steps else 0)
-                self._set_sort(steps[index], down)
+            if key == "sort":
+                if value not in reg.SORT_KEYS:
+                    return {"ok": False, "reason": "players.web.no_such_sort"}
+                self._set_sort(value, down)
+                return {"ok": True}
+            if key == "sortway":
+                if value not in SORT_WAYS:
+                    return {"ok": False, "reason": "players.web.no_such_sort"}
+                self._set_sort(column, value == "desc")
+                return {"ok": True}
+            return {"error": "unknown"}
+        if action in ("page_prev", "page_next"):
+            # THE EDGE IS SAID, never silently ignored: a press that does nothing and
+            # answers «готово» is how a person concludes the list is stuck — which is
+            # the very report this task began as.
+            if action == "page_prev":
+                if self._page <= 0:
+                    return {"ok": False, "reason": "players.web.page.first"}
+                self._turned(self._page - 1)
+                return {"ok": True}
+            total = self._registry.count(self._filter)
+            if (self._page + 1) * WEB_PAGE >= total:
+                return {"ok": False, "reason": "players.web.page.last"}
+            self._turned(self._page + 1)
             return {"ok": True}
         if action == "search":
             if "text" not in args:
                 return {"ok": False, "reason": "players.web.no_text"}
             text = str(args.get("text") or "").strip()
             self._filter["text"] = text
+            self._turned()
             if self.drawn:
                 # Writing the variable is what repaints: it is traced (`_var`).
                 self._vars["text"].set(text)
@@ -1087,6 +1282,7 @@ class PlayersTab(PanelTab):
 
     def _step_filter(self, which: str) -> bool:
         """Move one filter to its next value, on both front-ends at once."""
+        self._turned()
         if which == "noted":
             self._filter["noted"] = not self._filter["noted"]
             if self.drawn:

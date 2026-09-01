@@ -1015,6 +1015,34 @@ the rest in the background; the next poll draws them. A player with no picture i
 remembered as having none, and their card simply has no picture — never somebody else's
 art.
 
+**A card whose list is LONG does not travel on the poll — it says `paged`** (#2133). A
+card may carry `{"paged": {"kind": …, "size": …, "stamp": …}}` and no `items` at all;
+the front-end then fetches the rows off `/api/screen/data?kind=<kind>` — the tab's
+`web_data`, which runs on an HTTP worker rather than on the Tk thread — and re-fetches
+them **only when `stamp` changes**. The answer is `{"items": …, "page": …, "pages": …,
+"total": …, "size": …}`, with `page` counted from zero, and the renderer draws «страница
+N из M» above the rows and leaves the two arrows to the card's own `actions`.
+
+The stamp is the whole mechanism, so a tab owes it one line per thing that changes what
+a page holds: a read that WROTE rows, a turned page, a new sort, a new filter, a mark, a
+forgetting. «Игроки» is the first caller and the reason: sixty rows of a register of
+326 000, under a saved sort, are the same sixty for ever — the map went round, nine
+thousand sightings an hour landed in the database and the screen never moved, which was
+reported as «обновление данных не работает при обходе карты». A page is a thousand there
+(some 600 KB), the screen's poll is two and a half seconds, and the two do not mix.
+
+**The renderer's search box travels with the fetch**, as `needle`, and narrows the WHOLE
+list in SQL — a box that filters the thousand already drawn answers about the thousand.
+A paged card therefore does not narrow its items a second time in the browser, and the
+fetch waits out the typing before it goes.
+
+**A face — or anything else slow per row — is resolved where the page is built**, which
+for a paged card is `web_data` on the worker, with a time budget: a thousand uids nobody
+has looked up is ten seconds of an HTTP thread, so what is found is kept, the top of the
+page gets its pictures first and the rest fill in over the next few readings. A found
+face moves the stamp; when a page has no strangers left the stamp stops moving and the
+fetching stops with it.
+
 **A card may SET rather than show** (#1976). `fields` is a list of knobs — `key` (the
 knob's own id, data), `label` and an optional `hint` (locale keys), `kind` (`switch`,
 `number` or `text`, decided by the type the knob was DECLARED with, never guessed from

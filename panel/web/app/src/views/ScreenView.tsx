@@ -383,6 +383,16 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
  * phone drew every one of them under every other card — «огромная страница, сплошные
  * списки». A screen is a dashboard: the first screenful has to answer, and the rest is
  * one tap away. */
+/* WHAT `/api/screen/data` ANSWERS A PAGED CARD WITH (#2133): the rows of this page, its
+ * number counted from zero, how many pages the filter leaves and how many rows in all. */
+interface PagedAnswer {
+  items: ViewItem[]
+  page: number
+  pages: number
+  total: number
+  size: number
+}
+
 const PAGE_ITEMS = 20
 
 /* …and how many a card of TILES draws, which is more because a tile is smaller: twenty
@@ -436,11 +446,50 @@ function Card({
   screen: string
   after: () => void
 }) {
-  const items = (card.items || []).filter((item) => {
-    if (!needle) return true
-    const hay = ((item.text || '') + ' ' + (item.detail || '') + ' ' + (item.note || '')).toLowerCase()
-    return hay.includes(needle)
-  })
+  /* A CARD WHOSE ROWS COME OFF `/api/screen/data` (#2133) — see `ViewCard.paged`. The
+     fetch is what puts a lap of the map back on the screen: the register grows by
+     hundreds of players a minute, and a page of a thousand cannot ride the poll. */
+  const paged = card.paged
+  const [paging, setPaging] = useState<PagedAnswer | null>(null)
+  const stamp = paged ? paged.stamp : ''
+  const kind = paged ? paged.kind : ''
+  useEffect(() => {
+    if (!kind) return
+    let alive = true
+    /* The typed word narrows the WHOLE register, in the database, so it travels with the
+       fetch — and after a pause, because a request per keystroke over three hundred
+       thousand rows is a search box that types back. */
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const answer = await get<PagedAnswer>(
+            '/api/screen/data?id=' +
+              encodeURIComponent(screen) +
+              '&kind=' +
+              encodeURIComponent(kind) +
+              (needle ? '&needle=' + encodeURIComponent(needle) : ''),
+          )
+          if (alive) setPaging(answer)
+        } catch {
+          /* the screen's own tick says when the panel is unreachable */
+        }
+      })()
+    }, needle ? 350 : 0)
+    return () => {
+      alive = false
+      window.clearTimeout(timer)
+    }
+  }, [screen, kind, stamp, needle])
+  /* A card sends its items or it is `paged` — never both. What the panel narrowed in SQL
+     is not narrowed a second time here, or the search box would search the page it was
+     given instead of the register it asked about. */
+  const items = paged
+    ? paging?.items || []
+    : (card.items || []).filter((item) => {
+        if (!needle) return true
+        const hay = ((item.text || '') + ' ' + (item.detail || '') + ' ' + (item.note || '')).toLowerCase()
+        return hay.includes(needle)
+      })
   // A card of PLACES draws them as small buttons (#1999); a card of THINGS WITH A FACE
   // draws them as the card an errand is (#2119). `layout` is the tab's own word for it,
   // so nothing here guesses from a title or a count.
@@ -458,7 +507,14 @@ function Card({
       {card.title ? (
         <div className="head">
           {t(card.title)}
-          {items.length ? <span className="count">{items.length}</span> : null}
+          {/* A PAGED CARD COUNTS THE REGISTER, not the thousand in hand: «1000» over a
+              list of three hundred and twenty-six thousand is the very lie this task
+              began as. */}
+          {paged ? (
+            paging ? <span className="count">{paging.total}</span> : null
+          ) : items.length ? (
+            <span className="count">{items.length}</span>
+          ) : null}
         </div>
       ) : null}
       {card.head ? (
@@ -490,6 +546,17 @@ function Card({
           </span>
         </div>
       ))}
+      {/* WHERE THE PAGE STANDS — «страница 3 из 327 · всего в списке 326 118». Without
+          it the two arrows below are two presses with nothing to say where they have
+          got to, which is the same silence a sort nobody could read (#2119) already
+          cost this page once. */}
+      {paged && paging ? (
+        <div className="kv">
+          <span className="k">
+            {t('web.ui.page', { page: paging.page + 1, pages: paging.pages, total: paging.total })}
+          </span>
+        </div>
+      ) : null}
       {tiled ? (
         <div className="minis">
           {items.slice(0, shown).map((item, i) => (
@@ -514,7 +581,12 @@ function Card({
           {t('web.ui.show_more', { n: Math.min(rest, page) })}
         </button>
       ) : null}
-      {!items.length && !rows.length && !(card.fields || []).length && card.empty ? <p className="muted">{t(card.empty)}</p> : null}
+      {/* «Пусто» is said about an ANSWER, never about a page still being fetched: a
+          card that has not come back yet has nothing to report, and «нет игроков» over a
+          register of three hundred thousand is a lie a person acts on. */}
+      {!items.length && !rows.length && !(card.fields || []).length && card.empty && (!paged || paging) ? (
+        <p className="muted">{t(card.empty)}</p>
+      ) : null}
       {/* A card may carry buttons of its own (#1251): a tab whose pages each have their
           own switches cannot put them all in one strip at the bottom, because then
           nobody can tell which list a press belongs to. */}

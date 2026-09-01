@@ -474,18 +474,27 @@ class PlayerBook:
                 self._ready().read().execute("SELECT * FROM players")]
 
     def search(self, f: dict | None = None, sort=None, limit: int | None = None,
-               now: float | None = None) -> list:
+               now: float | None = None, offset: int = 0) -> list:
         """The rows a filter keeps, sorted, at most `limit` of them — **in SQL**.
 
         This is what the table draws from. It used to be `apply_filter(book.rows())`
         followed by `sort_rows`, which on a live register meant seventeen thousand dicts
         built, walked and sorted in Python for every keystroke in the search box.
+
+        `offset` skips the pages already turned (#2133). It is a `LIMIT … OFFSET` and
+        not a slice of everything: a register of three hundred thousand read whole so
+        that page 200 could be cut out of it is the cost this method exists to remove.
+        An offset with no limit is refused by SQLite, so it brings its own.
         """
         where, params = where_of(f or {}, time.time() if now is None else now)
         sql = f"SELECT * FROM players WHERE {where} ORDER BY {order_of(sort)}"
-        if limit is not None:
+        offset = max(int(offset or 0), 0)
+        if limit is not None or offset:
             sql += " LIMIT ?"
-            params = list(params) + [int(limit)]
+            params = list(params) + [-1 if limit is None else int(limit)]
+        if offset:
+            sql += " OFFSET ?"
+            params = list(params) + [offset]
         return [row_of(r) for r in self._ready().read().execute(sql, params)]
 
     def count(self, f: dict | None = None, now: float | None = None) -> int:

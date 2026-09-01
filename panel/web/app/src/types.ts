@@ -307,6 +307,16 @@ export interface ViewCard {
   flow?: { state?: string; colour?: string; key: string; fmt?: Record<string, unknown> }
   rows?: { label: string; value: string; value_parts?: MarkedText }[]
   items?: ViewItem[]
+  /* A CARD WHOSE ITEMS ARE FETCHED RATHER THAN SENT (#2133). The register of players is
+     three hundred thousand rows and a page of it is a thousand cards — some six hundred
+     kilobytes, which may not ride a screen re-read every two and a half seconds. So the
+     card carries no `items` and this instead: `kind` is what to ask
+     `/api/screen/data` for, `size` is how many one page holds, and `stamp` MOVES
+     whenever the page's contents changed — a merge that wrote rows, a turned page, a new
+     sort, a new filter. The page is re-fetched when the stamp moves and at no other
+     time, so a lap of the map refreshes the cards by itself and a lap that found nothing
+     costs one unchanged integer. */
+  paged?: { kind: string; size: number; stamp: string }
   actions?: ViewAction[]
   fields?: Field[]
   note?: string
