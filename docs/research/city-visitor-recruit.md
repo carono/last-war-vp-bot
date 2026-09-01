@@ -231,6 +231,60 @@ was checked against. It belongs to the season "claim all" feature (`CheckUnlockR
 `GetBatchAllMaxCount`, `MarkGiftUidsReceiving`) — the per-visitor collect here does not
 depend on that unlock, so the primitives read the queue themselves.
 
+## The season brings its own gift survivors — same gate, other kinds (#2083)
+
+A season adds survivors that walk up to the base exactly where the old ones do and
+carry the same kind of present. They are not a new mechanic: same queues, same
+`visitor.operate`, different `eventType`. Read off the live client on 2026-09-01, the
+game's own enum calls **four** kinds a gift:
+
+```
+GIFT = 2     SeasonDayGift = 10     SURVIVOR_PACK_GiFT = 19     SystemGift = 30
+```
+
+and the config table backs it up. `lw_base_visitor_event` (the only visitor table the
+`LocalController` keeps, 398 rows) has the kind in column 5, and the seasonal rows are
+`eventType 10`:
+
+```
+1101  {name = s1_visitor_name_1,        eventType = 10, appearCfgId = 3010, reward = 1;<item>, dialog = 2}
+20401 {name = season_s3_visitor_name02, eventType = 10, appearCfgId = 3005, reward = 1;<item>, dialog = 2}
+2001  {name = <the ordinary gift row>,  eventType = 2,  appearCfgId = 3002, reward = <by level>, dialog = nil}
+```
+
+300 of the 398 rows are `eventType 10` — one per season day, per season — which is
+exactly why the kinds must not be a list in our code: the rows turn over with the
+season and the enum is what stays true. So both gift primitives build their set from
+`VisitorType` **by name** (every entry whose name contains "gift", however the client
+capitalises it — `SURVIVOR_PACK_GiFT` is its own spelling), falling back to plain GIFT
+if the enum is missing. A season that adds a fifth gift kind is collected the day it
+opens with nothing edited.
+
+`dialog` (column 18) is not a second choice to make: the `VisitorDialogType` enum has
+only `TemperatureLogic = 1` and `CommonRandomLogic = 2`, i.e. which line the visitor
+says on screen. The collect stays the one message `visitor.operate {uid, operate = 1}`,
+which needs no window open.
+
+What is NOT the discriminator, checked and rejected:
+
+* `Scene.CityVisitor.Const.VisitorType` — the visitor module keeps a **second, different**
+  enum (`GEN_BY_TIME=0 CYCLE_REWARD=1 STAGE=2 WORKER_LOTTERY=4 DOMINATOR=5
+  AllianceCongratulation=6 OPEN_PANEL=7 SystemGift=8 ActivityVisitor=11 AllianceInvite=12
+  S0_ALLIANCE_BOSS=18 SURVIVOR_PACK_GiFT=19 ProtectCoverVisitor=20`), with no 3 and no 10
+  in it. `data.eventType` indexes the **global** `VisitorType`, not this one — the live
+  queue's `eventType 2` visitor is a gift, and RECRUITMENT (3) has no entry here at all.
+* `Const.VisitorTypeToQueue` — a kind→queue map that does not describe the live queues
+  either (it puts 2 in queue 2; live gift visitors sat in queue 1). Both queues are
+  scanned, as before.
+* A class per kind: the loaded `Scene.CityVisitor.Visitors.*` modules have `VisitorGift`
+  and `VisitorSystemGift` but no season-specific class, so there is nothing to key on
+  there.
+
+Not yet proven live: no seasonal survivor was standing at the gate while this was
+written (the queue held one ordinary gift visitor that had not walked up). The count
+expression runs clean on the live client and the kind set resolves to the four above;
+the press itself is the same message that has been draining the queue since #1122.
+
 ## Related visitor commands (seen in MsgDefines, not exercised here)
 
 ```

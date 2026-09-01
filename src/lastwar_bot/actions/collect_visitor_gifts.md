@@ -15,9 +15,9 @@
 #
 # Detection & gate: visitors queue in DataCenter.CityVisitorManager — in two
 # queues, both of which are searched, because a kind is not tied to one of them. A
-# gift visitor is a queue entry whose eventType == VisitorType.GIFT (2) — versus
-# RECRUITMENT (3) for a recruitable survivor — and which has walked up to the
-# base already (a queue entry exists before the visitor is spawned; the client
+# gift visitor is a queue entry whose eventType is one the game itself calls a
+# gift — versus RECRUITMENT for a recruitable survivor — and which has walked up
+# to the base already (a queue entry exists before the visitor is spawned; the client
 # leaves those alone too). The press is gated on there being at least one such
 # visitor, so an empty queue costs no server round trip. `xall` collects them one
 # message at a time and re-reads the count, letting the server's
@@ -34,6 +34,14 @@
 # server-side and the unarrived one stayed queued. Until then the recipe pressed
 # nothing at all: the kind was read off `visitorId`, which is a per-arrival
 # counter, not the VisitorType.
+#
+# Which kinds those are is asked of the client rather than listed here. A season
+# brings its own survivors to the same gate with the same present, so the kinds are
+# every entry of the game's own `VisitorType` enum whose NAME says "gift" — four of
+# them live on 2026-09-01 (#2083): the ordinary one, the season's daily one, the
+# survivor-pack one and the system one. A written-down list would have collected the
+# old ones and walked past the season's, saying nothing about it; this way a season
+# that adds a fifth is collected the day it opens.
 #
 # Visitors only walk up while the base is on screen, so a run made from the map is a
 # no-op — and it used to be written as `FAIL`, which #2070 measured: the radar and the

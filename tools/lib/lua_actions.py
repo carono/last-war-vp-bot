@@ -1236,24 +1236,46 @@ def _visitor_kind_ready(kind: str, fallback: int) -> str:
             "and m.isArrival and not m.isFinish" % (kind, fallback))
 
 
-def _visitor_count(kind: str, fallback: int) -> str:
-    """Lua *expression* -> how many waiting visitors of that kind are queued anywhere."""
-    return ("(function() local n = 0 %s return n end)()"
-            % _visitor_scan("if %s then n = n + 1 end" % _visitor_kind_ready(kind, fallback)))
+# A gift-bearing visitor is not ONE kind, and the set grows with every season: the
+# enum ships GIFT, SeasonDayGift, SURVIVOR_PACK_GiFT and SystemGift, and a season
+# that adds another would leave a hardcoded list quietly collecting half of them.
+# So the kinds are read off the game's own enum by NAME — every `VisitorType`
+# whose name says "gift", however it is spelled (`SURVIVOR_PACK_GiFT` is the
+# client's own capitalisation) — and the count and the press share the one set.
+# The fallback is plain GIFT, so a VM that answers no enum at all still collects
+# what the recipe has always collected.
+_VISITOR_GIFT_SET = ("local __K = {} "
+                     "if VisitorType then for __k, __v in pairs(VisitorType) do "
+                     "if type(__v) == 'number' and tostring(__k):lower():find('gift', 1, true) "
+                     "then __K[__v] = true end end end "
+                     "if next(__K) == nil then __K[2] = true end ")
+
+_VISITOR_GIFT_READY = ("d and m and __K[d.eventType] "
+                       "and m.isArrival and not m.isFinish")
 
 
-def _visitor_operate_first(kind: str, fallback: int) -> str:
-    """Send `visitor.operate {uid, operate = 1}` for the front waiting visitor of a kind.
+def _visitor_count(ready: str, prelude: str = "") -> str:
+    """Lua *expression* -> how many waiting visitors match `ready` anywhere.
+
+    `ready` is a condition over the loop variables `d` / `m`; `prelude` is spliced in
+    ahead of the scan, for a condition that needs a table built first.
+    """
+    return ("(function() local n = 0 %s%s return n end)()"
+            % (prelude, _visitor_scan("if %s then n = n + 1 end" % ready)))
+
+
+def _visitor_operate_first(ready: str, prelude: str = "") -> str:
+    """Send `visitor.operate {uid, operate = 1}` for the front matching waiting visitor.
 
     Gated on the matching count so a queue with nobody of that kind waiting never
     spends a server round trip. The send returns out of both loops, so exactly one
     visitor is pressed however many queues had a candidate.
     """
-    return ("(function() if %s <= 0 then return end %s end)()"
-            % (_visitor_count(kind, fallback),
+    return ("(function() %sif %s <= 0 then return end %s end)()"
+            % (prelude, _visitor_count(ready, prelude),
                _visitor_scan("if %s then "
                              "SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, d.uid, 1) "
-                             "return end" % _visitor_kind_ready(kind, fallback))))
+                             "return end" % ready)))
 
 
 # --------------------------------------------------------------------------
@@ -1272,20 +1294,25 @@ def _visitor_operate_first(kind: str, fallback: int) -> str:
 # needs no window open — the uid is read straight off the queued visitor's data.
 def visitor_recruit_pending() -> str:
     """Lua *expression* -> how many queued visitors are recruitable survivors."""
-    return _visitor_count("RECRUITMENT", 3)
+    return _visitor_count(_visitor_kind_ready("RECRUITMENT", 3))
 
 
 def visitor_recruit_survivor() -> str:
     """Recruit the first waiting survivor visitor (`visitor.operate {uid, operate=1}`)."""
-    return _visitor_operate_first("RECRUITMENT", 3)
+    return _visitor_operate_first(_visitor_kind_ready("RECRUITMENT", 3))
 
 
 # --------------------------------------------------------------------------
 # City visitor — collect a gift-bearing survivor ("Собрать подарки выжившего")
 # --------------------------------------------------------------------------
 # A *gift* visitor is the same CityVisitorManager queue mechanic as the recruit
-# survivor above — only the kind differs: `data.eventType == VisitorType.GIFT` (2)
-# instead of RECRUITMENT (3). Tapping such a visitor and collecting its gift sends
+# survivor above — only the kind differs, and there is more than one of them. The
+# client's own enum calls four kinds a gift: GIFT (2), SeasonDayGift (10),
+# SURVIVOR_PACK_GiFT (19) and SystemGift (30), read live off `VisitorType` on
+# 2026-09-01 for #2083, when a season put new survivors at the same gate carrying
+# the same kind of present. So the set is derived from the enum BY NAME rather
+# than written down: a season that adds a fifth is collected the day it opens,
+# and nothing has to be edited when one turns over. Tapping such a visitor and collecting its gift sends
 # the identical one-shot message, captured whole in trace 20260729_151712
 # «Собрать подарки выжившего»:
 #
@@ -1303,12 +1330,12 @@ def visitor_recruit_survivor() -> str:
 # visitors, one of them not yet arrived, both said 3.
 def visitor_gift_pending() -> str:
     """Lua *expression* -> how many queued visitors are gift-bearing survivors."""
-    return _visitor_count("GIFT", 2)
+    return _visitor_count(_VISITOR_GIFT_READY, _VISITOR_GIFT_SET)
 
 
 def visitor_gift_collect() -> str:
     """Collect the first gift-bearing survivor (`visitor.operate {uid, operate=1}`)."""
-    return _visitor_operate_first("GIFT", 2)
+    return _visitor_operate_first(_VISITOR_GIFT_READY, _VISITOR_GIFT_SET)
 
 
 # --------------------------------------------------------------------------

@@ -752,11 +752,10 @@ def test_visitor_presses_key_on_the_kind_not_the_arrival_number():
         ("recruit press", la.visitor_recruit_survivor()),
     ):
         assert "visitorId" not in expr, f"{name} still reads the arrival counter: {expr}"
-        assert "d.eventType ==" in expr, f"{name} does not test the kind: {expr}"
+        assert "d.eventType" in expr, f"{name} does not test the kind: {expr}"
         assert "m.isArrival" in expr and "m.isFinish" in expr, \
             f"{name} presses visitors that have not walked up: {expr}"
 
-    assert "VisitorType.GIFT" in la.visitor_gift_collect()
     assert "VisitorType.RECRUITMENT" in la.visitor_recruit_survivor()
     # The two kinds must not be confusable: a gift press may not mention RECRUITMENT
     # and vice versa, which is what a copy-paste of one into the other would look like.
@@ -774,6 +773,41 @@ def test_visitor_presses_key_on_the_kind_not_the_arrival_number():
 
     assert gb.get("collect_visitor_gifts").count_lua == la.visitor_gift_pending()
     assert gb.get("recruit_survivor").count_lua == la.visitor_recruit_pending()
+
+
+def test_gift_visitors_are_every_kind_the_enum_calls_a_gift():
+    """A gift-bearing visitor is not one kind, and the set grows with every season.
+
+    The season that opened in #2083 put new survivors at the gate in the same place as
+    the old ones — the same queue mechanic, the same collect, a different `eventType`.
+    Live, the client's own enum calls four of them a gift (GIFT, SeasonDayGift,
+    SURVIVOR_PACK_GiFT, SystemGift), and the next season may add a fifth. So the kinds
+    are derived from the game's own naming at run time, and a written-down list of
+    numbers or of season names is exactly the thing that would collect half of them
+    and say nothing about the rest.
+    """
+    import lua_actions as la
+
+    for name, expr in (("gift count", la.visitor_gift_pending()),
+                       ("gift press", la.visitor_gift_collect())):
+        assert "pairs(VisitorType)" in expr, \
+            f"{name} does not ask the game which kinds are gifts: {expr}"
+        assert ":lower():find('gift'" in expr, \
+            f"{name} does not match the enum by name: {expr}"
+        assert "__K[d.eventType]" in expr, f"{name} does not test the kind set: {expr}"
+        # …and no season is spelled out: a name that ships with one season is a list
+        # by another spelling, and it stops being true when the season turns over.
+        for spelled in ("SeasonDayGift", "SURVIVOR_PACK", "SystemGift",
+                        "VisitorType.GIFT"):
+            assert spelled not in expr, f"{name} hardcodes a kind ({spelled}): {expr}"
+        # The one number left is the fallback for a VM that answers no enum at all:
+        # plain GIFT, i.e. what the recipe collected before the season.
+        assert "__K[2] = true" in expr, f"{name} has no fallback kind: {expr}"
+
+    # The recruit press is NOT a gift press: a survivor who knocks to be hired must not
+    # be swept into the set that collects presents.
+    for expr in (la.visitor_recruit_pending(), la.visitor_recruit_survivor()):
+        assert "__K[" not in expr, f"the recruit press reads the gift set: {expr}"
 
 
 def test_visitor_presses_search_every_queue():
