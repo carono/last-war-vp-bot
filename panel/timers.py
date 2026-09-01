@@ -97,7 +97,7 @@ import queue
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _replace
 
 from . import debug_log, paths
 from .i18n import Message
@@ -1422,6 +1422,51 @@ def adopt_new_errands(catalogue: Catalogue, offered: Catalogue,
     return catalogue
 
 
+#: Errands whose built-in RETRY HOLD this version corrects, mapped to the value the old
+#: built-in had. A profile's row is saved with every field it was built from (#2017), so
+#: an edit to :data:`DEFAULT_TIMERS` alone reaches only accounts that have never run —
+#: on every account that has, the number the code now says is not the number that fires.
+#:
+#: `secret_tasks_day` is the first, and it is the whole of #2073's fourth defect: the
+#: retry hold is the ONE thing that outranks the appointment the game named
+#: (:meth:`Catalogue.due_names` sits it out before it ever looks at `due_at`), so half an
+#: hour of it was half an hour of a finished task standing on the map to be robbed. The
+#: built-in went 1800 -> 300 and four live profiles went on holding for 1800.
+#:
+#: A row is corrected only when it still carries EXACTLY the old built-in — a number
+#: somebody typed themselves is theirs, and is left alone.
+CORRECTED_RETRIES: dict[str, int] = {
+    "secret_tasks_day": 1800,
+}
+
+
+def correct_stale_retries(catalogue: Catalogue, path: str) -> Catalogue:
+    """Bring a stored row's retry hold up to the corrected built-in (:data:`CORRECTED_RETRIES`).
+
+    The profile's list owns itself and nothing else may rewrite it — the same exception
+    the split and the retirement have, for the same reason: a retry hold copied out of a
+    built-in that has since been found wrong is not a decision the operator made, it is
+    a defect saved into every account before it was found.
+    """
+    builtin = {timer.name: timer for timer in DEFAULT_TIMERS}
+    out: list[Timer] = []
+    changed = False
+    for timer in catalogue.timers:
+        was = CORRECTED_RETRIES.get(timer.name)
+        base = builtin.get(timer.name)
+        if (was is None or base is None
+                or timer.retry_sec != was or base.retry_sec == was):
+            out.append(timer)
+            continue
+        out.append(_replace(timer, retry_sec=base.retry_sec))
+        changed = True
+    if not changed:
+        return catalogue
+    fresh = Catalogue(out, catalogue.path or path, catalogue.errors)
+    save_catalogue(fresh, path)
+    return fresh
+
+
 def retire_errands(catalogue: Catalogue,
                    path: str) -> "tuple[Catalogue, tuple[str, ...]]":
     """Delete an errand this version no longer schedules; say which of them were ON.
@@ -1525,7 +1570,10 @@ def load_profile_catalogue(path: str) -> Catalogue:
     (:func:`adopt_new_errands`), has any errand this version has SPLIT replaced by
     the rows it became (:func:`split_legacy_errands`), and loses any errand this version
     has RETIRED (:func:`retire_errands`) — with the names that were switched on when they
-    went left on ``catalogue.retired_on`` for the caller to act on.
+    went left on ``catalogue.retired_on`` for the caller to act on. A retry hold this
+    version has CORRECTED is brought up to the built-in's
+    (:func:`correct_stale_retries`), because a row saved with the old one goes on
+    holding for it for ever.
     """
     template = load_template()
     offered = offered_catalogue(template)
@@ -1548,6 +1596,7 @@ def load_profile_catalogue(path: str) -> Catalogue:
     # below reads.
     catalogue, retired_on = retire_errands(catalogue, path)
     catalogue = split_legacy_errands(catalogue, offered, path)
+    catalogue = correct_stale_retries(catalogue, path)
     catalogue = adopt_new_errands(catalogue, offered, path)
     catalogue.retired_on = retired_on
     return catalogue

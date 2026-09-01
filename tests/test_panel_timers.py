@@ -1544,6 +1544,76 @@ def test_the_radar_row_is_retired_out_of_a_profile_that_already_had_it():
         timersmod.TEMPLATE_FILE = kept
 
 
+def test_a_corrected_retry_hold_reaches_a_profile_that_already_had_the_old_one():
+    """The secret-task row's retry hold went 1800 -> 300, and stored rows kept 1800 (#2073).
+
+    A profile's list is its own and outlives the built-ins (#2017): every field a row was
+    saved with is replayed, so an edit to `DEFAULT_TIMERS` reaches only accounts that
+    have never run. The retry hold is the one thing that outranks the appointment the
+    game named — `due_names` sits it out before it looks at `due_at` — so half an hour of
+    it is half an hour of a ripe task standing there to be robbed.
+
+    A number the operator typed themselves is theirs and is left exactly as it is.
+    """
+    import json, tempfile
+    from panel import timers as timersmod
+    from panel.runtime import settings_files
+
+    base = {t.name: t for t in timersmod.DEFAULT_TIMERS}["secret_tasks_day"]
+    assert base.retry_sec == 300, base.retry_sec
+    assert timersmod.CORRECTED_RETRIES.get("secret_tasks_day") == 1800
+
+    home = Path(tempfile.mkdtemp())
+    rows = [{"name": "secret_tasks_day", "scenario": "work_secret_tasks",
+             "interval_sec": 86400, "retry_sec": 1800, "enabled": True},
+            {"name": "collect_base_resources", "scenario": "collect_base_resources",
+             "retry_sec": 1800, "enabled": True}]
+    profile = home / "timers.json"
+    profile.write_text(json.dumps(rows), encoding="utf-8")
+    template = home / "template.json"
+    template.write_text(json.dumps(rows), encoding="utf-8")
+    kept = timersmod.TEMPLATE_FILE
+    timersmod.TEMPLATE_FILE = str(template)
+    try:
+        catalogue = timersmod.load_profile_catalogue(str(profile))
+        row = catalogue.by_name("secret_tasks_day")
+        assert row is not None and row.retry_sec == 300, row
+        assert row.enabled is True, "the operator's switch is not touched"
+        # …an unlisted errand carrying the same number is NOT touched: only the names in
+        # CORRECTED_RETRIES are corrections, everything else is somebody's own choice.
+        other = catalogue.by_name("collect_base_resources")
+        assert other is not None and other.retry_sec == 1800, other
+        written = {e["name"]: e for e in settings_files.read(str(profile))}
+        assert written["secret_tasks_day"]["retry_sec"] == 300, written
+    finally:
+        timersmod.TEMPLATE_FILE = kept
+
+
+def test_a_retry_hold_somebody_typed_themselves_is_not_corrected():
+    """The correction replaces the OLD BUILT-IN and nothing else (#2073).
+
+    A row saying 900 was set by hand — the built-in never said 900 — and overwriting it
+    would be the panel arguing with the person about their own schedule.
+    """
+    import json, tempfile
+    from panel import timers as timersmod
+
+    home = Path(tempfile.mkdtemp())
+    rows = [{"name": "secret_tasks_day", "scenario": "work_secret_tasks",
+             "retry_sec": 900, "enabled": True}]
+    profile = home / "timers.json"
+    profile.write_text(json.dumps(rows), encoding="utf-8")
+    template = home / "template.json"
+    template.write_text(json.dumps(rows), encoding="utf-8")
+    kept = timersmod.TEMPLATE_FILE
+    timersmod.TEMPLATE_FILE = str(template)
+    try:
+        row = timersmod.load_profile_catalogue(str(profile)).by_name("secret_tasks_day")
+        assert row is not None and row.retry_sec == 900, row
+    finally:
+        timersmod.TEMPLATE_FILE = kept
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

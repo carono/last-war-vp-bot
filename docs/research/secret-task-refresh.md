@@ -571,6 +571,16 @@ the window:
 * **`secret_tasks_day.retry_sec` 1800 -> 300.** The hold is the one thing that outranks
   the game's own appointment, and half an hour of it is half an hour of a finished task
   standing on the map.
+* **…and the corrected number is carried into profiles that already stored the old one.**
+  Measured on the live panel right after the restart: `/api/timers` still answered
+  `retry_sec: 1800` for every one of the four accounts. A profile's list is its own and
+  outlives the built-ins (#2017) — the row is replayed with every field it was saved
+  with — so editing `DEFAULT_TIMERS` reaches only an account that has never run. This is
+  the same half-a-fix the radar retirement hit in #2061. `timers.CORRECTED_RETRIES` names
+  the row and the value the OLD built-in had, and `correct_stale_retries` (run from
+  `load_profile_catalogue`, beside the split and the retirement) replaces exactly that
+  number with the built-in's and writes the list back. A row carrying anything else was
+  typed by a person and is left alone.
 
 Worst case on the happy path is now: fires between 45 and 25 seconds before the finish,
 polls every 3 s, claims within about three seconds of the server turning the task over.
