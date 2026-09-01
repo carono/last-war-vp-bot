@@ -121,6 +121,17 @@ SPEC: dict = {
     # the row editor could reach — which on a phone is nowhere. «По одному за раз» is the
     # one the operator asked for by name: it sends the best truck standing and comes back
     # when it lands, so the fleet leaves under the first, strongest escort.
+    # HEALING THE WOUNDED (#2085). The person asked to be able to say «по сколько
+    # лечить»: the hospital takes ONE job at a time, so sending every wounded soldier in
+    # the base starts a treatment that nothing else can interrupt, while a portion is as
+    # much as they want to wait for — and the watch the run arms sends the next one the
+    # moment the queue frees. Zero keeps the old behaviour, «all of them».
+    "heal_units": (
+        _num("portion", "errand.arg.heal.portion", low=0, high=1000000,
+             hint_key="errand.arg.heal.portion.hint"),
+        _flag("help", "errand.arg.heal.help", hint_key="errand.arg.heal.help.hint"),
+        _flag("watch", "errand.arg.heal.watch", hint_key="errand.arg.heal.watch.hint"),
+    ),
     "send_trucks": (
         _flag("collect", "errand.arg.trucks.collect",
               hint_key="errand.arg.trucks.collect.hint"),

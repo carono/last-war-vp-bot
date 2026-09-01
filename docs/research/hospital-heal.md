@@ -310,3 +310,101 @@ gold fields never appeared in it. Read the sender out of the VM, not off the wir
 * Buttons: `heal_all`, `collect_healed` in `tools/lib/game_buttons.py`.
 * Primitive: `tools/lib/hospital.py`.
 * Recipe: `src/lastwar_bot/actions/heal_units.md`.
+
+## 8. A heal with a ceiling on it, and a watch that finishes it (#2085)
+
+The person asked for four things: a portion to heal by, the sending done automatically,
+the alliance asked, and the healed collected **by hook, as the treatment ends** — not by
+a clock. Three of the four are here; the fourth is §9.
+
+### 8a. The portion
+
+`hospital_heal_portion` is `hospital_heal_all` with a ceiling read off the VM
+(`DataCenter.__lw_heal_portion`, parked by the recipe because a `TAP` takes no
+arguments). Zero means «all of them» and the two presses are then identical.
+
+The ceiling is worth having because the hospital is ONE queue: everything wounded in the
+base goes in as a single treatment that nothing can interrupt, and a portion is as much
+as the player is prepared to wait for. It spends itself HIGHEST SOLDIER FIRST — a bigger
+`armyId` is a better soldier — and fills each type up to whatever is left of the portion.
+
+It leaves `DataCenter.__lw_heal = {want, sent, types, err}`, which the recipe reads back
+so the log says what actually went rather than that a button was pressed.
+
+### 8b. The watch — the client tells us, we never ask
+
+`HospitalManager` carries the doors this needs, and a live read of its method table
+(2026-09-01) is what settled it:
+
+```
+:OnQueueEnd  :HospitalCureHandle  :UpdateHospitalDeadInfo  :PushHospitalChangeHandle
+:CheckSendFinish  :CalculateCount2CureTime  :CalculateCureTime2Count
+:GetDeadHospital  :GetTreatingHospital  :GetHealCount  :GetSoldierCureValueLocal
+```
+
+* **`OnQueueEnd`** — the client's own call when the hospital queue retires. This is the
+  hook «собираем, как завершается» asked for: the moment the game itself learns the
+  treatment is over.
+* **`HospitalCureHandle`** — the reply to a cure. Wakes the watch to ask the alliance
+  over a queue that is by then working.
+* **`UpdateHospitalDeadInfo`** — soldiers being hurt. Wakes it to start the next heal.
+
+All three are wrapped on the manager INSTANCE with `rawset`, so the class is untouched
+and a second arm finds the wrapper already there (`W.hooked`). Each wrapper only
+SCHEDULES the real step a quarter of a second later
+(`lua_actions.HEAL_WATCH_SETTLE_SEC`): every one of them is entered while the client is
+in the middle of its own handler, and sending a message from inside one is asking it to
+re-enter itself.
+
+Beside the hooks there is **one alarm, and it is not a poll**: the queue's `endTime` is
+a stamp the server gave us, so the exact millisecond the heal finishes is known in
+advance and a single `TimerManager:GetInstance():DelayInvoke` is pinned to it. It is
+re-pinned only while a heal is running, and a watch that finds nothing to do for an hour
+takes itself off the game's timer — a timer in somebody else's game has to end. The
+recipe arms it again on its next run, which is what the half-hour `heal_units` row is
+for: not a schedule, a safety net for a client that has restarted (a fresh VM has no
+hook at all) and for a watch that has idled out.
+
+One step does the three presses in the routine's own order — collect a finished heal,
+send the next portion into an idle hospital, ask the alliance over a working queue with
+`isHelped == 0` — and returns after whichever one it did, because the server's answer
+comes back through one of the doors and wakes it again.
+
+The hospital queue, read live while idle, is what the step reads:
+
+```
+state=0 endTime=0 startTime=0 isHelped=0 helpNum=0 type=3
+uuid=<the queue's own uuid>  funcUuid=<the hospital building>  qid=1
+```
+
+## 9. What a heal COSTS — open, and why the chest half is not shipped
+
+The fourth thing asked for was «если требуется, открываем сундуки с ресурсами»: a heal
+that cannot be paid for should be funded out of the resource packs in the bag. **That is
+deliberately not in the panel yet**, because spending a person's inventory on a guess is
+worse than not spending it, and the price is genuinely not known. What a day of live
+probing DID settle is written here so the next attempt starts from it:
+
+* **A resource pack is `goods.type == 3`.** The row carries `para1` = what the pack
+  gives and `para2` = how much, e.g. `{type=3, type2=1, para1=242, para2=1000}` for a
+  1K food pack and `{type=3, type2=2, para1=1253, para2=6000}` for a 6K oil one. The bag
+  files them under its own «Ресурсы» tab (`lua_actions.BAG_TAB_OF_TYPE`).
+* **`para1` is NOT an id anything else here speaks.** It is not a `goods` id (rows 242,
+  264, 1253, 317, 97 and 241 do not exist), and it is not one of the ids the base's own
+  resources are kept under: `ResourceItemDataManager.itemList` is keyed by `itemId`
+  values like 6001, 7037, 8001, 5001. Which `para1` is food and which is stamina is
+  therefore a guess, and the same `type2 = 1` covers food, metal, coins AND stamina.
+* **The price is in a third id space again.** `lw_soldier` carries
+  `cure_consume = 17`, `cure_time = 30`, and beside them `rescue_consume = 1;90.3|14;90.3`
+  in an explicit `id;amount` form. `aps_resources` rows 1 and 14 are metal and money, so
+  the small numbers are ids of THAT table — and 17 is a row whose icon is
+  `Common_icon_pvecode`, which is not obviously a base resource at all. Whether
+  `cure_consume` is «resource 17» or «17 units of something fixed» is unsettled, and one
+  reading prices a heal at nothing and the other at 17 per soldier.
+* `HospitalManager` has **no cost method**: the window computes what it shows, and
+  `LWUIHospitalView` only exists while the window is open.
+
+So the honest next step is either a live before/after measurement across one real heal
+(resources read, heal sent, resources read again, divided by the soldiers that went), or
+opening the hospital window once and reading what it prints. Until one of them is done,
+nothing here opens anything out of the bag.

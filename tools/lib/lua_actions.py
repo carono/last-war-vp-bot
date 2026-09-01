@@ -6119,6 +6119,324 @@ def hospital_wounded_probe() -> str:
     )
 
 
+def hospital_heal_portion() -> str:
+    """Send at most `DataCenter.__lw_heal_portion` wounded soldiers for treatment.
+
+    The whole of what :func:`hospital_heal_all` does, with a CEILING on it — the number a
+    person typed («лечить по столько за раз»). Zero, the default, means «every one of
+    them» and the two are then the same press.
+
+    WHY A CEILING IS WORTH HAVING. A heal is one queue and one timer: sending every
+    wounded soldier in the base starts a treatment that can run for hours, and nothing
+    else can be healed until it ends. A portion sends as much as the player wants to wait
+    for, and the watch (:func:`hospital_watch_install`) sends the next one the moment the
+    queue frees, so the same wounded are cleared in slices instead of one long block.
+
+    THE ORDER IS THE HIGHEST SOLDIER FIRST. `allHospital` is keyed by the soldier
+    template id and a bigger id is a better soldier, so a portion spends itself on what
+    the player would pick first. What the ceiling cannot split it does not split: a type
+    is filled up to whatever is left of the portion and the next type gets the remainder.
+
+    Leaves `DataCenter.__lw_heal` for :func:`hospital_heal_report` — what was asked for,
+    what was sent, over how many types, and the error when the send raised.
+    """
+    return (
+        "local want = math.floor(tonumber(DataCenter.__lw_heal_portion) or 0) "
+        "local ok,err = pcall(function() "
+        + _HOSPITAL_TRANSPORT +
+        "local m = DataCenter and DataCenter.HospitalManager "
+        "if not m or type(m.allHospital) ~= 'table' then error('HospitalManager not loaded') end "
+        # A ROW IS NOT A LUA TABLE — the same `userdata` trap `hospital_heal_all`
+        # documents: read every field through `pcall` + `tonumber`, never `type(h)`.
+        "local rows = {} "
+        "for key, h in pairs(m.allHospital) do "
+        "local id, dead = nil, nil "
+        "pcall(function() id = h.armyId end) "
+        "if id == nil then id = key end "
+        "pcall(function() dead = math.floor(tonumber(h.dead) or 0) end) "
+        "if id ~= nil and dead ~= nil and dead > 0 then "
+        "rows[#rows+1] = {tostring(id), dead, math.floor(tonumber(id) or 0)} end end "
+        "table.sort(rows, function(a, b) return a[3] > b[3] end) "
+        "local army, sent = {}, 0 "
+        "for _, r in ipairs(rows) do "
+        "local take = r[2] "
+        "if want > 0 then take = math.min(take, want - sent) end "
+        "if take > 0 then army[#army+1] = {r[1], take} sent = sent + take end end "
+        "DataCenter.__lw_heal = {want = want, sent = sent, types = #army, err = ''} "
+        "__cure(army) "
+        'CS.UnityEngine.Debug.LogError("ACT hospital_heal_portion want="..tostring(want)'
+        '.." sent="..tostring(sent).." types="..tostring(#army)) '
+        "end) "
+        "if not ok then "
+        "DataCenter.__lw_heal = DataCenter.__lw_heal or {} "
+        "DataCenter.__lw_heal.err = tostring(err) "
+        "DataCenter.__lw_heal.sent = 0 "
+        'CS.UnityEngine.Debug.LogError("ACT hospital_heal_portion skip: "..tostring(err)) end'
+    )
+
+
+def hospital_heal_report() -> str:
+    """Lua *expression* -> one line about the last portion heal, for the log."""
+    return (
+        "(function() local h = DataCenter.__lw_heal or {} "
+        "return 'asked=' .. tostring(math.floor(tonumber(h.want) or 0)) .. "
+        "' sent=' .. tostring(math.floor(tonumber(h.sent) or 0)) .. "
+        "' types=' .. tostring(math.floor(tonumber(h.types) or 0)) .. "
+        "((h.err ~= nil and h.err ~= '') and (' refused=' .. tostring(h.err)) or '') end)()"
+    )
+
+
+#: How long after a hook fires the watch actually looks, in seconds. Never zero: every
+#: door below is wrapped around a method the CLIENT is in the middle of — `OnQueueEnd`
+#: runs while the queue is being retired, `HospitalCureHandle` while the reply is being
+#: applied — and sending a message from inside one of those is asking the client to
+#: re-enter its own handler. A fifth of a second later it is out of them and the state
+#: the watch reads is the settled one.
+HEAL_WATCH_SETTLE_SEC = 0.25
+
+#: The belt to the hooks' brace: how long after the heal's own `endTime` the alarm goes
+#: off. The queue reaches `Finish` on the client's own clock, and a second of slack costs
+#: nothing and saves a collect that would otherwise wait for the next hook.
+HEAL_WATCH_ALARM_SLACK_SEC = 1.0
+
+#: How long the watch goes on re-arming its alarm with nothing to do before it stops.
+#: A timer in somebody else's game has to end (the same rule the treasure reaper keeps):
+#: the recipe arms it again on its next run, so an idled-out watch costs one heal's delay
+#: and never a wedged client.
+HEAL_WATCH_IDLE_STOP_SEC = 3600
+
+
+#: THE WATCH — «собираем, как завершается, по хуку» (#2085).
+#:
+#: WHY IT IS NOT A POLL. A heal ends on a timer the client is already keeping, and the
+#: client says so itself: `HospitalManager:OnQueueEnd` is the call it makes when the
+#: hospital queue retires, `HospitalCureHandle` the one it makes when the server answers
+#: a cure, and `UpdateHospitalDeadInfo` the one it makes when soldiers are hurt. Three
+#: doors, each wrapped once, each merely scheduling the same `step` a quarter of a second
+#: later — so the collect leaves in the moment the game itself learnt the heal was over,
+#: and NOTHING is asked of the server in between (`CLAUDE.md`, «Read once, then LISTEN»).
+#:
+#: The alarm is the belt to that brace: the queue's `endTime` is a stamp the server gave
+#: us, so the exact millisecond the heal finishes is known in advance and one `DelayInvoke`
+#: is pinned to it. It is not a period and it is not a poll — it is one wake-up at a time
+#: that is already known, and it is re-pinned only when a heal is running.
+#:
+#: WHAT ONE STEP DOES, in the order of the in-game routine:
+#:   1. a finished heal is collected (`CheckSendFinish` — its own gate);
+#:   2. an idle hospital with wounded in it is sent the next portion;
+#:   3. a working queue with no request standing is put in front of the alliance.
+#: Exactly the three presses `actions/heal_units.md` plays, run by the game rather than
+#: by the panel — so a panel that is busy elsewhere, or shut, loses nothing.
+_HEAL_WATCH = '''
+local D = DataCenter
+D.__lw_heal_watch = D.__lw_heal_watch or {ticks = 0, collected = 0, healed = 0,
+                                          helped = 0, run = 0, why = "", last = ""}
+local W = D.__lw_heal_watch
+W.run = (tonumber(W.run) or 0) + 1
+W.on = true
+W.at = 0
+local token = W.run
+local tm = TimerManager:GetInstance()
+
+local function now_ms()
+  local t = 0
+  pcall(function() t = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end)
+  if t <= 0 then pcall(function()
+    t = math.floor((tonumber(ChatInterface.getServerTime()) or 0) * 1000) end) end
+  return t
+end
+
+W.step = function(why)
+  local A = DataCenter.__lw_heal_watch
+  if A == nil or not A.on or A.run ~= token then return end
+  A.pending = false
+  local m = DataCenter and DataCenter.HospitalManager
+  local q = DataCenter and DataCenter.QueueDataManager
+  if m == nil or q == nil then A.last = "no-manager" return end
+  A.ticks = (tonumber(A.ticks) or 0) + 1
+  A.why = tostring(why or "?")
+  A.at = now_ms()
+  local queue = nil
+  pcall(function() queue = q:GetQueueByType(NewQueueType.Hospital) end)
+  local state, ends, helped, uuid, qtype = -1, 0, 1, nil, 3
+  if queue ~= nil then
+    pcall(function() state = math.floor(tonumber(queue.state) or -1) end)
+    pcall(function() ends = math.floor(tonumber(queue.endTime) or 0) end)
+    pcall(function() helped = math.floor(tonumber(queue.isHelped) or 1) end)
+    pcall(function() uuid = queue.uuid end)
+    pcall(function() qtype = math.floor(tonumber(queue.type) or 3) end)
+  end
+  A.state, A.ends = state, ends
+
+  -- 1. THE COLLECT. `CheckSendFinish` is the window's own receive button and holds its
+  -- own gates (the queue really finished, the barracks have room), so this is a no-op
+  -- at any other moment.
+  if state == NewQueueState.Finish then
+    local ok = pcall(function() m:CheckSendFinish(m:GetCurHospitalBuildUuid()) end)
+    A.collected = (tonumber(A.collected) or 0) + (ok and 1 or 0)
+    A.last = ok and "collected" or "collect-refused"
+    A.busy_at = A.at
+    -- The server's answer frees the queue and comes back through the cure/queue doors,
+    -- which wake this again: nothing else is done in the same breath, because the
+    -- hospital will not take a heal until the collect has landed (errorCode 130069).
+    return
+  end
+
+  -- 2. THE NEXT PORTION, when the hospital is standing idle with wounded in it.
+  if state ~= NewQueueState.Work and state ~= NewQueueState.Finish then
+    local wounded = 0
+    pcall(function()
+      for _, h in pairs(m.allHospital or {}) do
+        local d = 0
+        pcall(function() d = math.floor(tonumber(h.dead) or 0) end)
+        wounded = wounded + d
+      end end)
+    A.wounded = wounded
+    if wounded > 0 then
+      pcall(function() DataCenter.__lw_heal = nil end)
+      pcall(function() %(heal)s end)
+      -- The chunk swallows its own failure and writes it down, so what was SENT is the
+      -- only honest answer: a refusal leaves `sent` at zero and `err` in the report.
+      local sent, why = 0, ""
+      pcall(function()
+        local h = DataCenter.__lw_heal or {}
+        sent = math.floor(tonumber(h.sent) or 0)
+        why = tostring(h.err or "")
+      end)
+      A.healed = (tonumber(A.healed) or 0) + sent
+      A.last = (sent > 0) and ("healed " .. tostring(sent))
+               or ("heal-refused " .. (why ~= "" and why or "?"))
+      A.busy_at = A.at
+      -- The reply comes back through `HospitalCureHandle`, which wakes this again to
+      -- ask for help over a queue that is by then working.
+      return
+    end
+  end
+
+  -- 3. THE ALLIANCE. Only while the queue is actually working and only when no request
+  -- is standing — `isHelped` is the game's own book on that, so a repeat costs nothing.
+  local ask = (math.floor(tonumber(DataCenter.__lw_heal_help) or 1) == 1)
+  if state == NewQueueState.Work and helped ~= 1 and uuid ~= nil and ask then
+    local ok = pcall(function()
+      SFSNetwork.SendMessage(MsgDefines.AllianceCallHelp, uuid, 1, qtype, '1') end)
+    A.helped = (tonumber(A.helped) or 0) + (ok and 1 or 0)
+    if ok then A.last = "asked-for-help" A.busy_at = A.at end
+  end
+  if state == NewQueueState.Work then A.busy_at = A.at end
+end
+
+-- THE ALARM. One wake-up, at a moment the SERVER named — never a period.
+local function alarm()
+  local A = DataCenter.__lw_heal_watch
+  if A == nil or not A.on or A.run ~= token then return end
+  pcall(A.step, "alarm")
+  local ends = math.floor(tonumber(A.ends) or 0)
+  local at = math.floor(tonumber(A.at) or 0)
+  local left = (ends > 0 and at > 0) and ((ends - at) / 1000) or -1
+  if left > 0 then
+    tm:DelayInvoke(alarm, left + %(slack)s)
+    return
+  end
+  -- Nothing is running. Wake once more in a while so that a heal started by the PLAYER
+  -- in the game is still collected, and stop for good when even that finds nothing:
+  -- the recipe arms this again on its next run.
+  if at > 0 and (tonumber(A.busy_at) or 0) > 0
+     and (at - (tonumber(A.busy_at) or at)) / 1000 > %(idle)s then
+    A.on = false
+    CS.UnityEngine.Debug.LogError("ACT heal_watch idle-stop ticks=" .. tostring(A.ticks or 0))
+    return
+  end
+  tm:DelayInvoke(alarm, %(recheck)s)
+end
+
+-- THE DOORS. Wrapped on the manager INSTANCE (`rawset`), so the class is left alone and
+-- a second arm finds the wrapper already there — `W.hooked` is what makes this
+-- idempotent, exactly as the treasure watch's pair of wrappers is.
+local function wake(why)
+  local A = DataCenter.__lw_heal_watch
+  if A == nil or not A.on or A.pending then return end
+  A.pending = true
+  tm:DelayInvoke(function() pcall(A.step, why) end, %(settle)s)
+end
+
+if not W.hooked then
+  local m = DataCenter and DataCenter.HospitalManager
+  if m ~= nil then
+    W.hooked = true
+    for _, name in ipairs({"OnQueueEnd", "HospitalCureHandle", "UpdateHospitalDeadInfo"}) do
+      local orig = m[name]
+      if type(orig) == "function" then
+        rawset(m, name, function(self, ...)
+          local r = orig(self, ...)
+          pcall(wake, name)
+          return r
+        end)
+      end
+    end
+  end
+end
+
+tm:DelayInvoke(alarm, %(settle)s)
+CS.UnityEngine.Debug.LogError("ACT heal_watch on=1 run=" .. tostring(token)
+  .. " hooked=" .. tostring(W.hooked and 1 or 0))
+'''
+
+
+def hospital_watch_install() -> str:
+    """Arm the game-side watch: collect, heal the next portion, ask for help — by hook.
+
+    Idempotent. The three doors are wrapped once however often this is played, and a
+    fresh arm bumps a run token so an alarm left over from a previous one disowns itself
+    on its next wake (the same way the treasure reaper is stopped).
+
+    Reads its two knobs off the VM, where the recipe parks them:
+    `DataCenter.__lw_heal_portion` (how many soldiers a heal may send, 0 = all) and
+    `DataCenter.__lw_heal_help` (whether the alliance is asked at all).
+    """
+    return (_HEAL_WATCH % {
+        "heal": hospital_heal_portion(),
+        "settle": repr(float(HEAL_WATCH_SETTLE_SEC)),
+        "slack": repr(float(HEAL_WATCH_ALARM_SLACK_SEC)),
+        "idle": repr(float(HEAL_WATCH_IDLE_STOP_SEC)),
+        "recheck": repr(float(HEAL_WATCH_IDLE_STOP_SEC / 6.0)),
+    })
+
+
+def hospital_watch_stop() -> str:
+    """Stop the game-side watch. The wrappers stay; the switch and the token are what move.
+
+    A `DelayInvoke` already scheduled cannot be cancelled, so it is disowned rather than
+    cancelled — it wakes, sees a token that is not its own, and returns. The doors are
+    left wrapped on purpose: unwrapping a method that something else may have wrapped
+    since is how a hook is lost, and a wrapper over a watch that is off costs one `pcall`
+    that returns immediately.
+    """
+    return (
+        "local W = DataCenter.__lw_heal_watch "
+        "if W ~= nil then W.on = false W.run = (tonumber(W.run) or 0) + 1 end "
+        'CS.UnityEngine.Debug.LogError("ACT heal_watch on=0 ticks="'
+        "..tostring((W or {}).ticks or 0))"
+    )
+
+
+def hospital_watch_state() -> str:
+    """Lua *expression* -> what the watch has been doing, in one line for the log."""
+    return (
+        "(function() local W = DataCenter.__lw_heal_watch "
+        "if W == nil then return 'on=0 hooked=0 ticks=0 collected=0 healed=0 helped=0' end "
+        "return 'on=' .. tostring(W.on and 1 or 0) .. "
+        "' hooked=' .. tostring(W.hooked and 1 or 0) .. "
+        "' ticks=' .. tostring(math.floor(tonumber(W.ticks) or 0)) .. "
+        "' collected=' .. tostring(math.floor(tonumber(W.collected) or 0)) .. "
+        "' healed=' .. tostring(math.floor(tonumber(W.healed) or 0)) .. "
+        "' helped=' .. tostring(math.floor(tonumber(W.helped) or 0)) .. "
+        "' state=' .. tostring(math.floor(tonumber(W.state) or -1)) .. "
+        "' wounded=' .. tostring(math.floor(tonumber(W.wounded) or 0)) .. "
+        "' woke=' .. tostring(W.why or '-') .. "
+        "' last=' .. tostring(W.last or '-') end)()"
+    )
+
+
 # --------------------------------------------------------------------------
 # Ask the alliance to speed a queue up ("Запрос помощи")
 # --------------------------------------------------------------------------

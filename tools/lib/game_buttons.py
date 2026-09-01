@@ -920,6 +920,36 @@ BUTTONS: dict[str, Button] = {
         count_lua=_lua_actions.hospital_healed_ready(),
         max_taps=1,
     ),
+    # A HEAL WITH A CEILING ON IT (#2085). The same press as `heal_all`, sending no more
+    # soldiers than the number parked in `DataCenter.__lw_heal_portion` — «лечить по
+    # столько за раз». Zero means every one of them, so the two presses are then the same.
+    # The ceiling exists because the hospital is ONE queue: sending every wounded soldier
+    # starts a treatment nothing else can interrupt, and a portion is as much as the
+    # player is prepared to wait for.
+    "heal_portion": Button(
+        lua=_lua_actions.hospital_heal_portion(),
+        wait=1.2, label="Heal the next portion of wounded soldiers",
+        count_lua=_lua_actions.hospital_wounded_count(),
+        max_taps=1,
+    ),
+    # THE WATCH — «собираем, как завершается, по хуку». Arms the game-side watch that
+    # collects a finished heal, sends the next portion and asks the alliance, woken by
+    # the client's own calls (`OnQueueEnd`, `HospitalCureHandle`, `UpdateHospitalDeadInfo`)
+    # and by one alarm pinned to the heal's own `endTime`. Nothing is asked of the server
+    # in between, and a panel that is busy elsewhere loses nothing.
+    "heal_watch_on": Button(
+        lua=_lua_actions.hospital_watch_install(),
+        wait=0.3, label="Watch the hospital and work it by itself",
+    ),
+    "heal_watch_off": Button(
+        lua=_lua_actions.hospital_watch_stop(),
+        wait=0.3, label="Stop watching the hospital",
+    ),
+    "heal_watch_state": Button(
+        lua=('CS.UnityEngine.Debug.LogError("ACT heal_watch " .. (%s))'
+             % _lua_actions.hospital_watch_state()),
+        wait=0.2, label="What the hospital watch is doing",
+    ),
     # --- alliance rally: join the live ones, one squad each -------------------
     # «Присоединиться к ралли». One press sends the next parked squad to the next
     # rally the player is not already in, so `TAP join_rally xall` spends the

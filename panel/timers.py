@@ -315,6 +315,27 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.donate_alliance_tech",
     ),
     Timer(
+        name="heal_units",
+        scenario=("heal_units",),
+        # HALF AN HOUR, AND IT IS THE SAFETY NET RATHER THAN THE SCHEDULE (#2085). The
+        # errand's real clock is inside the game: the run arms a watch that collects a
+        # finished heal, sends the next portion and asks the alliance on the client's own
+        # calls (`OnQueueEnd`, `HospitalCureHandle`, `UpdateHospitalDeadInfo`) and on one
+        # alarm pinned to the heal's own `endTime`. Nothing here polls anything.
+        #
+        # What this period is for is the two cases the watch cannot cover by itself: a
+        # client restarted since the last run has a fresh VM and no hook at all, and a
+        # watch that found nothing to do for an hour takes itself off the game's timer
+        # (a timer in somebody else's game has to end). Both are mended by arming again,
+        # which costs one round trip and no window.
+        interval_sec=1800,
+        # A failure here is a client that was not answering; a few minutes is soon enough.
+        retry_sec=300,
+        enabled=False,
+        args={"portion": 0, "help": 1, "watch": 1},
+        label_key="timers.item.heal_units",
+    ),
+    Timer(
         name="collect_alliance_gifts",
         scenario=("collect_alliance_gifts",),
         # Six hours. Nothing about a gift expires while it waits in the chest, and
@@ -346,6 +367,20 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         retry_sec=300,
         enabled=False,
         label_key="timers.item.collect_visitor_gifts",
+    ),
+    Timer(
+        name="collect_vip_gifts",
+        scenario=("collect_vip_gifts",),
+        # An hour. Both rewards come back once a day and the gates are the SERVER's own
+        # answer about today, so the only thing the period decides is how long after the
+        # day turns over they are picked up. The run that finds nothing is one VM round
+        # trip against the client's own memory — no question goes on the wire for it — so
+        # looking hourly costs about as little as looking at all.
+        interval_sec=3600,
+        # A failure here is a client that was not answering; a few minutes is soon enough.
+        retry_sec=300,
+        enabled=False,
+        label_key="timers.item.collect_vip_gifts",
     ),
     Timer(
         name="recruit_survivors",
