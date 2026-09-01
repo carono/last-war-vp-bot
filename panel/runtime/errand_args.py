@@ -132,19 +132,6 @@ SPEC: dict = {
         _flag("help", "errand.arg.heal.help", hint_key="errand.arg.heal.help.hint"),
         _flag("watch", "errand.arg.heal.watch", hint_key="errand.arg.heal.watch.hint"),
     ),
-    # THE ALERT TOWER (#2084). The errand claims what the training march finished,
-    # pays the tasks that ask for something out of the bag, and spends the day's one
-    # start. Each of those is a decision about somebody's own account — the handover
-    # spends items — so all three are switches rather than a rule written into the
-    # recipe, and they are drawn on «Вышка оповещения» as well as here.
-    "work_alert_tower": (
-        _flag("give_goods", "alerttower.give_goods",
-              hint_key="alerttower.give_goods.hint"),
-        _flag("start_run", "alerttower.start_run",
-              hint_key="alerttower.start_run.hint"),
-        _flag("take_box", "alerttower.take_box",
-              hint_key="alerttower.take_box.hint"),
-    ),
     "send_trucks": (
         _flag("collect", "errand.arg.trucks.collect",
               hint_key="errand.arg.trucks.collect.hint"),

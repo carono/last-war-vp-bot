@@ -1,7 +1,11 @@
 # The 3v3 arena — «Испытание», the line-up and the day's five wins (#2081)
 
-Read off a live client on 2026-09-01 and proven live: four battles in one run took the
-day's wins from 2 to 5 and the day's challenges from 29 to 25.
+Read off a live client on 2026-09-01 and proven live: a run fought until the server's own
+win count reached five, spending one challenge per battle whether it was won or lost.
+
+**The first version of this file got the win count wrong and the errand stopped two wins
+short (#2081).** It counted today's rows in the battle log, and the log holds the battles
+somebody else started too — see §4, which is the correction.
 
 The arena building's «Испытание» matches an opponent, puts the account's three arena
 squads against theirs and settles the fight on the server. The day allows **30
@@ -93,26 +97,74 @@ believes it rather than counting its own presses.
 
 ## 4. How many wins the day already has
 
-`score.arena.log.record` comes back with `logs`, the last 50 battles, each with `time`
-(server seconds), `win` (1/0) and the score it moved. Today's are the ones at or after
-the day's start, and the day's start is the GAME's:
+**The server counts it, and the count rides on the reply to a battle:**
+
+```
+score.arena.battle  ->  win = true   winTimes = 4   battleTimes = 24   changeScore = 15
+                        ownerNewScore = 1005  curRank = 388  time = <server seconds>
+```
+
+`winTimes` is the day's arena wins — the five the reward is paid on — and `battleTimes`
+is the challenges left after this one. Both are also written onto
+`DataCenter.LW3V3ArenaManager`, but only by a battle: measured on 2026-09-01, the field
+was on the manager one minute and gone the next, so a client that has not fought does not
+know the number.
+
+**Nothing else will tell it.** `score.arena.info` sent bare gets NO reply at all —
+measured by poking sentinels into `battleTimes` and `startTime`, sending the ask and
+finding both sentinels still there five seconds later. The free match ask
+(`score.challenge.match`) carries only the two line-ups. So the count is had by fighting,
+or not at all.
+
+### The battle log is NOT the win count
+
+`score.arena.log.record` answers with `logs`, the last 50 battles, each with `time`
+(server seconds), `win` (1/0) and the score it moved. It is one row per battle the account
+was **in**, and being attacked puts a row there exactly as attacking does. A defence costs
+no challenge and counts towards no reward, so the log runs ahead of both:
+
+| the day, measured on 2026-09-01 | |
+|---|---|
+| rows in the log for today | 11 |
+| rows won | 6 |
+| challenges spent (`30 - battleTimes`) | 6 |
+| **wins the server counts** (`winTimes`) | **4** |
+
+Five of those eleven rows were battles other players started, two of which we won. The
+errand read «six wins, the day is done» over a day that stood at four.
+
+**Nothing in a row says which side started it** — the fields are `changeScore`,
+`ownerNewScore`/`ownerOldScore`, `otherNewScore`/`otherOldScore`, `power`,
+`formationPower`, `win`, `uid`, `time`, `oldRank`, `curRank`, `playerInfo` and
+`battleArr`; the score chain runs continuously through attacks and defences alike, and
+the manager keeps one list (`records[50]`), not two. So the log is good for exactly one
+thing: a **ceiling**. A real win always leaves a row, so «fewer than five rows won today»
+proves fewer than five wins, and that is what the errand uses to tell «wins are owed for
+certain» from «ask the server».
+
+The day's start is the GAME's, and its stamp is in MILLISECONDS:
 
 ```lua
 local zero = UITimeManager:GetInstance():GetTomorrowZero() / 1000   -- MILLISECONDS
 local dayStart = zero - 86400
 ```
 
-That is how a day the person played by hand costs no battles at all: the wins are read
-out of the server's own log, not out of anything this panel wrote down.
-
 ## 5. What the bot does
 
-* `actions/read_arena_3v3.md` — one line: `open`, `left`, `fights`, `wins`, `score`,
-  `rank`, `until`. A dash is «the game would not answer», never a zero.
-* `actions/arena_3v3_battles.md` — the errand. Reads the window, the challenges and
-  today's wins, then fights until the wins are in, the challenges run out, or the event
-  closes. Stops (never fails) on a shut event, a spent day and wins already made; fails
-  when two battles in a row could not be made at all.
+* `actions/read_arena_3v3.md` — one line: `open`, `left`, `used`, `wins`, `logged`,
+  `score`, `rank`, `until`. `wins` is the server's count and `logged` is the log's row
+  count, which is a different number (§4). A dash is «the game would not answer», never a
+  zero, and `wins=-` means «this client has not been told yet».
+* `actions/arena_3v3_battles.md` — the errand. Fights until the SERVER's `winTimes`
+  reaches five, the challenges run out, or the event closes; a lost battle is a spent
+  challenge and not a win, so the loop goes round again. When the count is not known
+  yet it uses the log's ceiling: below five, wins are owed for certain; at or above it,
+  one battle is fought and its reply says how the day really stands. What the reply says
+  is parked in the client's own VM under the day's zero, beside the wire ear, so the
+  probing battle is paid at most once per client session. Stops (never fails) on a shut
+  event, a spent day and wins already made; fails when two battles in a row could not be
+  made at all. Its last line is the report: `fought N, won W, lost L, wins today X of 5,
+  challenges left K`.
 
 The panel plays it from «Таймеры» as `arena_3v3_battles`, off until switched on, and
 from «Чеклист» as the «Арена» line's press.

@@ -181,10 +181,6 @@ TABS: tuple = (
     # brought the profiles' copies across and swept the retired id out of their lists.
     TabSpec("chat",      "panel.tabs.chat",      "ChatTab",      order=50,
             in_development=True),
-    # The alert tower and its training run into the forbidden zone (#2084): a page
-    # of readings with the one press that works them, so it sits beside the other
-    # per-building errands rather than among the world pages.
-    TabSpec("alert_tower", "panel.tabs.alert_tower", "AlertTowerTab", order=62),
     TabSpec("alliance",  "panel.tabs.alliance",  "AllianceTab",  order=200,
             in_development=True),
     # …and no `in_development` on it since #1990: the live stock moved onto this tab

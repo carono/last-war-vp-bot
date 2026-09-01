@@ -300,14 +300,7 @@ BLIND_ERRANDS: tuple = (
     Errand("alliance_gifts", scenario="collect_alliance_gifts"),
     Errand("chat_gifts"),
     Errand("arms_race"),
-    # «Арена»: the 3v3 challenge — the server matches an opponent, the arena's own
-    # three-team line-up goes against theirs, and the day's reward is five wins out of
-    # thirty allowed challenges. BLIND like its neighbours: the counts are readable
-    # (`actions/read_arena_3v3.md`), but that is two game reads on every refresh of the
-    # board, and what was missing here is the press. The scenario keeps the gates —
-    # it stops on a shut event, on a spent day and on wins already made, whoever made
-    # them. «Арена шторма» is a different event and is not this press.
-    Errand("arena", scenario="arena_3v3_battles"),
+    Errand("arena"),
     Errand("tavern"),
     Errand("supplies"),
     Errand("shop"),

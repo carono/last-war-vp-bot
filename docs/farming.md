@@ -268,7 +268,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Arena
 
 - ❌ Apex arena
-- 🟡 3-on-3 battle — presses «Challenge», fights the matched opponent with the three squads standing in the arena line-up, and keeps going until the day's five wins are in or its thirty challenges run out; how many wins and challenges are left is read out of the game, so a day played by hand costs nothing. The line-up itself is still the person's to arrange, and «Storm arena» is a different event nobody has done yet
+- 🟡 3-on-3 battle — presses «Challenge», fights the matched opponent with the three squads standing in the arena line-up, and keeps going until the day's five WINS are in or its thirty challenges run out; a lost battle costs a challenge and is not a win, so it fights again. How many wins the day has is the game's own count, not a tally of presses, so battles the person fought by hand cost nothing and battles other players started against them do not count as wins. The line-up itself is still the person's to arrange, and «Storm arena» is a different event nobody has done yet
 - ❌ Free diamonds
 
 ### Heroes
