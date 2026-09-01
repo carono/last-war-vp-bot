@@ -5,7 +5,7 @@
 <!-- progress:start -->
 🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **35%** — 61 of 173
 
-🟩 61 done · 🟨 79 partly · 🟥 33 not automated
+🟩 61 done · 🟨 80 partly · 🟥 32 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -176,7 +176,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Accepting a survivor waiting at the base — one press per waiting survivor, no window opened, and it stops on its own when nobody is left at the gate. Wants the base on screen, same as the gifts below: from the world map nobody is standing at the gate yet, so the run reports that it could not be done — and on a schedule it is tried again a few minutes later, instead of counting as done and leaving the survivor at the gate for another whole hour
 - ✅ Collecting gifts a survivor brought to the base — one press per gift-bearing visitor, no window opened, stopping on its own when nobody is left; a visitor still walking up to the base is left for the next round. Wants the base on screen: from the world map nobody is standing at the gate yet, so the run reports that it could not be done and, on a schedule, comes back to it a few minutes later rather than waiting out the full period
 - ❌ Assembling the treasure from map pieces
-- ❌ Daily VIP gift and points
+- 🟡 Collecting the two VIP rewards from the profile card — the daily chest of VIP points and the daily gift of items, both taken in one press with no window opened, from the base or from the world map alike. What is on offer is asked of the game rather than counted by the panel, so a day already collected is a clean no-op that says so, and a claim the game refuses is reported as refused instead of being written down as done; the run also lists the one-off chest for each VIP level ever reached, which it reads and does not touch. Can run on its own every hour from «Таймеры» (off by default). Read correctly on a live account, but neither reward could be watched arriving — both of the day's had already been taken
 - ❌ Collecting mail rewards
 
 ### Resources
