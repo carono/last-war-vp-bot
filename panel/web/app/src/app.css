@@ -1243,9 +1243,22 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
 /* «Кнопку i ставим перед названием» — a sign at the head of the row, thumb-tall like
    every other control here and no wider than its glyph. */
 .item.errand.cover .errand-head > .go.icon { flex: 0 0 auto; padding: 0 8px; }
-/* «Кнопку запуск выравниваем по правому краю» — whatever else is on the row stays left
-   and the last sign is pushed to the edge. */
+/* «Кнопку запуск сделай в правом нижнем углу» (#2340, second pass) — the corner, not
+   merely the right-hand edge. The row of signs is pushed to the FOOT of the card as well
+   as to its right side: the body is the height of the card, the row takes what is left
+   over, and the last sign takes what is left over of the row. Two `auto` margins and no
+   absolute positioning, so a card that grows a second sign keeps them side by side and a
+   card with none draws no row at all. */
+.item.errand.cover { display: flex; }
+.item.errand.cover .errand-body { flex: 1 1 auto; }
+.item.errand.cover .errand-acts { margin-top: auto; }
 .item.errand.cover .errand-acts > :last-child { margin-left: auto; }
+
+/* «У описания отступ сверху сделай, наезжает на чекбокс» — the line of facts begins
+   under the switch's corner, and its pill was climbing into it. The gap is on the FIRST
+   thing under the head, whichever of the three it is, so a card with no facts and only a
+   reading clears the corner too. */
+.item.errand.cover .errand-head + * { margin-top: 8px; }
 
 /* The live line: the number is the thing, its age is an aside. */
 .stat { margin: 0; }
