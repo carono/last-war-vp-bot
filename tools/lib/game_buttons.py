@@ -1108,6 +1108,42 @@ BUTTONS: dict[str, Button] = {
         # recipe then measures — so the pause is part of the proof, not politeness.
         wait=2.0, label="send the squad at the boss",
     ),
+    # --- «Кристальный босс»: the day's three attacks --------------------------
+    # The same three presses, against the client's own crystal-boss manager, and none
+    # of them opens a window either:
+    #
+    #     crystal_fetch -> crystal_arm -> crystal_send
+    #
+    # The event is «Кодовое имя» with a different manager and a different march type
+    # (`DIRECT_ATTACK_RED_BOSS`), which is how the person described it and what the
+    # reading found. WHICH boss and WHICH squad are parked in `DataCenter.__lw_crystal`
+    # by the arm, because `TAP` carries no arguments. The recipe is
+    # actions/attack_crystal_boss.md; the reverse-engineering is
+    # docs/research/crystal-boss.md.
+    "crystal_fetch": Button(
+        # The ASK, not a press: the manager boots with no boss and no attack count, and
+        # only the reply to `red.boss.get.march` fills them. Both the reading and the
+        # attack send this first, and the attack sends it AGAIN while it waits for the
+        # count to move — the client learns the new one from the reply and from nothing
+        # else the panel can see.
+        lua=_lua_actions.crystal_fetch(),
+        wait=1.2, label="ask the server for the crystal boss and the day's attacks",
+    ),
+    "crystal_arm": Button(
+        # The run's setup: the boss out of the manager's own list, the first squad
+        # standing in the base, and how many attacks were left before the send, so the
+        # last step can measure rather than assume.
+        lua=_lua_actions.crystal_arm(),
+        wait=0.2, label="arm the crystal-boss attack (target + free squad)",
+    ),
+    "crystal_send": Button(
+        # The attack itself, in one call: the send the squad screen makes when a person
+        # taps «Марш», with this boss's own march type.
+        lua=_lua_actions.crystal_send(),
+        # The server answers with the refreshed count a beat later, which is what the
+        # recipe then measures.
+        wait=2.0, label="send the squad at the crystal boss",
+    ),
     # --- base decorations: the handbook's upgrade press -----------------------
     # One press upgrades the first decoration that is ready: the button finds the
     # group itself, so nothing has to be picked or parked beforehand. Headless — no

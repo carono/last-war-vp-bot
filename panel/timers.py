@@ -561,6 +561,24 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.attack_codename_daily",
     ),
     Timer(
+        name="attack_crystal_boss_daily",
+        scenario=("attack_crystal_boss_daily",),
+        # A DAY, for the same reason its sister errand is: the thing being spent is a
+        # day's worth of reward and there is exactly one of it. The recipe asks the
+        # server how many attacks the day still owes and sends only those, so a run that
+        # finds them already made is a clean no-op.
+        interval_sec=86400,
+        # Fifteen minutes, and it is the errand's design rather than a fallback. A run
+        # FAILS when the day still owes attacks and one could not be made — no squad
+        # standing in the base, the boss not in the list yet — and every one of those
+        # mends itself in minutes, usually because the squad this errand itself just sent
+        # is on its way home. The retry re-asks the count and sends only what is STILL
+        # owed. A window that is shut is a SUCCESS, so it costs one run and not ninety.
+        retry_sec=900,
+        enabled=False,
+        label_key="timers.item.attack_crystal_boss_daily",
+    ),
+    Timer(
         name="arena_3v3_battles",
         scenario=("arena_3v3_battles",),
         # AN HOUR, not a day, and the reason is the retry rather than the reward: the

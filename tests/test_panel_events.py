@@ -326,6 +326,13 @@ class _Skip(Exception):
     """This test needs the tab module, and this python has no tkinter."""
 
 
+#: «Кристальный босс» as the live client answered it — a day with all three still
+#: owed, a day already spent (the reading taken live after one errand run), and a day
+#: with no boss at all.
+CRYSTAL_OPEN = "open=1 left=3 need=3 made=0 can=1 hp=100 targets=1 until=67975"
+CRYSTAL_SPENT = "open=1 left=0 need=3 made=3 can=0 hp=100 targets=1 until=67975"
+CRYSTAL_SHUT = "open=0 left=- need=- made=- can=- hp=- targets=- until=-"
+
 #: A golden-zombie reading with energy to spend, and one without.
 GOLDEN_OPEN = "energy=55 cost=10 attacks=5 seen=135 atk=765 col=1930 ratio=252"
 GOLDEN_SPENT = "energy=3 cost=10 attacks=0 seen=0"
@@ -403,7 +410,7 @@ class _Runtime:
 
 
 def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN,
-         arms=ARMS_HERO_PHASE, arms_day=ARMS_DAY):
+         arms=ARMS_HERO_PHASE, arms_day=ARMS_DAY, crystal=CRYSTAL_OPEN):
     cls = _tab_class()
     tab = cls.__new__(cls)
     tab.rt = _Runtime(plays)
@@ -415,6 +422,12 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN,
     tab._attack_button = None
     tab._daily_button = None
     tab._sent_key = None
+    tab._failed_key = "events.codename.log.failed"
+    tab._after_press = None
+    # «Кристальный босс» — the same event with a different manager and a real ration.
+    tab._crystal = modelmod.parse(crystal, at=1.0) if crystal is not None else None
+    tab._crystal_busy = False
+    tab._chain_crystal = False
     # «Под руинами» — no reading of its own; the card carries the last line a run said.
     tab._ruins_said = ""
     tab._ruins_running = False
@@ -1093,6 +1106,135 @@ def test_the_score_never_reads_as_a_place_to_go():
     said = modelmod.arms_points(modelmod.arms_state(modelmod.parse(ARMS_HERO_PHASE)))
     assert said == "800 / 12000", said
     assert coordlinks.parts(said) is None, "the phase's score became a jump link"
+
+
+# ---------------------------------------------------------------------------
+# «Кристальный босс» — the same event with a different manager, and a real ration
+# ---------------------------------------------------------------------------
+CRYSTAL_READ = ACTIONS / "read_crystal_boss.md"
+CRYSTAL_ATTACK_FILE = ACTIONS / "attack_crystal_boss.md"
+CRYSTAL_DAILY_FILE = ACTIONS / "attack_crystal_boss_daily.md"
+
+
+def test_the_crystal_card_carries_the_days_ration_and_not_a_count_of_ours():
+    """What the day still OWES is the number, and it is the server's."""
+    state = modelmod.crystal_state(modelmod.parse(CRYSTAL_OPEN, at=1.0))
+    assert state.open
+    assert state.left == 3 and state.need == 3 and state.attacks == 0
+    assert not state.done
+    spent = modelmod.crystal_state(modelmod.parse(CRYSTAL_SPENT, at=1.0))
+    assert spent.done and spent.attacks == 3 and spent.left == 0
+    assert modelmod.counter(spent) == "3 / 3"
+    assert modelmod.crystal_left(spent) == "0"
+    assert modelmod.health(spent) == "100%"
+
+
+def test_a_day_already_spent_still_offers_the_press():
+    """The panel keeps no second copy of the recipe's gate (`CLAUDE.md`).
+
+    A day the server has already turned over would otherwise be refused by a card
+    holding a reading a minute old — and the refusal costs the day's reward, while
+    letting the press through costs one honest line in the log.
+    """
+    assert modelmod.crystal_state(modelmod.parse(CRYSTAL_SPENT)).can_attack
+    assert modelmod.crystal_state(modelmod.parse(CRYSTAL_OPEN)).can_attack
+
+
+def test_a_day_with_no_boss_is_closed_and_a_reading_that_never_came_is_not():
+    shut = modelmod.crystal_state(modelmod.parse(CRYSTAL_SHUT))
+    assert shut.state == modelmod.CLOSED and not shut.can_attack
+    assert shut.left is None, "a dash was read as a zero"
+    unknown = modelmod.crystal_state(None)
+    assert unknown.state == modelmod.UNKNOWN
+    assert unknown.can_attack, "«nobody knows» must never shut the press"
+
+
+def test_the_crystal_reading_asks_the_server_before_it_believes_the_answer():
+    """The manager boots empty and answers «shut» until something asks (#1259)."""
+    text = CRYSTAL_READ.read_text(encoding="utf-8")
+    body = [ln for ln in text.splitlines() if ln and not ln.startswith("#")]
+    assert body[0].startswith("TAP crystal_fetch"), body[0]
+    assert "WHILE cr_loaded == 0 LIMIT" in text, "an unbounded wait on a dead client"
+
+
+def test_the_crystal_reading_answers_every_field_the_card_draws():
+    reading = modelmod.parse(CRYSTAL_OPEN, at=1.0)
+    for field in ("open", "left", "need", "made", "hp", "targets", "until"):
+        assert reading.get(field) is not None, field
+
+
+def test_the_crystal_attack_is_a_scenario_and_the_panel_only_plays_it():
+    """One attack is one file, and the panel's press names it and nothing else."""
+    text = CRYSTAL_ATTACK_FILE.read_text(encoding="utf-8")
+    assert "TAP crystal_arm" in text and "TAP crystal_send" in text
+    # The proof is the SERVER's count moving, re-asked on every turn of the loop.
+    assert "TAP crystal_fetch" in text
+    assert "WHILE sent < 1 LIMIT" in text
+    assert modelmod.CRYSTAL_ATTACK == "attack_crystal_boss"
+    import game_buttons
+    for press in ("crystal_fetch", "crystal_arm", "crystal_send"):
+        assert game_buttons.get(press) is not None, f"«{press}» is not a button"
+
+
+def test_the_crystal_day_sends_what_is_OWED_and_calls_the_single_attack():
+    """A ration the game counts: it asks, sends the difference, and asks again."""
+    text = CRYSTAL_DAILY_FILE.read_text(encoding="utf-8")
+    assert "CALL attack_crystal_boss" in text, "the day's run presses for itself"
+    assert "WHILE cr_left > 0" in text
+    # A shut event and a day already played are SUCCESSES: a failure would sit out the
+    # retry hold and try again every quarter of an hour until midnight.
+    assert text.count("STOP") == 2, text.count("STOP")
+    # …and how many the day pays for is the GAME's answer: the loop leaves when the
+    # server says nothing is owed, and the LIMIT beside it is only a rail.
+    assert "cr_left" in text and "GetMaxAttackCount" not in text.split("WHILE")[0]
+
+
+def test_the_crystal_day_is_a_timer_of_a_day_and_the_row_has_a_name():
+    from panel import timers as timersmod
+
+    entry = next(t for t in timersmod.DEFAULT_TIMERS
+                 if t.name == "attack_crystal_boss_daily")
+    assert entry.scenario == ("attack_crystal_boss_daily",)
+    assert entry.interval_sec == 24 * 3600
+    assert not entry.enabled, "an errand that marches must not ship switched on"
+    assert 0 < entry.retry_sec < entry.interval_sec / 10
+    english = json.loads(
+        (Path(i18nmod.LOCALES_DIR) / "en.json").read_text(encoding="utf-8"))
+    assert entry.label_key in english
+
+
+def test_the_phone_draws_the_crystal_card_and_can_press_both():
+    """The card is the reading and both presses are recipes, so both travel."""
+    tab = _tab(crystal=CRYSTAL_OPEN)
+    card = _card(tab, "events.group.crystal")
+    rows = {r["label"]: r["value"] for r in card["rows"]}
+    assert rows["events.crystal.attacks"] == "0 / 3"
+    assert rows["events.crystal.left"] == "3"
+    assert rows["events.crystal.hp"] == "100%"
+    assert "events.crystal.until" in rows, "an open window has a countdown"
+    assert {a["id"] for a in card["actions"]} == {"attack_crystal", "daily_crystal"}
+
+    assert tab.web_press("attack_crystal", {}) == {"ok": True}
+    assert tab.rt.played == [modelmod.CRYSTAL_ATTACK]
+    assert tab.web_press("daily_crystal", {}) == {"ok": False}, \
+        "a second press while one is in flight raced the first for the free squad"
+
+
+def test_the_phone_is_refused_the_crystal_press_only_when_there_is_no_boss():
+    shut = _tab(crystal=CRYSTAL_SHUT)
+    assert shut.web_press("attack_crystal", {}) == {"error": "closed"}
+    assert not _card(shut, "events.group.crystal").get("actions")
+    spent = _tab(crystal=CRYSTAL_SPENT)
+    assert spent.web_press("daily_crystal", {}) == {"ok": True}, \
+        "the recipe owns «the day is spent», not the card"
+
+
+def test_the_crystal_press_says_which_event_failed():
+    """Four presses share one runner, and two of them are a different event."""
+    tab = _tab(crystal=CRYSTAL_OPEN)
+    tab.attack_crystal()
+    assert tab._failed_key == "events.crystal.log.failed"
+    assert tab._sent_key == "events.crystal.log.sent"
 
 
 def _main() -> int:

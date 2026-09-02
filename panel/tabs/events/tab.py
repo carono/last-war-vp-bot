@@ -148,6 +148,10 @@ class EventsTab(PanelTab):
         #: Which of the two presses is on its way, so the sentence that comes back names
         #: the right one. `None` while nothing is running.
         self._sent_key = None
+        #: …and the sentence a FAILURE is reported in, and what to re-read afterwards:
+        #: four presses share this one runner and they belong to two different events.
+        self._failed_key = "events.codename.log.failed"
+        self._after_press = None
 
         # -- «Под руинами» ---------------------------------------------------
         #: The last line the descent's own reader brought back, verbatim. Nothing is
@@ -198,6 +202,14 @@ class EventsTab(PanelTab):
         self._tally = None
         #: Whether the golden reading should follow the codename one home.
         self._chain_golden = False
+
+        # -- «Кристальный босс» ----------------------------------------------
+        #: Its own reading, taken at the end of the same chain: the card answers a
+        #: different event from every other one on this board, and one of them being
+        #: unreadable must not blank the rest.
+        self._crystal = None
+        self._crystal_busy = False
+        self._chain_crystal = False
 
         # -- «Поезд альянса» ------------------------------------------------
         #: Its own reading, on its own clock, for the same reason the other two have
@@ -546,6 +558,7 @@ class EventsTab(PanelTab):
         self._golden = None
         self._train = None
         self._arms = None
+        self._crystal = None
         #: …and the calendar with it: a week of borders belongs to the account that was
         #: told them, and another account's day starts and ends somewhere else.
         self._arms_cal = ()
@@ -585,6 +598,9 @@ class EventsTab(PanelTab):
                 elif (not self._arms_busy
                         and self._age_of(self._arms) >= self.REFRESH_SEC):
                     self.refresh_arms()
+                elif (not self._crystal_busy
+                        and self._age_of(self._crystal) >= self.REFRESH_SEC):
+                    self.refresh_crystal()
         finally:
             self.rt.tick.arm("events_poll", self.TICK_MS, self._tick)
 
@@ -632,6 +648,7 @@ class EventsTab(PanelTab):
         self._chain_golden = True
         self._chain_train = True
         self._chain_arms = True
+        self._chain_crystal = True
         if self.refresh(human=human):
             return True
         self._chain_golden = False
@@ -682,16 +699,25 @@ class EventsTab(PanelTab):
         """
         return self._play(modelmod.CODENAME_DAILY, "events.codename.log.daily")
 
-    def _play(self, scenario: str, sent_key: str) -> bool:
+    def _play(self, scenario: str, sent_key: str,
+              failed_key: str = "events.codename.log.failed",
+              busy_key: str = "events.codename.log.busy",
+              after=None) -> bool:
         """Start one of the two, with the sentence its finish will be reported in.
 
-        One press at a time, whichever it is: both drive the same client at the same
-        boss, and two at once would be two runs racing for the same free squad.
+        One press at a time, whichever it is — and that now covers the crystal boss's
+        two as well: all four drive the same client and want the same free squad, so a
+        second press while one is in flight is refused rather than raced.
+
+        `after` is what to re-read when it ends, because the count that says an attack
+        happened is the SERVER's and belongs to whichever event was attacked.
         """
         if self._attacking:
             return False
         self._attacking = True
         self._sent_key = sent_key
+        self._failed_key = failed_key
+        self._after_press = after
         self._paint_attack_button()
         started = self.rt.play_async(
             scenario, tag="events", human=True,
@@ -699,8 +725,9 @@ class EventsTab(PanelTab):
         if not started:
             self._attacking = False
             self._sent_key = None
+            self._after_press = None
             self._paint_attack_button()
-            self.say("events", "events.codename.log.busy")
+            self.say("events", busy_key)
         return started
 
     def _attack_back(self, outcome) -> None:
@@ -708,16 +735,18 @@ class EventsTab(PanelTab):
         if outcome is not None and getattr(outcome, "ok", False):
             self.say("events", self._sent_key or "events.codename.log.sent")
         else:
-            self.say("events", "events.codename.log.failed",
+            self.say("events", self._failed_key or "events.codename.log.failed",
                      error=(getattr(outcome, "reason", "") or "?"))
 
     def _attack_done(self) -> None:
         self._attacking = False
         self._sent_key = None
+        after, self._after_press = self._after_press, None
         self._paint_attack_button()
         #: Re-read rather than counting the press: the count that matters is the
         #: server's, and it is the only thing that says an attack really went out.
-        self.rt.tick.arm("events_after_attack", self.AFTER_ATTACK_MS, self.refresh)
+        self.rt.tick.arm("events_after_attack", self.AFTER_ATTACK_MS,
+                         after or self.refresh)
 
     # -- «Золотые зомби»: its reading, its press, its day -------------------
     def refresh_golden(self, human: bool = False) -> bool:
@@ -831,6 +860,74 @@ class EventsTab(PanelTab):
     def _arms_done(self) -> None:
         self._arms_busy = False
         self._render()
+        #: …and the last of the chain. Only one scenario may drive the client at a
+        #: time, so every reading on this board follows the previous one home rather
+        #: than being fired beside it (#1519).
+        if self._chain_crystal:
+            self._chain_crystal = False
+            self.refresh_crystal()
+
+    # -- «Кристальный босс»: its reading and its two presses ----------------
+    def refresh_crystal(self, human: bool = False) -> bool:
+        """Ask the game what the crystal boss is doing. `False` if it could not be asked.
+
+        The reading SENDS the event's own get before it reads anything
+        (`actions/read_crystal_boss.md`): the manager boots with no boss and no counter,
+        and answers a panel that has not asked exactly as it would on a day the event
+        were shut. That trap cost «Кодовое имя» a whole feature for a day (#1259).
+        """
+        if self._crystal_busy:
+            return False
+        self._crystal_busy = True
+        started = self.rt.play_async(
+            modelmod.CRYSTAL_ACTION, tag="events", human=human,
+            on_result=self._crystal_back, on_done=self._crystal_done)
+        if not started:
+            self._crystal_busy = False
+        return started
+
+    def _crystal_back(self, outcome) -> None:
+        at = time.time()
+        if outcome is None or not getattr(outcome, "ok", False):
+            reason = getattr(outcome, "reason", "") or ""
+            self._crystal = modelmod.Reading(error=reason or "failed", at=at)
+            return
+        ctx = getattr(outcome, "ctx", None)
+        raw = (getattr(ctx, "vars", {}) or {}).get(modelmod.CRYSTAL_VARIABLE)
+        self._crystal = modelmod.parse(raw, at=at)
+
+    def _crystal_done(self) -> None:
+        self._crystal_busy = False
+        self._render()
+
+    def crystal(self):
+        """The crystal card against the last reading — what both front-ends draw."""
+        return modelmod.crystal_state(self._crystal)
+
+    def attack_crystal(self) -> bool:
+        """Send a squad at the «Кристальный босс». One attack, one press.
+
+        Everything the attack IS lives in `actions/attack_crystal_boss.md` — which boss,
+        which squad, and the proof that the server's own count moved. This starts it and
+        re-reads the card afterwards.
+        """
+        return self._play(modelmod.CRYSTAL_ATTACK, "events.crystal.log.sent",
+                          failed_key="events.crystal.log.failed",
+                          busy_key="events.crystal.log.busy",
+                          after=self.refresh_crystal)
+
+    def daily_crystal(self) -> bool:
+        """Make the day's three attacks — as many as the day still owes, and no more.
+
+        The clock's errand, offered as a press for the person who has just come back to
+        the machine. What «still owes» means is the scenario's business: it asks the
+        server what has already been made, from whatever hand made it, so this is safe to
+        lean on and does nothing at all on a day already played.
+        """
+        return self._play(modelmod.CRYSTAL_DAILY, "events.crystal.log.daily",
+                          failed_key="events.crystal.log.failed",
+                          busy_key="events.crystal.log.busy",
+                          after=self.refresh_crystal)
 
     def arms(self):
         """The arms card against the last reading — what both front-ends draw."""
@@ -1767,6 +1864,34 @@ class EventsTab(PanelTab):
                              {"label": "events.codename.daily",
                               "pill": "events.codename.attack.off"}]
 
+        # …and «Кристальный босс», the same event with a different manager and three
+        # attacks the SERVER counts. The number that matters is what the day still owes,
+        # not what this panel sent: an attack made from the game itself is already in it.
+        # Both presses travel because both are recipes (`CLAUDE.md`), and the card is
+        # drawn on the phone only — new work goes to the web while the window is being
+        # retired (#1976), and the reading is what the window already has no room for.
+        cr = self.crystal()
+        crows = [
+            {"label": "events.state", "value": self._state_words(cr)},
+            {"label": "events.crystal.attacks", "value": modelmod.counter(cr)},
+            {"label": "events.crystal.left", "value": modelmod.crystal_left(cr)},
+            {"label": "events.crystal.hp", "value": modelmod.health(cr)},
+        ]
+        if cr.state == modelmod.OPEN:
+            crows.append({"label": "events.crystal.until",
+                          "value": modelmod.hhmm(cr.seconds)})
+        ccard = {"title": "events.group." + modelmod.CRYSTAL, "rows": crows}
+        if cr.can_attack and not self._attacking:
+            ccard["actions"] = [{"id": "attack_crystal",
+                                 "label": "events.crystal.attack"},
+                                {"id": "daily_crystal",
+                                 "label": "events.crystal.daily"}]
+        else:
+            ccard["items"] = [{"label": "events.crystal.attack",
+                               "pill": "events.codename.attack.off"},
+                              {"label": "events.crystal.daily",
+                               "pill": "events.codename.attack.off"}]
+
         # …and the same board for «Золотые зомби», including the squad, which is a
         # CHOICE and therefore has to be reachable from the phone too: a control the
         # window has and the phone does not is a control the person on the move cannot
@@ -2001,6 +2126,7 @@ class EventsTab(PanelTab):
                  "value": (modelmod.ago(self._age()) if self._reading is not None
                            and not self._reading.error else "—")}]},
             card,
+            ccard,
             gcard,
             tcard,
             fcard,
@@ -2067,6 +2193,14 @@ class EventsTab(PanelTab):
             if not self.codename().can_attack:
                 return {"error": "closed"}
             return {"ok": self.attack() if action == "attack_codename" else self.daily()}
+        if action in ("attack_crystal", "daily_crystal"):
+            # The same gate the card draws by, and no second one: what «the day still
+            # owes» is belongs to the recipe, which asks the server and refuses in one
+            # line. All this checks is that the game has not SAID there is no boss.
+            if not self.crystal().can_attack:
+                return {"error": "closed"}
+            return {"ok": (self.attack_crystal() if action == "attack_crystal"
+                           else self.daily_crystal())}
         if action == "squad_next":
             # THE BUTTON THAT WALKED THE SLOTS, kept for the page a phone already has
             # open (#2062). The card draws the picker now — one touch, and the faces say

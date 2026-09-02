@@ -8840,6 +8840,271 @@ def codename_sent() -> str:
 
 
 # ---------------------------------------------------------------------------
+# «Кристальный босс» — the daily boss with three attacks (#2077)
+# ---------------------------------------------------------------------------
+# The game's own name, out of the client's own tables: key `red_world_boss_title1` —
+# **Crystal Boss** in English, **«Кристальный босс»** in Russian. The client calls it
+# the RED boss everywhere in code (`DataCenter.CrystalBossDataManager`, `red.boss.*`
+# on the wire) and the crystal one everywhere a person can see it; both names are the
+# game's, and the panel uses the one the player reads.
+#
+# It is «Кодовое имя» with a different manager and a different march type — the person
+# asked for it in those words, and the reverse-engineering agreed. One boss stands on
+# the world map for a window that covers the server day, THREE attacks a day are paid
+# for, and the server owns the count. Read once, act, then ask again:
+#
+#   RequestMarchData()     sends `red.boss.get.march`, the client's own get. It is the
+#                          reading's first step for the same reason `codename_fetch`
+#                          is: a manager nobody asked answers with the state it booted
+#                          with, and this one boots with no boss and no counter.
+#   GetRemainAttackCount() attacks LEFT today. The server's own number, so it counts an
+#                          attack made from anywhere — this panel, the phone, or the
+#                          person playing. It is the gate and the proof both.
+#   GetMaxAttackCount()    how many the day pays for. Three at the time of writing,
+#                          read rather than written down.
+#   GetCurrentBoss()       the boss itself: `uuid`, `startPos` (a ready-made map index),
+#                          `serverId`, and the health it has left.
+#
+# The attack is ONE call, exactly as it is for «Кодовое имя», with the march type the
+# client keeps for this boss: `MarchTargetType.DIRECT_ATTACK_RED_BOSS` (194), and
+# `CROSS_DIRECT_ATTACK_RED_BOSS` (196) when the boss stands on another server.
+#
+# The reverse-engineering is docs/research/crystal-boss.md.
+_CRYSTAL_MGR = "DataCenter.CrystalBossDataManager"
+_CRYSTAL_PARAMS = "local p = DataCenter.__lw_crystal or {} "
+
+
+def crystal_fetch() -> str:
+    """Ask the server for the boss and the day's attack count — the client's own get.
+
+    `RequestMarchData()` sends `red.boss.get.march` and nothing else (measured on a live
+    client: `RequestPanelData()` sends that one plus the progress and the achievement
+    gets, which this feature never reads). The reply is what fills the march state, the
+    boss dictionary and the attack counter, so every reading below is worth reading only
+    after it has landed.
+    """
+    return ('pcall(function() %s:RequestMarchData() end) '
+            'CS.UnityEngine.Debug.LogError("ACT crystal_fetch sent")' % _CRYSTAL_MGR)
+
+
+def crystal_loaded() -> str:
+    """Lua *expression* -> 1 once the fetch's reply has landed, else 0.
+
+    The march state is what the reply brings — the activity, the stage and the state it
+    is in — so its arrival is «the answers beside it are this session's». It stays 0 on
+    a client that is not talking to the server, which is why every caller waits for it
+    with a LIMIT rather than until it turns 1.
+    """
+    return ("(function() local ok, st = pcall(function() return %s:GetMarchState() end) "
+            "if not ok or type(st) ~= 'table' then return 0 end "
+            "if st.activityId == nil then return 0 end return 1 end)()" % _CRYSTAL_MGR)
+
+
+def crystal_open() -> str:
+    """Lua *expression* -> 1 while the boss can be attacked at all right now, else 0.
+
+    All three of the client's own gates, because they answer different questions: the
+    activity is switched on (`IsOpen`), the day's window is running (`IsActivityTimeOpen`)
+    and there is a boss standing in it (`IsBossAvailable`). A day with no window is
+    «событие не идёт» rather than «нет атак» — different states, drawn differently, and
+    the errand ends the first as a success.
+    """
+    return ("(function() local ok, v = pcall(function() "
+            "return (%(m)s:IsOpen() and %(m)s:IsActivityTimeOpen() "
+            "and %(m)s:IsBossAvailable()) end) "
+            "if not ok then return nil end return (v and 1 or 0) end)()"
+            % {"m": _CRYSTAL_MGR})
+
+
+def crystal_attacks_left() -> str:
+    """Lua *expression* -> attacks the day still owes, or nil when nobody could say.
+
+    THE SERVER'S OWN NUMBER, and the only one worth gating on: it counts the attacks
+    made from anywhere, so a day the person has already played by hand costs this panel
+    nothing. nil is «the counter could not be read», which is not zero — a client that
+    has stopped answering must not look like a day already finished.
+    """
+    return ("(function() local ok, v = pcall(function() "
+            "return %s:GetRemainAttackCount() end) "
+            "if not ok or v == nil then return nil end "
+            "local n = math.floor((v or 0) + 0) if n < 0 then n = 0 end return n end)()"
+            % _CRYSTAL_MGR)
+
+
+def crystal_attacks_max() -> str:
+    """Lua *expression* -> how many attacks the day pays for (three, from the config)."""
+    return ("(function() local ok, v = pcall(function() "
+            "return %s:GetMaxAttackCount() end) "
+            "if not ok or v == nil then return nil end "
+            "return math.floor((v or 0) + 0) end)()" % _CRYSTAL_MGR)
+
+
+def crystal_attacks_made() -> str:
+    """Lua *expression* -> attacks already made today: the day's number minus what is left.
+
+    Derived rather than read, because the client keeps no counter of its own for it —
+    `transInfo.attackTimes` is a different thing entirely (it belongs to the crystal
+    TRANSPORT, and it read 0 on a day whose three attacks had all been made).
+    """
+    return ("(function() local l = %s local n = %s "
+            "if l == nil or n == nil then return nil end "
+            "local m = n - l if m < 0 then m = 0 end return m end)()"
+            % (crystal_attacks_left(), crystal_attacks_max()))
+
+
+def crystal_can_attack() -> str:
+    """Lua *expression* -> 1 while the client itself says an attack may be sent."""
+    return ("(function() local ok, v = pcall(function() return %s:CanAttackBoss() end) "
+            "if not ok then return nil end return (v and 1 or 0) end)()" % _CRYSTAL_MGR)
+
+
+def crystal_targets() -> str:
+    """Lua *expression* -> how many boss instances the client has on the map."""
+    return ("(function() local ok, n = pcall(function() "
+            "return %s:GetBossDataCount() end) "
+            "if not ok or n == nil then return nil end "
+            "return math.floor((n or 0) + 0) end)()" % _CRYSTAL_MGR)
+
+
+def crystal_seconds_left() -> str:
+    """Lua *expression* -> seconds left in the open window, or nil when none is open.
+
+    The stage's `endTime` is in MILLISECONDS here — the same unit the server clock is
+    read in — so the difference is divided before it is handed back. Codename's stage
+    speaks seconds; the two are not the same manager and neither number is guessed.
+    """
+    return ("(function() local ok, st = pcall(function() "
+            "return %s:GetAttackStageData() end) "
+            "if not ok or type(st) ~= 'table' then return nil end "
+            "local e = st.endTime if e == nil then return nil end "
+            "e = e + 0 "
+            "local now = (UITimeManager:GetInstance():GetServerTime() or 0) + 0 "
+            "local left = (e - now) / 1000 if left < 0 then left = 0 end "
+            "return math.floor(left) end)()" % _CRYSTAL_MGR)
+
+
+def crystal_boss_health() -> str:
+    """Lua *expression* -> the boss's health as a percentage of what it started with."""
+    return ("(function() local ok, b = pcall(function() "
+            "return %s:GetCurrentBoss() end) "
+            "if not ok or type(b) ~= 'table' then return nil end "
+            "local h, full = b.armyHealth, b.armyInitHealth "
+            "if h == nil or full == nil then return nil end "
+            "h, full = h + 0, full + 0 if full <= 0 then return nil end "
+            "return math.floor(h * 100 / full) end)()" % _CRYSTAL_MGR)
+
+
+def crystal_arm() -> str:
+    """Set the attack up: the boss, a squad standing in the base, and the count before.
+
+    All three before anything is sent, for the reason `codename_arm` does the same: a
+    run that finds out at the send that there was no squad has already told the server
+    it was coming.
+
+    * `uuid` / `point` / `server` — out of `GetCurrentBoss()`. `startPos` is a ready-made
+      map index on this manager (854849 on the live boss), and it is read through the
+      shapes a position is known to take anyway, because a manager is not a promise.
+    * `formation` — the FIRST squad standing in the base. A squad already marching,
+      gathering, in a rally or wiped cannot be sent, and the game only says so at the
+      last press.
+    * `before` — attacks LEFT before the send, so the attack can be measured afterwards
+      rather than assumed from a press that returned cleanly.
+    """
+    return (
+        _CRYSTAL_PARAMS +
+        "p.uuid, p.point, p.server, p.formation, p.squad = nil, nil, nil, nil, nil "
+        "pcall(function() "
+        "local b = %(mgr)s:GetCurrentBoss() "
+        "if type(b) == 'table' then "
+        "p.uuid = b.uuid "
+        "pcall(function() if b.serverId ~= nil then p.server = b.serverId + 0 end end) "
+        "local sp = b.startPos "
+        "if type(sp) == 'table' then "
+        "local x, y = sp.x, sp.y "
+        "if x ~= nil and y ~= nil then p.point = math.floor(y + 0) * 1000 + math.floor(x + 0) "
+        "elseif sp[1] ~= nil then p.point = sp[1] + 0 end "
+        "elseif sp ~= nil then p.point = sp + 0 end "
+        "end end) "
+        "pcall(function() "
+        "local best = nil "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "local idx = v.index and (v.index + 0) or nil "
+        "local st = v.state and (v.state + 0) or nil "
+        "local ok, idle = pcall(function() return v:IsFree() end) "
+        "local free = true if ok and idle ~= nil then free = (idle and true or false) end "
+        "if idx ~= nil and st == 0 and free and (best == nil or idx < best.idx) then "
+        "best = {idx = idx, uuid = v.uuid} end end "
+        "if best ~= nil then p.formation, p.squad = best.uuid, best.idx end end) "
+        "p.before = %(left)s "
+        "DataCenter.__lw_crystal = p "
+        'CS.UnityEngine.Debug.LogError("ACT crystal_arm boss="..tostring(p.uuid)'
+        '.." point="..tostring(p.point).." squad="..tostring(p.squad)'
+        '.." formation="..tostring(p.formation).." left="..tostring(p.before))'
+        % {"mgr": _CRYSTAL_MGR, "left": crystal_attacks_left()}
+    )
+
+
+def crystal_armed() -> str:
+    """Lua *expression* -> what the arm found: 1 all set, 0 no boss, -1 no free squad."""
+    return (
+        "(function() " + _CRYSTAL_PARAMS +
+        "if p.uuid == nil or p.point == nil then return 0 end "
+        "if p.formation == nil then return -1 end return 1 end)()"
+    )
+
+
+def crystal_send() -> str:
+    """Send the squad at the crystal boss — one call, no window, no camera flight.
+
+    The same shape the «Кодовое имя» attack was read off the wire in (#1259), with this
+    boss's own march type out of the client's own table:
+
+        SendCreateMarchMessage(formation, DIRECT_ATTACK_RED_BOSS, point, uuid,
+                               timeIndex = 1, autoBackHome = 1, needSoldier = false,
+                               targetServerId = server, destroyTimeIndex = nil)
+
+    `CROSS_DIRECT_ATTACK_RED_BOSS` when the boss stands on another server; the arm parks
+    the boss's `serverId` so this can tell. Scheduled on the main thread through
+    `TimerManager:DelayInvoke`, because a send from the hijack thread returns `true` and
+    is dropped by the server.
+    """
+    return (
+        _CRYSTAL_PARAMS +
+        "if p.formation == nil or p.uuid == nil then error('nothing armed for this run') end "
+        "local kind = MarchTargetType.DIRECT_ATTACK_RED_BOSS "
+        "local home = nil pcall(function() home = LuaEntry.Player:GetSelfServerId() + 0 end) "
+        "if p.server ~= nil and home ~= nil and (p.server + 0) ~= home then "
+        "kind = MarchTargetType.CROSS_DIRECT_ATTACK_RED_BOSS end "
+        "TimerManager:GetInstance():DelayInvoke(function() "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(p.formation, kind, p.point, p.uuid, "
+        "1, 1, false, p.server, nil) end) "
+        'CS.UnityEngine.Debug.LogError("ACT crystal_send ok="..tostring(ok).." err="..tostring(err)) '
+        "end, 0.4) "
+        'CS.UnityEngine.Debug.LogError("ACT crystal_send scheduled squad="..tostring(p.squad)'
+        '.." boss="..tostring(p.uuid).." kind="..tostring(kind))'
+    )
+
+
+def crystal_sent() -> str:
+    """Lua *expression* -> attacks spent since the arm ran. 1 once one has gone out.
+
+    The DIFFERENCE between the count the arm noted and the count now, and it counts DOWN
+    because this manager reports what is LEFT. The server owns the number, so this is
+    the one thing that proves an attack was launched rather than merely pressed.
+
+    **-1 is «the counter could not be read»**, and it is spelled out rather than folded
+    into a zero: a client that has stopped answering would otherwise hand back the whole
+    of `before` and read as an attack that went out.
+    """
+    return ("(function() local cur = %s "
+            "if cur == nil then return -1 end "
+            "return ((DataCenter.__lw_crystal or {}).before or 0) - cur end)()"
+            % crystal_attacks_left())
+
+
+
+# ---------------------------------------------------------------------------
 # «Вход с другого устройства» — the kick, as the CLIENT shows it
 # ---------------------------------------------------------------------------
 # The game is single-session: logging the account in elsewhere kicks this client and

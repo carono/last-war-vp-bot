@@ -42,6 +42,34 @@ CODENAME_ATTACK = "attack_codename_boss"
 #: the person makes one march at a time.
 CODENAME_DAILY = "attack_codename_daily"
 
+#: «Кристальный босс» — the SAME event with a different manager, and the person said so
+#: in those words: «аналогична событию кодового имени, суть та же, 3 атаки». One boss
+#: stands on the world map for a window that covers the server day, and the day pays for
+#: THREE attacks on it.
+#:
+#: What is NOT the same as its neighbour, and it is the reason this is a card of its own
+#: rather than a second row on that one: attempts here ARE rationed. «Кодовое имя» draws
+#: «сделано из трёх» over an unlimited allowance, so a fourth attack there is worth
+#: making; this event has three and the server counts them, from whatever hand made
+#: them. So the number beside it is what the day still OWES, and the recipe refuses a
+#: fourth march rather than spending a squad for nothing.
+#:
+#: The reading is `actions/read_crystal_boss.md`, the attack `attack_crystal_boss.md`,
+#: the day's worth `attack_crystal_boss_daily.md`, and the reverse-engineering is
+#: docs/research/crystal-boss.md.
+CRYSTAL = "crystal"
+
+#: The scenario that answers it, and the variable it lands in.
+CRYSTAL_ACTION = "read_crystal_boss"
+CRYSTAL_VARIABLE = "crystal"
+
+#: The two presses: one attack, and the whole day's worth. The second is the errand the
+#: clock plays once a day, offered here because a person who has just come back to the
+#: machine wants it NOW rather than at the top of the next period — and it costs nothing
+#: on a day already played, because it asks the server first.
+CRYSTAL_ATTACK = "attack_crystal_boss"
+CRYSTAL_DAILY = "attack_crystal_boss_daily"
+
 #: The reading behind the «Золотые зомби» group, and the variable it lands in.
 GOLDEN_ACTION = "read_golden_zombies"
 GOLDEN_VARIABLE = "golden"
@@ -398,7 +426,8 @@ def arms_minutes_of(value) -> int:
         return ARMS_MINUTES_DEFAULT
     return max(ARMS_MINUTES_MIN, min(ARMS_MINUTES_MAX, number))
 
-GROUPS: tuple = (Group(CODENAME), Group(GOLDEN), Group(FIREWORKS), Group(ARMS))
+GROUPS: tuple = (Group(CODENAME), Group(CRYSTAL), Group(GOLDEN),
+                 Group(FIREWORKS), Group(ARMS))
 
 
 def when(stamp: float) -> str:
@@ -560,6 +589,87 @@ def codename_state(reading) -> "CodenameState":
         targets=reading.get("targets"),
         seconds=reading.get("until"),
     )
+
+
+class CrystalState:
+    """What «Кристальный босс» says right now — the whole card, in one object.
+
+    ``attacks`` is how many of the day's have been made and ``need`` how many it pays
+    for; ``left`` is what is still owed, and it is the SERVER's own number, so an attack
+    made from the phone or by the person playing is already in it. ``health`` is what the
+    boss has left as a percentage of what it started the window with. ``None`` anywhere
+    means the game would not answer, and the card draws that as words rather than as a
+    number nobody can trust.
+    """
+
+    __slots__ = ("state", "attacks", "need", "left", "health", "targets", "seconds")
+
+    def __init__(self, state: str, attacks=None, need=None, left=None, health=None,
+                 targets=None, seconds=None) -> None:
+        self.state = state
+        self.attacks = attacks
+        self.need = need
+        self.left = left
+        self.health = health
+        self.targets = targets
+        #: Seconds left in the open window, when there is one.
+        self.seconds = seconds
+
+    @property
+    def open(self) -> bool:
+        return self.state == OPEN
+
+    @property
+    def done(self) -> bool:
+        """Are the day's attacks in? ``False`` while nobody knows — never a guess."""
+        return self.left is not None and self.left <= 0
+
+    @property
+    def can_attack(self) -> bool:
+        """May «Атаковать сейчас» be pressed?
+
+        The same rule the rest of this board goes by: only the game having SAID there is
+        no boss — `CLOSED` — kills the button. **A day already played does NOT**, even
+        though the recipe will refuse it: the ability holds its own gates (`CLAUDE.md`),
+        and a panel that made its own copy of «осталось 0» would refuse over a reading a
+        minute old while the server had already turned the day over. The refusal is one
+        line in the log and costs nothing; a button that is dead when the game would have
+        allowed the press costs the day's reward.
+        """
+        return self.state != CLOSED
+
+    def __repr__(self) -> str:
+        return f"<crystal {self.state} {self.attacks}/{self.need} hp={self.health}>"
+
+
+def crystal_state(reading) -> "CrystalState":
+    """The crystal-boss card against one reading. Never guesses: no answer is `unknown`."""
+    if reading is None or reading.error:
+        return CrystalState(UNKNOWN)
+    is_open = reading.get("open")
+    if is_open is None:
+        return CrystalState(UNKNOWN)
+    return CrystalState(
+        OPEN if is_open else CLOSED,
+        attacks=reading.get("made"),
+        need=reading.get("need"),
+        left=reading.get("left"),
+        health=reading.get("hp"),
+        targets=reading.get("targets"),
+        seconds=reading.get("until"),
+    )
+
+
+def crystal_left(state) -> str:
+    """`2` — attacks the day still owes, or `—` for «the game would not say»."""
+    return "—" if state.left is None else str(state.left)
+
+
+def health(state) -> str:
+    """`72%` — what the boss has left, or `—`. A share and not a bar: the card is a line
+    of text on both front-ends, and a percentage is the whole of what a person wants.
+    """
+    return "—" if state.health is None else "%d%%" % state.health
 
 
 def damage(value) -> str:
