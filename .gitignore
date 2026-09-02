@@ -167,3 +167,4 @@ service.json
 # so its log is a file beside its settings — this machine's, never a checkout's.
 service.log
 service.log.1
+service_restart.log

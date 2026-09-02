@@ -26,7 +26,9 @@ from __future__ import annotations
 TIER = "offline"   # tkinter is stubbed below — sockets on ports the OS picks, no game
 
 import json
+import os
 import sys
+import time
 import types
 import urllib.error
 import urllib.request
@@ -430,7 +432,9 @@ def test_the_service_can_be_asked_to_restart_ITSELF_and_refuses_when_it_is_not_o
     `unavailable` rather than stopping a service that is not running.
     """
     asked: list = []
-    said = selfctl.restart(spawn=asked.append, name="not_a_registered_service")
+    watched: list = []
+    said = selfctl.restart(spawn=asked.append, watch=lambda *a: watched.append(a),
+                           name="not_a_registered_service")
     assert said == {"ok": False, "unavailable": True,
                     "name": "not_a_registered_service"}, said
     assert not asked, "asked Windows to restart something it does not know"
@@ -440,13 +444,44 @@ def test_the_service_can_be_asked_to_restart_ITSELF_and_refuses_when_it_is_not_o
     real = selfctl.registered
     try:
         selfctl.registered = lambda name="", run=None: True
-        said = selfctl.restart(spawn=asked.append, name="whatever")
+        said = selfctl.restart(spawn=asked.append, watch=lambda *a: watched.append(a),
+                               name="whatever")
     finally:
         selfctl.registered = real
     assert said["ok"] is True and said["name"] == "whatever", said
     assert len(asked) == 1, asked
     line = " ".join(asked[0])
     assert "Restart-Service" in line and "whatever" in line and "-Force" in line, line
+    # …and it asks a VERSION of Windows' PowerShell that exists rather than a name on a
+    # PATH LocalSystem may not have, with nothing in the script that quoting can eat.
+    assert asked[0][0].lower().endswith("powershell") or \
+        asked[0][0].lower().endswith("powershell.exe"), asked[0][0]
+    assert '"' not in asked[0][-1], asked[0][-1]
+
+    # THE VERDICT IS THE POINT OF #2069. `ok` means «the ask went out», and it used to be
+    # indistinguishable from «it happened»: the restarter's output went to DEVNULL and the
+    # service went on running with a two-day-old pid under a door saying ok. So the ask
+    # names the file the restarter writes its own verdict into, and this process arms a
+    # watcher that can only fire if it was never stopped — the honest «did not».
+    assert said["log"] == selfctl.restart_log_path() and said["asked"] is True, said
+    assert selfctl.restart_log_path() in " ".join(asked[0]), asked[0]
+    assert len(watched) == 1 and watched[0][1] == "whatever", watched
+
+
+def test_a_restart_that_did_not_happen_says_so_from_the_side_that_survived_it() -> None:
+    """The watcher is only ever reached by a service the SCM never stopped (#2069).
+
+    Nothing has to be weighed up when it fires: a restart that worked ended this process
+    long before the delay was up, so being alive to say the line IS the evidence for it.
+    """
+    lines: list = []
+    selfctl._watch(lines.append, "whatever", 0.01)
+    for _ in range(200):
+        if lines:
+            break
+        time.sleep(0.01)
+    assert lines and "NOT restarted" in lines[0], lines
+    assert str(os.getpid()) in lines[0] and selfctl.restart_log_path() in lines[0], lines
 
 
 def test_the_service_route_answers_its_state_and_refuses_a_press_it_does_not_know() -> None:
@@ -472,8 +507,9 @@ def test_the_service_route_answers_its_state_and_refuses_a_press_it_does_not_kno
         # …and with the SCM knowing the name, the same door offers the press.
         asked: list = []
         selfctl.registered = lambda name="", run=None: True
-        real_spawn = selfctl._spawn
+        real_spawn, real_watch = selfctl._spawn, selfctl._watch
         selfctl._spawn = asked.append
+        selfctl._watch = lambda *a: None      # a 40s timer outliving the test says nothing
         try:
             status, said = _get(service, "/api/service")
             assert status == 200 and said["available"] is True, said
@@ -483,7 +519,7 @@ def test_the_service_route_answers_its_state_and_refuses_a_press_it_does_not_kno
             assert status == 200 and said.get("ok") is True, said
             assert len(asked) == 1, asked
         finally:
-            selfctl._spawn = real_spawn
+            selfctl._spawn, selfctl._watch = real_spawn, real_watch
     finally:
         selfctl.registered = real
         service.stop()
