@@ -119,6 +119,9 @@ function ErrandBlock({
       facts={facts}
       queued={queued}
       stat={stat}
+      /* THE CARD IS THE PICTURE (#2370): the schedule — or, for a listener, what it is
+         waiting for — travels under the «i» instead of standing over the art. */
+      factsInSheet
       switchNode={<ErrandSwitch title={title} on={on} onToggle={onToggle} />}
       acts={[gear.button, run].filter(Boolean)}
       sheets={gear.panel}

@@ -28,9 +28,16 @@ import type { ErrandStat } from '../types'
  * `about`. An errand whose label has no short form sends an empty `about` and draws no
  * «i» at all, rather than one that opens the title again.
  */
-export function useAbout(title: string, about?: string) {
+/* …and since #2370 the «i» also holds the line the card used to WEAR — the person's
+ * words: «давай скроем описание полностью». The schedule («каждые 1 ч · следующий через
+ * 31 мин · последний запуск 29 мин назад») is prose about a picture-sized card: it was
+ * two of the three text rows over a picture drawn for the card, and the picture is what
+ * the person asked for. It is not deleted — a schedule readable nowhere else would be a
+ * fact lost — it moves under the «i», which is why the mark is drawn now even for an
+ * errand that has no sentence of its own. */
+export function useAbout(title: string, about?: string, extra?: ReactNode) {
   const [open, setOpen] = useState(false)
-  if (!about) return { button: null, panel: null }
+  if (!about && !extra) return { button: null, panel: null }
   return {
     button: (
       <button
@@ -44,7 +51,8 @@ export function useAbout(title: string, about?: string) {
     ),
     panel: open ? (
       <Modal title={title} onClose={() => setOpen(false)}>
-        <p>{about}</p>
+        {extra ? <p className="muted small">{extra}</p> : null}
+        {about ? <p>{about}</p> : null}
       </Modal>
     ) : null,
   }
@@ -175,6 +183,7 @@ export function ErrandCard({
   switchNode,
   acts,
   sheets,
+  factsInSheet,
 }: {
   icon?: string
   /** THE PICTURE WAS DRAWN FOR THE CARD (#2340) — full colour, no wash, «i» at the name. */
@@ -201,8 +210,12 @@ export function ErrandCard({
   acts?: ReactNode[]
   /** Whatever those signs open — a modal belongs under the whole block. */
   sheets?: ReactNode
+  /** THE SCHEDULE LINE GOES UNDER THE «i» INSTEAD OF ON THE CARD (#2370). Set by the
+   *  errands, whose card is a picture; a list that draws its facts on the row — the
+   *  register of players — leaves it alone and keeps them. */
+  factsInSheet?: boolean
 }) {
-  const info = useAbout(title, about)
+  const info = useAbout(title, about, factsInSheet ? facts : undefined)
   /* THE «i» LEADS THE NAME ON A COVER CARD (#2340) — the person's words: «кнопку i
      ставим перед названием и переделываем в иконку». On a card whose picture is a
      sprite it stays where it has been since #2061, first in the row of signs: the two
@@ -237,11 +250,14 @@ export function ErrandCard({
             </span>
           ) : null}
         </div>
-        {queued || pill || facts ? (
+        {/* «Сейчас в очереди» and a word of the panel's own are NOT the schedule and
+            stay where they are: they say what is happening to this errand this minute,
+            which is the one thing a card must answer without being opened (#2370). */}
+        {queued || pill || (facts && !factsInSheet) ? (
           <p className="muted small facts">
             {queued ? <span className="pill warn">{t('web.ui.queued')}</span> : null}
             {pill ? <span className="pill">{t(pill)}</span> : null}
-            {facts}
+            {factsInSheet ? null : facts}
           </p>
         ) : null}
         {state ? <p className="muted small">{state}</p> : null}
