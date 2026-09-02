@@ -1243,9 +1243,30 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   backdrop-filter: blur(3px);
   text-shadow: none;
 }
-/* «Кнопку i ставим перед названием» — a sign at the head of the row, thumb-tall like
-   every other control here and no wider than its glyph. */
-.item.errand.cover .errand-head > .go.icon { flex: 0 0 auto; padding: 0 8px; }
+/* «i не красивая икона, а здоровенная кнопка» — and it was, because every control on this
+   front-end is a thumb tall by rule (`--tap`), which is right for a button and wrong for a
+   MARK beside a name. Here it stops looking like a button at all: no fill, no border, no
+   thumb-sized box — a glyph no taller than the line it stands in.
+
+   THE TAP TARGET DOES NOT SHRINK WITH IT. The padding that makes it pressable is given
+   back as a negative margin, so the thing is 26 px to a finger and 14 px to the eye, and
+   the name beside it does not move. That is the one part of `--tap` worth keeping when a
+   control is deliberately small. */
+.item.errand.cover .errand-head > .go.icon {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px;
+  margin: -6px 2px -6px -6px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 4px;
+}
+.item.errand.cover .errand-head > .go.icon:hover { color: var(--ink); }
 /* «Кнопку запуск сделай в правом нижнем углу» (#2340, second pass) — the corner, not
    merely the right-hand edge. The row of signs is pushed to the FOOT of the card as well
    as to its right side: the body is the height of the card, the row takes what is left
