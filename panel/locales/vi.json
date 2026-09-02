@@ -2641,5 +2641,7 @@
   "alerttower.yes": "có",
   "alerttower.no": "không",
   "timers.item.work_alert_tower": "Tháp báo động: nhận, nộp, gửi đội đi lần nữa",
-  "timers.item.work_alert_tower.short": "Tháp báo động"
+  "timers.item.work_alert_tower.short": "Tháp báo động",
+  "errand.arg.heal.chests": "Mở gói tài nguyên",
+  "errand.arg.heal.chests.hint": "Khi căn cứ không đủ trả cho việc chữa trị, mở đúng những gói tài nguyên mà chính trò chơi chọn để bù phần thiếu — không dư một gói nào. Tắt: lượt chạy vẫn cho biết chữa trị tốn bao nhiêu và thiếu những gì."
 }

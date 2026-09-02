@@ -2641,5 +2641,7 @@
   "alerttower.yes": "evet",
   "alerttower.no": "hayır",
   "timers.item.work_alert_tower": "Alarm kulesi: al, ver, takımı yeniden gönder",
-  "timers.item.work_alert_tower.short": "Alarm kulesi"
+  "timers.item.work_alert_tower.short": "Alarm kulesi",
+  "errand.arg.heal.chests": "Kaynak paketlerini aç",
+  "errand.arg.heal.chests.hint": "Üs tedaviyi ödeyemediğinde, eksiği kapatmak için oyunun kendi seçtiği kaynak paketlerini tam olarak açar; bir tane bile fazlasını değil. Kapalı: koşu yine de tedavinin maliyetini ve neyin eksik olduğunu söyler."
 }

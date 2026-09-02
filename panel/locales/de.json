@@ -2641,5 +2641,7 @@
   "alerttower.yes": "ja",
   "alerttower.no": "nein",
   "timers.item.work_alert_tower": "Alarmturm: abholen, abgeben, Trupp erneut losschicken",
-  "timers.item.work_alert_tower.short": "Alarmturm"
+  "timers.item.work_alert_tower.short": "Alarmturm",
+  "errand.arg.heal.chests": "Ressourcenpakete öffnen",
+  "errand.arg.heal.chests.hint": "Wenn die Basis die Behandlung nicht bezahlen kann, öffnet sie genau die Ressourcenpakete, die das Spiel selbst für den Fehlbetrag auswählt – und kein einziges mehr. Aus: Der Lauf nennt trotzdem die Kosten und was fehlt."
 }

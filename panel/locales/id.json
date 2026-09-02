@@ -2641,5 +2641,7 @@
   "alerttower.yes": "ya",
   "alerttower.no": "tidak",
   "timers.item.work_alert_tower": "Menara peringatan: ambil, serahkan, kirim regu lagi",
-  "timers.item.work_alert_tower.short": "Menara peringatan"
+  "timers.item.work_alert_tower.short": "Menara peringatan",
+  "errand.arg.heal.chests": "Buka paket sumber daya",
+  "errand.arg.heal.chests.hint": "Saat markas tidak mampu membayar penyembuhan, membuka persis paket sumber daya yang dipilih game sendiri untuk menutup kekurangannya — tidak satu pun lebih. Mati: proses tetap menyebutkan biaya penyembuhan dan apa yang kurang."
 }

@@ -2641,5 +2641,7 @@
   "alerttower.yes": "tak",
   "alerttower.no": "nie",
   "timers.item.work_alert_tower": "Wieża alarmowa: odbierz, oddaj, wyślij oddział ponownie",
-  "timers.item.work_alert_tower.short": "Wieża alarmowa"
+  "timers.item.work_alert_tower.short": "Wieża alarmowa",
+  "errand.arg.heal.chests": "Otwieraj paczki surowców",
+  "errand.arg.heal.chests.hint": "Gdy bazy nie stać na leczenie, otwiera dokładnie te paczki surowców, które gra sama wybiera na brakującą część — i ani jednej więcej. Wyłączone: przebieg i tak powie, ile kosztuje leczenie i czego brakuje."
 }

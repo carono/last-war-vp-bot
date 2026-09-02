@@ -131,6 +131,8 @@ SPEC: dict = {
              hint_key="errand.arg.heal.portion.hint"),
         _flag("help", "errand.arg.heal.help", hint_key="errand.arg.heal.help.hint"),
         _flag("watch", "errand.arg.heal.watch", hint_key="errand.arg.heal.watch.hint"),
+        _flag("chests", "errand.arg.heal.chests",
+              hint_key="errand.arg.heal.chests.hint"),
     ),
     "send_trucks": (
         _flag("collect", "errand.arg.trucks.collect",

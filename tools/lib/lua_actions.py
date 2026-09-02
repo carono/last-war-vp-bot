@@ -6202,6 +6202,58 @@ def hospital_heal_portion() -> str:
     )
 
 
+#: THE HOSPITAL WINDOW'S OWN CONTROLLER, which is where the price of a heal is worked out
+#: (#2085). `HospitalManager` has no cost method at all — the window computes what it
+#: shows — and the person's answer to «how much does it cost» was that the game already
+#: says so: «При лечении указывается нужное количество ресурсов».
+#:
+#: It is `UI.LWUIHospital.Controller.LWUIHospitalCtrl:GetHealCostResourceCount(count)`,
+#: and the useful discovery is that **it needs no window**: measured live on 2026-09-01
+#: with the module not loaded at all, `require` + `New` + the call answered the same
+#: numbers as the open window did (`loaded=false require=true new=true cost1000=625`).
+#: So the price is a headless reading like every other one here, and nothing flashes on
+#: the player's screen to get it.
+#:
+#: The instance is kept on the VM rather than built per call: it is the window's
+#: controller and building one is not free, and the price does not depend on it.
+_HEAL_COST_CTRL = (
+    "(function() "
+    "local D = DataCenter "
+    "local inst = D.__lw_heal_ctrl "
+    "if inst == nil then "
+    "local path = 'UI.LWUIHospital.Controller.LWUIHospitalCtrl' "
+    "local C = package.loaded[path] "
+    "if C == nil then pcall(function() C = require(path) end) end "
+    "if type(C) ~= 'table' then return nil end "
+    "pcall(function() inst = C.New(C) end) "
+    "if inst == nil then pcall(function() inst = C:New() end) end "
+    "D.__lw_heal_ctrl = inst end "
+    "return inst end)()"
+)
+
+
+def hospital_heal_cost(count_expr: str) -> str:
+    """Lua *expression* -> what the hospital window's controller answers for `count_expr`.
+
+    **This is NOT the bill, and a first version of this file said it was.** Measured live
+    on 2026-09-02 it answers `ceil(0.625 * n)` — the same rate with 1 724 wounded, with
+    120 and with none, and the same rate on a second account — so it cannot be the price
+    of healing soldiers whose own config price differs by tier. What the heal really costs
+    is :func:`hospital_heal_bill`; this number is kept, and printed beside that one, so
+    that a person with the hospital window open can settle in one sentence which of the
+    two the screen shows (docs/research/hospital-heal.md §9a).
+    """
+    return ("(function() local inst = %s "
+            "if inst == nil then return -1 end "
+            "local n = math.floor(tonumber(%s) or 0) "
+            "if n <= 0 then return 0 end "
+            "local r = nil "
+            "local ok = pcall(function() r = inst:GetHealCostResourceCount(n) end) "
+            "if not ok or r == nil then return -1 end "
+            "return math.floor(tonumber(r) or -1) end)()"
+            % (_HEAL_COST_CTRL, count_expr))
+
+
 def hospital_heal_report() -> str:
     """Lua *expression* -> one line about the last portion heal, for the log."""
     return (
@@ -6211,6 +6263,206 @@ def hospital_heal_report() -> str:
         "' types=' .. tostring(math.floor(tonumber(h.types) or 0)) .. "
         "((h.err ~= nil and h.err ~= '') and (' refused=' .. tostring(h.err)) or '') end)()"
     )
+
+
+#: WHAT A HEAL COSTS, AND WHICH OF THE GAME'S OWN NUMBERS SAYS SO (#2085).
+#:
+#: WHICH resources is the game's answer, per soldier type and beyond doubt:
+#: `lw_soldier.rescue_consume` is an explicit `id;amount|id;amount` list — `1;577|14;577`
+#: for the tier-9 soldier, `1;702.7|14;702.7` for the tier-10 — whose ids are rows of
+#: `aps_resources`, and `CommonUtil.GetResourceNameByType(id)` names them in the player's
+#: own language («Металл», «Еда»). That is the same pair the hospital window draws
+#: (`oreNeedResourceCell` / `cerealNeedResourceCell`). Balances come from
+#: `CommonUtil.GetOwnCountByCommonCostType(1, id)`, verified against the base's own
+#: numbers, where the `1` is «a base resource» as against `2`, «a resource ITEM».
+#:
+#: HOW MUCH is that list times the soldiers going, and the two other candidates were
+#: measured and REJECTED rather than assumed (2026-09-02, live):
+#:
+#: * `LWUIHospitalCtrl:GetHealCostResourceCount(n)` answers `ceil(0.625 * n)` — the same
+#:   rate with 1 724 wounded, with 120 and with none at all, and the same rate on a
+#:   second account. A bill that does not move when the wounded change from tier 9 to
+#:   tier 10 is not this bill. It is printed beside ours in the log all the same, so a
+#:   person who has the window open can say in one sentence which of the two it shows.
+#: * `HospitalManager:GetSoldierCureValueLocal()` is a CONSTANT (55 059.81 here) — the
+#:   same number with 120 wounded and with zero. An earlier revision of this file took it
+#:   for «the game's own bill, discounts included» and prorated by it; that was wrong and
+#:   is retracted.
+#:
+#: So what is not yet settled is whether the player's own research DISCOUNTS the config
+#: price. If it does, this reads a little high — and the direction matters, because a
+#: shortfall read high opens a pack that was not needed. That is why nothing opens unless
+#: the run was told to, and why the question is being put to the person rather than
+#: guessed at (docs/research/hospital-heal.md §9).
+#:
+#: **A bill that could not be read is -1, never 0**, and the bag is not opened on one:
+#: «I could not look» and «it is free» are different answers, and only the first of them
+#: is safe to act on.
+def hospital_heal_bill() -> str:
+    """Park `DataCenter.__lw_heal_bill` — what the portion will cost, and what is short.
+
+    One entry per resource the wounded actually charge: `{id, name, need, own, lack}`.
+    `need` and `lack` are -1 when the game could not be asked, which is what stops
+    :func:`hospital_open_res_packs` from opening anything.
+    """
+    return (
+        "local want = math.floor(tonumber(DataCenter.__lw_heal_portion) or 0) "
+        "local B = {res = {}, sent = 0, all = 0, val = -1, why = ''} "
+        "local ok, err = pcall(function() "
+        "local m = DataCenter and DataCenter.HospitalManager "
+        "if not m or type(m.allHospital) ~= 'table' then error('HospitalManager not loaded') end "
+        # A ROW IS NOT A LUA TABLE — every field through `pcall`, the same trap the heal
+        # itself documents.
+        "local rows = {} "
+        "for key, h in pairs(m.allHospital) do "
+        "local id, dead = nil, nil "
+        "pcall(function() id = h.armyId end) "
+        "if id == nil then id = key end "
+        "pcall(function() dead = math.floor(tonumber(h.dead) or 0) end) "
+        "if id ~= nil and dead ~= nil and dead > 0 then "
+        "rows[#rows+1] = {math.floor(tonumber(id) or 0), dead} end end "
+        # The portion spends itself exactly as the heal does — highest soldier first —
+        # so the bill is for the soldiers that are actually going.
+        "table.sort(rows, function(a, b) return a[1] > b[1] end) "
+        "local sent, all, take_of = 0, 0, {} "
+        "for _, r in ipairs(rows) do all = all + r[2] "
+        "local take = r[2] "
+        "if want > 0 then take = math.min(take, want - sent) end "
+        "if take < 0 then take = 0 end "
+        "take_of[#take_of+1] = {r[1], take, r[2]} sent = sent + take end "
+        "B.sent, B.all = sent, all "
+        "local I = LocalController.instance() "
+        "local raw_p, raw_a = {}, {} "
+        "for _, t in ipairs(take_of) do local s = nil "
+        "pcall(function() s = tostring(I:getValue('lw_soldier', t[1], 'rescue_consume', nil)) end) "
+        "if s ~= nil and s ~= '' and s ~= 'nil' then "
+        "for pair in string.gmatch(s, '[^|]+') do "
+        "local rid, amt = string.match(pair, '(%d+);([%d%.]+)') "
+        "if rid ~= nil then rid = math.floor(tonumber(rid) or 0) amt = tonumber(amt) or 0 "
+        "raw_p[rid] = (raw_p[rid] or 0) + amt * t[2] "
+        "raw_a[rid] = (raw_a[rid] or 0) + amt * t[3] end end end end "
+        # The game's own bill for everything lying in the hospital, discounts included.
+        "local fn = -1 "
+        "pcall(function() fn = math.ceil(tonumber(" + _HEAL_COST_CTRL + ":GetHealCostResourceCount(sent)) or -1) end) "
+        "B.fn = fn "
+        "for rid, rawp in pairs(raw_p) do "
+        "local need = -1 "
+        "if rawp > 0 then need = math.ceil(rawp) end "
+        "local own = -1 "
+        "pcall(function() own = math.floor(tonumber("
+        "CommonUtil.GetOwnCountByCommonCostType(1, rid)) or -1) end) "
+        "local nm = '' pcall(function() nm = tostring(CommonUtil.GetResourceNameByType(rid)) end) "
+        "local lack = -1 "
+        "if need >= 0 and own >= 0 then lack = math.max(0, need - own) end "
+        "B.res[#B.res+1] = {id = rid, need = need, own = own, lack = lack, name = nm} end "
+        "end) "
+        "if not ok then B.why = tostring(err) end "
+        "DataCenter.__lw_heal_bill = B "
+        'CS.UnityEngine.Debug.LogError("ACT hospital_heal_bill sent="..tostring(B.sent)'
+        '.." why="..tostring(B.why))'
+    )
+
+
+def hospital_bill_report() -> str:
+    """Lua *expression* -> the bill in one line for the log, resource by resource."""
+    return (
+        "(function() local B = DataCenter.__lw_heal_bill or {} "
+        "if B.why ~= nil and B.why ~= '' then return 'unknown ' .. tostring(B.why) end "
+        "local out = {} "
+        "for _, r in ipairs(B.res or {}) do "
+        "out[#out+1] = tostring(r.name or r.id) .. ' need=' .. tostring(r.need) .. "
+        "' own=' .. tostring(r.own) .. ' short=' .. tostring(r.lack) end "
+        "if #out == 0 then return 'nothing to pay for' end "
+        "return 'soldiers=' .. tostring(math.floor(tonumber(B.sent) or 0)) .. ' of ' .. "
+        "tostring(math.floor(tonumber(B.all) or 0)) .. ' :: ' .. table.concat(out, ' | ') .. "
+        "' | the window controller would say ' .. tostring(math.floor(tonumber(B.fn) or -1)) end)()"
+    )
+
+
+#: THE ONLY KIND OF ITEM THIS MAY EVER OPEN — a resource pack, `goods.type == 3`. The
+#: plan comes from the game, but the game is answering «what would cover this», not «what
+#: may a bot spend», and a plan naming anything else is refused rather than trusted.
+_RES_PACK_TYPE = 3
+
+
+def hospital_open_res_packs() -> str:
+    """Open exactly the resource packs the GAME says would cover the heal's shortfall.
+
+    The client works this out for itself — `LWResourceLackUtil:GetResItemsToSupplementDatas(
+    resource, lack)` answers with a list of `{itemId, count}`, which is the same list the
+    game shows a player when a purchase is short. So nothing here decides which pack gives
+    which resource (a question this repository could not answer for a day: `goods.para1`
+    resolves in none of the 744 config tables) — the game decides, and this spends the
+    plan and nothing beyond it.
+
+    THREE GATES, and each of them refuses rather than guesses:
+
+    * the run has to have been ASKED (`DataCenter.__lw_heal_chests == 1`);
+    * the bill has to have been READ (a `lack` of -1 is «I could not look», not «short»);
+    * every item in the plan has to be a resource pack (:data:`_RES_PACK_TYPE`).
+
+    Leaves `DataCenter.__lw_heal_packs` — one row per pack, with how many were asked for
+    and how many actually left the bag, so the log says what was spent rather than that
+    a press happened.
+    """
+    return (
+        "local P = {rows = {}, why = ''} "
+        "local ok, err = pcall(function() "
+        "if math.floor(tonumber(DataCenter.__lw_heal_chests) or 0) ~= 1 then error('not asked') end "
+        "local B = DataCenter.__lw_heal_bill "
+        "if type(B) ~= 'table' or type(B.res) ~= 'table' then error('no bill') end "
+        "if B.why ~= nil and B.why ~= '' then error('bill: ' .. tostring(B.why)) end "
+        "local L, D, T = LWResourceLackUtil, DataCenter.ItemData, DataCenter.ItemTemplateManager "
+        "if L == nil then error('no lack util') end "
+        "if D == nil then error('no bag') end "
+        "for _, r in ipairs(B.res) do local lack = math.floor(tonumber(r.lack) or -1) "
+        "if lack > 0 then local plan = nil "
+        "pcall(function() plan = L:GetResItemsToSupplementDatas(r.id, lack) end) "
+        "if type(plan) ~= 'table' or #plan == 0 then "
+        "P.rows[#P.rows+1] = {name = r.name, lack = lack, want = 0, used = 0, why = 'no-packs'} "
+        "else for _, e in ipairs(plan) do "
+        "local id = math.floor(tonumber(e.itemId) or 0) "
+        "local n = math.floor(tonumber(e.count) or 0) "
+        "local kind = -1 "
+        "pcall(function() kind = math.floor(tonumber(T:GetItemTemplate(id).type) or -1) end) "
+        "if id > 0 and n > 0 and kind == %(pack)d then "
+        "local stacks, used = {}, 0 "
+        "pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+        "if math.floor(tonumber(v.itemId) or 0) == id then "
+        "stacks[#stacks+1] = {uuid = v.uuid, n = math.floor(tonumber(v.count) or 0)} end end end) "
+        "for _, st in ipairs(stacks) do local left = n - used "
+        "if left > 0 and st.n > 0 then local k = math.min(left, st.n) "
+        "local go = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.ItemUse, {uuid = st.uuid, num = k}) end) "
+        "if go then used = used + k end end end "
+        "P.rows[#P.rows+1] = {name = r.name, lack = lack, item = id, want = n, used = used, "
+        "why = (used < n) and 'ran-out' or ''} "
+        "else P.rows[#P.rows+1] = {name = r.name, lack = lack, item = id, want = n, used = 0, "
+        "why = 'not-a-pack'} end end end end end "
+        "end) "
+        "if not ok then P.why = tostring(err) end "
+        "DataCenter.__lw_heal_packs = P "
+        'CS.UnityEngine.Debug.LogError("ACT hospital_open_res_packs rows="..tostring(#P.rows)'
+        '.." why="..tostring(P.why))'
+        % {"pack": _RES_PACK_TYPE}
+    )
+
+
+def hospital_packs_report() -> str:
+    """Lua *expression* -> what was opened out of the bag, for the log."""
+    return (
+        "(function() local P = DataCenter.__lw_heal_packs or {} "
+        "if P.why ~= nil and P.why ~= '' then return 'opened nothing: ' .. tostring(P.why) end "
+        "local out = {} "
+        "for _, r in ipairs(P.rows or {}) do "
+        "out[#out+1] = tostring(r.name or '?') .. ' short=' .. tostring(r.lack) .. "
+        "' item=' .. tostring(r.item or '-') .. ' asked=' .. tostring(r.want) .. "
+        "' opened=' .. tostring(r.used) .. "
+        "((r.why ~= nil and r.why ~= '') and (' ' .. tostring(r.why)) or '') end "
+        "if #out == 0 then return 'nothing was short' end "
+        "return table.concat(out, ' | ') end)()"
+    )
+
 
 
 #: How long after a hook fires the watch actually looks, in seconds. Never zero: every

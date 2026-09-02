@@ -2641,5 +2641,7 @@
   "alerttower.yes": "oui",
   "alerttower.no": "non",
   "timers.item.work_alert_tower": "Tour d'alerte : récupérer, livrer, renvoyer l'escouade",
-  "timers.item.work_alert_tower.short": "Tour d'alerte"
+  "timers.item.work_alert_tower.short": "Tour d'alerte",
+  "errand.arg.heal.chests": "Ouvrir les lots de ressources",
+  "errand.arg.heal.chests.hint": "Quand la base ne peut pas payer les soins, ouvre exactement les lots de ressources que le jeu choisit lui-même pour combler le manque, et pas un de plus. Désactivé : la tâche indique quand même le coût des soins et ce qui manque."
 }

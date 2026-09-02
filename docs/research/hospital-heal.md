@@ -305,9 +305,12 @@ gold fields never appeared in it. Read the sender out of the VM, not off the wir
 ## 7. Code
 
 * Lua chunks: `tools/lib/lua_actions.py` — `hospital_cure`, `hospital_heal_all`,
-  `hospital_wounded_count`, `hospital_collect`, `hospital_healed_ready`,
-  `hospital_wounded_probe`, `free_build_queues`.
-* Buttons: `heal_all`, `collect_healed` in `tools/lib/game_buttons.py`.
+  `hospital_heal_portion`, `hospital_wounded_count`, `hospital_collect`,
+  `hospital_healed_ready`, `hospital_wounded_probe`, `free_build_queues`, and, for the
+  bill and the bag, `hospital_heal_bill`, `hospital_bill_report`,
+  `hospital_open_res_packs`, `hospital_packs_report`.
+* Buttons: `heal_all`, `heal_portion`, `collect_healed`, `heal_bill`, `heal_open_packs`,
+  `heal_watch_on` / `_off` / `_state` in `tools/lib/game_buttons.py`.
 * Primitive: `tools/lib/hospital.py`.
 * Recipe: `src/lastwar_bot/actions/heal_units.md`.
 
@@ -377,34 +380,95 @@ state=0 endTime=0 startTime=0 isHelped=0 helpNum=0 type=3
 uuid=<the queue's own uuid>  funcUuid=<the hospital building>  qid=1
 ```
 
-## 9. What a heal COSTS — open, and why the chest half is not shipped
+## 9. What a heal COSTS, and paying for it out of the bag (#2085)
 
-The fourth thing asked for was «если требуется, открываем сундуки с ресурсами»: a heal
-that cannot be paid for should be funded out of the resource packs in the bag. **That is
-deliberately not in the panel yet**, because spending a person's inventory on a guess is
-worse than not spending it, and the price is genuinely not known. What a day of live
-probing DID settle is written here so the next attempt starts from it:
+The fourth thing the person asked for was «если требуется, открываем сундуки с ресурсами»,
+and their answer to «how much does it cost» was that there is nothing to model: **«При
+лечении указывается нужное количество ресурсов, нужно вычислять, сколько каких сундуков
+нужно открыть»**. Both halves are readable now, and one of them turned out to be readable
+in a way no amount of reverse-engineering would have found: the client works the chests
+out itself.
 
-* **A resource pack is `goods.type == 3`.** The row carries `para1` = what the pack
-  gives and `para2` = how much, e.g. `{type=3, type2=1, para1=242, para2=1000}` for a
-  1K food pack and `{type=3, type2=2, para1=1253, para2=6000}` for a 6K oil one. The bag
-  files them under its own «Ресурсы» tab (`lua_actions.BAG_TAB_OF_TYPE`).
-* **`para1` is NOT an id anything else here speaks.** It is not a `goods` id (rows 242,
-  264, 1253, 317, 97 and 241 do not exist), and it is not one of the ids the base's own
-  resources are kept under: `ResourceItemDataManager.itemList` is keyed by `itemId`
-  values like 6001, 7037, 8001, 5001. Which `para1` is food and which is stamina is
-  therefore a guess, and the same `type2 = 1` covers food, metal, coins AND stamina.
-* **The price is in a third id space again.** `lw_soldier` carries
-  `cure_consume = 17`, `cure_time = 30`, and beside them `rescue_consume = 1;90.3|14;90.3`
-  in an explicit `id;amount` form. `aps_resources` rows 1 and 14 are metal and money, so
-  the small numbers are ids of THAT table — and 17 is a row whose icon is
-  `Common_icon_pvecode`, which is not obviously a base resource at all. Whether
-  `cure_consume` is «resource 17» or «17 units of something fixed» is unsettled, and one
-  reading prices a heal at nothing and the other at 17 per soldier.
-* `HospitalManager` has **no cost method**: the window computes what it shows, and
-  `LWUIHospitalView` only exists while the window is open.
+### 9a. Which resources, and how much
 
-So the honest next step is either a live before/after measurement across one real heal
-(resources read, heal sent, resources read again, divided by the soldiers that went), or
-opening the hospital window once and reading what it prints. Until one of them is done,
-nothing here opens anything out of the bag.
+**Which** is per soldier type, out of the game's own config: `lw_soldier.rescue_consume`
+is an explicit `id;amount|id;amount` list — `1;577|14;577` for the tier-9 soldier,
+`1;702.7|14;702.7` for the tier-10 — and the ids are rows of `aps_resources`, which
+`CommonUtil.GetResourceNameByType(id)` names in the player's own language: **1 = Металл,
+14 = Еда**. That settles the first of the two questions §8 left open: the window's two cells (`oreNeedResourceCell`
+/ `cerealNeedResourceCell`) are metal and food, and the ids are readable with no wounded
+in the hospital and no window open.
+
+**How much the base has** is `CommonUtil.GetOwnCountByCommonCostType(1, <resource id>)`,
+verified against the base's own balances. The `1` matters: `1` is a base RESOURCE
+(`aps_resources` id), `2` is a resource ITEM (`itemId` 6001/7037/8001/5001…), and the two
+spaces do not overlap — asking for `(2, 1)` answers 0 and looks like an empty warehouse.
+
+**How much the heal costs** is that list times the soldiers going. Two other candidates
+were measured live on 2026-09-02 and BOTH were rejected:
+
+* `LWUIHospitalCtrl:GetHealCostResourceCount(n)` answers `ceil(0.625 × n)` — 1 → 1,
+  10 → 7, 100 → 63, 1000 → 625 — and it answers the same with 1 724 wounded, with 120,
+  with none at all, and on a second account. A number that does not move when the wounded
+  change from tier 9 to tier 10 is not the bill for healing them. an earlier revision called it «the
+  price, asked of the game» and that is **retracted**; it is printed in the run's log
+  beside the real bill, so that a person with the window open can say in one sentence
+  which of the two the screen shows.
+* `HospitalManager:GetSoldierCureValueLocal()` is a CONSTANT — 55 059.812266213 here,
+  the same with 120 wounded and with zero. A first version of the bill took it for «the
+  game's own total, discounts included» and prorated by it. Also retracted.
+
+**What is NOT settled** is whether the player's own research discounts the config price.
+The only clean way to see it is a before/after reading of metal and food across one real
+heal, and every attempt at one on 2026-09-02 found the hospital already empty — the watch
+of §8b heals within a quarter of a second of the wound arriving, which is exactly what it
+was built to do. So the question goes to the person instead (the log prints both numbers
+for the same soldiers), and until it is answered the bill reads the config price, which
+can only ever be too HIGH — and that is why nothing opens unless the run was told to.
+
+### 9b. Which chests — the client answers, and it is not `para1`
+
+the second of those questions was «which resource does a bag pack give», and the answer is that
+**it does not have to be asked at all**. `LWResourceLackUtil:GetResItemsToSupplementDatas(
+<resource id>, <how much is missing>)` returns the packs that would cover it, in the
+numbers that would cover it — the same list the game shows a player who is short at a
+shop. Live, with a million metal missing:
+
+```
+supp(1,  1000000) = {{itemId = 400102, count = 1000, rewardType = 7, quality = 2}}
+supp(14, 1000000) = {{itemId = 400202, count = 899}, {itemId = 400204, count = 11}}
+```
+
+`goods.para1` was never resolved and does not need to be: 242 (food), 253 (metal), 264
+(coins), 317 (stamina), 97 (diamonds) and 1253 (oil) exist in **none** of the client's 744
+config tables — a full sweep with `LocalController:hasLine` found only three tables holding
+both 242 and 1253, and all three (`activity_slots_group`, `lw_season`, `lw_template_property`)
+are unrelated. The amount a pack gives IS readable —
+`ItemTemplateManager:GetResGoodsUnitNum(id)` answers 10 000 for the 10K bread pack — but
+which resource it belongs to is the client's business, and the client is willing to say.
+
+**The trap that cost half a day: these are COLON methods.** `LWResourceLackUtil.Func(x)`
+returns `nil` or `false` for everything and looks like «the client cannot answer»;
+`LWResourceLackUtil:Func(x)` answers. `debug.getinfo(f, 'u').nparams` is what settled it —
+`nparams = 2` for a function taking one argument means the first is `self`. `debug.getinfo`
+works on this client even though `string.dump` is refused («lua_dump is disabled»), and it
+also hands back the file and line a function was defined at, which is the cheapest map of
+the client there is.
+
+### 9c. What the recipe does with all that
+
+`TAP heal_bill` parks `DataCenter.__lw_heal_bill` — one row per resource with `need`,
+`own` and `lack` — and the run says it in the log whether or not anything is opened.
+`TAP heal_open_packs` opens the shortfall, and only ever under three gates, each of which
+refuses instead of guessing: the run has to have been told it may (`ARGS chests`, off by
+default), the bill has to have been READ (a `lack` of -1 is «I could not look», never
+«short»), and every item in the game's own plan has to be a resource pack
+(`goods.type == 3`). What was opened, and how much of it actually left the bag, is in the
+log, and the bill is read again afterwards so the line after the packs is the state they
+left behind.
+
+The watch of §8b deliberately does NOT open anything: spending somebody's inventory rides
+on the errand's own run, not on a hook that fires on the client's own calls. The two fit
+together — the watch heals whatever the base can pay for, and a heal it could not pay for
+leaves the wounded lying there for the next `heal_units` run to find, price and fund.
+

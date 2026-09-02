@@ -932,6 +932,23 @@ BUTTONS: dict[str, Button] = {
         count_lua=_lua_actions.hospital_wounded_count(),
         max_taps=1,
     ),
+    # WHAT THE HEAL WILL COST, AND WHAT IS SHORT (#2085). Names the resources the wounded
+    # types charge out of their own `rescue_consume` — metal and food — prices the portion
+    # by that list, and puts the base's own balances beside it. Reading only: it spends
+    # nothing and opens nothing, and a price it could not read is -1 rather than 0.
+    "heal_bill": Button(
+        lua=_lua_actions.hospital_heal_bill(),
+        wait=0.4, label="What the heal will cost and what is short",
+    ),
+    # OPENING THE BAG TO COVER THE SHORTFALL (#2085). Spends resource packs — the
+    # person's inventory — so it happens only when the run was told to («сундуки»), only
+    # for a shortfall the game itself stated, and only on the list the game itself works
+    # out (`LWResourceLackUtil:GetResItemsToSupplementDatas`). Nothing here decides which
+    # pack gives which resource.
+    "heal_open_packs": Button(
+        lua=_lua_actions.hospital_open_res_packs(),
+        wait=1.0, label="Open resource packs to cover the heal",
+    ),
     # THE WATCH — «собираем, как завершается, по хуку». Arms the game-side watch that
     # collects a finished heal, sends the next portion and asks the alliance, woken by
     # the client's own calls (`OnQueueEnd`, `HospitalCureHandle`, `UpdateHospitalDeadInfo`)

@@ -2641,5 +2641,7 @@
   "alerttower.yes": "sì",
   "alerttower.no": "no",
   "timers.item.work_alert_tower": "Torre d'allarme: ritirare, consegnare, rimandare la squadra",
-  "timers.item.work_alert_tower.short": "Torre d'allarme"
+  "timers.item.work_alert_tower.short": "Torre d'allarme",
+  "errand.arg.heal.chests": "Aprire i pacchetti di risorse",
+  "errand.arg.heal.chests.hint": "Quando la base non può pagare la cura, apre esattamente i pacchetti di risorse che il gioco stesso sceglie per coprire quel che manca, e non uno di più. Disattivato: il giro dice comunque quanto costa la cura e cosa manca."
 }
