@@ -41,6 +41,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+import time
 
 #: The name the installer registers, asked for rather than written down — a machine that
 #: registered it under another name sets the variable, exactly as everywhere else
@@ -127,7 +128,7 @@ RESTART_WAIT_SEC = 30
 VERDICT_AFTER_SEC = 40
 
 
-def _script(name: str, log_file: str) -> str:
+def _script(name: str) -> str:
     """What the restarter does, in one string — and it VERIFIES rather than assuming.
 
     `Restart-Service` returning is not evidence: the pid is read before the ask and read
@@ -139,21 +140,27 @@ def _script(name: str, log_file: str) -> str:
     waiting out the loop for a stop that was never accepted would put half a minute
     between the press and the reason for it, and the reason is already in hand.
 
+    IT WRITES TO ITS OWN STDOUT, never to the log by name. The two are the same file, and
+    a script that opened it a second time got a sharing violation against the handle it
+    had been given — silently, because `Out-File` failing inside `try { } catch { }` looks
+    exactly like a script that never ran. Everything it says goes out the handle Python
+    already opened for it.
+
     NOT ONE DOUBLE QUOTE IN IT, and that is not tidiness. The script travels as a single
     `-Command` argument, so Windows re-splits it out of one string: every `"` on the way
     has to survive `list2cmdline`, PowerShell's own parser and whatever the SCM's
     environment does in between, and one that does not turns the whole restart into
     silence. `-f` formatting and `Where-Object` say the same things with `'` alone. ASCII
-    only, for the same reason — a command line is not a file with an encoding.
+    only in what IT writes, for the same reason — though what Windows hands back may be in
+    any language, so the output encoding is set to UTF-8 before a word is said.
     """
     quoted = name.replace("'", "''")
-    said = log_file.replace("'", "''")
     return (
         "$ErrorActionPreference = 'Continue'; "
-        f"$log = '{said}'; $name = '{quoted}'; "
-        "function Say($m) { try { ('{0} restarter: {1}' -f "
-        "(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) | "
-        "Out-File -FilePath $log -Append -Encoding utf8 } catch { } }; "
+        "try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }; "
+        f"$name = '{quoted}'; "
+        "function Say($m) { ('{0} restarter: {1}' -f "
+        "(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) | Write-Output }; "
         "function Svc { Get-CimInstance Win32_Service | "
         "Where-Object { $_.Name -eq $name } | Select-Object -First 1 }; "
         "$was = (Svc).ProcessId; "
@@ -171,7 +178,7 @@ def _script(name: str, log_file: str) -> str:
     )
 
 
-def restarter_command(name: str = "", log_file: str = "") -> list:
+def restarter_command(name: str = "") -> list:
     """The one place the restart is spelled.
 
     `Restart-Service` rather than two `sc` calls: `sc stop` returns the moment Windows has
@@ -179,7 +186,7 @@ def restarter_command(name: str = "", log_file: str = "") -> list:
     service is stopping». PowerShell waits, and it is on every Windows this runs on.
     """
     return [powershell_path(), "-NoProfile", "-NonInteractive", "-Command",
-            _script(name or service_name(), log_file or restart_log_path())]
+            _script(name or service_name())]
 
 
 #: «Break away from the job this process is in» (`winbase.h`). Not in `subprocess`, and
@@ -190,41 +197,87 @@ def restarter_command(name: str = "", log_file: str = "") -> list:
 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
 
-def _spawn(cmd: list) -> None:
-    """Start the restarter and let go of it: it has to outlive this process."""
-    flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
-             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-             | getattr(subprocess, "CREATE_NO_WINDOW", 0))
+def _spawn(cmd: list):
+    """Start the restarter and let go of it: it has to outlive this process.
+
+    NO `DETACHED_PROCESS`, AND IT IS THE WHOLE BUG (#2069). Measured, one flag at a time,
+    against a service name Windows does not have: with the flag the restarter exits **0**
+    having done nothing at all — no `Restart-Service`, no line, no error — and without it
+    the same command line runs and reports. It was there to make the child outlive this
+    process, and it is not what does that: on Windows nothing kills a child when its
+    parent goes: `CREATE_NO_WINDOW` gives it no window to flash and
+    `CREATE_NEW_PROCESS_GROUP` keeps this process's Ctrl+C off it, which is all that was
+    ever needed. A silent exit 0 is exactly how a press could answer `ok` for two days
+    while a two-day-old service pid sat under it.
+
+    THE FILE IS STAMPED BEFORE THE CHILD EXISTS, and that is deliberate. An empty
+    `service_restart.log` would leave the same question #2069 started with — did anything
+    get spawned at all? — so Python writes the exe and the moment down first, and whatever
+    the child says lands under it. A file with only that line is itself an answer: the
+    process was created and died without a word.
+
+    The line is ASCII on purpose: what Windows hands back through the child arrives in the
+    console's own code page, and a file that is ASCII everywhere else reads correctly
+    whatever that page turns out to be.
+    """
+    flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0)
+             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     try:
         handle = open(restart_log_path(), "a", encoding="utf-8", errors="replace")
+        handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} service: spawning "
+                     f"{cmd[0]} (pid {os.getpid()}, user {_whoami()})\n")
+        handle.flush()
     except OSError:
         handle = None
     out = handle or subprocess.DEVNULL
+    child = None
     try:
         try:
-            subprocess.Popen(cmd, close_fds=True,
-                             creationflags=flags | CREATE_BREAKAWAY_FROM_JOB,
-                             stdin=subprocess.DEVNULL, stdout=out, stderr=out)
+            child = subprocess.Popen(cmd, close_fds=True,
+                                     creationflags=flags | CREATE_BREAKAWAY_FROM_JOB,
+                                     stdin=subprocess.DEVNULL, stdout=out, stderr=out)
         except OSError:
             # The job forbids leaving it. Better a child that may die with us than none.
-            subprocess.Popen(cmd, close_fds=True, creationflags=flags,
-                             stdin=subprocess.DEVNULL, stdout=out, stderr=out)
+            child = subprocess.Popen(cmd, close_fds=True, creationflags=flags,
+                                     stdin=subprocess.DEVNULL, stdout=out, stderr=out)
     finally:
         if handle is not None:
             handle.close()
+    return child
 
 
-def _watch(say, wanted: str, delay: float) -> None:
+def _whoami() -> str:
+    """Who this process is to Windows — a reading, never a value written down."""
+    try:
+        return os.environ.get("USERNAME") or ""
+    except Exception:                         # noqa: BLE001
+        return ""
+
+
+def _watch(say, wanted: str, delay: float, child=None) -> None:
     """Say so when the restart did not happen — from the side that can only be alive if it
     did not.
 
     This runs INSIDE the process that asked to be replaced. Reaching the end of the sleep
     means the SCM never stopped it, so there is nothing to weigh up: the press failed, and
-    the log says which log to read for the reason.
+    the log says which log to read for the reason. What the restarter did with itself goes
+    in the same line when there is anything to say — a child that has already exited names
+    its code, which is the difference between «PowerShell refused» and «something took the
+    process away».
     """
-    timer = threading.Timer(delay, lambda: say(
-        f"service: «{wanted}» was NOT restarted — this process is still running as pid "
-        f"{os.getpid()} {int(delay)}s after the ask; see {restart_log_path()}"))
+    def _said() -> None:
+        ended = ""
+        try:
+            code = None if child is None else child.poll()
+            if code is not None:
+                ended = f"; the restarter exited with code {code}"
+        except Exception:                     # noqa: BLE001 — a reading, never the door
+            ended = ""
+        say(f"service: «{wanted}» was NOT restarted — this process is still running as "
+            f"pid {os.getpid()} {int(delay)}s after the ask{ended}; "
+            f"see {restart_log_path()}")
+
+    timer = threading.Timer(delay, _said)
     timer.daemon = True
     timer.start()
 
@@ -261,10 +314,10 @@ def restart(*, log=None, spawn=None, name: str = "", watch=None,
     say(f"service: restarting «{wanted}» — asking Windows to stop and start it; "
         f"the restarter says what came of it in {restart_log_path()}")
     try:
-        (spawn or _spawn)(restarter_command(wanted))
+        child = (spawn or _spawn)(restarter_command(wanted))
     except Exception as exc:                  # noqa: BLE001 — the door stays up
         say(f"service: could not ask for a restart: {type(exc).__name__}: {exc}")
         return {"ok": False, "error": "failed", "detail": str(exc)}
-    (watch or _watch)(say, wanted, verdict_after)
+    (watch or _watch)(say, wanted, verdict_after, child)
     return {"ok": True, "id": RESTART, "name": wanted,
             "log": restart_log_path(), "asked": True}

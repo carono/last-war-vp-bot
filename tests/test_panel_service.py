@@ -464,7 +464,6 @@ def test_the_service_can_be_asked_to_restart_ITSELF_and_refuses_when_it_is_not_o
     # names the file the restarter writes its own verdict into, and this process arms a
     # watcher that can only fire if it was never stopped — the honest «did not».
     assert said["log"] == selfctl.restart_log_path() and said["asked"] is True, said
-    assert selfctl.restart_log_path() in " ".join(asked[0]), asked[0]
     assert len(watched) == 1 and watched[0][1] == "whatever", watched
 
 
