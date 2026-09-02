@@ -93,6 +93,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 TESTS = REPO / "tests"
 
+sys.path.insert(0, str(REPO / "tools" / "lib"))
+import test_mode                               # noqa: E402  — bare name, see panel/paths.py
+
+# THE RUN ITSELF SAYS SO, and so does every process it starts (#2002). A test file is a
+# self-running script and reaches for the same panel, profiles, ports and game client this
+# machine farms with; the guards that refuse read this one variable, and it is set here
+# rather than by each file so that a child three levels down still sees it.
+test_mode.arm()
+
 TIERS = ("offline", "ui", "live")
 DEFAULT_TIER = "offline"
 
@@ -195,7 +204,8 @@ def run_one(path: Path, timeout: float) -> Result:
     proc = subprocess.Popen([sys.executable, str(path)], cwd=str(REPO),
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, env={**os.environ,
-                                            "PYTHONIOENCODING": "utf-8"},
+                                            "PYTHONIOENCODING": "utf-8",
+                                            test_mode.ENV: "1"},
                             **popen_kwargs)
     with _RUNNING_LOCK:
         _RUNNING[proc] = path

@@ -1552,6 +1552,32 @@ def test_a_daemon_pointing_at_the_wrong_session_is_not_believed():
          game_client.session_pids_of) = saved
 
 
+class _StartingIsMeantHere:
+    """`game_client.start` refuses inside a test run (#2002) — and these two tests are
+    the case the refusal has an escape hatch for.
+
+    Nothing is started: `rdp_instance` is a stub and what is being read is the ARGUMENT
+    LIST it was handed. So the guard's variable is stood aside for the length of the call
+    and put back, which is exactly what a live-tier test that really does mean to launch
+    the client would do.
+    """
+
+    def __enter__(self):
+        import test_mode
+
+        self._had = os.environ.get(test_mode.ENV)
+        os.environ[test_mode.ENV] = "0"
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        import test_mode
+
+        if self._had is None:
+            os.environ.pop(test_mode.ENV, None)
+        else:
+            os.environ[test_mode.ENV] = self._had
+
+
 def test_a_configured_launcher_reaches_the_other_session_UNEXPANDED():
     """The correction (#1218): the path is not ours to expand, or to judge.
 
@@ -1582,7 +1608,8 @@ def test_a_configured_launcher_reaches_the_other_session_UNEXPANDED():
         raw = r"%LOCALAPPDATA%\Acme\Custom.exe"
         game_client.session_pids_of = lambda session, game_exe=None: []
         try:
-            game_client.start(raw, user="player2", timeout=0)
+            with _StartingIsMeantHere():
+                game_client.start(raw, user="player2", timeout=0)
         except TimeoutError:
             pass                          # no client ever appears in a test
         assert "--exe" in sent["args"], sent["args"]
@@ -1619,7 +1646,8 @@ def test_with_nothing_configured_the_other_session_resolves_its_own_install():
     os.environ.pop("LW_LAUNCHER", None)
     try:
         try:
-            game_client.start(None, user="player2", timeout=0)
+            with _StartingIsMeantHere():
+                game_client.start(None, user="player2", timeout=0)
         except TimeoutError:
             pass
         args = sent["args"]

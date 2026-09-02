@@ -345,8 +345,17 @@ def win_python() -> str:
 
 
 def local_appdata() -> str:
-    """This account's Local AppData, with the fallback Windows itself would use."""
-    return _env("LOCALAPPDATA", os.path.expanduser(r"~\AppData\Local"))
+    """This account's Local AppData, with the fallback Windows itself would use.
+
+    Built with :func:`os.path.join` over the expanded home rather than by expanding
+    ``~\AppData\Local``: :func:`os.path.expanduser` only expands ``~`` when what follows
+    it is the platform's OWN separator, so under a POSIX interpreter that string came back
+    verbatim — an unexpanded tilde spliced with backslashes. It read as a plausible path
+    in a log and was not one, which is what «launcher not found at ~\AppData\Local/…»
+    was in #2002: the giveaway that the panel writing that line was running under WSL and
+    therefore was not the live panel at all.
+    """
+    return _env("LOCALAPPDATA", os.path.join(os.path.expanduser("~"), "AppData", "Local"))
 
 
 def game_dir() -> str:

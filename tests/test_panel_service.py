@@ -81,6 +81,14 @@ from panel.service.host import Service                    # noqa: E402
 
 TOKEN = "test-token"
 
+#: THE SUPERVISOR IS OFF IN HERE, and it is not a detail (#2002). A `Service` owns a
+#: `Keeper`, and a keeper with nothing configured supervises the profiles THIS MACHINE
+#: farms: starting one in a test spawned `-m panel.headless --profile default` on the live
+#: account, detached, which then outlived the run and played `launch_game` at the real
+#: client every five minutes. What these tests are about is the door, the register and the
+#: routing; a launch is `tests/test_service_keeper.py`, with a launcher of its own.
+KEEP_OFF = {"enabled": False}
+
 
 class _Api:
     """A panel's API as the service sees it: something with `dispatch`."""
@@ -99,7 +107,8 @@ class _Api:
 
 def _service():
     """A service on ports the operating system picks, with no config file anywhere."""
-    service = Service({"port": 0, "door": 0, "host": "127.0.0.1", "token": TOKEN},
+    service = Service({"port": 0, "door": 0, "host": "127.0.0.1",
+                       "token": TOKEN, "keep": KEEP_OFF},
                       log=lambda line: None)
     service.start()
     return service
@@ -131,7 +140,8 @@ def test_the_front_door_is_waited_for_and_never_given_up_on():
     said, hostmod.BUSY_WAIT_SEC = hostmod.BUSY_WAIT_SEC, 0.3
     retry, hostmod.BUSY_RETRY_SEC = hostmod.BUSY_RETRY_SEC, 0.05
     quiet, hostmod.BUSY_SAY_SEC = hostmod.BUSY_SAY_SEC, 0.1
-    service = Service({"port": port, "door": 0, "host": "127.0.0.1", "token": TOKEN},
+    service = Service({"port": port, "door": 0, "host": "127.0.0.1",
+                       "token": TOKEN, "keep": KEEP_OFF},
                       log=lines.append)
     try:
         service.start()
@@ -156,7 +166,8 @@ def test_the_front_door_is_waited_for_and_never_given_up_on():
 def test_a_door_this_machine_cannot_have_is_said_loudly_and_not_retried_for_ever():
     """«That is not my address» will not come free by asking again — it is SAID."""
     lines: list = []
-    service = Service({"port": 0, "door": 0, "host": "203.0.113.1", "token": TOKEN},
+    service = Service({"port": 0, "door": 0, "host": "203.0.113.1",
+                       "token": TOKEN, "keep": KEEP_OFF},
                       log=lines.append)
     try:
         service.start()

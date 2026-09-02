@@ -471,6 +471,29 @@ flag, check it still exists before acting on it.
   SIGTERM, a crash inside the runner and a worker that dies all print a
   cause and the tally; the file an abort landed in is killed and named,
   so nothing is left running behind the run.
+
+  **A test may not touch this machine's live panel, profiles or game
+  client** (#2002). The suite runs on the computer that is also farming,
+  and nothing separates the two by itself: the profiles tree is derived
+  from where the repo is, the port is the machine's, the client is the
+  one that is playing. `tests/test_panel_service.py` started a real
+  `Service` — whose keeper supervises this machine's profiles — so a
+  plain `tools/run_tests.py` spawned `-m panel.headless --profile
+  default` on the LIVE account, detached. It outlived the run, bound the
+  panel's port, wrote into the account's own `panel.log`, took the
+  machine lease off the real panel and played `launch_game` against the
+  real client every five minutes for hours.
+
+  So the runner sets `LW_TEST_RUN=1` for every file, a test file started
+  directly recognises itself by name, and the answer is inherited by
+  every child (`tools/lib/test_mode.py`). While it is set, three things
+  refuse and say so: starting the game client
+  (`tools/lib/game_client.py::start`), the service starting a panel
+  (`panel/service/session.py::launch`), and a workspace opening one of
+  THIS machine's profiles (`panel/runtime/workspace.py`). A test that
+  needs a profile makes a scratch tree and points `panel.profile` at it
+  — the guard reads `panel/paths.py` so it can see that that was done.
+  `tests/test_test_isolation.py` pins all of it.
 - **One coherent change per commit**. Script-only commits stay tiny;
   Python commits explain *why* the DSL was insufficient.
 

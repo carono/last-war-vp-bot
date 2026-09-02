@@ -379,7 +379,17 @@ class Keeper:
                       f"asking again in {ASK_AGAIN_SEC:.0f}s")
 
     def launch(self, profiles: list) -> dict:
-        """Start ONE panel holding ``profiles``. Said in the log, whatever happens."""
+        """Start ONE panel holding ``profiles``. Said in the log, whatever happens.
+
+        NOT FROM A TEST RUN (#2002), and the refusal is in the launcher rather than here
+        (`panel/service/session.py::launch`): `tests/test_panel_service.py` started a real
+        :class:`~panel.service.host.Service`, and a service starts its keeper — so a plain
+        `tools/run_tests.py` spawned `-m panel.headless --profile default` on the LIVE
+        account, detached. It outlived the run, took the machine lease off the real panel
+        and played `launch_game` against the real client every five minutes. Guarding the
+        LAUNCHER and not this method is what lets `tests/test_service_keeper.py` go on
+        exercising every branch below with a launcher of its own.
+        """
         cmd = sessionmod.panel_command(profiles, module=self.settings["module"])
         from ..runtime import paths
 

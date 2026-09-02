@@ -22,8 +22,38 @@ window with one profile open logs exactly where it always did. See
 """
 from __future__ import annotations
 
+import os
+
+from .. import paths as pathsmod
 from .. import profile as profilemod
 from .session import ProfileSession
+
+
+def _refuse_a_live_profile_in_a_test(name: str) -> None:
+    """A test may not open one of THIS machine's accounts (#2002).
+
+    The profiles tree is derived from where the repository is (`panel/paths.py`), so a
+    test that opens a profile without pointing `panel.profile` somewhere else opens the
+    account that is farming: its `panel.log`, its settings, its instance lock, its client.
+    That is how a test run ended up holding the live lease and playing `launch_game`
+    against the real game for hours.
+
+    The live tree is worked out from :data:`panel.paths.PROJECT_DIR` rather than read off
+    :data:`panel.profile.PROFILES_DIR`, because rebinding the latter to a scratch
+    directory is exactly what a well-behaved test does — and the guard must be able to see
+    that it happened.
+    """
+    import test_mode
+
+    if not test_mode.in_test_run():
+        return
+    live = os.path.realpath(os.path.join(pathsmod.PROJECT_DIR, "profiles"))
+    try:
+        here = os.path.realpath(profilemod.PROFILES_DIR)
+    except (OSError, TypeError):                      # noqa: BLE001 — a reading
+        return
+    if here == live:
+        raise test_mode.refuse(f"open the live profile «{name}»")
 
 
 class Workspace:
@@ -106,6 +136,7 @@ class Workspace:
             if make_current:
                 self.switch_to(existing.name)
             return existing
+        _refuse_a_live_profile_in_a_test(name)
         name = self.profiles._ensure_dir(name)
         session = ProfileSession(
             name, root=self._root, defaults=self._defaults,

@@ -499,7 +499,17 @@ def start(launcher: "str | None" = None, user: "str | None" = None,
     Raises ``FileNotFoundError`` when the launcher is not where the path says (a
     configuration mistake, not a condition to retry), ``LookupError`` when nobody is
     logged on as ``user``, and ``TimeoutError`` when the client never appeared.
+
+    AND ``RuntimeError`` FROM A TEST RUN. A test run happens on the machine that is also
+    farming, so «start the game» from one is a real client being started — or, as in
+    #2002, an orphaned panel playing `launch_game` against the live account every five
+    minutes for hours. `tools/lib/test_mode.py` is the one thing that says which run this
+    is; a live-tier test that genuinely means to start the client unsets its variable.
     """
+    import test_mode
+
+    if test_mode.in_test_run():
+        raise test_mode.refuse("start the game client")
     say = log or (lambda _msg: None)
     if user and str(user).strip():
         return _start_in_session(str(user).strip(), launcher, timeout, game_exe, say)

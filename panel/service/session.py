@@ -141,6 +141,24 @@ def _user_token(session_id: int):
     return token
 
 
+def _test_mode():
+    """`tools/lib/test_mode.py`, however this process was started.
+
+    The service runs in session 0 from a command line of its own, so the repo's
+    bare-name directories are not always on `sys.path` here the way they are under the
+    panel (`panel/runtime/paths.py`). Put ours on it rather than assume.
+    """
+    try:
+        import test_mode
+    except ImportError:
+        lib = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))), "tools", "lib")
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        import test_mode
+    return test_mode
+
+
 def launch(cmd: list, *, cwd: str = "", session_id: int = -1, log=None) -> dict:
     """Start ``cmd``. In a user session when this process has none of its own.
 
@@ -150,8 +168,20 @@ def launch(cmd: list, *, cwd: str = "", session_id: int = -1, log=None) -> dict:
 
     Never raises: a supervisor that dies because a launch failed is worse than one that
     keeps trying, and «nobody is signed in» is an ordinary state of a machine, not a bug.
+
+    AND NOT FROM A TEST RUN (#2002), which is why the guard is here rather than in the
+    keeper: this is the one place that really starts a process, so a test may hand a
+    keeper a launcher of its own and exercise every branch, while a test that starts a
+    real `Service` gets `{"ok": False, "why": "test_run"}` instead of a detached panel on
+    the live account. It said `-m panel.headless --profile default`, outlived the run,
+    took the machine lease off the real panel and played `launch_game` at the real client
+    every five minutes for hours.
     """
     say = log or (lambda line: None)
+    if _test_mode().in_test_run():
+        say("service: this is a test run — refusing to start "
+            f"{' '.join(str(part) for part in cmd)}")
+        return {"ok": False, "why": "test_run", "detail": "refused: LW_TEST_RUN"}
     cmd = [str(part) for part in cmd]
     here = current_session()
     if not is_windows() or here != SERVICE_SESSION:

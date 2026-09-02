@@ -28,7 +28,9 @@ from __future__ import annotations
 
 TIER = "offline"   # no SCM, no session, no display
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -241,6 +243,13 @@ def test_what_the_machine_wants_is_a_WISH_and_not_what_a_panel_last_had_open():
 
     profilemod.keep_or_last_open = wish
     profilemod.ProfileManager.open_profiles = record
+    # A PROFILES TREE OF ITS OWN (#2002). `ProfileManager()` opens the machine's own
+    # `panel.db`, and a test that reads the live one is a test reading an account that is
+    # farming — under WSL, with the real panel holding the file, it does not even open.
+    scratch = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    saved_dir = profilemod.PROFILES_DIR
+    profilemod.PROFILES_DIR = os.path.join(scratch.name, "profiles")
+    os.makedirs(profilemod.PROFILES_DIR, exist_ok=True)
     try:
         # `exists` filters the answer, so the name has to be one this machine really has;
         # what matters is WHICH question was asked, so the filter is stood aside.
@@ -252,6 +261,8 @@ def test_what_the_machine_wants_is_a_WISH_and_not_what_a_panel_last_had_open():
             profilemod.ProfileManager.exists = real_exists
         assert "record" not in asked, asked
     finally:
+        profilemod.PROFILES_DIR = saved_dir
+        scratch.cleanup()
         profilemod.keep_or_last_open = real_keep
         profilemod.ProfileManager.open_profiles = real_open
 
