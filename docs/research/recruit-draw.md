@@ -105,10 +105,30 @@ why the ticket COUNT looked right all along.
 ## 5. Which banner
 
 `LotteryDataManager.curRecruitIdList` holds the hero banners the client is currently
-showing — three on the account this was read on, of which only one resolved through
-`GetLotteryDataById`; the others are ids whose banner has not been loaded and answer
-`nil`. So «the current banner» is the first id in that list that resolves, and a caller
-that wants a particular one names it.
+showing — three on the account this was read on. **All three resolve through
+`GetLotteryDataById`, and each is a banner of its own** with its own ticket, its own
+`dailyFreeLimit = 1` and its own free-pull clock: one standing banner and two the season
+added beside it. The 2026-08-13 reading claimed only one of the three resolved; that was
+wrong, and #2074 is what it cost — the errand took «the first id that resolves» and
+stopped there, so two free pulls a day were lost every day while every run reported a
+clean success.
+
+So there is no «the current banner». A caller that wants one names it, and a caller that
+wants them all **walks the list**, which is what `tavern_free_pull.md` does — the number
+of banners is a property of the season, not of the account, and nothing in the client
+says how many the next one will bring.
+
+Read live on 2026-09-02, three banners, ids and tickets of the same shape as these:
+
+| banner | ticket | free pull |
+|---|---|---|
+| the standing one | its own | daily, its own `dailyFreeNextFreshTime` |
+| season banner A | its own, different | daily, a clock of its own |
+| season banner B | its own, different again | daily, a clock of its own |
+
+The three clocks are genuinely different — an hour and a quarter apart on the reading
+above — so «take them all and come back at the nearest» needs the whole list, not one
+banner's timer.
 
 The survivors have exactly one: `LotteryDataManager:GetOnlyWorkerLotteryData()` is the
 config row (its `id` is the `officerId` the message carries) and
@@ -122,6 +142,10 @@ Live, on a running client (2026-08-13):
 * **heroes x1** — sent, the ticket count moved, the reward window opened;
 * **survivors x1** — the same;
 * **the refusals** — «only free» with no free pull available sends nothing and says so;
+* **the free pull itself** (2026-09-02, #2074) — two season banners in one run, `useFree
+  = 1`, `cost = 0`, on a banner the account held **zero** tickets for; both went through
+  and both banners' own `CanFreeRecruit()` closed behind them, which is the proof they
+  really were free rather than paid for out of something else;
 * **the reading** — both banners, the free gate, the timers, the tickets and all three
   prices.
 

@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **34%** — 61 of 179
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **35%** — 63 of 179
 
-🟩 61 done · 🟨 85 partly · 🟥 33 not automated
+🟩 63 done · 🟨 83 partly · 🟥 33 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -275,8 +275,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - 🟡 Seeing your heroes in the panel — a tab lists every hero with its picture, level, star count and which squad (1/2/3) it stands in, sorted the way the in-game hero screen is. It reads them straight from the game with no window opened, and lazily, only when the tab is first opened; the reading has not been checked against a real roster yet, and the weapon column is left blank for later. **Development mode only for now:** the page is still being worked on, so an ordinary panel does not show it — switch «Разработка» on in the tab list to get it back
 - 🟡 Recruiting heroes and survivors from the panel — a «Найм» tab with both banners side by side and three presses each: x1, x10 and x100. Beside them it shows what the game says, and only what the game says: whether the free pull is waiting or how long until the next one, how many tickets are held, and what one, ten and a hundred pulls cost. A pull you cannot pay for is greyed out rather than hidden, so «this banner has no hundred» and «you are nine tickets short» are both readable at a glance, and nothing on the tab can be ticked by hand — press, and the numbers move because the game moved them. The same board and the same six presses are on the phone. One press by hand, both banners, was made against the live game; the free pull was not free at that moment, and the hundred has not been spent yet
-- 🟡 Spending only the FREE pull — the recruit run can be told «only if it is free», in which case it sends nothing at all on a banner whose free pull has not come back, and says so instead of quietly paying in tickets. Proven live on the survivors' banner; a run that actually caught a free pull has not been seen yet
-- 🟡 Both free pulls on a clock — a «Таверна» timer takes the free hero and the free survivor whenever they come back, and then comes back itself when the GAME says the next one is due rather than an hour later: the two banners run on two different timers, and the run takes the nearer of them. It never pays in tickets — a banner whose free pull has not come back is left alone — and a client that is not properly logged in stops the run instead of reporting a pull nobody made. Switched off in a fresh panel; switch the row on in «Таймеры». Not yet seen catching a free pull in a live session
+- ✅ Spending only the FREE pull — the recruit run can be told «only if it is free», in which case it sends nothing at all on a banner whose free pull has not come back, and says so instead of quietly paying in tickets. Proven live on both kinds of banner: a run that caught the free pull took it on a banner the account held not a single ticket for, and the pull still went through because it cost nothing
+- ✅ Every free pull in the tavern on a clock — a «Таверна» timer takes the free survivor and the free hero on EVERY hero banner the game is currently showing, not just the first one: a season adds banners of its own beside the standing one, each with its own ticket and its own free pull, and each of them is one pull a day that is simply lost if nobody spends it. It then comes back when the GAME says the next one is due rather than an hour later — the banners run on timers of their own, and the run takes the nearest of them. It never pays in tickets — a banner whose free pull has not come back is left alone — and a client that is not properly logged in stops the run instead of reporting a pull nobody made. Switched off in a fresh panel; switch the row on in «Таймеры». Proven live: three banners on one account, the two seasonal free pulls taken in one run
 - ❌ Levelling heroes, raising their rank, levelling skills
 
 ### General
