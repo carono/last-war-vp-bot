@@ -85,6 +85,13 @@ TRIGGERS_TEMPLATE = os.path.join(PROFILES_DIR, "triggers.json")
 #: no profile — it is the one that is on its way out (#1897).
 RELAUNCH_LOG = os.path.join(PROFILES_DIR, "panel_relaunch.log")
 
+#: …and where the replacement's own stdout and stderr go. A SEPARATE file, and not for
+#: tidiness: a handle opened for append in the parent is inherited by the child as a
+#: plain file pointer, so the child's first write lands where the parent's notes are and
+#: everything the parent says afterwards is overwritten. Truncated at each relaunch —
+#: what matters is the boot that is happening now.
+RELAUNCH_OUT = os.path.join(PROFILES_DIR, "panel_relaunch.out")
+
 #: The fallback debug log — used only before the panel has pointed the handler at a
 #: profile's own ``debug.log`` (``panel/debug_log.py``).
 FALLBACK_DEBUG_LOG = os.path.join(PROFILES_DIR, "panel_debug.log")

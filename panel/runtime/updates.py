@@ -660,11 +660,27 @@ RELAUNCH_WATCH_SEC = 8.0
 RELAUNCH_LOG_MAX = 512 * 1024
 
 
+#: How long the replacement keeps writing into :func:`relaunch_out` before it points
+#: its own streams at nowhere (`panel/runtime/streams.py`). Long enough to hold a boot
+#: and whatever fails during one; the panel prints tens of kilobytes an hour once it is
+#: running, and none of it is what this capture is for.
+CAPTURE_SEC = 180.0
+#: The environment variable that carries the number to the replacement.
+CAPTURE_ENV = "LW_PANEL_CAPTURE_SEC"
+
+
 def relaunch_log() -> str:
     """Where the trail of a restart is kept. A function, so a test can redirect it."""
     from .. import paths as panelpaths          # noqa: PLC0415 — no import cycle at boot
 
     return panelpaths.RELAUNCH_LOG
+
+
+def relaunch_out() -> str:
+    """Where the replacement's own output goes — see :data:`panel.paths.RELAUNCH_OUT`."""
+    from .. import paths as panelpaths          # noqa: PLC0415 — no import cycle at boot
+
+    return panelpaths.RELAUNCH_OUT
 
 
 def relaunch_note(line: str) -> None:
@@ -708,10 +724,12 @@ def relaunch(argv: list | None = None, repo: str = REPO, module: str = "panel",
     cmd = relaunch_command(argv, module)
     env = dict(os.environ)
     env[RELAUNCH_ENV] = str(os.getpid())
+    env[CAPTURE_ENV] = str(CAPTURE_SEC)
 
     def _spawn():
         try:
-            sink = open(relaunch_log(), "a", encoding="utf-8")
+            os.makedirs(os.path.dirname(relaunch_out()), exist_ok=True)
+            sink = open(relaunch_out(), "w", encoding="utf-8")
         except OSError:
             sink = subprocess.DEVNULL
         try:
@@ -725,7 +743,8 @@ def relaunch(argv: list | None = None, repo: str = REPO, module: str = "panel",
                 except OSError:
                     pass
 
-    relaunch_note(f"relaunch: {' '.join(cmd)} (cwd={repo}, from pid {os.getpid()})")
+    relaunch_note(f"relaunch: {' '.join(cmd)} (cwd={repo}, from pid {os.getpid()}) "
+                  f"— its own output goes to {os.path.basename(relaunch_out())}")
     proc = _spawn()
     relaunch_note(f"started pid {proc.pid}")
     if watch <= 0:
@@ -735,12 +754,26 @@ def relaunch(argv: list | None = None, repo: str = REPO, module: str = "panel",
         relaunch_note(f"pid {proc.pid} still up after {watch:.0f}s — booting")
         return proc
     relaunch_note(f"pid {proc.pid} exited rc={rc} within {watch:.0f}s — starting one more")
+    # Into the notes BEFORE the retry, which opens the capture file again and truncates
+    # it: what the child that died said is the whole reason any of this is written down.
+    for line in _tail(relaunch_out(), 40):
+        relaunch_note(f"  | {line}")
     second = _spawn()
     relaunch_note(f"started pid {second.pid} (retry)")
     rc2 = _watch(second, watch)
     if rc2 is not None:
         relaunch_note(f"pid {second.pid} exited rc={rc2} too — no panel was started")
     return second
+
+
+def _tail(path: str, lines: int) -> list:
+    """The last ``lines`` non-empty lines of a file. Empty when there is nothing to read."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            said = [ln.rstrip() for ln in fh.readlines() if ln.strip()]
+    except OSError:
+        return []
+    return said[-lines:]
 
 
 def _watch(proc, seconds: float):

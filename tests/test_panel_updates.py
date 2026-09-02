@@ -760,20 +760,22 @@ def test_a_relaunch_that_dies_leaves_a_trail_and_is_tried_once_more():
     import panel.paths as panelpaths
 
     with tempfile.TemporaryDirectory() as tmp:
-        was, panelpaths.RELAUNCH_LOG = panelpaths.RELAUNCH_LOG, \
-            os.path.join(tmp, "panel_relaunch.log")
+        was = (panelpaths.RELAUNCH_LOG, panelpaths.RELAUNCH_OUT)
+        panelpaths.RELAUNCH_LOG = os.path.join(tmp, "panel_relaunch.log")
+        panelpaths.RELAUNCH_OUT = os.path.join(tmp, "panel_relaunch.out")
         try:
             updates.relaunch(argv=["-c", "raise SystemExit(\"cannot start\")"],
                              module="this_module_does_not_exist", watch=2.0)
             said = Path(panelpaths.RELAUNCH_LOG).read_text(encoding="utf-8")
         finally:
-            panelpaths.RELAUNCH_LOG = was
+            panelpaths.RELAUNCH_LOG, panelpaths.RELAUNCH_OUT = was
 
     assert "relaunch: " in said, said
     assert "started pid " in said, said
-    # What the child said for itself — the whole point: without this the failure is
-    # invisible from outside.
+    # What the child said for itself, carried into the notes before the retry truncates
+    # the capture — the whole point: without this the failure is invisible from outside.
     assert "cannot start" in said or "No module named" in said, said
+    assert "  | " in said, said
     assert "exited rc=" in said, said
     assert "(retry)" in said, said
 

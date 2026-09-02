@@ -16,6 +16,11 @@ from __future__ import annotations
 import io
 import os
 import sys
+import threading
+
+#: Set by `panel/runtime/updates.py::relaunch`: how many seconds this process may keep
+#: writing into the capture file its parent opened for it.
+CAPTURE_ENV = "LW_PANEL_CAPTURE_SEC"
 
 
 def ensure() -> None:
@@ -33,3 +38,51 @@ def ensure() -> None:
             sys.stdin = open(os.devnull, encoding="utf-8")
         except OSError:
             sys.stdin = io.StringIO()
+    cap_capture()
+
+
+def _stop_capturing() -> None:
+    """Point fds 1 and 2 at nowhere — the boot is over and the capture has what it needs."""
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:                       # noqa: BLE001 — nothing to flush
+        pass
+    try:
+        spare = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        return
+    try:
+        for fd in (1, 2):
+            try:
+                os.dup2(spare, fd)
+            except OSError:
+                pass
+    finally:
+        try:
+            os.close(spare)
+        except OSError:
+            pass
+
+
+def cap_capture() -> None:
+    """Stop writing into the parent's capture file once the boot has had its chance.
+
+    THE CAPTURE IS FOR A BOOT, NOT FOR A LIFETIME (#1897). The replacement's stdout is a
+    file the panel it replaced opened for it, and the panel prints tens of kilobytes an
+    hour once it is running — a capture nobody closed is a file that grows for as long
+    as the panel lives. So the process closes its own: a daemon timer, armed only when
+    the parent asked for one, that hands fds 1 and 2 to `os.devnull` afterwards.
+
+    Nothing is lost that this is for: an import error, a refused profile, a traceback on
+    the way up all happen in the first seconds.
+    """
+    try:
+        seconds = float(os.environ.pop(CAPTURE_ENV, "") or 0)
+    except ValueError:
+        return
+    if seconds <= 0:
+        return
+    timer = threading.Timer(seconds, _stop_capturing)
+    timer.daemon = True
+    timer.start()
