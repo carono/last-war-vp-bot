@@ -1254,13 +1254,22 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
    card with none draws no row at all. */
 .item.errand.cover { display: flex; }
 .item.errand.cover .errand-body { flex: 1 1 auto; }
-.item.errand.cover .errand-acts { margin-top: auto; align-items: center; }
+/* ONE LINE, and it has to be said: the row WRAPS by default (a card at 280 px with three
+   signs on it needs to), and a reading whose natural width is the whole sentence took the
+   wrap immediately — the pill on one line and «▶» under it, which is not «в линию, где
+   кнопка запуска». Nowrap here, and the reading shrinks instead. */
+.item.errand.cover .errand-acts {
+  margin-top: auto;
+  align-items: center;
+  flex-wrap: nowrap;
+}
 /* THE READING STANDS AT THE LEFT OF THAT ROW AND NEVER UNDER THE BUTTON (#2340). It takes
    what the signs leave (`flex: 1`), and what it cannot fit is cut with an ellipsis — the
    signs are `flex: 0 0 auto`, so the space under them is reserved by the layout itself
    rather than by a margin somebody has to keep in step with the button's width. */
 .item.errand.cover .errand-acts .stat {
-  flex: 1 1 auto;
+  /* A ZERO BASIS: sized by what is left over, never by how long the sentence is. */
+  flex: 1 1 0;
   min-width: 0;
   align-self: center;
   white-space: nowrap;
