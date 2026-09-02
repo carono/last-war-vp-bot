@@ -1261,12 +1261,17 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   border: 0;
   background: none;
   box-shadow: none;
-  color: var(--ink-soft);
-  font-size: 14px;
+  /* WITHOUT A BUTTON UNDER IT, THE PICTURE IS THE BACKGROUND — and a soft-grey glyph on a
+     dark truck is a glyph nobody finds. Full ink and the same halo of card colour the
+     fact lines wear: it costs no height, and it works over the brightest and the darkest
+     of these pictures in either palette. */
+  color: var(--ink);
+  text-shadow: 0 1px 2px var(--card), 0 0 6px var(--card), 0 0 10px var(--card);
+  font-size: 15px;
   line-height: 1;
   border-radius: 4px;
 }
-.item.errand.cover .errand-head > .go.icon:hover { color: var(--ink); }
+.item.errand.cover .errand-head > .go.icon:hover { opacity: 0.75; }
 /* «Кнопку запуск сделай в правом нижнем углу» (#2340, second pass) — the corner, not
    merely the right-hand edge. The row of signs is pushed to the FOOT of the card as well
    as to its right side: the body is the height of the card, the row takes what is left
