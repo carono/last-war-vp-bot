@@ -1260,6 +1260,30 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
    reading clears the corner too. */
 .item.errand.cover .errand-head + * { margin-top: 8px; }
 
+/* «Описание сделай всегда минимум на 3 строки» (#2340, third pass) — the line of facts
+   is three lines TALL whether or not it has three lines of words in it. It is what makes
+   a column of cards a column: the same sentence is two lines in Russian and one in
+   English, and a pill that shrinks to fit moved the picture, the play sign and the card's
+   own foot with it every time an errand's «следующий через …» ticked over a boundary.
+   Stated in `em` of this line, so it stays three lines at any text size. */
+.item.errand.cover .facts {
+  line-height: 1.35;
+  min-height: calc(3 * 1.35em + 4px);      /* + the pill's own 2px above and below */
+}
+
+/* «Скругление углов сильно уменьши, выглядит несуразно» — and it was the LOZENGES that
+   made it look that way: 999px turns every pill into a capsule, and a capsule of text
+   over a photograph reads as a chat bubble rather than as part of the card. One value for
+   the whole cover card — the card, the name, the facts, the reading, the signs — because
+   corners that disagree are the thing that looks odd, and the numbers are small enough
+   that a smaller number under a bigger one has to stay visibly inside it. */
+.item.errand.cover { border-radius: 8px; }
+.item.errand.cover .title,
+.item.errand.cover .facts,
+.item.errand.cover .stat,
+.item.errand.cover .errand-body > .muted { border-radius: 6px; }
+.item.errand.cover .go { border-radius: 6px; }
+
 /* The live line: the number is the thing, its age is an aside. */
 .stat { margin: 0; }
 .stat b { color: var(--ink); font-weight: 600; }
