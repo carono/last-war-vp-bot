@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Bestimmt nur, wie viele Grabungen bis zum Ziel geplant werden.",
   "hidden.unknown_knob": "Das Panel kennt diese Einstellung nicht",
   "tab.hidden_treasures": "Verborgene Schätze",
-  "hidden.card": "Verborgene Schätze"
+  "hidden.card": "Verborgene Schätze",
+  "events.golden.lap": "Sekunden pro Zombie (Ø · letzte)",
+  "events.golden.options": "Jagdeinstellungen",
+  "events.golden.approach.hint": "Eine weite Strecke wird per Sammelbefehl zu einer Mine neben dem Ziel geritten — zweieinhalbmal schneller —, nur die letzten Felder werden marschiert."
 }

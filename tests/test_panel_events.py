@@ -437,6 +437,8 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN,
     tab._golden_running = False
     tab._golden_button = None
     tab._golden_target = ""          # what «найти ближайшего» last chose (#1702)
+    tab._golden_lap = 0              # the run's own seconds-per-zombie (#2390)
+    tab._golden_lap_last = 0
     tab._target_var = None           # the label that shows it beside the buttons
     tab._step_said = ""              # what the last step press answered (#1702)
     tab._step_var = None
@@ -582,7 +584,7 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
         keys += [a["label"] for a in view["actions"]]
         for card in view["cards"]:
             assert set(card) <= {"title", "head", "rows", "items", "empty", "search",
-                                 "actions", "fields", "note"}
+                                 "actions", "fields", "note", "layout"}
             keys += [k for k in (card.get("title"), card.get("empty"),
                                  card.get("note")) if k]
             keys += [r["label"] for r in card.get("rows") or ()]
@@ -597,7 +599,19 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
             for item in card.get("items") or ():
                 assert "text" not in item, \
                     "a title of the panel's own must be a key, not data"
-                keys += [k for k in (item.get("label"), item.get("pill")) if k]
+                keys += [k for k in (item.get("label"), item.get("pill"),
+                                     item.get("options_title")) if k]
+                keys += [a["label"] for a in item.get("actions") or ()]
+                offered |= {a["id"] for a in item.get("actions") or ()}
+                # AN ITEM'S KNOBS ARE A CARD'S KNOBS ONE STEP DOWN (#2390), and they are
+                # held to the same rule: the label and the hint are words, the key and
+                # the value are data, and the kind is one the renderer knows.
+                for field in item.get("options") or ():
+                    assert field["kind"] in ("switch", "number", "text", "choice",
+                                             squad_picker.KIND)
+                    keys += [k for k in (field.get("label"), field.get("hint")) if k]
+                    assert not keyish.match(str(field["key"])), \
+                        "a knob's key is data, not a locale key"
             keys += [a["label"] for a in card.get("actions") or ()]
             offered |= {a["id"] for a in card.get("actions") or ()}
         for key in keys:
@@ -646,25 +660,28 @@ def test_the_phone_is_offered_the_attack_only_while_the_event_is_running():
 def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     """The same rule as the boss: a reading that SAYS «no energy» kills the button."""
     spent = _tab(golden=GOLDEN_SPENT)
-    assert _card_actions(spent, "events.group.golden") == []
+    assert _golden_item(spent).get("actions") is None, \
+        "the tile offers a hunt the purse cannot pay for"
     assert spent.web_press("hunt_golden", {}) == {"error": "closed"}
     assert spent.rt.played == [], "a hunt reached the game with an empty purse"
 
     live = _tab(golden=GOLDEN_OPEN)
     # …and beside the chain, the chain taken apart: one press per step, so a person can
     # find a zombie, look at what was chosen, and only then send anything at it (#1702).
+    # …AND THE PRESSES ARE THE ITEM'S, NOT THE CARD'S (#2390): the golden card is one
+    # tile now, so its buttons sit on the tile beside the gear its knobs open — and
+    # «быстрый подход» has left the row of buttons entirely, because it never pressed
+    # anything at the game.
     STEPS = ["find_golden", "attack_golden", "recall_golden", "state_golden",
              "goto_golden", "forget_golden", "rescan_golden"]
-    assert _card_actions(live, "events.group.golden") == [
-        "hunt_golden", "approach_toggle"] + STEPS
+    assert [a["id"] for a in _golden_item(live)["actions"]] == ["hunt_golden"] + STEPS
     assert live.web_press("hunt_golden", {}) == {"ok": True}
     assert live.rt.played == [modelmod.GOLDEN_ATTACK]
 
     # …and a reading nobody could take leaves it alive: «nobody knows» is not «you may
     # not», and the scenario holds its own gates.
     unknown = _tab(golden=None)
-    assert _card_actions(unknown, "events.group.golden") == [
-        "hunt_golden", "approach_toggle"] + STEPS
+    assert [a["id"] for a in _golden_item(unknown)["actions"]] == ["hunt_golden"] + STEPS
 
 
 def test_every_step_of_the_hunt_is_a_scenario_the_phone_can_press():
@@ -702,9 +719,9 @@ def test_forgetting_the_target_empties_what_the_card_shows_at_once():
     assert tab.web_press("forget_golden", {}) == {"ok": True}
     assert tab._golden_target == ""
     assert tab.rt.played == ["golden_forget_target"]
-    row = next(r for c in tab.web_view()["cards"] if c.get("title") == "events.group.golden"
-               for r in c["rows"] if r["label"] == "events.golden.target")
-    assert row["value"] == tab.t("events.golden.target.none")
+    fact = next(f for f in _golden_item(tab)["facts"]
+                if f["label"] == "events.golden.target")
+    assert fact["value"] == tab.t("events.golden.target.none")
 
 
 def test_attacking_uses_the_squad_the_panel_shows_and_the_target_already_fixed():
@@ -816,6 +833,20 @@ def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():
         "a slot that does not exist must not be sent anywhere"
 
 
+def _golden_item(tab):
+    """The one item of the «Золотые зомби» card — a tile of the new shape (#2390).
+
+    The card stopped being a list of rows with nine buttons over it: it is a `cards`
+    layout with one item, the state on a pill, the numbers as facts and every knob behind
+    the gear that opens the ONE modal (`CLAUDE.md`). Every test that used to read `rows`
+    reads `facts` through here.
+    """
+    card = next(c for c in tab.web_view()["cards"]
+                if c.get("title") == "events.group." + modelmod.GOLDEN)
+    assert card.get("layout") == "cards", "the golden card went back to being rows"
+    return card["items"][0]
+
+
 def test_the_fast_approach_is_a_switch_on_both_front_ends():
     """The ride is a choice about how the chain TRAVELS, so it is set, not inferred."""
     tab = _tab()
@@ -827,10 +858,20 @@ def test_the_fast_approach_is_a_switch_on_both_front_ends():
     assert tab.rt.played == [], "a switch pressed something at the game"
     tab.apply_config({modelmod.GOLDEN_APPROACH_KEY: False})
     assert tab.approach() is False
-    # …and the phone SAYS which way it is set, in words rather than a bare true/false.
-    rows = {r["label"]: r["value"] for c in tab.web_view()["cards"]
-            for r in c.get("rows") or ()}
-    assert rows["events.golden.approach"] == "events.golden.approach.off"
+    # …AND ON THE PHONE IT IS A SWITCH AND NOT A BUTTON (#2390). It used to be a press
+    # that walked the setting and a row that said «выключен» in words — which reads as
+    # «do it now» and never was: nothing leaves the base when it is thrown. It is a
+    # `switch` field behind the card's gear, set through the same `set` press every
+    # other knob uses. The old `approach_toggle` is still answered, for a page a phone
+    # already has open.
+    item = _golden_item(tab)
+    knob = next(f for f in item["options"]
+                if f["key"] == modelmod.GOLDEN_APPROACH_KEY)
+    assert knob["kind"] == "switch" and knob["value"] is False
+    assert tab.web_press("set", {"key": modelmod.GOLDEN_APPROACH_KEY,
+                                 "value": True}) == {"ok": True, "approach": True}
+    assert tab.approach() is True
+    assert tab.rt.played == [], "a switch pressed something at the game"
 
 
 def test_the_two_march_speeds_reach_the_board_as_numbers_a_person_reads():

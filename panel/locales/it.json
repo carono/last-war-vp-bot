@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Decide solo quanti scavi vengono pianificati fino all'obiettivo.",
   "hidden.unknown_knob": "il pannello non conosce questa impostazione",
   "tab.hidden_treasures": "Tesoro Nascosti",
-  "hidden.card": "Tesoro Nascosti"
+  "hidden.card": "Tesoro Nascosti",
+  "events.golden.lap": "Secondi per zombie (media · ultimo)",
+  "events.golden.options": "Impostazioni della caccia",
+  "events.golden.approach.hint": "Un tragitto lungo si percorre con un ordine di raccolta fino a una miniera accanto al bersaglio — due volte e mezzo più veloce — e solo le ultime caselle si fanno in marcia."
 }

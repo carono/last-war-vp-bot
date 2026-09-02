@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Only decides how many digs the distance to the goal is planned as.",
   "hidden.unknown_knob": "the panel does not know this setting",
   "tab.hidden_treasures": "Hidden Treasures",
-  "hidden.card": "Hidden Treasures"
+  "hidden.card": "Hidden Treasures",
+  "events.golden.lap": "Seconds per zombie (avg · last)",
+  "events.golden.options": "Hunt settings",
+  "events.golden.approach.hint": "A long haul is ridden to a mine beside the target on a gather order, which travels two and a half times faster, and only the last tiles are marched."
 }

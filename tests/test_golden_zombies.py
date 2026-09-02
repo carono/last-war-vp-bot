@@ -1139,7 +1139,13 @@ def test_the_map_is_walked_ONCE_and_never_again():
 # ---------------------------------------------------------------------------
 
 BRICKS = ("golden_wait_for_the_march", "golden_judge_the_kill",
-          "golden_choose_a_target", "golden_send_the_squad")
+          "golden_send_the_squad", "golden_choose_a_target")
+
+#: …and the same four names in the order a LAP reads them, which is not the order the
+#: loop runs them in any more (#2390): the pick for lap N happens at the end of lap N-1,
+#: while its march is still in the air. The set is what a brick belongs to; the tuple
+#: above is what the file says.
+BRICKS_BY_NAME = frozenset(BRICKS)
 
 
 def _brick(name):
@@ -1155,13 +1161,26 @@ def test_the_chain_is_four_bricks_each_runnable_on_its_own():
 
     Each brick is a scenario in its own right, so a hunt that stumbles is debugged one
     press at a time. The chain only assembles them, and it assembles them in the order of
-    the facts: nothing is chosen while the squad is still walking, nothing is judged
-    before the march has landed, nothing is sent at a target that has not been checked.
+    the facts: nothing is judged before the march has landed, and nothing is sent at a
+    target that has not been checked.
+
+    THE CHOOSING MOVED TO THE END OF THE LAP (#2390), and that is not a loosening of the
+    rule — it is the rule read properly. «Nothing is chosen while the squad is still
+    walking» was a statement about the ORIGIN, not about the clock: the pick has to be
+    measured from where the squad will stand, which is the tile the march in flight is
+    aimed at and is known the moment the order leaves. So the pick for the next lap is
+    made while this lap's march is still in the air, where it costs nothing, and the
+    first one is made before the loop opens. Measured on the lap this was written for,
+    choosing was 1.6 s of an 8-second gap between «the fight is over» and «the next
+    order is away», and the district look inside it another 3.4 s.
     """
     body, lines = _brick("attack_golden_zombies")
     loop = next(i for i, w in enumerate(lines) if w.startswith("WHILE go == 1"))
     calls = [w.split()[1] for w in lines[loop:] if w.startswith("CALL ")]
     assert calls == list(BRICKS), f"the chain's lap is {calls}"
+    before = [w.split()[1] for w in lines[:loop] if w.startswith("CALL golden_")]
+    assert before and before[-1] == "golden_choose_a_target", \
+        "the loop opens with no target chosen, so the first lap picks with the squad idle"
     for i, w in enumerate(lines[loop:], loop):
         assert not w.startswith("TAP "), \
             f"the chain still presses {w!r} itself instead of through a brick"
@@ -1353,10 +1372,20 @@ def test_the_gap_after_an_attack_is_kept_short_on_purpose():
     assert "IsFree()" in lua_actions.golden_launched(), \
         "the patience was cut without the instant half of the proof to justify it"
 
-    # …and the ride's camera flight is bought only when the sums ask for it.
-    look = send.index("TAP golden_look")
-    assert any(w.startswith("IF needs_district ==") for w in send[max(0, look - 3):look]), \
+    # …and the ride's camera flight is bought only when the sums ask for it — and it is
+    # bought in the CHOOSING now, not in the send (#2390): looking at a far target's
+    # district is a two-second camera flight plus a settle and a scan, and it was sitting
+    # between «the march has landed» and «the next order is away» for no reason. The
+    # camera belongs to the panel, not to the army, so it flies while the squad does.
+    _body, choose = _brick("golden_choose_a_target")
+    assert "TAP golden_look" not in send, \
+        "the district flight is back on the hot path — it costs three seconds a kill"
+    look = choose.index("TAP golden_look")
+    assert any(w.startswith("IF needs_district ==") for w in choose[max(0, look - 3):look]), \
         "the hunt flies to its candidate on every lap again — it costs three seconds a kill"
+    live = choose.index("IF target_live == 1")
+    assert look < live, \
+        "the liveness check asks about ground the client has not been shown"
 
 
 def test_every_recipe_carries_the_modules_copy_of_every_shared_expression():
@@ -1720,12 +1749,22 @@ def test_a_lap_does_not_begin_until_the_squad_is_free():
     """
     _body, wait = _brick("golden_wait_for_the_march")
     i = max(k for k, w in enumerate(wait) if " INTO squad_free" in w)
-    loop = next(w for w in wait if w.startswith("WHILE squad_free == 0 LIMIT"))
-    beats = int(loop.rsplit(" ", 1)[-1])
+    loops = [k for k, w in enumerate(wait) if w.startswith("WHILE squad_free == 0 LIMIT")]
+    # TWO LOOPS, AND EACH ANSWERS A DIFFERENT QUESTION (#2390). The first is the LAP's
+    # own lag — the squad frees itself within a breath of its march ending, and a
+    # two-second beat there is a quarter of the whole gap between «the fight is over»
+    # and «the next order is away». The second is patience for something else holding
+    # the squad, and its ceiling is unchanged.
+    assert len(loops) >= 2, "the quick answer and the patient one are the same loop again"
+    quick, patient = loops[0], loops[1]
+    assert wait[quick + 1] == "WAIT 0.4", \
+        "the lap's own gate is polled at the pace of a squad that is stuck"
+    beats = int(wait[patient].rsplit(" ", 1)[-1])
     # TEN MINUTES IS THE CEILING NOW (#1702): «busy for two minutes» ended four runs
     # of one morning, and a squad is busy because a rally, a gather or the person
     # has it — all of which end by themselves in minutes.
     assert 30 <= beats <= 300, "the patience is either a blink or a hang"
+    assert wait[patient + 1] == "WAIT 2", "the patient loop is no longer patient"
     tail = wait[i:]
     assert any(w.startswith("LOG ") for w in tail), \
         "a run that gives up on a busy squad does so in silence"

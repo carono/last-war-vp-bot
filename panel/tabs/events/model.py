@@ -810,6 +810,24 @@ def speed(state) -> str:
     return "%.2f / %.2f · ×%.1f" % (atk, col, ratio)
 
 
+def lap(average: int, last: int) -> str:
+    """`38 с · 31` — the seconds between two orders, as the run itself counted them.
+
+    The average first, because it is the number that says whether a hunt is quick; the
+    most recent one after it, because a chain that is speeding up or bogging down says so
+    there first. **A run that sent fewer than two orders has no lap at all** and this
+    answers «—», the same way every other reading here refuses to invent a number: one
+    order tells you nothing about the gap between orders, and a `0 с` on this card would
+    read as the fastest hunt there has ever been.
+    """
+    average, last = int(average or 0), int(last or 0)
+    if average <= 0:
+        return "—"
+    if last > 0 and last != average:
+        return "%d · %d" % (average, last)
+    return str(average)
+
+
 def tally(row) -> str:
     """`6 · 60` — the day's attacks and the energy they cost, as this panel sent them."""
     row = row or {}

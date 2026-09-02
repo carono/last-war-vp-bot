@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Só decide quantas escavações são planeadas até à meta.",
   "hidden.unknown_knob": "o painel não conhece esta definição",
   "tab.hidden_treasures": "Tesouro Secreto",
-  "hidden.card": "Tesouro Secreto"
+  "hidden.card": "Tesouro Secreto",
+  "events.golden.lap": "Segundos por zumbi (méd. · últ.)",
+  "events.golden.options": "Ajustes da caçada",
+  "events.golden.approach.hint": "Um trajeto longo é feito com uma ordem de coleta até uma mina ao lado do alvo — duas vezes e meia mais rápido — e só as últimas casas são marchadas."
 }

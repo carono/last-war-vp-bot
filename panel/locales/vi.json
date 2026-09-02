@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Chỉ quyết định số lượt đào được lên kế hoạch tới mục tiêu.",
   "hidden.unknown_knob": "bảng điều khiển không biết thiết lập này",
   "tab.hidden_treasures": "Kho Báu Bí Mật",
-  "hidden.card": "Kho Báu Bí Mật"
+  "hidden.card": "Kho Báu Bí Mật",
+  "events.golden.lap": "Giây mỗi zombie (TB · gần nhất)",
+  "events.golden.options": "Cài đặt săn",
+  "events.golden.approach.hint": "Quãng đường xa được đi bằng lệnh thu thập tới mỏ cạnh mục tiêu — nhanh gấp hai rưỡi — và chỉ những ô cuối mới hành quân."
 }

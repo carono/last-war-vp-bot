@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Hanya menentukan berapa galian yang direncanakan sampai target.",
   "hidden.unknown_knob": "panel tidak mengenal pengaturan ini",
   "tab.hidden_treasures": "Harta Karun Tersembunyi",
-  "hidden.card": "Harta Karun Tersembunyi"
+  "hidden.card": "Harta Karun Tersembunyi",
+  "events.golden.lap": "Detik per zombi (rata · terakhir)",
+  "events.golden.options": "Pengaturan perburuan",
+  "events.golden.approach.hint": "Perjalanan jauh ditempuh dengan perintah kumpul ke tambang di dekat sasaran — dua setengah kali lebih cepat — dan hanya petak terakhir yang ditempuh dengan mars."
 }

@@ -171,6 +171,11 @@ class EventsTab(PanelTab):
         #: (`tools/lib/coords.py`) — the window's log makes it clickable, and the card
         #: shows it on both front-ends (#1702).
         self._golden_target = ""
+        #: The seconds between two orders, as the RUN counted them — its average and
+        #: its last (#2390). Zero means «no run has sent two orders yet», which the
+        #: card draws as «—» rather than as a fast lap.
+        self._golden_lap = 0
+        self._golden_lap_last = 0
         #: The label that shows it beside the buttons — made in `build()`, `None` in a
         #: tab nobody has opened.
         self._target_var = None
@@ -1276,6 +1281,8 @@ class EventsTab(PanelTab):
         raw = (getattr(ctx, "vars", {}) or {}).get("golden_report")
         if raw:
             report = goldmod.parse_report(raw)
+        self._golden_lap = int(report.get("lap", 0) or 0)
+        self._golden_lap_last = int(report.get("laplast", 0) or 0)
         if outcome is not None and getattr(outcome, "ok", False):
             self._file_run(report)
             self.say("events", "events.golden.log.done",
@@ -1897,37 +1904,57 @@ class EventsTab(PanelTab):
         # window has and the phone does not is a control the person on the move cannot
         # find (`CLAUDE.md`). The chain is a scenario, so the press travels with it.
         gold = self.golden()
-        gcard = {"title": "events.group." + modelmod.GOLDEN, "rows": [
-            {"label": "events.state", "value": self._golden_words(gold)},
+        # THE CARD OF THE NEW SHAPE (#2390): a tile with the state on a pill, the facts
+        # in words under it, and every KNOB behind the gear — the one modal, never a
+        # second one (`CLAUDE.md`). It replaces nine buttons and a picker standing in a
+        # row above the numbers they belong to: on a phone that was two screens of
+        # controls before the first fact.
+        facts = [
             {"label": "events.golden.energy", "value": modelmod.energy(gold)},
             {"label": "events.golden.affordable", "value": modelmod.affordable(gold)},
             {"label": "events.golden.seen", "value": modelmod.seen(gold)},
+            # HOW LONG ONE ZOMBIE TAKES, WHICH IS THE THING THAT WAS WRONG (#2390). The
+            # complaint was «очень медленно», and no reading on this card could answer
+            # it: the run said what it sent and never how long between. The number is
+            # the game's own — the seconds between one order being confirmed and the
+            # next — and «—» while a run has sent fewer than two, because one order has
+            # no lap.
+            {"label": "events.golden.lap", "value": modelmod.lap(self._golden_lap,
+                                                                self._golden_lap_last)},
             {"label": "events.golden.speed", "value": modelmod.speed(gold)},
             {"label": "events.golden.today", "value": modelmod.tally(self.today())},
-            {"label": "events.golden.approach",
-             "value": self.t("events.golden.approach."
-                             + ("on" if self.approach() else "off"))},
             {"label": "events.golden.target",
              "value": self._golden_target or self.t("events.golden.target.none")},
             {"label": "events.golden.said",
              "value": self.t(self._step_said) if self._step_said else "—"},
-        ]}
+        ]
         # WHICH SQUAD GOES, AS THE PICKER EVERY OTHER PAGE DRAWS (#2062) — the player's
         # own four with the heroes standing in them, and one of them picked, because the
         # hunt sends one. It replaces a button that WALKED the slots: «Отряд 3» is one
         # touch here and was three there, and neither said what was standing in it.
-        gcard["fields"] = [squad_picker.field(
+        #
+        # …and the ride is a SWITCH beside it now and not a press (#2390). It was a
+        # button that toggled a setting, which reads as «do it» and is not: nothing
+        # happens at the game when it is pressed, and the next hunt travels differently.
+        options = [squad_picker.field(
             self.rt, modelmod.GOLDEN_SQUAD_KEY, "squads.title", [self.squad()],
-            single=True)]
+            single=True),
+            {"key": modelmod.GOLDEN_APPROACH_KEY, "label": "events.golden.approach",
+             "hint": "events.golden.approach.hint", "kind": "switch",
+             "value": bool(self.approach())}]
+        gitem = {"label": "events.group." + modelmod.GOLDEN,
+                 "pill": ("events.golden.state.open" if gold.state == modelmod.OPEN
+                          else "events.golden.state.closed"
+                          if gold.state == modelmod.CLOSED else "events.state.unknown"),
+                 "facts": facts,
+                 "options": options,
+                 "options_title": "events.golden.options"}
         if gold.can_attack and not self._golden_running:
-            gcard["actions"] = [{"id": "hunt_golden", "label": "events.golden.hunt"},
-                                {"id": "approach_toggle",
-                                 "label": "events.golden.approach.toggle"}]
-            gcard["actions"] += [{"id": action, "label": key}
+            gitem["actions"] = [{"id": "hunt_golden", "label": "events.golden.hunt"}]
+            gitem["actions"] += [{"id": action, "label": key}
                                  for action, _scenario, key in self.STEPS]
-        else:
-            gcard["items"] = [{"label": "events.golden.hunt",
-                               "pill": "events.codename.attack.off"}]
+        gcard = {"title": "events.group." + modelmod.GOLDEN, "layout": "cards",
+                 "items": [gitem]}
 
         # …and «Салют», which needs no reading at all: the book is filled by the ear and
         # is already in memory, so this card answers on a phone whose game is asleep. The
@@ -2248,6 +2275,18 @@ class EventsTab(PanelTab):
                 self._train_tickets = number
                 self._train_knob_saved()
                 return {"ok": True, "tickets": self._train_tickets}
+            if key == modelmod.GOLDEN_APPROACH_KEY:
+                # THE RIDE, AS A SWITCH (#2390). It was a press that walked a setting,
+                # which reads as «do it now» and never was: nothing leaves the base when
+                # it is thrown, and the next hunt travels by mine instead of marching.
+                # The old press is still answered above, for a page a phone already has.
+                self._approach = bool(raw)
+                if self._approach_var is not None:
+                    try:
+                        self._approach_var.set(self._approach)
+                    except tk.TclError:      # the window is going away
+                        pass
+                return {"ok": True, "approach": self._approach}
             if key == modelmod.GOLDEN_SQUAD_KEY:
                 # ONE SQUAD, and the picker sends the list it drew (#2062). A press
                 # naming none is refused rather than silently sending squad 1 — the hunt

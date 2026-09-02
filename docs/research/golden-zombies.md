@@ -917,6 +917,97 @@ is on another warzone.
   second, because the things live twelve minutes and respawn elsewhere. The hop between
   them is a table lookup on a key seen live on both sides.
 
+## 7b — the lap, measured, and what «очень медленно» actually was (#2390)
+
+The report was «отряд должен от зомби к зомби передвигаться с минимальными задержками», and
+the first thing done about it was a stopwatch rather than a guess. Everything here is off
+one live account, 2026-09-02, six kills before and six after, timed from the panel's own
+`debug.log` (millisecond stamps on every statement).
+
+### The cost of asking the game anything
+
+Twenty trivial `READ_LUA (1)` in one recipe: **4 165 ms — 208 ms a round trip.** A `WAIT 1`
+measured 1 003 ms. That is the unit every number below is built out of: a lap that takes
+twenty readings has spent four seconds before it has done anything.
+
+### Where a lap went, before
+
+Six laps, order to order: **188 · 72 · 188 · 200 · 262 · 312 s**. One of them broken down:
+
+| phase | seconds | ours or the game's |
+|---|---|---|
+| the send press, the confirm and the eta | 1.8 | ours |
+| `WHILE far` — the flight out, 79 tiles | 83.9 | the game's |
+| `WHILE arrived`, one-second beats | 3.0 | ours |
+| `WHILE marching` | **90.5** | **the walk home** |
+| judging the kill | 2.0 | ours |
+| choosing the next target | 1.6 | ours |
+| sending — of which 3.4 s is a camera flight to a far district | 4.4 | ours |
+
+**Our own waiting was thirteen seconds of a hundred and eighty-eight.** Everything else
+was travel, and half the travel was the squad walking home: `redeploys = 0` in every
+report this repository has ever filed, so the «chain» in §4b had never once happened.
+
+### `back = 0` does not keep a squad out, and neither does `false`
+
+The chain parks `__lw_gold_back = 0` meaning «stay», and `autoBackHome` is a C# bool that
+xLua fills with `lua_toboolean` — where **every number, `0` included, is true**. That was
+found, fixed (`home = (back ~= 0)`, a genuine Lua boolean, with the numeric form kept as a
+fallback), and **it changed nothing**: measured live afterwards, the squad fought, and two
+and a half minutes later a fresh march appeared with 154 seconds on it, aimed home. So an
+attack march on a monster returns home whatever this flag says, and the only way the squad
+stays out in the invasion's corner is the gather ride of §4b.
+
+The fix is kept because it is what the code MEANT, and because the fallback costs nothing.
+
+### What made the lap short
+
+Three changes, and the last one is the one that mattered:
+
+1. **The next target is chosen while the current march is in the air.** The pick is made
+   once before the loop and then at the END of each lap, not at the start of the next one.
+   The camera flight to a far target's district went with it — that is `golden_look`, two
+   seconds of settle plus a scan, and it had been sitting between «the fight is over» and
+   «the next order is away».
+2. **The beats came down** where they are on the hot path: arrival 1 s → 0.4 s, the march
+   1 s instead of 2 s, and «is the squad free» became two loops — a quick one at 0.4 s for
+   the ordinary case and the patient two-second one, unchanged, for a squad something else
+   is holding.
+3. **`_origin` answers for a squad that is STILL FLYING.** It used to hand back the base
+   unless the march had landed, so a pick made mid-flight measured from home and the hunt
+   walked back and forth across the map. A march of ours carrying nobody's banner is going
+   to the anchor — that is the only place this chain ever sends it — so the anchor is the
+   origin whether it has landed or not. (The march object's own destination field was
+   tried first: reflection over a march answers nothing at all under xLua, so the anchor
+   the send parked is the honest source.)
+
+### …and the ride abandoned itself on its first live beat
+
+Turning §4b's «быстрый подход» on for the first time since it was written, the ride was
+planned correctly (`direct=154 via=75`) and then **abandoned 3.5 seconds later** with «the
+zombie died while we were riding to it», which switched the ride off for the rest of the
+run. The zombie was alive. The check was the plain there/not-there reading, asked while
+the camera sits over the MINE — so the client is not holding the target's ground and
+answers «not there» about everything. It is the three-way reading now
+(`golden_confirm_current`: 1 alive, 0 gone, **-1 nobody could say**), and only a definite
+`0` abandons a ride.
+
+### Where a lap went, after
+
+Six laps: **26 · 31 · 40 · 66 · 74 · 105 s**, one ride taken and not abandoned, and picks
+of 4, 7 and 15 tiles reading `from=flying` — a squad hopping between neighbours instead of
+commuting from the base. **The part that is ours — from the march ending to the next order
+leaving — went from 6–8 s to 3.2–3.6 s.**
+
+Two honest caveats. The invasion wave had moved nearer the base between the two runs
+(nearest target 79–126 tiles before, 4–61 after), so the TRAVEL numbers are not comparable
+and only the tail is. And the run still costs one walk home per kill: until an attack march
+can be made to stay, the ride of §4b is the only lever left on the travel half.
+
+The run says its own lap now: `lap=` (the average) and `laplast=` in the closing report,
+counted on the game's clock between two confirmed orders, and drawn on the phone as
+«Секунд на зомби».
+
 ## 8 — where the code is
 
 * the ability — `src/lastwar_bot/actions/attack_golden_zombies.md`

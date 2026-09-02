@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Ne décide que du nombre de fouilles planifiées jusqu'à l'objectif.",
   "hidden.unknown_knob": "le panneau ne connaît pas ce réglage",
   "tab.hidden_treasures": "Trésors Cachés",
-  "hidden.card": "Trésors Cachés"
+  "hidden.card": "Trésors Cachés",
+  "events.golden.lap": "Secondes par zombie (moy. · dern.)",
+  "events.golden.options": "Réglages de la chasse",
+  "events.golden.approach.hint": "Un long trajet se fait sur un ordre de récolte vers une mine près de la cible — deux fois et demie plus rapide —, et seules les dernières cases sont parcourues en marche."
 }

@@ -60,6 +60,12 @@ OWNERS = {
     # `MarchUtil.SendChangeMarchToServer` was found.
     "squad_free": "golden_can_order",
     "stuck": "golden_stuck",
+    # THE THREE-WAY READING OF THE CHOSEN TILE (#2390): 1 alive, 0 gone, -1 nobody
+    # could say. Both callers must have the version that tells «the client is not
+    # holding that ground» from «the zombie is dead» — the ride abandoned itself over
+    # that difference on its first live beat.
+    "target_live": "golden_target_live",
+    "target_still": "golden_confirm_current",
     "vanished": "golden_vanished",
 }
 

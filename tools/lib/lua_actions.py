@@ -12033,6 +12033,16 @@ def golden_send() -> str:
     cleared and the next pick is measured from there. The caller raises it to 1 for the
     last march of the run, which is what brings the squad home.
 
+    **AND `0` IS TRUE IN LUA, WHICH IS WHY THE SQUAD WALKED HOME ANYWAY (#2390).**
+    `autoBackHome` is a C# bool, and xLua converts a Lua value to one with
+    `lua_toboolean` — where every number, `0` included, is true. So the whole chain sent
+    `back = 0` meaning «stay» and the game heard «come home», and every kill cost the
+    flight out AND the flight back. Measured live on a 79-tile target: 84 s out, 91 s
+    home, 13 s of our own reading and pressing — a 188-second lap of which 175 s was
+    travel and half of that travel was bought by this one conversion. The flag is a
+    genuine Lua boolean now (`home = (back ~= 0)`), with the old numeric form kept as a
+    fallback in case a build wants the number after all.
+
     **THERE ARE TWO DOORS, and which one is right is decided by where the squad is
     (#1702).** `SendCreateMarchMessage` creates a march FROM THE BASE and the server
     refuses it, in silence and without touching the purse, at an army that has already
@@ -12063,6 +12073,7 @@ def golden_send() -> str:
         "if p.server ~= nil and srv ~= 0 and srv ~= p.server then "
         "kind = MarchTargetType.CROSS_ATTACK_MONSTER end "
         "local back = math.floor(tonumber(%(gold)s_back) or p.back or 0) "
+        "local home = (back ~= 0) "
         "local f, pid = p.formation, t.pid "
         # THE uuid IS FETCHED AGAIN HERE (#1702) — see :data:`_GOLD_FRESH_UUID`. The
         # one in the queue is a reference that may have died since the scan.
@@ -12084,14 +12095,18 @@ def golden_send() -> str:
         "if mu ~= nil then "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "local ok, err = pcall(function() "
-        "MarchUtil.SendChangeMarchToServer(mu, kind, pid, uuid, back, srv, 0) end) "
+        "MarchUtil.SendChangeMarchToServer(mu, kind, pid, uuid, home, srv, 0) end) "
+        "if not ok then pcall(function() "
+        "MarchUtil.SendChangeMarchToServer(mu, kind, pid, uuid, back, srv, 0) end) end "
         'CS.UnityEngine.Debug.LogError("ACT golden_send redeploy ok="..tostring(ok)'
         '.." err="..tostring(err)) '
         "end, 0.5) "
         "else "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "local ok, err = pcall(function() "
-        "MarchUtil.SendCreateMarchMessage(f, kind, pid, uuid, 1, back, false, srv, nil) end) "
+        "MarchUtil.SendCreateMarchMessage(f, kind, pid, uuid, 1, home, false, srv, nil) end) "
+        "if not ok then pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(f, kind, pid, uuid, 1, back, false, srv, nil) end) end "
         'CS.UnityEngine.Debug.LogError("ACT golden_send ok="..tostring(ok).." err="..tostring(err)) '
         "end, 0.5) end "
         "p.redeploy = (mu ~= nil) and 1 or 0 "
@@ -12139,6 +12154,15 @@ def golden_confirm() -> str:
         'CS.UnityEngine.Debug.LogError("ACT golden_confirm skipped=nothing-pending") return end '
         "p.attacks = (tonumber(p.attacks) or 0) + 1 "
         "p.misses = 0 "
+        "local lap_now = nil "
+        "pcall(function() lap_now = (tonumber(UITimeManager.Instance:GetServerTime()) or 0) / 1000 end) "
+        "if lap_now ~= nil and lap_now > 0 then "
+        "local was = tonumber(p.lap_at) "
+        "if was ~= nil and lap_now > was then "
+        "p.lap_sum = (tonumber(p.lap_sum) or 0) + (lap_now - was) "
+        "p.lap_n = (tonumber(p.lap_n) or 0) + 1 "
+        "p.lap_last = lap_now - was end "
+        "p.lap_at = lap_now end "
         # WHAT THE SERVER TOOK, not what it quoted (#1702): live, a 10-energy attack was
         # charged 8. The quote is the fallback for the case where the purse could not be
         # read at all.
@@ -12696,8 +12720,23 @@ _GOLD_OWN_MARCH = (
     "local u = nil pcall(function() u = tostring(m.uuid) end) "
     "if u == tostring(p.own_march) then return 'mine' end return 'mine-notours' end "
     "return 'status' .. tostring(st) end "
+    # WHERE THE NEXT PICK IS MEASURED FROM, AND «WHERE» INCLUDES «WILL BE» (#2390). The
+    # chain chooses its next target while the current march is still in the air, so an
+    # origin that only answers for a squad standing still would measure every pick from
+    # the base and walk the hunt back and forth across the map. A march of OURS that
+    # carries nobody's banner is going to the anchor — it is the only place this chain
+    # ever sends the squad — so the anchor is the origin whether it has landed or not.
+    # (The march object's own destination field was asked for first and is not reachable:
+    # reflection over it answers nothing under xLua, so the anchor the send parked is the
+    # honest source.)
     "local function _origin(p) "
-    "if p.anchor ~= nil and _landed(_ownmarch(p), p) then return p.anchor, 'anchor' end "
+    "if p.anchor ~= nil then "
+    "local m = _ownmarch(p) "
+    "if _landed(m, p) then return p.anchor, 'anchor' end "
+    "if m ~= nil then "
+    "local team = nil pcall(function() team = tostring(m.teamUuid) end) "
+    "if team == nil or team == '0' or team == 'nil' then "
+    "return p.anchor, 'flying' end end end "
     "if p.home ~= nil then return p.home, 'home' end "
     "return p.anchor, 'anchor' end "
 )
@@ -12992,7 +13031,9 @@ def golden_report() -> str:
         "' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. "
         "' energy=' .. tostring(%(energy)s) .. "
         "' queued=' .. tostring(%(queued)s) .. "
-        "' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) end)()"
+        "' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) .. "
+        "' lap=' .. tostring(math.floor((tonumber(p.lap_n) or 0) > 0 and ((tonumber(p.lap_sum) or 0) / (tonumber(p.lap_n) or 1)) or 0)) .. "
+        "' laplast=' .. tostring(math.floor(tonumber(p.lap_last) or 0)) end)()"
         % {"energy": golden_energy(), "queued": golden_queued()}
     )
 

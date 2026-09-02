@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Decyduje wyłącznie o tym, ile kopań planuje się do celu.",
   "hidden.unknown_knob": "panel nie zna takiego ustawienia",
   "tab.hidden_treasures": "Ukryte skarby",
-  "hidden.card": "Ukryte skarby"
+  "hidden.card": "Ukryte skarby",
+  "events.golden.lap": "Sekund na zombie (śr. · ost.)",
+  "events.golden.options": "Ustawienia polowania",
+  "events.golden.approach.hint": "Długą drogę oddział pokonuje rozkazem zbiórki do kopalni obok celu — dwa i pół raza szybciej — a maszeruje tylko ostatnie pola."
 }

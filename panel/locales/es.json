@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Solo decide cuántas excavaciones se planifican hasta la meta.",
   "hidden.unknown_knob": "el panel no conoce este ajuste",
   "tab.hidden_treasures": "Tesoros Escondidos",
-  "hidden.card": "Tesoros Escondidos"
+  "hidden.card": "Tesoros Escondidos",
+  "events.golden.lap": "Segundos por zombi (med. · últ.)",
+  "events.golden.options": "Ajustes de la caza",
+  "events.golden.approach.hint": "Un trayecto largo se hace con una orden de recolección hasta una mina junto al objetivo — dos veces y media más rápido — y solo las últimas casillas se marchan."
 }

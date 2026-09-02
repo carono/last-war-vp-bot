@@ -2675,5 +2675,8 @@
   "hidden.opt.pay.hint": "Yalnızca hedefe kaç kazı planlanacağını belirler.",
   "hidden.unknown_knob": "panel böyle bir ayar bilmiyor",
   "tab.hidden_treasures": "Gizli Hazine",
-  "hidden.card": "Gizli Hazine"
+  "hidden.card": "Gizli Hazine",
+  "events.golden.lap": "Zombi başına saniye (ort. · son)",
+  "events.golden.options": "Av ayarları",
+  "events.golden.approach.hint": "Uzun yol, hedefin yanındaki bir madene toplama emriyle katedilir — iki buçuk kat hızlı — ve yalnızca son kareler yürüyerek geçilir."
 }
