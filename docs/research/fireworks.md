@@ -299,3 +299,73 @@ So both halves of the ability now gate on the box's `allianceUid`:
 each firework's own `allianceUid` taken as ours, let every box through to the ordinary
 gates (`pass=10/1/1/13`, `blocked=0`) — the boxes were `shut` for the old reason
 (`isAvailable = false`, a firework already picked clean), not for the new one.
+
+## 10. The gate was a blacklist, and both halves of it leaked (#2365)
+
+Reported in the player's own words: «Слушатель по салютам все еще пытается дергать чужие
+салюты, других альянсов и даже на других серверах, я получаю постоянно ошибку в клиенте
+по этому поводу». The errors are popups in the GAME, not lines in a log, so nothing the
+panel wrote said this was happening.
+
+Measured live on 2026-09-02 against one profile, through a probe recipe that prints no
+identifier of anybody (only whether a box's alliance MATCHES ours):
+
+```
+have_alliance=1 home_set=1 cross_server=0
+fireworks=0 openForMe=0 boxes=0 ours=0 foreign=0 noAlliance=0
+```
+
+— and, in the same profile's log, `collect_fireworks` firing on the announcement and
+asking the server anyway:
+
+```
+14:33:08  READ_LUA first = 'fireworks=… taken=0 …'
+14:33:08  READ_LUA ask = 1
+14:33:08  LUA pcall(function() SFSNetwork.SendMessage(MsgDefines.GetFireworksInfoList) end)
+```
+
+Three separate leaks, all of them shaped the same way — the gate said what NOT to press
+instead of what to press:
+
+1. **A box that names no alliance was pressed.** §9's rule skipped a box only when its
+   `allianceUid` was present AND different from ours. Blank meant «press it».
+2. **An account whose own alliance id could not be read pressed everything**, for the
+   same reason: the comparison needs both sides, and it was written so that a missing
+   left-hand side let the box through.
+3. **`get.fireworks.info.list` was sent on every announcement the client could not act
+   on.** «Nothing known at all» was one of the reasons to ask, and it is precisely the
+   state a foreign or cross-server firework leaves the client in — so the ask happened on
+   every push, and off the account's own server it is refused with `firework_tips_1013,
+   "not in this server"` (§4), which is a popup.
+
+The cure is one sentence: **press only what is proven ours, and ask only where the ask
+can be answered.** A box goes out only when its `allianceUid` equals ours with both sides
+present; the list is asked only when the camera is on the account's own server
+(`LuaEntry.Player.serverId` = `WorldFavoDataManager.curServerId`), the alliance id is
+readable, and a firework of our own alliance is already known with nothing pressable on
+it. Every skip says which of those failed — `skipped: another server`, `own alliance
+unknown`, `no firework of our alliance is known` — and the counters `foreign=`,
+`noAlliance=` and `away=` sit beside `taken=` in the collector's line and in
+`read_fireworks_watch.md`.
+
+### …and why a committed fix had not been reaching the client at all
+
+The half that explains «всё ещё». `watch_fireworks.md` parks a wrapper on the client's
+own `SFSNetwork.HandleMessage`, and that wrapper lives in the GAME's VM: it outlives every
+panel restart. The re-arm trigger found `on = true` and answered «already on», so a client
+that had been up since before a fix went on pressing with the OLD closure — invisibly,
+because the hook presses inside the game and writes nothing to `panel.log`.
+
+The state now carries a version. The re-arm compares it, switches an older watch off
+(`B.on = false`, which leaves its wrapper a harmless pass-through) and installs the new
+one. Measured on the live client the moment the fix landed:
+
+```
+Fireworks watch: armed (an older watch, version pre-2365, was switched off first:
+                        pushes=0 taken=0)
+```
+
+Bump `VER` in the same edit as any change to what the hook presses. A wrapper whose
+reference has been lost — the state field is gone after the client reloads its VM — is
+gone with the VM that held it, so the version check covers every case the panel can
+still reach.
