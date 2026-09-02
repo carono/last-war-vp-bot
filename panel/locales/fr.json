@@ -2499,8 +2499,8 @@
   "rally_group.doom_elite": "Élite du Destin",
   "rally_group.event": "Boss d'événement",
   "rally_group.other": "Autres monstres",
-  "rally_group.cap": "Ralliements par jour pour le groupe",
-  "rally_group.cap.hint": "Un seul nombre pour tout le groupe — il est écrit sur chacun de ses types. 0 signifie sans limite.",
+  "rally_group.cap": "Ralliements par jour pour CHAQUE type",
+  "rally_group.cap.hint": "Un seul nombre pour tout le groupe, mais il s'applique à CHAQUE type : 20 signifie jusqu'à 20 ralliements sur chaque monstre du groupe, et non 20 partagés. Le compteur de la tuile additionne les ralliements du jour de tout le groupe, il peut donc dépasser ce nombre. 0 — sans limite.",
   "rally_group.on": "Rejoindre automatiquement ce groupe",
   "rally_group.on.hint": "Un seul interrupteur pour tout le groupe — appliqué à toutes ses espèces.",
   "rally_group.today": "Aujourd'hui",
@@ -2637,5 +2637,8 @@
   "settings.tabs.on": "affiché",
   "settings.tabs.off": "masqué",
   "settings.tabs.show": "Afficher",
-  "settings.tabs.hide": "Masquer"
+  "settings.tabs.hide": "Masquer",
+  "rally_group.today_all": "{n} aujourd'hui en tout",
+  "rally_group.cap_each": "{n} par type",
+  "rally_group.cap_each.any": "sans limite par type"
 }

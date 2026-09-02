@@ -2499,8 +2499,8 @@
   "rally_group.doom_elite": "Elite Fatal",
   "rally_group.event": "Chefes de evento",
   "rally_group.other": "Outros monstros",
-  "rally_group.cap": "Concentrações por dia para o grupo",
-  "rally_group.cap.hint": "Um número para todo o grupo — é escrito em cada tipo dele. 0 significa sem limite.",
+  "rally_group.cap": "Convocações por dia para CADA tipo",
+  "rally_group.cap.hint": "Um número para todo o grupo, mas ele vale para CADA tipo: 20 significa até 20 convocações em cada monstro do grupo, e não 20 no total. O contador do cartão soma as de hoje do grupo inteiro, por isso pode ficar acima deste número. 0 — sem limite.",
   "rally_group.on": "Entrar automaticamente neste grupo",
   "rally_group.on.hint": "Um interruptor para todo o grupo — aplica-se a todas as suas espécies.",
   "rally_group.today": "Hoje",
@@ -2637,5 +2637,8 @@
   "settings.tabs.on": "visível",
   "settings.tabs.off": "oculta",
   "settings.tabs.show": "Mostrar",
-  "settings.tabs.hide": "Ocultar"
+  "settings.tabs.hide": "Ocultar",
+  "rally_group.today_all": "hoje no total {n}",
+  "rally_group.cap_each": "{n} por tipo",
+  "rally_group.cap_each.any": "sem limite por tipo"
 }

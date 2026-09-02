@@ -2499,8 +2499,8 @@
   "rally_group.doom_elite": "Doom Elite",
   "rally_group.event": "Event bosses",
   "rally_group.other": "Other monsters",
-  "rally_group.cap": "Rallies a day for the group",
-  "rally_group.cap.hint": "One number for the whole group — it is written onto every kind in it. 0 means no cap.",
+  "rally_group.cap": "Rallies a day for EACH kind",
+  "rally_group.cap.hint": "One number for the whole group, and it applies to EACH kind in it: 20 means up to 20 rallies on every monster of the group, not 20 shared between them. The line on the tile counts today's joins across the whole group, so it may stand above this number. 0 — no limit.",
   "rally_group.on": "Auto-join this group",
   "rally_group.on.hint": "One switch for the whole group — written onto every kind in it.",
   "rally_group.today": "Today",
@@ -2637,5 +2637,8 @@
   "settings.tabs.on": "shown",
   "settings.tabs.off": "hidden",
   "settings.tabs.show": "Show",
-  "settings.tabs.hide": "Hide"
+  "settings.tabs.hide": "Hide",
+  "rally_group.today_all": "{n} today, all kinds",
+  "rally_group.cap_each": "{n} per kind",
+  "rally_group.cap_each.any": "no limit per kind"
 }

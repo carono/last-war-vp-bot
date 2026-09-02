@@ -2499,8 +2499,8 @@
   "rally_group.doom_elite": "Élite del Destino",
   "rally_group.event": "Boss degli eventi",
   "rally_group.other": "Altri mostri",
-  "rally_group.cap": "Raduni al giorno per il gruppo",
-  "rally_group.cap.hint": "Un solo numero per l'intero gruppo: viene scritto su ogni suo tipo. 0 significa nessun limite.",
+  "rally_group.cap": "Raduni al giorno per OGNI tipo",
+  "rally_group.cap.hint": "Un solo numero per tutto il gruppo, ma vale per OGNI tipo: 20 significa fino a 20 raduni su ogni mostro del gruppo, non 20 in totale. Il contatore sulla scheda somma i raduni di oggi di tutto il gruppo, quindi può superare questo numero. 0 — nessun limite.",
   "rally_group.on": "Unisciti in automatico a questo gruppo",
   "rally_group.on.hint": "Un solo interruttore per tutto il gruppo: vale per tutte le sue specie.",
   "rally_group.today": "Oggi",
@@ -2637,5 +2637,8 @@
   "settings.tabs.on": "visibile",
   "settings.tabs.off": "nascosta",
   "settings.tabs.show": "Mostra",
-  "settings.tabs.hide": "Nascondi"
+  "settings.tabs.hide": "Nascondi",
+  "rally_group.today_all": "oggi in tutto {n}",
+  "rally_group.cap_each": "{n} per tipo",
+  "rally_group.cap_each.any": "nessun limite per tipo"
 }

@@ -2499,8 +2499,8 @@
   "rally_group.doom_elite": "Kıyamet Seçkini",
   "rally_group.event": "Etkinlik patronları",
   "rally_group.other": "Diğer canavarlar",
-  "rally_group.cap": "Grup için günlük seferberlik",
-  "rally_group.cap.hint": "Tüm grup için tek bir sayı — içindeki her türe yazılır. 0, sınır yok demektir.",
+  "rally_group.cap": "HER tür için günlük seferberlik",
+  "rally_group.cap.hint": "Tüm grup için tek bir sayı, ama HER tür için geçerli: 20, grubun her canavarı için 20 seferberlik demektir, hepsi için toplam 20 değil. Karodaki sayaç tüm grubun bugünkü katılımlarını toplar, bu yüzden bu sayının üstüne çıkabilir. 0 — sınır yok.",
   "rally_group.on": "Bu gruba otomatik katıl",
   "rally_group.on.hint": "Tüm grup için tek anahtar — grubun bütün türlerine yazılır.",
   "rally_group.today": "Bugün",
@@ -2637,5 +2637,8 @@
   "settings.tabs.on": "görünür",
   "settings.tabs.off": "gizli",
   "settings.tabs.show": "Göster",
-  "settings.tabs.hide": "Gizle"
+  "settings.tabs.hide": "Gizle",
+  "rally_group.today_all": "bugün toplam {n}",
+  "rally_group.cap_each": "her tür için {n}",
+  "rally_group.cap_each.any": "tür başına sınır yok"
 }

@@ -2499,8 +2499,8 @@
   "rally_group.doom_elite": "Elita Zagłady",
   "rally_group.event": "Bossowie wydarzeń",
   "rally_group.other": "Inne potwory",
-  "rally_group.cap": "Zbiórek dziennie dla grupy",
-  "rally_group.cap.hint": "Jedna liczba dla całej grupy — zapisuje się w każdym jej rodzaju. 0 oznacza brak limitu.",
+  "rally_group.cap": "Zbiórek dziennie na KAŻDY rodzaj",
+  "rally_group.cap.hint": "Jedna liczba dla całej grupy, ale dotyczy KAŻDEGO rodzaju: 20 oznacza do 20 zbiórek na każdego potwora z grupy, a nie 20 na wszystkie razem. Licznik na kafelku sumuje dzisiejsze zbiórki całej grupy, więc może być większy od tej liczby. 0 — bez limitu.",
   "rally_group.on": "Automatyczne dołączanie do tej grupy",
   "rally_group.on.hint": "Jeden przełącznik dla całej grupy — zapisywany we wszystkich jej rodzajach.",
   "rally_group.today": "Dziś",
@@ -2637,5 +2637,8 @@
   "settings.tabs.on": "widoczna",
   "settings.tabs.off": "ukryta",
   "settings.tabs.show": "Pokaż",
-  "settings.tabs.hide": "Ukryj"
+  "settings.tabs.hide": "Ukryj",
+  "rally_group.today_all": "dziś łącznie {n}",
+  "rally_group.cap_each": "po {n} na rodzaj",
+  "rally_group.cap_each.any": "bez limitu na rodzaj"
 }

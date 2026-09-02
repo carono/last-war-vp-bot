@@ -1226,8 +1226,17 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         # holds — in WORDS, because a tile keeps a fact's label for a tooltip and a phone
         # has none.
         detail = elite["detail"]
-        assert rt.t("rally_group.today") in detail, detail
-        assert rt.t("rally_group.limit") in detail, detail
+        # …AND IT SAYS WHOSE NUMBER EACH ONE IS (#2370). The tally is the GROUP's — every
+        # kind's joins added up — and the ceiling is EACH KIND's, and the line used to
+        # read «Сегодня 25 · Лимит 20», which is a card reporting a limit of twenty
+        # passed twenty-five times. The person had to ask what it meant: «если лимит 20
+        # на всю роковую элиту, значит на любого монстра этой группы лимит 20». It does,
+        # and now the words do too.
+        assert rt.t("rally_group.today_all", n=0) in detail, detail
+        assert rt.t("rally_group.cap_each", n=20) in detail, detail
+        assert rt.t("rally_group.limit") not in detail, (
+            "the bare «Лимит» is back on the tile — it reads as a ceiling for the whole "
+            "group, which is the one thing it is not")
         assert str(len(rally_kinds.kinds_in_group(
             "doom_elite", rally_kinds.RALLY_ORDER))) in detail, detail
         # …AND ONLY THE KINDS A RALLY CAN BE RAISED ON ARE IN IT (#2055). «Исключить

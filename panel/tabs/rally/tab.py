@@ -1112,11 +1112,19 @@ class RallyTab(PanelTab):
                 # and keeps its label for the tooltip, and a phone has no tooltips — «20
                 # 20 4» says nothing. The words are the panel's own keys, put together
                 # here exactly as every other composed reading on this screen is.
-                "detail": "%s · %s %d · %s %s · %s %d" % (
+                # …AND THE LINE SAYS WHOSE NUMBER IT IS (#2370). It used to read
+                # «Сегодня 25 · Лимит 20», which is the same card telling a person that
+                # a limit of twenty had been passed twenty-five times: the tally is the
+                # GROUP's (every kind's joins added up) and the ceiling is EACH KIND's,
+                # and nothing on the tile said so. The person asked what it meant in as
+                # many words — «если лимит 20 на всю роковую элиту, значит на любого
+                # монстра этой группы лимит 20» — which is exactly what the code does
+                # and the opposite of what the words did.
+                "detail": "%s · %s · %s · %s %d" % (
                     self.t(_switch(bool(live))),
-                    self.t("rally_group.today"), spent,
-                    self.t("rally_group.limit"),
-                    str(cap) if cap > 0 else self.t("rally_day.unlimited"),
+                    self.t("rally_group.today_all", n=spent),
+                    (self.t("rally_group.cap_each", n=cap) if cap > 0
+                     else self.t("rally_group.cap_each.any")),
                     self.t("rally_group.kinds"), len(mine)),
                 "options_title": "rally_group." + group,
                 "options": fields,

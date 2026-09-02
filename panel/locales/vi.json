@@ -2499,8 +2499,8 @@
   "rally_group.doom_elite": "Tinh Nhuệ Diệt Vong",
   "rally_group.event": "Trùm sự kiện",
   "rally_group.other": "Quái khác",
-  "rally_group.cap": "Số lần tập kết mỗi ngày cho nhóm",
-  "rally_group.cap.hint": "Một con số cho cả nhóm — được ghi vào mọi loại trong nhóm. 0 nghĩa là không giới hạn.",
+  "rally_group.cap": "Số lần tập kết mỗi ngày cho MỖI loại",
+  "rally_group.cap.hint": "Một con số cho cả nhóm, nhưng áp dụng cho MỖI loại: 20 nghĩa là tối đa 20 lần tập kết trên từng quái của nhóm, không phải 20 cho tất cả. Bộ đếm trên thẻ cộng dồn số lần tập kết hôm nay của cả nhóm nên có thể vượt con số này. 0 — không giới hạn.",
   "rally_group.on": "Tự động tham gia nhóm này",
   "rally_group.on.hint": "Một công tắc cho cả nhóm — áp dụng cho mọi loại trong nhóm.",
   "rally_group.today": "Hôm nay",
@@ -2637,5 +2637,8 @@
   "settings.tabs.on": "hiển thị",
   "settings.tabs.off": "đã ẩn",
   "settings.tabs.show": "Hiện",
-  "settings.tabs.hide": "Ẩn"
+  "settings.tabs.hide": "Ẩn",
+  "rally_group.today_all": "hôm nay tổng {n}",
+  "rally_group.cap_each": "{n} mỗi loại",
+  "rally_group.cap_each.any": "không giới hạn mỗi loại"
 }

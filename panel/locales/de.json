@@ -2499,8 +2499,8 @@
   "rally_group.doom_elite": "Doom-Elite",
   "rally_group.event": "Event-Bosse",
   "rally_group.other": "Andere Monster",
-  "rally_group.cap": "Sammlungen pro Tag für die Gruppe",
-  "rally_group.cap.hint": "Eine Zahl für die ganze Gruppe — sie wird auf jede Art darin geschrieben. 0 heißt kein Limit.",
+  "rally_group.cap": "Sammelangriffe pro Tag für JEDE Art",
+  "rally_group.cap.hint": "Eine Zahl für die ganze Gruppe, sie gilt aber für JEDE Art darin: 20 heißt bis zu 20 Sammelangriffe auf jedes Monster der Gruppe, nicht 20 für alle zusammen. Der Zähler auf der Kachel addiert die heutigen Teilnahmen der ganzen Gruppe und kann deshalb höher stehen. 0 — kein Limit.",
   "rally_group.on": "Dieser Gruppe automatisch beitreten",
   "rally_group.on.hint": "Ein Schalter für die ganze Gruppe — gilt für alle ihre Arten.",
   "rally_group.today": "Heute",
@@ -2637,5 +2637,8 @@
   "settings.tabs.on": "sichtbar",
   "settings.tabs.off": "verborgen",
   "settings.tabs.show": "Anzeigen",
-  "settings.tabs.hide": "Verbergen"
+  "settings.tabs.hide": "Verbergen",
+  "rally_group.today_all": "heute insgesamt {n}",
+  "rally_group.cap_each": "{n} je Art",
+  "rally_group.cap_each.any": "kein Limit je Art"
 }

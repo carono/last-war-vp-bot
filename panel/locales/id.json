@@ -2499,8 +2499,8 @@
   "rally_group.doom_elite": "Elite Malapetaka",
   "rally_group.event": "Bos acara",
   "rally_group.other": "Monster lain",
-  "rally_group.cap": "Rally per hari untuk grup",
-  "rally_group.cap.hint": "Satu angka untuk seluruh grup — ditulis ke setiap jenis di dalamnya. 0 berarti tanpa batas.",
+  "rally_group.cap": "Rali per hari untuk SETIAP jenis",
+  "rally_group.cap.hint": "Satu angka untuk seluruh grup, tetapi berlaku untuk SETIAP jenis: 20 berarti sampai 20 rali pada setiap monster grup itu, bukan 20 untuk semuanya. Penghitung di kartu menjumlahkan rali hari ini untuk seluruh grup, jadi bisa melebihi angka ini. 0 — tanpa batas.",
   "rally_group.on": "Ikut otomatis grup ini",
   "rally_group.on.hint": "Satu sakelar untuk seluruh grup — berlaku untuk semua jenisnya.",
   "rally_group.today": "Hari ini",
@@ -2637,5 +2637,8 @@
   "settings.tabs.on": "tampil",
   "settings.tabs.off": "tersembunyi",
   "settings.tabs.show": "Tampilkan",
-  "settings.tabs.hide": "Sembunyikan"
+  "settings.tabs.hide": "Sembunyikan",
+  "rally_group.today_all": "hari ini total {n}",
+  "rally_group.cap_each": "{n} per jenis",
+  "rally_group.cap_each.any": "tanpa batas per jenis"
 }
