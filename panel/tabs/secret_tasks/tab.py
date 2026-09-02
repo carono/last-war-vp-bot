@@ -817,6 +817,11 @@ class SecretTasksTab(PanelTab):
         # four-hourly run reads them LIVE, so a `gap` moved on the page is the gap
         # the next run trades on, whether or not anybody has opened this tab.
         self.pieces.register()
+        # …and the explorer chests' own (#2381): the trigger fires off the claim's
+        # answer whether or not anybody has opened this tab, and it must fire with the
+        # knobs that are set NOW rather than with whatever its catalogue row was
+        # written with.
+        self._register_explorer_args()
         if self.monitor_var.get():
             self.capture.start()
         # …and the ghost sniffer, whose switch lives on its own page (#1251). Two
@@ -5460,6 +5465,19 @@ class SecretTasksTab(PanelTab):
                                   low=0, high=999, hint_key="explorer.max.hint",
                                   get=lambda: self._explorer_arg("max"),
                                   set=lambda v: self._set_explorer_arg("max", v))),
+            # …and the TRIGGER of the same ability, which is a second row a person can
+            # find and therefore a second gear they will look for (#2381). It draws the
+            # very same two knobs, which write the very same place — the timer's row —
+            # so «две отрисовки одного значения» and never two values (`CLAUDE.md`).
+            "explorer_chests": (
+                errandopts.Option("keep", "explorer.keep", errandopts.NUMBER,
+                                  low=0, high=999, hint_key="explorer.keep.hint",
+                                  get=lambda: self._explorer_arg("keep"),
+                                  set=lambda v: self._set_explorer_arg("keep", v)),
+                errandopts.Option("max", "explorer.max", errandopts.NUMBER,
+                                  low=0, high=999, hint_key="explorer.max.hint",
+                                  get=lambda: self._explorer_arg("max"),
+                                  set=lambda v: self._set_explorer_arg("max", v))),
             "ghost_autoloot": (
                 errandopts.Option("ghost_level_min", "ghost.level_min",
                                   errandopts.TEXT,
@@ -5480,6 +5498,25 @@ class SecretTasksTab(PanelTab):
             return int(self.rt.schedule.timer_arg("open_explorer_chests", key, 0) or 0)
         except Exception:                # noqa: BLE001 — a knob, never the page
             return 0
+
+    def explorer_args(self) -> dict:
+        """What the chest errand runs with, read LIVE at fire time (#2381).
+
+        The trigger and the timer are two rows of one ability, and only the timer's row
+        holds the knobs — so the trigger reads them from there rather than carrying a
+        copy that would drift the first time somebody moved one.
+        """
+        return {"keep": self._explorer_arg("keep"), "max": self._explorer_arg("max")}
+
+    def _register_explorer_args(self) -> None:
+        """Hook that up at BOOT. Idempotent, and silent on a tab opened on its own."""
+        if getattr(self, "_explorer_args_registered", False):
+            return
+        schedule = getattr(self.rt, "schedule", None)
+        if schedule is None or not hasattr(schedule, "register_args"):
+            return
+        schedule.register_args("explorer_chests", self.explorer_args)
+        self._explorer_args_registered = True
 
     def _set_explorer_arg(self, key: str, value) -> None:
         try:
