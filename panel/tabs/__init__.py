@@ -204,6 +204,8 @@ TABS: tuple = (
     TabSpec("rally",     "panel.tabs.rally",     "RallyTab",     order=300),
     TabSpec("secret_tasks", "panel.tabs.secret_tasks", "SecretTasksTab",
             order=310),
+    TabSpec("hidden_treasures", "panel.tabs.hidden_treasures",
+            "HiddenTreasuresTab", order=315, in_development=True),
     TabSpec("command_post", "panel.tabs.command_post", "CommandPostTab",
             order=320, in_development=True),
     TabSpec("vs_duel",   "panel.tabs.vs_duel",   "VsDuelTab",    order=330,

@@ -605,6 +605,41 @@ BUTTONS: dict[str, Button] = {
         max_taps=40,
         relay=("explorer_open",),
     ),
+    "dig_hidden_treasure": Button(
+        # One dig of «Скрытые Сокровища» (#2382) — `hero.dispatch.dig.treasure`, whose
+        # single positional argument is the fragment set the event runs on. It SPENDS one
+        # of each of the seven map fragments, so what may be dug is planned once by
+        # `plan_hidden_treasures` and counted down here; a press past the plan does
+        # nothing and says `plan-spent`.
+        lua=_lua_actions.hidden_treasures_dig(),
+        # The fragments, never the score: the compass count does not move until the
+        # client is restarted, so it cannot prove anything about a press.
+        verify_lua=_lua_actions.hidden_treasures_digs(),
+        wait=2.5, label="Dig one hidden treasure",
+        count_lua=_lua_actions.hidden_treasures_left(),
+        max_taps=40,
+    ),
+    "read_hidden_treasures": Button(
+        # A reading, not a press: the score, the digs the fragments allow, the reward
+        # tiers and the week's two ends, worked out in the VM and parked for the recipe
+        # to say in one line (`DataCenter.__lw_hidden_board`).
+        lua=_lua_actions.hidden_treasures_note(),
+        wait=0.3, label="Read the hidden-treasure board",
+    ),
+    "plan_hidden_treasures": Button(
+        lua=_lua_actions.hidden_treasures_plan(),
+        wait=0.3, label="Decide how many hidden treasures to dig",
+    ),
+    "claim_hidden_treasures": Button(
+        # Takes every reward tier the week has already earned and spends none of the
+        # score — the «подтверждение» a dug treasure is waiting for.
+        lua=_lua_actions.hidden_treasures_claim(),
+        wait=2.0, label="Take the hidden-treasure rewards earned so far",
+    ),
+    "ask_hidden_treasures": Button(
+        lua=_lua_actions.hidden_treasures_ask(),
+        wait=1.5, label="Ask the server for the hidden-treasure board",
+    ),
     "open_mega_refresh": Button(
         # Raises the confirm dialog and sends nothing. This is how the price is learned.
         lua=_lua_actions.secret_post_mega_open(),

@@ -15506,3 +15506,246 @@ def explorer_treasure_open() -> str:
         '.. " have=" .. tostring(have) .. " need=" .. tostring(need) '
         '.. " why=" .. tostring(why))'
     )
+
+
+# --- «Скрытые Сокровища» — the weekly compass board (#2382) ----------------------
+#
+# The event the game calls `Treasure_map_S3` and shows on the tab beside the explorer
+# chests: every dig of a treasure map pays a random handful of COMPASSES, and a week's
+# worth of them unlocks ten reward tiers, the last of which is the week's whole point.
+#
+# Three things, and each of them is the client's own answer rather than a number typed
+# here (`CLAUDE.md`, «Nothing about one machine is written into the code»):
+#
+#   * the dig — `hero.dispatch.dig.treasure`, whose ONE argument is the fragment set the
+#     event runs on (`ActDispatchTreasureManager.digExchangeType`). Sent positionally:
+#     the message class reads nothing off a parameter table, and a table argument leaves
+#     the client silent — measured live, the send simply never left;
+#   * the score — the compasses in the bag, which is what
+#     `DigTreasureBoxRewardManager:GetBoxRewardItemCount()` answers, against
+#     `GetMaxNum()` for the week's cap;
+#   * the tiers — `GetTreasureBoxRewardList()`, one row per milestone with `target` and
+#     `isReward`; `SendGetBoxRewardMessage` takes everything that has been earned and
+#     spends none of the score, which was worth one live claim to settle.
+#
+# THE SCORE DOES NOT MOVE WHILE THE CLIENT RUNS, and that is the one thing a caller must
+# know. Measured on 2026-09-02: three digs, the fragments decremented on the wire the
+# same second (`push.item.del`), and the compass count read 0 for the six seconds after
+# each dig — then 750 the moment the client was restarted. So a loop that waits for the
+# score to reach the goal never ends. What is dug is therefore PLANNED once, off the
+# score the client is holding, and counted down; the score itself is a reading that
+# catches up between sessions.
+# The whole measurement is `docs/research/hidden-treasures.md`.
+
+
+def hidden_treasures_read() -> str:
+    """Everything the page shows, in one round trip: score, digs, tiers, the week.
+
+    A reading only — nothing is sent and nothing is spent. Every id comes off the
+    client: the activity is `DigTreasureBoxRewardManager:GetActId()`, the fragment set
+    is `ActDispatchTreasureManager.digExchangeType`, and the week's two ends are the
+    activity's own row in `ActivityListDataManager`.
+    """
+    return (
+        "(function() "
+        "local B = DataCenter and DataCenter.DigTreasureBoxRewardManager "
+        "local A = DataCenter and DataCenter.ActDispatchTreasureManager "
+        "if B == nil or A == nil then return 'open=0 why=no-manager' end "
+        "local score, goal, digs, act = 0, 0, 0, 0 "
+        "pcall(function() score = math.floor((B:GetBoxRewardItemCount() or 0) + 0) end) "
+        "pcall(function() goal = math.floor((B:GetMaxNum() or 0) + 0) end) "
+        "pcall(function() digs = math.floor((A:GetCanDigCount() or 0) + 0) end) "
+        "pcall(function() act = math.floor((B:GetActId() or 0) + 0) end) "
+        # TWO PASSES, and the reason is the lag: a step that has been COLLECTED is the
+        # server's own word that its target was reached, and it survives a compass count
+        # that has not caught up yet (see the module note). So the highest collected
+        # target is a FLOOR under the score, and it is worked out before «which step is
+        # waiting» is decided — otherwise a step below the true score would be reported
+        # as the next one to reach rather than as one already earned.
+        "local tiers, taken, ready, next_at, earned = 0, 0, 0, 0, 0 "
+        "local rows = {} "
+        "pcall(function() for _, row in ipairs(B:GetTreasureBoxRewardList() or {}) do "
+        "tiers = tiers + 1 "
+        "local target = math.floor((tonumber(tostring(row.target)) or 0) + 0) "
+        "local got = math.floor((tonumber(tostring(row.isReward)) or 0) + 0) "
+        "rows[#rows + 1] = {target, got} "
+        "if got ~= 0 then taken = taken + 1 "
+        "if target > earned then earned = target end end end end) "
+        "if earned > score then score = earned end "
+        "for _, r in ipairs(rows) do if r[2] == 0 then "
+        "if r[1] <= score then ready = ready + 1 "
+        "elseif next_at == 0 or r[1] < next_at then next_at = r[1] end end end "
+        "local opens, closes, now = 0, 0, 0 "
+        "pcall(function() now = math.floor((UITimeManager:GetInstance()"
+        ":GetServerSeconds() or 0) + 0) end) "
+        "pcall(function() for _, a in pairs(DataCenter.ActivityListDataManager"
+        ".activityList or {}) do "
+        "if math.floor((tonumber(tostring(a.activityId)) or 0) + 0) == act then "
+        "opens = math.floor(((tonumber(tostring(a.startTime)) or 0) / 1000) + 0) "
+        "closes = math.floor(((tonumber(tostring(a.endTime)) or 0) / 1000) + 0) "
+        "end end end) "
+        "local live = (closes == 0 or (now > 0 and now < closes)) and 1 or 0 "
+        "return 'open=' .. live .. ' score=' .. score .. ' goal=' .. goal "
+        ".. ' digs=' .. digs .. ' tiers=' .. tiers .. ' taken=' .. taken "
+        ".. ' ready=' .. ready .. ' next=' .. next_at .. ' earned=' .. earned "
+        ".. ' act=' .. act "
+        ".. ' opens=' .. opens .. ' closes=' .. closes .. ' now=' .. now "
+        "end)()"
+    )
+
+
+def hidden_treasures_plan() -> str:
+    """Decide, ONCE, how many digs this run may make, and park the number.
+
+    Read the section above for why this is planned rather than looped on the score: the
+    compass count does not move while the client runs, so a press that re-derived «am I
+    there yet» from it would dig for ever. The plan is the smallest of three honest
+    bounds — the digs the fragments allow, the ceiling the caller set, and what the
+    distance to the goal is worth at the event's own AVERAGE pay (`__lw_hidden_pay`).
+    """
+    return (
+        "local A = DataCenter and DataCenter.ActDispatchTreasureManager "
+        "local B = DataCenter and DataCenter.DigTreasureBoxRewardManager "
+        "local digs, score, goal, why = 0, 0, 0, '' "
+        "if A == nil or B == nil then why = 'no-manager' else "
+        "pcall(function() digs = math.floor((A:GetCanDigCount() or 0) + 0) end) "
+        "pcall(function() score = math.floor((B:GetBoxRewardItemCount() or 0) + 0) end) "
+        "pcall(function() goal = math.floor((B:GetMaxNum() or 0) + 0) end) "
+        # The floor under a lagging score: the highest reward step the SERVER says has
+        # been collected. Without it a second run on the same day plans off the compass
+        # count the client froze at, and digs a whole goal's worth of fragments away for
+        # nothing — measured on 2026-09-02, when 17 digs took every step and the count
+        # still read 750.
+        "local earned = 0 "
+        "pcall(function() for _, row in ipairs(B:GetTreasureBoxRewardList() or {}) do "
+        "local got = math.floor((tonumber(tostring(row.isReward)) or 0) + 0) "
+        "local target = math.floor((tonumber(tostring(row.target)) or 0) + 0) "
+        "if got ~= 0 and target > earned then earned = target end end end) "
+        "if earned > score then score = earned end end "
+        "local want = math.floor(tonumber(DataCenter.__lw_hidden_goal) or 0) "
+        "if want > 0 and (goal <= 0 or want < goal) then goal = want end "
+        "local pay = math.floor(tonumber(DataCenter.__lw_hidden_pay) or 0) "
+        "if pay <= 0 then pay = 300 end "
+        "local cap = math.floor(tonumber(DataCenter.__lw_hidden_cap) or 0) "
+        "local short = goal - score "
+        "local plan = 0 "
+        "local closes, now = 0, 0 "
+        "pcall(function() now = math.floor((UITimeManager:GetInstance()"
+        ":GetServerSeconds() or 0) + 0) end) "
+        "local act = 0 pcall(function() act = math.floor((B:GetActId() or 0) + 0) end) "
+        "pcall(function() for _, a in pairs(DataCenter.ActivityListDataManager"
+        ".activityList or {}) do "
+        "if math.floor((tonumber(tostring(a.activityId)) or 0) + 0) == act then "
+        "closes = math.floor(((tonumber(tostring(a.endTime)) or 0) / 1000) + 0) "
+        "end end end) "
+        "if why == '' then "
+        "if closes > 0 and now > 0 and now >= closes then why = 'week-over' "
+        "elseif short <= 0 then why = 'goal-reached' "
+        "elseif digs <= 0 then why = 'no-fragments' "
+        "else plan = math.ceil(short / pay) "
+        "if plan > digs then plan = digs end "
+        "if cap > 0 and plan > cap then plan = cap end end end "
+        "DataCenter.__lw_hidden_left = plan "
+        "DataCenter.__lw_hidden = {plan = plan, digs = digs, score = score, "
+        "goal = goal, why = why, done = 0} "
+        'CS.UnityEngine.Debug.LogError("ACT hidden_plan plan=" .. tostring(plan) '
+        '.. " digs=" .. tostring(digs) .. " score=" .. tostring(score) '
+        '.. " goal=" .. tostring(goal) .. " why=" .. tostring(why))'
+    )
+
+
+def hidden_treasures_left() -> str:
+    """How many digs the parked plan still has — what `TAP … xall` counts down."""
+    return "(math.floor(tonumber(DataCenter.__lw_hidden_left) or 0))"
+
+
+def hidden_treasures_dig() -> str:
+    """Dig ONE treasure map: `hero.dispatch.dig.treasure <set>`.
+
+    The set is the client's own `digExchangeType`, sent positionally — a parameter table
+    is accepted by the API and produces no send at all.
+    """
+    return (
+        "local A = DataCenter and DataCenter.ActDispatchTreasureManager "
+        "local sent, why, set = 0, '', 0 "
+        "local left = math.floor(tonumber(DataCenter.__lw_hidden_left) or 0) "
+        "if A == nil then why = 'no-manager' "
+        "elseif left <= 0 then why = 'plan-spent' else "
+        "pcall(function() set = math.floor((tonumber(tostring(A.digExchangeType)) "
+        "or 0) + 0) end) "
+        "local digs = 0 "
+        "pcall(function() digs = math.floor((A:GetCanDigCount() or 0) + 0) end) "
+        "if set <= 0 then why = 'no-set' "
+        "elseif digs <= 0 then why = 'no-fragments' "
+        "else local ok = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.DispatchDigTreasure, set) end) "
+        "if ok then sent = 1 DataCenter.__lw_hidden_left = left - 1 "
+        "else why = 'send-failed' end end end "
+        "local S = DataCenter.__lw_hidden or {} "
+        "S.done = math.floor(tonumber(S.done) or 0) + sent S.why = why "
+        "DataCenter.__lw_hidden = S "
+        'CS.UnityEngine.Debug.LogError("ACT hidden_dig sent=" .. tostring(sent) '
+        '.. " left=" .. tostring(DataCenter.__lw_hidden_left) '
+        '.. " why=" .. tostring(why))'
+    )
+
+
+def hidden_treasures_claim() -> str:
+    """Take every tier the week has already earned — the «подтверждение» of a dig.
+
+    One send does the lot: measured live, claiming with the board standing at 750
+    compasses turned BOTH the 300 and the 600 tier to «taken» and left the score where
+    it was, so the milestones are not paid for out of the count.
+    """
+    return (
+        "local B = DataCenter and DataCenter.DigTreasureBoxRewardManager "
+        "local sent, why = 0, '' "
+        "if B == nil then why = 'no-manager' else "
+        "local ok = pcall(function() B:SendGetBoxRewardMessage(1) end) "
+        "if ok then sent = 1 else why = 'send-failed' end end "
+        'CS.UnityEngine.Debug.LogError("ACT hidden_claim sent=" .. tostring(sent) '
+        '.. " why=" .. tostring(why))'
+    )
+
+
+def hidden_treasures_ask() -> str:
+    """Ask the server for the board — the tiers come back, nothing is spent."""
+    return (
+        "local B = DataCenter and DataCenter.DigTreasureBoxRewardManager "
+        "local sent = 0 "
+        "if B ~= nil then "
+        "local ok = pcall(function() B:SendMainBoxRewardUIMessage() end) "
+        "if ok then sent = 1 end end "
+        'CS.UnityEngine.Debug.LogError("ACT hidden_ask sent=" .. tostring(sent))'
+    )
+
+
+def hidden_treasures_digs() -> str:
+    """How many digs the fragments still allow — the proof a dig really left.
+
+    The compass count cannot serve as one (it does not move until the client is
+    restarted), but the fragments do: the server takes one of each of the seven the
+    same second, so this number falling is what says the press was not swallowed.
+    """
+    return (
+        "(function() local A = DataCenter and DataCenter.ActDispatchTreasureManager "
+        "if A == nil then return 0 end local n = 0 "
+        "pcall(function() n = math.floor((A:GetCanDigCount() or 0) + 0) end) "
+        "return n end)()"
+    )
+
+
+def hidden_treasures_note() -> str:
+    """Work the whole reading out and PARK it, so a recipe can say it in one short line.
+
+    The Lua belongs here rather than pasted into a scenario (`CLAUDE.md`): the recipe
+    presses this and then reads `DataCenter.__lw_hidden_board`.
+    """
+    return ("DataCenter.__lw_hidden_board = " + hidden_treasures_read() + " "
+            'CS.UnityEngine.Debug.LogError("ACT hidden_board " '
+            ".. tostring(DataCenter.__lw_hidden_board))")
+
+
+def hidden_treasures_board() -> str:
+    """The parked reading, or an empty string when nothing has been read yet."""
+    return "(DataCenter.__lw_hidden_board or '')"
