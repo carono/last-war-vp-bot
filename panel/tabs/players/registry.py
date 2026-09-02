@@ -62,7 +62,7 @@ import time
 from ...runtime.players import (  # noqa: F401  (the page's own vocabulary)
     CHECKPOINT_SOURCES, EMPTY_LAST, FIELDS, SOURCES, SRC_ALLIANCE, SRC_CHAT,
     SRC_MAP, SRC_PERSON, SRC_PROFILE, SRC_RALLY, SRC_REMARK, SRC_TILE, PlayerBook,
-    mark_of, provenance_of,
+    flatten, mark_of, provenance_of,
 )
 
 #: How old a sighting has to be before «давно не виден» claims it. A week: the map is
@@ -95,7 +95,9 @@ def _text_of(row: dict) -> str:
             row.get("remark") or ""]
     if row.get("x") is not None and row.get("y") is not None:
         bits.append("%s,%s" % (row["x"], row["y"]))
-    return " ".join(bits).casefold()
+    # THE SAME FLATTENING AS THE COLUMN (#2385): case folded and stripped of accents,
+    # so «Ahmadd» typed on a keyboard without an umlaut finds «Ahmädd».
+    return flatten(" ".join(bits))
 
 
 def _in_range(value, low, high) -> bool:
@@ -113,7 +115,7 @@ def matches(row: dict, f: dict, now: float) -> bool:
     one means «any». It is a plain dict rather than a class so that the window's
     variables, the phone's presses and a test can all build one the same way.
     """
-    text = (f.get("text") or "").strip().casefold()
+    text = flatten((f.get("text") or "").strip())
     if text and text not in _text_of(row):
         return False
 

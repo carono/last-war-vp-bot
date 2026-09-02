@@ -112,6 +112,7 @@ import queue
 import sqlite3
 import threading
 import time
+import unicodedata
 from contextlib import contextmanager
 
 #: The file name of the ONE database (#2025). It used to be one of these inside every
@@ -634,6 +635,21 @@ MIGRATIONS: tuple = (
         "CREATE INDEX ix_reward_popups_seen ON all_reward_popups(profile, seen_at)",
         "CREATE INDEX ix_reward_popups_kind ON all_reward_popups(profile, kind)",
     ),
+    # -- v10: the search haystack loses its accents, and so does the needle (#2385) ----
+    #
+    # A nickname spelled with an umlaut could only be found by typing the umlaut, and on
+    # a phone nobody does — so «нет такого игрока» was said about a row that had been in
+    # the register for days and was seen again three minutes ago. `search_text` is
+    # written flattened from now on (`players.flatten`); this is the three hundred
+    # thousand rows that were written before it.
+    #
+    # `flat()` is lent to SQL by `Store.connect` for the same reason `fold()` is: a
+    # migration has no Python to reach for, and SQLite's own text functions are ASCII.
+    # Flattening what is already there is enough — the column was case folded when it
+    # was written, and dropping the marks off that is what a fresh write would produce.
+    (
+        "UPDATE all_players SET search_text = flat(search_text)",
+    ),
 )
 
 #: THE SCHEMA AS IT STOOD WHEN EVERY PROFILE HAD A DATABASE OF ITS OWN (#2025).
@@ -659,6 +675,19 @@ def _fold(value) -> str:
     the two agree (`tests/test_players_registry.py`).
     """
     return str(value or "").casefold()
+
+
+def _flat(value) -> str:
+    """`fold`, and the accents dropped too — what the SEARCH compares (#2385).
+
+    The twin of `panel/runtime/players.py::flatten`, here for the same reason `_fold` is
+    here: a store must not import a page's vocabulary to open a connection, and a
+    migration has no Python to reach for. One line each, and
+    `tests/test_players_registry.py` fails the moment the two stop agreeing.
+    """
+    text = unicodedata.normalize("NFD", _fold(value))
+    return unicodedata.normalize(
+        "NFC", "".join(ch for ch in text if not unicodedata.combining(ch)))
 
 
 class StoreTooNew(RuntimeError):
@@ -754,6 +783,9 @@ class Store:
         # has no Python to reach for, so the same fold is lent to SQL here. Deterministic
         # on purpose: it lets SQLite use it in an index or a partial one.
         conn.create_function("fold", 1, _fold, deterministic=True)
+        # …and the same fold with the accents dropped, which is what the search box
+        # compares (#2385, `panel/runtime/players.py::flatten`).
+        conn.create_function("flat", 1, _flat, deterministic=True)
         with self._lock:
             self._open.append(conn)
         self._local.conn = conn

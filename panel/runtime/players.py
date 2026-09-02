@@ -76,6 +76,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import unicodedata
 
 from . import store as store_mod
 
@@ -209,6 +210,33 @@ def _fold(value) -> str:
     return str(value or "").casefold()
 
 
+def flatten(value) -> str:
+    """What the SEARCH BOX compares — case folded AND stripped of its accents (#2385).
+
+    A nickname spelled with an umlaut could only be found by typing the umlaut. Nobody
+    does: the box is on a phone, the diacritic is three taps away, and a search for the
+    letters a person can actually reach answered «нет такого игрока» about a row that
+    was sitting in the register, freshly seen, all along.
+
+    So both sides of the comparison lose their marks: the haystack when it is written
+    and the needle when it is typed (:func:`search_text_of`, :func:`where_of`). The
+    person types what they see, in whatever spelling their keyboard gives them, and the
+    row answers.
+
+    It also settles the OTHER spelling of the same letter. A composed «ä» and an «a»
+    with a combining diaeresis behind it are two different strings to `LIKE`, and which
+    one arrives depends on the keyboard rather than on the player — so a needle from one
+    keyboard silently missed a name written from the other.
+
+    A letter with no decomposition of its own (`ø`, `ł`) keeps its shape: this drops the
+    MARKS a normal form can separate, and inventing a table of look-alikes on top would
+    be guessing at which letters a person thinks are the same.
+    """
+    text = unicodedata.normalize("NFD", str(value or "").casefold())
+    return unicodedata.normalize(
+        "NFC", "".join(ch for ch in text if not unicodedata.combining(ch)))
+
+
 def mark_of(row: dict) -> str:
     """THE «Метка» THE PERSON SEES — the person's own mark, or the game's note behind it.
 
@@ -239,7 +267,7 @@ def search_text_of(row: dict) -> str:
             row.get("remark") or ""]
     if row.get("x") is not None and row.get("y") is not None:
         bits.append("%s,%s" % (row["x"], row["y"]))
-    return " ".join(bits).casefold()
+    return flatten(" ".join(bits))
 
 
 def _derived_of(row: dict) -> dict:
@@ -320,7 +348,10 @@ def where_of(f: dict, now: float) -> tuple:
     clauses: list = []
     params: list = []
 
-    text = (f.get("text") or "").strip().casefold()
+    # FLATTENED, exactly like the haystack it is compared against (#2385) — see
+    # :func:`flatten`. Both sides or neither: a needle that keeps its accents cannot
+    # match a column that has dropped them.
+    text = flatten((f.get("text") or "").strip())
     if text:
         clauses.append("search_text LIKE ? ESCAPE '\\'")
         params.append("%" + text.replace("\\", "\\\\").replace("%", "\\%")

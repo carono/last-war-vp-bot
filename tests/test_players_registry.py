@@ -28,6 +28,7 @@ import json
 import sys
 import tempfile
 import time
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -319,6 +320,31 @@ def test_a_mark_is_ordered_case_and_alphabet_blind():
             dict(REMARKED, uid="d", remark="яблоня")]
     assert [r["uid"] for r in reg.sort_rows(rows, ("note", False))] == [
         "b", "a", "c", "d"]
+
+
+def test_a_name_with_an_umlaut_is_found_without_typing_the_umlaut():
+    """#2385: «не могу найти игрока» about a row that was in the register all along.
+
+    A nickname is spelled with a diacritic and the person searching for it is holding a
+    phone, where the plain letter is one tap and the marked one is three. So the box has
+    to answer to the letters they can reach — and to the OTHER spelling of the same
+    letter, because a composed «ä» and an «a» with a combining mark behind it are two
+    different strings to `LIKE` and which one arrives depends on the keyboard.
+
+    The name here is invented, like every other identifier in this file.
+    """
+    with _tmpdir() as tmp:
+        store = _store(tmp)
+        _swept_into(store, [_swept(name="B\u00e4rbel1")], now=NOW)
+        for needle in ("Barbel1", "B\u00e4rbel1", "BARBEL1", "b\u00e4rbel",
+                       unicodedata.normalize("NFD", "b\u00e4rbel1"), "\u00e4rbel"):
+            found = [r["name"] for r in store.search({"text": needle})]
+            assert found == ["B\u00e4rbel1"], (needle, found)
+            # …and the readable definition of the filter says the same thing, which is
+            # the only thing keeping the two from drifting apart.
+            assert reg.matches(store.rows()[0], {"text": needle}, NOW), needle
+        # A name that merely LOOKS similar is still not this one.
+        assert store.search({"text": "Barbel2"}) == []
 
 
 def test_the_sql_filter_and_the_readable_one_never_disagree():
