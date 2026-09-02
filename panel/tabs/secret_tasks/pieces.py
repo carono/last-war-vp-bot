@@ -343,19 +343,17 @@ class PiecesPage:
         """
         board = self.board
         digs = board.get("digs")
+        # THE RULE IS BEHIND THE GEAR, THE BOARD IS ON THE CARD (#2370). Five of these
+        # rows were the rule read out as prose — «строго», «3», «2», «да», «30» — with
+        # three of the five settable only by cycling a footer button and two not settable
+        # from a phone at all. They are the errand's own knobs, already declared for the
+        # gear on «Таймеры» (`errand_options`), so the card asks for the same six and
+        # they open in the one modal this front-end has. Nothing is copied: the sheet
+        # writes the page's own variables through the page's own setter.
         rows = [{"label": "pieces.digs",
                  "value": ("—" if digs is None or digs < 0 else str(digs))},
                 {"label": "pieces.mine.label",
-                 "value": board.get("mine") or self.tab.t("pieces.mine.none")},
-                {"label": "pieces.strict",
-                 "value": self.tab.t("pieces.strict.yes" if self.strict_var.get()
-                                     else "pieces.strict.no")},
-                {"label": "pieces.limit", "value": self.limit_var.get()},
-                {"label": "pieces.offer_gap", "value": self.offer_gap_var.get()},
-                {"label": "pieces.share",
-                 "value": self.tab.t("pieces.share.yes" if self.share_var.get()
-                                     else "pieces.share.no")},
-                {"label": "pieces.share_every", "value": self.share_every_var.get()}]
+                 "value": board.get("mine") or self.tab.t("pieces.mine.none")}]
         rows += [{"label": "pieces.piece", "value": "%s: %d" % (piece, count)}
                  for piece, count in board["have"]]
         items = [{"text": offer["name"] or "—",
@@ -364,20 +362,39 @@ class PiecesPage:
                   "pill": ("pieces.verdict.take" if offer["take"]
                            else "pieces.verdict.pass")}
                  for offer in board["offers"]]
+        # The offers stay ROWS, deliberately (`SecretTasksTab.TILE_CARDS`): a verdict is
+        # a sentence, and a tile would cut exactly the part the card is opened for.
         return {"title": "secrettasks.page.pieces", "rows": rows, "items": items,
                 "empty": "pieces.empty",
+                "options_title": "secrettasks.page.pieces",
+                "options": self.web_options(),
                 "actions": [{"id": "pieces_refresh", "label": "pieces.refresh"},
                             {"id": "pieces_trade", "label": "pieces.trade"},
-                            {"id": "pieces_withdraw", "label": "pieces.withdraw"},
-                            {"id": "pieces_offer",
-                             "label": ("pieces.offer.off" if self.offer_var.get()
-                                       else "pieces.offer.on")},
-                            {"id": "pieces_strict",
-                             "label": ("pieces.strict.off" if self.strict_var.get()
-                                       else "pieces.strict.on")},
-                            {"id": "pieces_share",
-                             "label": ("pieces.share.off" if self.share_var.get()
-                                       else "pieces.share.on")}]}
+                            {"id": "pieces_withdraw", "label": "pieces.withdraw"}]}
+
+    #: The errand whose knobs this page holds — the timer that spends them when it fires.
+    ERRAND_KNOBS = "exchange_treasure_pieces"
+
+    def web_options(self) -> list:
+        """The six knobs of the exchange, asked of the ONE place they are declared.
+
+        Not a second list written here: «Таймеры» draws the same six behind the gear on
+        the row that runs them (#2017), and a copy would be the second answer that rule
+        exists to prevent. An unbuilt tab has no register yet and answers with nothing.
+        """
+        schedule = getattr(self.tab.rt, "schedule", None)
+        options = getattr(schedule, "options", None)
+        return list(options.fields(self.ERRAND_KNOBS)) if options is not None else []
+
+    def web_set(self, key: str, value) -> "dict | None":
+        """One knob moved from the card's sheet — `None` when it is not one of ours."""
+        schedule = getattr(self.tab.rt, "schedule", None)
+        options = getattr(schedule, "options", None)
+        if options is None:
+            return None
+        if not any(opt.key == key for opt in options.spec(self.ERRAND_KNOBS)):
+            return None
+        return {"ok": bool(options.write(self.ERRAND_KNOBS, key, value))}
 
     def web_press(self, action: str) -> "dict | None":
         """One of the card's four buttons, or `None` when it is not ours."""
@@ -392,21 +409,8 @@ class PiecesPage:
             return {"ok": self._play("withdraw_piece_offer",
                                      {"kind": self.board.get("set") or DEFAULT_SET},
                                      "pieces.log.withdraw")}
-        if action == "pieces_offer":
-            # The box, not a press on the game: the phone gets the same switch the
-            # window has, and the errand reads it live through `register_args`.
-            self.offer_var.set(not self.offer_var.get())
-            return {"ok": True}
-        if action == "pieces_strict":
-            # …and the rule's own knob, for the same reason: it decides what the next run
-            # trades, so a phone that could read the rule and not answer it would be
-            # showing a decision nobody away from the machine can make.
-            self.strict_var.set(not self.strict_var.get())
-            return {"ok": True}
-        if action == "pieces_share":
-            # Whether the next NEW offer is announced to the alliance. A switch and not
-            # a press: the announcement rides on the post, so «publish it now» would be
-            # a second message about an offer the chat has already seen.
-            self.share_var.set(not self.share_var.get())
-            return {"ok": True}
+        # The three cycling buttons that used to stand here — «offer», «strict»,
+        # «share» — are switches in the card's sheet since #2370. A press was a press
+        # that had to be read to be understood («Не строго» meant the rule was strict),
+        # and the same three knobs were already declared for the gear on «Таймеры».
         return None

@@ -223,8 +223,12 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
     # behind it, the name on one line, a switch in the corner — for a card whose items
     # have a FACE. Only those three: the renderer knows no fourth, and a card asking for
     # one would silently fall back to rows.
+    # `options` / `options_title` are the KNOBS behind a gear — beside a card's heading
+    # since #2308 and on a tile since #2051, drawn in the one modal this front-end has.
+    # They were missing from this list until #2370, which is why nothing failed when the
+    # rally caps and the player filters grew them.
     allowed_card = {"title", "head", "rows", "items", "empty", "search", "actions",
-                    "fields", "note", "flow", "layout"}
+                    "fields", "note", "flow", "layout", "options", "options_title"}
     # `avatar` is a LINK to the panel's own picture route, not bytes and not a word: the
     # «Ралли» screen draws the face of everybody standing in a banner, out of the game
     # client's own cache (#1324). The renderer draws it as an <img> and drops it if it
@@ -233,7 +237,7 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
     # — an inventory cell, a rarity frame with the item drawn on it (#1469). Square and
     # un-cropped where a face is round, and it degrades the same way.
     allowed_item = {"text", "label", "detail", "note", "pill", "actions", "facts",
-                    "until", "avatar", "icon"}
+                    "until", "avatar", "icon", "options", "options_title"}
     for tab_id, cls in _tabs_with_screens():
         view = _sample_view(cls)
         if view is None:
@@ -525,6 +529,52 @@ def test_every_screen_builds_on_a_real_page_and_says_only_keys():
         harness.close()
     assert not broke, "\n  ".join([""] + broke)
     assert not bad, "\n  ".join([""] + bad)
+
+
+def test_the_knobs_of_a_standing_order_are_behind_that_cards_own_gear():
+    """«Автопомощь» and «Обмен кусочками» carry their rules, not just read them (#2370).
+
+    Both cards used to say what the order would do — the level it robs at, how strictly
+    it matches, how many it may hand over — and offer no way to change it: five of the
+    exchange's six knobs could only be typed at the machine, and three of them only by
+    cycling a footer button whose label had to be read backwards («Не строго» meant the
+    rule WAS strict). The knobs are declared once, for the gear on «Таймеры»
+    (`errand_options`), and these cards ask for the same ones.
+
+    What is pinned is that the sheet stays a VIEW: the fields come out of the register,
+    so a knob renamed there cannot leave a card drawing a control that writes nothing.
+    """
+    harness = _page()
+    if harness is None:
+        return
+    try:
+        app, session = harness.app, harness.session
+        with app._on(session):
+            tab = session.rt.tabs.get("secret_tasks")
+            if tab is None:
+                return                          # not in this profile
+            cards = {c.get("title"): c for c in (tab.web_view() or {}).get("cards") or ()}
+            register = session.rt.schedule.options
+            for title, errand in (("autoassist.frame", "secret_autoassist"),
+                                  ("secrettasks.page.pieces",
+                                   "exchange_treasure_pieces")):
+                card = cards[title]
+                assert card.get("options_title"), f"«{title}»: a gear with no name"
+                keys = [field["key"] for field in card.get("options") or ()]
+                assert keys == [opt.key for opt in register.spec(errand)], (
+                    f"«{title}» draws {keys}, which is not what «{errand}» declares")
+                for key in keys:
+                    answer = tab.web_press("set", {"key": key,
+                                                   "value": register.spec(errand)[
+                                                       keys.index(key)].read(
+                                                           session.rt)})
+                    assert answer.get("ok"), f"«{title}»/«{key}» writes nothing: {answer}"
+            # …and the three cycling buttons the exchange no longer needs.
+            gone = {a["id"] for a in cards["secrettasks.page.pieces"].get("actions") or ()}
+            assert not (gone & {"pieces_offer", "pieces_strict", "pieces_share"}), (
+                "the exchange kept a footer button for a knob that is now a switch")
+    finally:
+        harness.close()
 
 
 def _main() -> int:

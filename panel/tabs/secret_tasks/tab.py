@@ -4646,7 +4646,15 @@ class SecretTasksTab(PanelTab):
                            "actions": [{"id": "autoassist",
                                         "label": ("autoassist.off"
                                                   if self.autoassist_var.get()
-                                                  else "autoassist.on")}]},
+                                                  else "autoassist.on")}],
+                           # …and the RULE behind the gear (#2370). The two rows above
+                           # said what the order spends its five on and gave no way to
+                           # change it: the level and the star's wait were typed at the
+                           # machine or nowhere. They are the order's own knobs, already
+                           # declared for the gear on «Таймеры», so the card asks for the
+                           # same pair and they open in the one modal this front-end has.
+                           "options_title": "autoassist.frame",
+                           "options": self._order_fields("secret_autoassist")},
                           {"title": "secrettasks.alliance",
                            "items": self.alliance.web_items(),
                            "rows": self._count_rows(self.alliance),
@@ -4881,6 +4889,17 @@ class SecretTasksTab(PanelTab):
                 card["flow"] = said
         return screen
 
+    def _order_fields(self, order: str) -> list:
+        """One standing order's knobs, asked of the ONE place they are declared (#2370).
+
+        Never a second list written beside the card: «Таймеры» draws the same ones behind
+        the gear on the row that runs the order, and a copy would be the second answer
+        `errand_options` exists to prevent. A tab that is not in a schedule yet — a test
+        exercising a single press — answers with nothing rather than raising.
+        """
+        options = getattr(getattr(self.rt, "schedule", None), "options", None)
+        return list(options.fields(order)) if options is not None else []
+
     #: WHICH CARDS ARE LISTS OF PLACES — drawn on the phone as small buttons rather
     #: than as a row apiece (#1999). The person's words: «карта, секретки грабеж: делаем
     #: не грид с секретками в одну строку, а небольшие кнопки с минимальной информацией».
@@ -5068,6 +5087,14 @@ class SecretTasksTab(PanelTab):
         # phone told «ок» about a knob nobody moved is worse than one told «нет».
         if action == "set":
             key = str(args.get("key") or "")
+            # …and the exchange's own six, out of the sheet behind the card's gear
+            # (#2370). Asked of «Кусочки» first because it is the page that owns them,
+            # and answered `None` when the key is none of its — the same fall-through
+            # the buttons above take.
+            if pieces is not None:
+                moved = pieces.web_set(key, args.get("value"))
+                if moved is not None:
+                    return moved
             if key == "stale_hours":
                 self._set_stale_hours(args.get("value"))
                 return {"ok": True}
@@ -5083,6 +5110,14 @@ class SecretTasksTab(PanelTab):
             if key == "autoloot_level_min":
                 self.set_autoloot_level(args.get("value"))
                 return {"ok": True}
+            # …and «Автопомощь»'s own pair, out of the sheet behind that card's gear
+            # (#2370) — written through the order's own setters, which is the same
+            # write the gear on «Таймеры» makes.
+            options = getattr(getattr(self.rt, "schedule", None), "options", None)
+            if options is not None and any(opt.key == key
+                                           for opt in options.spec("secret_autoassist")):
+                return {"ok": bool(options.write("secret_autoassist", key,
+                                                 args.get("value")))}
             if key == "ghost_autoloot":
                 self.set_ghost_autoloot(bool(args.get("value")))
                 return {"ok": True}
