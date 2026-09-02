@@ -245,8 +245,20 @@ export function ErrandCard({
           </p>
         ) : null}
         {state ? <p className="muted small">{state}</p> : null}
-        <Stat stat={stat} />
-        {row.length ? <div className="errand-acts">{row}</div> : null}
+        {/* THE READING SHARES THE FOOT WITH THE SIGNS ON A COVER CARD (#2340) — the
+            person's words: «данные со статистикой давай перенесем в линию, где кнопка
+            запуска, пусть будет слева». It is a line of its own on every other card, and
+            it stays one there: the foot row exists on a cover because the picture is the
+            card and every empty line is picture that could have been seen. The signs keep
+            their own width (`flex: 0 0 auto`), so a long reading is cut rather than
+            pushed under «▶». */}
+        {cover ? null : <Stat stat={stat} />}
+        {row.length || (cover && stat && stat.key) ? (
+          <div className="errand-acts">
+            {cover ? <Stat stat={stat} /> : null}
+            {row}
+          </div>
+        ) : null}
       </div>
       {sheets}
       {info.panel}

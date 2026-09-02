@@ -1254,7 +1254,19 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
    card with none draws no row at all. */
 .item.errand.cover { display: flex; }
 .item.errand.cover .errand-body { flex: 1 1 auto; }
-.item.errand.cover .errand-acts { margin-top: auto; }
+.item.errand.cover .errand-acts { margin-top: auto; align-items: center; }
+/* THE READING STANDS AT THE LEFT OF THAT ROW AND NEVER UNDER THE BUTTON (#2340). It takes
+   what the signs leave (`flex: 1`), and what it cannot fit is cut with an ellipsis — the
+   signs are `flex: 0 0 auto`, so the space under them is reserved by the layout itself
+   rather than by a margin somebody has to keep in step with the button's width. */
+.item.errand.cover .errand-acts .stat {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .item.errand.cover .errand-acts > :last-child { margin-left: auto; }
 
 /* «У описания отступ сверху сделай, наезжает на чекбокс» — the line of facts begins
