@@ -153,6 +153,8 @@ export function ErrandCard({
   icon,
   title,
   about,
+  badge,
+  infoNode,
   on = true,
   facts,
   queued,
@@ -166,6 +168,10 @@ export function ErrandCard({
   icon?: string
   title: string
   about?: string
+  /** A MARK WORN AT THE NAME (#2308) — a player's own note, beside the title. */
+  badge?: string
+  /** The «i» in the top-right corner (#2308), beside the switch when there is one. */
+  infoNode?: ReactNode
   on?: boolean
   facts?: ReactNode
   queued?: boolean
@@ -196,7 +202,17 @@ export function ErrandCard({
       <div className="errand-body">
         <div className="errand-head">
           <span className="title">{title}</span>
-          {switchNode}
+          {/* THE MARK RIDES THE NAME (#2308): it is the reason somebody looks a row up,
+              and on the line of facts underneath it was one word among six. */}
+          {badge ? <span className="badge">{badge}</span> : null}
+          {infoNode || switchNode ? (
+            /* ONE CORNER, whatever stands in it — the switch a card is about, the «i»
+               that opens everything else, or both. */
+            <span className="errand-corner">
+              {infoNode}
+              {switchNode}
+            </span>
+          ) : null}
         </div>
         {queued || pill || facts ? (
           <p className="muted small facts">

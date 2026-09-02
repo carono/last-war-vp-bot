@@ -2515,10 +2515,13 @@ def test_a_card_says_whether_it_is_on_by_its_colour_and_switches_in_the_corner()
     css = _css()
     assert ".item.errand.off" in css, "nothing colours a card that is switched off"
     # THE SWITCH IS THE CORNER, out of the flow (#2061): asked for twice, and it drifted
-    # back into the title row once already when the picture became the whole card.
-    corner = re.search(r"\.item\.errand \.errand-switch\s*\{[^}]*\}", css)
+    # back into the title row once already when the picture became the whole card. Since
+    # #2308 the corner is a slot rather than the switch itself — a player's card has no
+    # switch and puts its «i» there — so it is the SLOT that must stay pinned.
+    corner = re.search(r"\.item\.errand \.errand-corner\s*\{[^}]*\}", css)
     assert corner and "position: absolute" in corner.group(0), \
         "the switch is back in the row beside the name"
+    assert "errand-corner" in script, "the card no longer has one corner for its signs"
     # …and a card has a floor, or the art is a strip rather than a picture.
     card = re.search(r"\.item\.errand\s*\{[^}]*\}", css)
     assert card and re.search(r"min-height:\s*1[0-9]{2}px", card.group(0)), \

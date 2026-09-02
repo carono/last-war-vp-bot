@@ -92,12 +92,36 @@ def mark_screen(view: dict) -> dict:
         for row in card.get("rows") or ():
             _mark(row, ROW_FIELDS)
         for item in card.get("items") or ():
-            if not isinstance(item, dict):
-                continue
-            _mark(item, ITEM_FIELDS)
-            for fact in item.get("facts") or ():
-                _mark(fact, FACT_FIELDS)
+            mark_item(item)
     return view
+
+
+def mark_item(item: dict) -> dict:
+    """One list item, marked — the same walk :func:`mark_screen` does over a card's own.
+
+    Its own function because a card's rows do not always travel with the screen: a card
+    of a thousand players is fetched off `/api/screen/data` rather than on the poll
+    (#2133), and a place that stops being a link the moment a list grows big enough to
+    need pages is exactly the kind of difference nobody would think to look for.
+    """
+    if not isinstance(item, dict):
+        return item
+    _mark(item, ITEM_FIELDS)
+    for fact in item.get("facts") or ():
+        _mark(fact, FACT_FIELDS)
+    return item
+
+
+def mark_row(row: dict) -> dict:
+    """One label-and-value line, marked — a card's rows and a sheet's alike (#2308).
+
+    Its own function for the same reason :func:`mark_item` is: what the «i» on a card
+    opens is fetched off `/api/screen/data` rather than carried on the screen, so it
+    never passes through :func:`mark_screen`, and a coordinate that stops being a link
+    the moment it is read in a sheet is exactly the difference nobody would look for.
+    """
+    _mark(row, ROW_FIELDS)
+    return row
 
 
 def mark_line(row: dict) -> dict:

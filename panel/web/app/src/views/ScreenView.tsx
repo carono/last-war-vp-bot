@@ -10,7 +10,7 @@ import { Modal } from '../ui/Modal'
 import { firstPlace, Marked, useJump } from '../ui/Coord'
 import { WorldMap } from './WorldMap'
 import { ChatView } from './ChatView'
-import type { Field, PressAnswer, ScreenView as View, ViewAction, ViewCard, ViewItem } from '../types'
+import type { Field, PressAnswer, ScreenView as View, SortButton, ViewAction, ViewCard, ViewItem } from '../types'
 
 /* ONE RENDERER FOR EVERY TAB'S SCREEN.
  *
@@ -113,6 +113,174 @@ function useItemGear(item: ViewItem, screen: string, after: () => void) {
   }
 }
 
+/* THE GRID'S OWN KNOBS, behind the gear beside its heading (#2308).
+ *
+ * The person's words about the register of players: «фильтры к гриду перенеси». They
+ * stood in a card of their own above the list — a screenful of controls a person had to
+ * scroll past to reach the first row, and six cycling presses at that. A card may now
+ * carry `options`, and they open in the ONE modal this front-end has, exactly as a
+ * tile's gear does one step down (`useItemGear`). Nothing new is written: the knobs are
+ * ordinary screen fields and travel back through the screen's own `set` press.
+ */
+function useCardGear(card: ViewCard, screen: string, after: () => void) {
+  const [open, setOpen] = useState(false)
+  const options = card.options || []
+  if (!options.length) return { button: null, sheet: null }
+  const name = card.options_title ? t(card.options_title) : card.title ? t(card.title) : ''
+  return {
+    button: (
+      <button
+        className="go icon"
+        title={t('web.ui.options')}
+        aria-label={t('web.ui.options')}
+        onClick={() => setOpen(true)}
+      >
+        {'\u2699'}
+      </button>
+    ),
+    sheet: open ? (
+      <Modal title={name} onClose={() => setOpen(false)}>
+        {options.map((field) => (
+          <ScreenField key={field.key} field={field} screen={screen} after={after} />
+        ))}
+      </Modal>
+    ) : null,
+  }
+}
+
+/* HOW THE GRID IS ORDERED, as a row of small buttons over the rows themselves (#2308).
+ *
+ * One button per column. The one the list actually stands by wears its direction and
+ * says so; pressing it flips ascending ↔ descending, and pressing another orders by
+ * that column instead. It is the window's own gesture — a click on a table heading —
+ * and it replaces two dropdowns that stood in a card four taps away from the rows they
+ * ordered.
+ *
+ * The chip is the SAME control the card strip is drawn with, so a thumb learns one
+ * shape; the arrow is the whole of the state, and a column that is not sorting anything
+ * shows none.
+ */
+function SortBar({ sorts, screen, after }: { sorts: SortButton[]; screen: string; after: () => void }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState('')
+  return (
+    <div className="chips sorts">
+      {sorts.map((sort) => (
+        <button
+          key={sort.key}
+          className={'chip' + (sort.dir ? ' on' : '')}
+          disabled={busy === sort.key}
+          onClick={async () => {
+            setBusy(sort.key)
+            try {
+              const answer = await post<PressAnswer>('/api/screen/press', {
+                id: screen,
+                action: 'sort',
+                args: { key: sort.key },
+              })
+              if (answer.ok === false || answer.error) toast(pressWord(answer))
+              window.setTimeout(after, 400)
+            } finally {
+              setBusy('')
+            }
+          }}
+        >
+          {t(sort.label)}
+          {sort.dir ? <span className="way">{sort.dir === 'desc' ? '\u2193' : '\u2191'}</span> : null}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* THE «i» IN A CARD'S TOP-RIGHT CORNER, and what it opens (#2308).
+ *
+ * The person's words about a base's card: «Убираем все кнопки. Добавляем аккуратный i в
+ * правом верхнем углу, которая вызывает модалку с подробными данными базы». So the card
+ * itself is what a person reads at a glance, and everything else — every field with who
+ * said it and when, and the presses that act on that row — is one tap away in the one
+ * modal.
+ *
+ * IT IS FETCHED WHEN IT IS OPENED, never carried: a dozen lines times a page of a
+ * thousand rows would double what a page costs so that one of them could be read. The
+ * card says WHAT to ask for (`item.info`) and this asks `/api/screen/data` for it, which
+ * is answered on a worker rather than on the panel's own loop.
+ */
+interface InfoAnswer {
+  title?: string
+  rows?: { label: string; value: string; value_parts?: ViewItem['text_parts'] }[]
+  actions?: ViewAction[]
+  error?: string
+}
+
+function useItemInfo(item: ViewItem, screen: string, after: () => void) {
+  const info = item.info
+  const [open, setOpen] = useState(false)
+  const [answer, setAnswer] = useState<InfoAnswer | null>(null)
+  const kind = info ? info.kind : ''
+  const args = info && info.args ? info.args : {}
+  const key = JSON.stringify(args)
+  useEffect(() => {
+    if (!open || !kind) return
+    let alive = true
+    void (async () => {
+      const query = Object.entries(JSON.parse(key) as Record<string, string>)
+        .map(([k, v]) => '&' + encodeURIComponent(k) + '=' + encodeURIComponent(String(v)))
+        .join('')
+      try {
+        const got = await get<InfoAnswer>(
+          '/api/screen/data?id=' + encodeURIComponent(screen) + '&kind=' + encodeURIComponent(kind) + query,
+        )
+        if (alive) setAnswer(got)
+      } catch {
+        /* the screen's own tick says when the panel is unreachable */
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [open, kind, key, screen])
+  if (!info) return { button: null, sheet: null }
+  const name = info.title || (item.label ? t(item.label) : item.text || '')
+  return {
+    button: (
+      <button
+        className="go icon"
+        title={t('web.ui.about')}
+        aria-label={t('web.ui.about')}
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(true)
+        }}
+      >
+        {'\u2139'}
+      </button>
+    ),
+    sheet: open ? (
+      <Modal title={name} onClose={() => setOpen(false)}>
+        {(answer?.rows || []).map((row, i) => (
+          <div className="kv" key={i}>
+            <span className="k">{t(row.label)}</span>
+            <span className="v">
+              <Marked text={row.value} parts={row.value_parts} />
+            </span>
+          </div>
+        ))}
+        {/* THE PRESSES THAT WERE ON THE CARD, beside the data they act on. A card of a
+            thousand rows carries none of them; nothing is lost, because this sheet is
+            one tap from every row. */}
+        {(answer?.actions || []).length ? (
+          <div className="foot">
+            {(answer?.actions || []).map((action) => (
+              <PressButton key={action.id} action={action} screen={screen} after={after} />
+            ))}
+          </div>
+        ) : null}
+      </Modal>
+    ) : null,
+  }
+}
+
 function ScreenField({ field, screen, after }: { field: Field; screen: string; after: () => void }) {
   return (
     <FieldRow
@@ -209,6 +377,9 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
  */
 function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; screen: string; after: () => void }) {
   const gear = useItemGear(item, screen, after)
+  /* THE «i» IN THE CORNER (#2308) — everything this row is, and everything that can be
+     done to it, one tap away and off the card itself. */
+  const info = useItemInfo(item, screen, after)
   const title = item.label ? t(item.label) : item.text || ''
   /* Everything the card says under its name, as one line: what the row is (`detail`),
      the mark on it (`note`), each fact with its own word, and the countdown. A tile
@@ -216,7 +387,9 @@ function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; s
      player that prose IS the answer. */
   const bits: ReactNode[] = []
   if (item.detail) bits.push(<Marked key="d" text={item.detail} parts={item.detail_parts} />)
-  if (item.note) bits.push(<Marked key="n" text={item.note} parts={item.note_parts} />)
+  /* A row that wears its mark AT ITS NAME does not say it a second time underneath
+     (#2308) — that is what `badge` is, and a row with no badge keeps the old line. */
+  if (item.note && !item.badge) bits.push(<Marked key="n" text={item.note} parts={item.note_parts} />)
   bits.push(
     ...(item.facts || []).map((f, i) => (
       <span key={'f' + i}>
@@ -235,6 +408,9 @@ function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; s
     <ErrandCard
       icon={item.avatar || item.icon}
       title={title}
+      /* THE MARK, AT THE NAME (#2308) — «Метку выводим у имени». */
+      badge={item.badge}
+      infoNode={info.button}
       on={item.toggle ? item.toggle.value !== false : true}
       facts={facts}
       pill={item.pill}
@@ -264,7 +440,12 @@ function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; s
           <PressButton key={action.id} action={action} screen={screen} after={after} />
         )),
       ].filter(Boolean)}
-      sheets={gear.sheet}
+      sheets={
+        <>
+          {gear.sheet}
+          {info.sheet}
+        </>
+      }
     />
   )
 }
@@ -502,6 +683,8 @@ function Card({
   useEffect(() => setShown(page), [needle, card.title, page])
   const rest = Math.max(0, items.length - shown)
   const rows = card.rows || []
+  /* WHAT NARROWS THIS GRID, behind the gear beside its heading (#2308). */
+  const gear = useCardGear(card, screen, after)
   return (
     <div className="card">
       {card.title ? (
@@ -515,8 +698,10 @@ function Card({
           ) : items.length ? (
             <span className="count">{items.length}</span>
           ) : null}
+          {gear.button ? <span className="head-acts">{gear.button}</span> : null}
         </div>
       ) : null}
+      {gear.sheet}
       {card.head ? (
         <div className="head">
           <Marked text={card.head} parts={card.head_parts} />
@@ -557,6 +742,9 @@ function Card({
           </span>
         </div>
       ) : null}
+      {/* THE SORT, DIRECTLY OVER THE ROWS IT ORDERS (#2308) — small buttons, one per
+          column, and a press flips that column's direction. */}
+      {(card.sorts || []).length ? <SortBar sorts={card.sorts || []} screen={screen} after={after} /> : null}
       {tiled ? (
         <div className="minis">
           {items.slice(0, shown).map((item, i) => (

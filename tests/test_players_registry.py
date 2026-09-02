@@ -600,7 +600,9 @@ def _bare_tab(tmp):
     tab._drawn = False
     tab._merging = False
     tab._armed_forget = (None, 0.0)
-    tab._detail_uid = ""
+    #: The servers the phone's filter offers, and when a worker last read them (#2308).
+    tab._server_list = []
+    tab._server_read = 0.0
     #: The faces the screen has already resolved. Pre-filled per uid by the tests that
     #: fetch a page: resolving one goes looking through the game client's own picture
     #: cache (#2119), which a test has neither of nor any business walking.
@@ -627,11 +629,15 @@ def test_every_press_works_on_a_tab_the_window_never_drew():
         _swept_into(tab._registry, [_swept(server_id=100)], now=time.time())
         assert tab.built and not tab.drawn, "the fixture is not the headless case"
 
-        for action, args in (("reset", {}), ("noted", {}), ("level", {}),
-                             ("power", {}), ("server", {}), ("seen", {}),
-                             ("details", {"uid": "1000000000000001"}),
-                             ("details_close", {}),
+        for action, args in (("reset", {}),
+                             ("set", {"key": "f_noted", "value": True}),
+                             ("set", {"key": "f_level", "value": "20"}),
+                             ("set", {"key": "f_power", "value": ""}),
+                             ("set", {"key": "f_server", "value": "100"}),
+                             ("set", {"key": "f_seen", "value": "day"}),
+                             ("sort", {"key": "power"}),
                              ("note", {"uid": "1000000000000001", "text": "mark"}),
+                             ("goto", {"uid": "1000000000000001"}),
                              ("forget", {"uid": "1000000000000001"})):
             answer = tab.web_press(action, args)      # must not raise, ever
             assert isinstance(answer, dict), (action, answer)
@@ -640,6 +646,9 @@ def test_every_press_works_on_a_tab_the_window_never_drew():
         # …and the state really moved, rather than the press being quietly skipped.
         assert tab._filter["noted"] is True
         assert tab._filter["server"] == "100"
+        # …and so did what the «i» on a card opens, which is a READING rather than a
+        # press and has to work on an undrawn tab just the same.
+        assert (tab.web_data("details", {"uid": "1000000000000001"}) or {}).get("rows")
         assert tab.note_of(tab._registry.get("1000000000000001") or {}) == "mark"
         # The profile's own block goes back onto an undrawn tab without a word.
         tab.restore({"filter": {"text": "abc", "noted": True}, "sort": ["name", False]})
@@ -660,14 +669,25 @@ def test_the_phone_says_only_keys_that_exist_and_offers_only_answered_presses():
             keys += [row["label"] for row in card.get("rows") or ()]
             keys += [a["label"] for a in card.get("actions") or ()]
             keys.append(card.get("empty"))
+            keys.append(card.get("options_title"))
+            keys += [f["label"] for f in card.get("options") or ()]
+            keys += [s["label"] for s in card.get("sorts") or ()]
             for item in card.get("items") or ():
                 for action in item.get("actions") or ():
                     keys += [action["label"], action.get("prompt")]
         keys += [a["label"] for a in view["actions"]]
+        # …AND WHAT THE «i» OPENS (#2308), which no longer rides the screen: its labels
+        # are keys just the same, and a sheet full of `players.field.power` is exactly
+        # what goes unnoticed when nothing walks it.
+        details = tab.web_data("details", {"uid": "1000000000000001"}) or {}
+        keys += [row["label"] for row in details.get("rows") or ()]
+        keys += [a["label"] for a in details.get("actions") or ()]
+        keys += [a.get("prompt") for a in details.get("actions") or ()]
         missing = [k for k in keys if k and k not in words]
         assert not missing, missing
 
         offered = [a["id"] for a in view["actions"]]
+        offered += [a["id"] for a in details.get("actions") or ()]
         for card in view["cards"]:
             offered += [a["id"] for a in card.get("actions") or ()]
             for item in card.get("items") or ():
@@ -679,16 +699,39 @@ def test_the_phone_says_only_keys_that_exist_and_offers_only_answered_presses():
 
 
 def test_a_press_from_the_phone_moves_the_same_filter_the_window_shows():
+    """The filters are the grid's own knobs now, behind its gear (#2308).
+
+    They were six cycling presses standing in a card above the list — «Сервер ⟳» said
+    nothing about where the next press would land, and over the warzones a lap has seen
+    that is a control people press until it lands. What did not change is the state: a
+    dropdown moved on a phone writes the very dict the window's boxes read.
+    """
     with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
-        # The server steps come out of the register, so it needs a row to have any.
+        # The server dropdown is filled from the register, so it needs a row to offer any.
         _swept_into(tab._registry, [_swept(server_id=100)], now=time.time())
-        tab.web_press("server", {})
+        tab.web_data("page", {})                  # the worker reads the server list
+        fields = {f["key"]: f for c in tab.web_view()["cards"]
+                  for f in c.get("options") or ()}
+        assert set(fields) == {"f_server", "f_level", "f_power", "f_seen", "f_noted"}, \
+            sorted(fields)
+        assert [o["value"] for o in fields["f_server"]["options"]] == ["", "100"], \
+            "the servers are a table here rather than what the register has seen"
+
+        assert tab.web_press("set", {"key": "f_server", "value": "100"})["ok"] is True
         assert tab._filter["server"] == "100", "the register's own server, not a table"
-        tab.web_press("noted", {})
+        assert tab.web_press("set", {"key": "f_noted", "value": True})["ok"] is True
         assert tab._filter["noted"] is True
-        tab.web_press("level", {})
+        assert tab.web_press("set", {"key": "f_level", "value": "20"})["ok"] is True
         assert tab._filter["level_min"] == 20
+        # A value the code cannot mean is refused in words and never stored — that is
+        # how «показано 0 · скрыто 4259» under an invisible filter happened once.
+        for bad in ({"key": "f_seen", "value": "sometimes"},
+                    {"key": "f_level", "value": "27"},
+                    {"key": "f_power", "value": "loads"}):
+            answer = tab.web_press("set", bad)
+            assert answer.get("ok") is False and answer.get("reason"), (bad, answer)
+        assert tab.web_press("set", {"key": "f_hair", "value": "1"}) == {"error": "unknown"}
         tab.web_press("reset", {})
         assert tab._filter["server"] == "" and tab._filter["level_min"] is None
 
@@ -767,12 +810,15 @@ def test_the_page_is_a_thousand_and_it_can_be_turned():
         # A NARROWED FILTER COMES HOME. Standing on page 2 and typing a word that leaves
         # one row must not answer «пусто» about a register that plainly has that row.
         tab.web_press("page_next", {})
-        tab.web_press("search", {"text": "P00007"})
+        tab.web_press("set", {"key": "f_level", "value": "20"})
         narrowed = tab.web_data("page", {})
-        assert narrowed["page"] == 0 and narrowed["total"] == 1, narrowed
+        assert narrowed["page"] == 0, narrowed
 
-        # …and the typed word travels with the FETCH too, without touching the filter.
+        # …and the typed word travels with the FETCH, without touching the saved filter:
+        # the renderer's own box is what the phone searches with (#2308), and a page
+        # standing at 2 comes home for it.
         tab.web_press("reset", {})
+        tab.web_press("page_next", {})
         typed = tab.web_data("page", {"needle": "P00007"})
         assert typed["total"] == 1, typed
         assert tab._filter["text"] == "", "the renderer's box overwrote the saved filter"
@@ -788,15 +834,15 @@ def test_the_lap_of_the_map_moves_the_stamp_the_phone_watches():
     """
     with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
-        stamp = lambda: tab.web_view()["cards"][1]["paged"]["stamp"]
+        stamp = lambda: tab.web_view()["cards"][0]["paged"]["stamp"]
         was = stamp()
         _swept_into(tab._registry, [_swept()], now=time.time())
         tab._moved()                              # what `_merge` does when it wrote rows
         assert stamp() != was, "a lap that wrote rows told the phone nothing"
 
-        for press, args in (("noted", {}), ("reset", {}), ("level", {}),
-                            ("search", {"text": "aa"}),
-                            ("set", {"key": "sort", "value": "power"})):
+        for press, args in (("set", {"key": "f_noted", "value": True}), ("reset", {}),
+                            ("set", {"key": "f_level", "value": "20"}),
+                            ("sort", {"key": "power"})):
             was = stamp()
             tab.web_press(press, args)
             assert stamp() != was, f"{press} left the cards where they were"
@@ -810,7 +856,7 @@ def test_the_lap_of_the_map_moves_the_stamp_the_phone_watches():
 
 
 def test_the_phone_can_move_the_sort_the_window_presses_headings_for():
-    """WHAT «грид не обновляется» ACTUALLY WAS (#2119), and how it is moved (#2133).
+    """WHAT «грид не обновляется» ACTUALLY WAS (#2119), and how it is moved (#2308).
 
     The sort is saved with the profile, and one press of the «Игрок» heading at the
     machine left it «by name, ascending» for good. The window says so with an arrow on
@@ -818,9 +864,11 @@ def test_the_phone_can_move_the_sort_the_window_presses_headings_for():
     out of three hundred thousand came back on every poll, for ever, while the register
     behind them grew by hundreds a minute.
 
-    It is two DROPDOWNS now and no longer two cycling presses: a cycle whose next value
-    nobody can see is a control people press until it lands, and nine columns is eight
-    presses and eight re-reads to reach «мощь».
+    It is A ROW OF SMALL BUTTONS OVER THE GRID now — the person's words: «Кнопки фильтра
+    должны быть небольшие, клик по ним это переключение по возрастанию/убыванию
+    соответствующего фильтра». One per column, standing on the list they order, and a
+    press flips that column's direction. Before it was two dropdowns in a card of their
+    own (#2133), and before that two cycling presses (#2119).
     """
     with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
@@ -831,38 +879,37 @@ def test_the_phone_can_move_the_sort_the_window_presses_headings_for():
 
         # It opens on the freshest, which is what a register is for.
         assert [r["name"] for r in tab.visible()] == ["Zzz", "Aaa"]
-        # …and where it stands is ON THE SCREEN, as the two knobs that move it.
-        fields = {f["key"]: f for c in tab.web_view()["cards"]
-                  for f in c.get("fields") or ()}
-        assert set(fields) == {"sort", "sortway"}, sorted(fields)
-        assert fields["sort"]["kind"] == "choice" and fields["sortway"]["kind"] == "choice"
-        assert fields["sort"]["value"] == "seen", fields["sort"]["value"]
-        assert fields["sortway"]["value"] == "desc", fields["sortway"]["value"]
-        # Every option is a column the register can actually order by, and it says what
-        # it is called in the panel's own words rather than as a key to translate.
-        for option in fields["sort"]["options"]:
-            assert option["value"] in reg.SORT_KEYS, option
-            assert option["text"] != "players.col." + option["value"], option
+        # …and where it stands is ON THE GRID, as the buttons that move it.
+        sorts = [s for c in tab.web_view()["cards"] for s in c.get("sorts") or ()]
+        assert sorts, "the sort cannot be seen at all"
+        by = {s["key"]: s for s in sorts}
+        for key, button in by.items():
+            assert key in reg.SORT_KEYS, key
+            assert button["label"] == "players.col." + key, button
+        # EXACTLY ONE of them wears a direction: the column the list is ordered by.
+        assert [s["key"] for s in sorts if s["dir"]] == ["seen"], sorts
+        assert by["seen"]["dir"] == "desc", by["seen"]
 
-        assert tab.web_press("set", {"key": "sortway", "value": "asc"}).get("ok")
+        # A PRESS ON THE COLUMN IT ALREADY STANDS BY TURNS IT ROUND.
+        assert tab.web_press("sort", {"key": "seen"}).get("ok") is True
         assert [r["name"] for r in tab.visible()] == ["Aaa", "Zzz"], "the way did not turn"
-        assert tab.web_press("set", {"key": "sort", "value": "name"}).get("ok")
-        assert tab._sort[0] == "name", tab._sort
-        # …and a value the register cannot order by is refused in words, never applied.
-        for bad in ({"key": "sort", "value": "haircut"},
-                    {"key": "sortway", "value": "sideways"}):
-            answer = tab.web_press("set", bad)
-            assert answer.get("ok") is False and answer.get("reason"), (bad, answer)
-        assert tab._sort == ("name", False), tab._sort
+        assert [s for s in tab._web_sorts() if s["key"] == "seen"][0]["dir"] == "asc"
+        # …and a press on ANOTHER column orders by that one, freshest-first again.
+        assert tab.web_press("sort", {"key": "name"}).get("ok") is True
+        assert tab._sort == ("name", True), tab._sort
+        # …and a column the register cannot order by is refused in words, never applied.
+        answer = tab.web_press("sort", {"key": "haircut"})
+        assert answer.get("ok") is False and answer.get("reason"), answer
+        assert tab._sort == ("name", True), tab._sort
 
 
 def test_a_filter_at_any_is_not_a_reading_and_takes_no_room():
     """Measured, not guessed (#2119): seven «любой / когда угодно / нет / —» rows filled
     the whole first screen of an iPhone, so the first PLAYER stood below the fold.
 
-    What always stands is the two counts and the sort — those three decide which sixty of
-    the register are on the screen. A filter appears the moment it is set, which is
-    exactly when somebody is asking why the list is so short.
+    What always stands is how many there are; a filter appears the moment it is SET,
+    which is exactly when somebody is asking why the list is so short. Where to change
+    one is the gear beside the grid's heading (#2308), never a row of its own.
     """
     with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
@@ -870,47 +917,43 @@ def test_a_filter_at_any_is_not_a_reading_and_takes_no_room():
         labels = lambda: [r["label"] for c in tab.web_view()["cards"]
                           for r in c.get("rows") or ()]
         opened = labels()
-        # THE SORT IS A KNOB NOW, not a reading (#2133) — see the test above.
+        # THE SORT IS BUTTONS OVER THE GRID (#2308), never a reading beside it.
         assert "players.filter.sort" not in opened, "the sort is drawn twice"
-        assert any(f["key"] == "sort" for c in tab.web_view()["cards"]
-                   for f in c.get("fields") or ()), "the sort cannot be seen at all"
         for quiet in ("players.filter.server", "players.filter.seen",
                       "players.filter.noted", "players.filter.level",
                       "players.filter.power", "players.filter.text"):
             assert quiet not in opened, f"{quiet} is drawn while it narrows nothing"
 
-        tab.web_press("server", {})
-        tab.web_press("noted", {})
-        tab.web_press("search", {"text": "aaa"})
+        tab.web_press("set", {"key": "f_server", "value": "100"})
+        tab.web_press("set", {"key": "f_noted", "value": True})
         set_now = labels()
-        for loud in ("players.filter.server", "players.filter.noted",
-                     "players.filter.text"):
+        for loud in ("players.filter.server", "players.filter.noted"):
             assert loud in set_now, f"{loud} is set and says so nowhere"
-        # …and «Сбросить» puts the screen back to its three lines.
+        # …and «Сбросить» puts the screen back to its one line.
         tab.web_press("reset", {})
         assert "players.filter.server" not in labels()
 
 
 def test_the_search_from_the_phone_searches_the_REGISTER():
-    """…and not the sixty rows already on the screen (#2119).
+    """…and not the thousand rows already on the screen (#2119).
 
     The renderer's own box narrows what is drawn, which on a register of three hundred
-    thousand answers «нет такого игрока» about somebody who is plainly in it. The press
-    writes the same `text` filter the window's box writes, so the narrowing happens in
-    the database and the answer comes back out of the whole book.
+    thousand answers «нет такого игрока» about somebody who is plainly in it. What the
+    phone types travels with the PAGE FETCH instead, so the narrowing happens in the
+    database and the answer comes back out of the whole book — and the saved filter,
+    which is the window's own box, is left exactly where it stood.
     """
     with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
         now = time.time()
         _swept_into(tab._registry, [_swept(uid="1000000000000001", name="Aaa")], now=now)
         _swept_into(tab._registry, [_swept(uid="1000000000000002", name="Zzz")], now=now)
-        assert tab.web_press("search", {"text": "zz"})["ok"] is True
-        assert [r["name"] for r in tab.visible()] == ["Zzz"]
-        # A press carrying no word at all is refused rather than read as «everything»,
-        # for the same reason «Метка» refuses one (#1371).
-        assert tab.web_press("search", {})["ok"] is False
-        assert tab.web_press("search", {"text": ""})["ok"] is True
-        assert len(tab.visible()) == 2
+        found = tab.web_data("page", {"needle": "zz"})
+        assert [i["text"] for i in found["items"]] == ["Zzz"], found["items"]
+        assert found["total"] == 1, found
+        assert tab._filter["text"] == "", "the typed word overwrote the saved filter"
+        # An empty box is «everything» again, not «nothing».
+        assert tab.web_data("page", {"needle": ""})["total"] == 2
 
 
 def test_forgetting_from_the_phone_asks_once_before_it_does_it():
@@ -1115,18 +1158,46 @@ def test_a_press_from_the_phone_that_carries_no_text_does_not_wipe_a_mark():
         assert tab._registry.get("1000000000000001")["note"] is None
 
 
-def test_the_phones_details_card_says_the_same_lines_as_the_windows_dialog():
+def test_the_i_on_a_card_opens_what_the_windows_dialog_says():
+    """THE CARD IS WHAT A PERSON READS; the rest is one tap away (#2308).
+
+    The person's words: «Метку выводим у имени, убираем комментарий, откуда данные.
+    Убираем все кнопки. Добавляем аккуратный i в правом верхнем углу, которая вызывает
+    модалку с подробными данными базы». Four buttons and a «Откуда» line under every one
+    of a thousand cards is four thousand buttons nobody came to the grid to press.
+
+    Nothing is LOST, which would be a control the window has and the phone has not: the
+    presses stand in the sheet, beside the data they act on. And the sheet is FETCHED —
+    a dozen provenance lines times a page of a thousand would double what a page costs.
+    """
     with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
         _swept_into(tab._registry, [_swept(power=12_000_000)], now=time.time())
-        assert tab._web_detail_card() is None, "nothing is open until it is pressed"
-        assert tab.web_press("details", {"uid": "1000000000000001"})["ok"] is True
-        card = tab._web_detail_card()
-        lines = [row["value"] for row in card["rows"][1:]]
-        assert lines == tab.details_lines("1000000000000001")
-        assert any("Player1" in line for line in lines)
-        assert tab.web_press("details_close", {})["ok"] is True
-        assert tab._web_detail_card() is None
+        tab._faces["1000000000000001"] = ""
+        item = tab.web_data("page", {})["items"][0]
+        assert item.get("info", {}).get("kind") == "details", item.get("info")
+        assert item["info"]["args"] == {"uid": "1000000000000001"}, item["info"]
+        assert not item.get("actions"), "the card still carries buttons"
+        assert not item.get("facts"), "«откуда» is still on the card"
+
+        # THE MARK RIDES THE NAME rather than the line of facts under it.
+        assert tab.set_note("1000000000000001", "farm") is True
+        assert tab.web_data("page", {})["items"][0]["badge"] == "farm"
+
+        sheet = tab.web_data("details", {"uid": "1000000000000001"})
+        assert sheet["title"] == "Player1", sheet["title"]
+        assert [row["label"] for row in sheet["rows"]] == \
+            [row["label"] for row in tab.details_rows("1000000000000001")]
+        said = " ".join(row["value"] for row in sheet["rows"])
+        assert "Player1" in said and "12.0M" in said, said
+        # The window's own dialog says the same things, in its own one-line shape.
+        assert len(sheet["rows"]) == len(tab.details_lines("1000000000000001"))
+        # …and what may be DONE to the player is in the sheet, every one of it answered.
+        for action in sheet["actions"]:
+            answer = tab.web_press(action["id"], dict(action.get("args") or {}, text="x"))
+            assert answer.get("error") != "unknown", action
+        # A player nobody has ever seen has no sheet at all, rather than an empty one.
+        assert tab.web_data("details", {"uid": "1000000000000009"}) == {"error": "unknown"}
 
 
 def test_every_field_and_every_source_has_a_word_in_every_shipped_locale():

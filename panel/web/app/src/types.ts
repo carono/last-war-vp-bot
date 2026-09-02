@@ -249,6 +249,15 @@ export interface ViewItem {
   /* WHY it is not simply working, in the panel's own words — data, already translated
      (`panel/web/api.py::_working_state`), never a key. */
   state?: string
+  /* THE MARK THIS ROW WEARS AT ITS NAME (#2308) — a player's own note, drawn beside the
+     title rather than on the line of facts under it, because a mark is the reason
+     somebody looks a row up. Data, never a key. */
+  badge?: string
+  /* WHAT THE «i» IN THE CORNER OPENS (#2308), and it is FETCHED rather than carried: a
+     page of a thousand players would otherwise pay for the dozen provenance lines of
+     every one of them so that a person could read one. `kind` and `args` are what the
+     phone asks `/api/screen/data` for, `title` is what to call the sheet (data). */
+  info?: { kind: string; args?: Record<string, string>; title?: string }
   /* THE KNOBS THIS TILE OWNS, behind its own gear (#2051). A screen's card may be a
      grid of things that each have settings of their own — the rally groups are the
      first — and they open in the same sheet the errands' gear opens. */
@@ -291,6 +300,19 @@ export interface Field {
   single?: boolean
 }
 
+/* ONE SORT BUTTON OVER A GRID (#2308) — a column, and which way the list stands by it.
+ *
+ * The person's words: «Кнопки фильтра должны быть небольшие, клик по ним это
+ * переключение по возрастанию/убыванию соответствующего фильтра». `dir` is `asc` or
+ * `desc` on the ONE column the list is actually ordered by and empty on all the others,
+ * so the row says where it stands without anybody pressing it. A press posts the card's
+ * `sort` action with this `key`, and the panel flips the direction. */
+export interface SortButton {
+  key: string
+  label: string
+  dir?: string
+}
+
 export interface ViewCard {
   title?: string | null
   /* HOW THE CARD'S ITEMS ARE DRAWN (#1999, #2119). Absent or `rows` is the full-width
@@ -319,6 +341,14 @@ export interface ViewCard {
   paged?: { kind: string; size: number; stamp: string }
   actions?: ViewAction[]
   fields?: Field[]
+  /* THE CARD'S OWN KNOBS, BEHIND ITS OWN GEAR (#2308) — the same sheet a tile's gear
+     opens, one step up. A card that IS the grid keeps what narrows the grid on the grid,
+     and out of the way: five controls standing open above a list are a list that starts
+     below the fold. `options_title` is what to call the sheet (a key). */
+  options?: Field[]
+  options_title?: string
+  /* HOW THE GRID IS ORDERED, as small buttons drawn directly over the rows (#2308). */
+  sorts?: SortButton[]
   note?: string
   /* ALREADY DRAWN BY THE PICTURE ABOVE (#2064). A screen that is DRAWN rather than
      listed still sends its cards, so a front-end that does not know that kind shows

@@ -1043,6 +1043,38 @@ page gets its pictures first and the rest fill in over the next few readings. A 
 face moves the stamp; when a page has no strangers left the stamp stops moving and the
 fetching stops with it.
 
+**A card's own knobs go BEHIND ITS GEAR, and its sort goes ON its rows** (#2308). Two
+keys, and both exist because the register of players had grown a whole card of controls
+standing above the grid they narrowed — the person's verdict: «Управление гридом с
+игроками максимально ущербное, интерфейс ужасен… Кнопки фильтра должны быть небольшие,
+клик по ним это переключение по возрастанию/убыванию соответствующего фильтра, фильтры к
+гриду перенеси».
+
+* `options` (with `options_title`) on a CARD is what `options` on an ITEM already was one
+  step down: a ⚙ beside the card's heading, opening the ONE modal (`ui/Modal.tsx`) with
+  those fields in it. Same `Field` shapes, same `set` press, nothing new drawn — and a
+  form of five controls stops being the reason the first row is below the fold.
+* `sorts` is a list of `{"key": …, "label": …, "dir": "asc"|"desc"|""}`, drawn as small
+  buttons directly over the rows. Exactly one of them carries a `dir` — the column the
+  list actually stands by — and a press posts `{"action": "sort", "args": {"key": …}}`,
+  which the tab answers by flipping THAT column's direction. It is the window's own
+  gesture (a click on a table heading), and it replaced two dropdowns that in turn had
+  replaced two cycling presses: a control that says where it stands, standing where the
+  thing it moves is.
+
+**A row's mark rides its NAME, and everything else about it is behind an «i»** (#2308).
+Two more keys on an ITEM, and they are what a card of a thousand rows must look like:
+
+* `badge` — data, drawn beside the title. The person's words: «Метку выводим у имени».
+* `info` — `{"kind": …, "args": {…}, "title": …}`. It draws an «i» in the card's
+  top-right corner, and opening it FETCHES `/api/screen/data?kind=<kind>` with those
+  args and shows the answer — `{"title": …, "rows": [{"label", "value"}], "actions": […]}`
+  — in the one modal. Fetched rather than carried, because a dozen lines times a page of
+  a thousand doubles what the page costs so that one of them can be read; and the row's
+  own PRESSES live in that sheet rather than on the card, beside the data they act on.
+  Nothing is lost — a press in a sheet one tap away is still a press the phone has — and
+  what is gained is a grid a person can read.
+
 **A card may SET rather than show** (#1976). `fields` is a list of knobs — `key` (the
 knob's own id, data), `label` and an optional `hint` (locale keys), `kind` (`switch`,
 `number` or `text`, decided by the type the knob was DECLARED with, never guessed from

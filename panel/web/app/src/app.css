@@ -1045,12 +1045,64 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   gap: 4px;
   min-height: 144px;
 }
-.item.errand .errand-switch {
+/* ONE CORNER FOR WHATEVER STANDS IN IT (#2308): the switch a card is about, the «i»
+   that opens everything else about the row, or both side by side. It was the switch
+   alone, pinned here by name; a player's card has no switch and needed the same corner
+   for its «i». */
+.item.errand .errand-corner {
   position: absolute;
   top: 6px;
   right: 8px;
   z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
+/* The «i» beside a switch is a SIGN, not a word — as narrow as its glyph and no
+   narrower than a thumb: «аккуратный i» is about width, and a control under 44 px is a
+   control people miss (the rule the whole front-end is built on). */
+.item.errand .errand-corner .go.icon { padding: 0 8px; }
+
+/* A MARK WORN AT THE NAME (#2308) — the person's own note on a player, beside the title
+   rather than a word among six on the line of facts. Short: a mark that pushes the name
+   out of its one line is a mark that hides what it was put on. */
+.badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--card-edge));
+  background: var(--bg-soft);
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* THE SORT, OVER THE ROWS IT ORDERS (#2308). The same chip the card strip is drawn with
+   — a thumb learns one shape — merely tighter, because there is one per column and nine
+   columns must fit on a phone without becoming a second scroll of the page. It scrolls
+   sideways like every other chip strip here. */
+.sorts { padding-top: 0; }
+/* «Небольшие» is about WIDTH: the strip is nine columns on a phone, so a button is as
+   wide as its word and no wider. Its HEIGHT stays a thumb (`--tap`, inherited from the
+   chip) — a short button is one people miss, whoever asked for small. */
+.sorts .chip {
+  padding: 4px 10px;
+  gap: 4px;
+  font-size: 13px;
+}
+.sorts .chip .way { color: var(--accent); font-weight: 700; }
+
+/* A GEAR BESIDE A CARD'S OWN HEADING (#2308) — what narrows the grid, kept on the grid
+   and out of the way. */
+/* …and ONLY a head that has one becomes a row: a heading is otherwise prose, and prose
+   laid out as flex items stops wrapping where the words are. */
+.card .head:has(.head-acts) { display: flex; align-items: center; gap: 6px; }
+.card .head .head-acts { margin-left: auto; display: flex; gap: 6px; }
+.card .head .head-acts .go.icon { padding: 0 8px; }
 /* …and the head row keeps its hands off that corner. */
 .item.errand .errand-head { padding-right: 58px; }
 .item.errand .facts { margin: 0; }

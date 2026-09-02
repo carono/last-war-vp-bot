@@ -113,6 +113,38 @@ Three things came out of it, and each is a rule rather than a repair:
   can see is a control people press until it lands, and nine columns is eight presses and
   eight re-reads to reach «мощь».
 
+## …and the grid is DRIVEN FROM THE GRID (#2308)
+
+#2133 left the page right and the controls wrong, and the person said so: «Управление
+гридом с игроками максимально ущербное, интерфейс ужасен, это не работоспособно
+абсолютно». What was above the list was a whole card of its own — two sort dropdowns,
+six cycling filter presses and seven readings — so the first player stood a scroll below
+the top of the screen, and the two controls that decide which thousand of three hundred
+thousand are drawn were four taps away from the thousand.
+
+So there is ONE card now, and it is the grid:
+
+* **the sort is a row of small buttons over the rows**, one per column, and a press flips
+  THAT column between ascending and descending — the window's own gesture, a click on a
+  table heading. The button the list stands by wears its arrow, so the row says where it
+  is without anybody pressing anything;
+* **the filters are the grid's own knobs, behind the gear beside its heading**, in the
+  one modal this front-end has. Dropdowns rather than cycles: a control has to say where
+  the next press lands;
+* **the server filter exists at last** — the warzones the register has actually seen,
+  read on the worker that answers for a page and kept for a minute
+  (:data:`SERVERS_GOOD_FOR`), because a `DISTINCT` over three hundred thousand rows is
+  not a question for the loop every open profile's window shares.
+
+**And a base's card is what a person reads at a glance.** The mark rides the NAME
+(«Метку выводим у имени»), «Откуда» is gone from the card, and so are the four buttons:
+what is left is who, what level, how strong, whose alliance, where and when they were
+last seen. Everything else — every field with who said it and how long ago, and the
+presses that act on the row — is behind an «i» in the top-right corner, in the same one
+modal, FETCHED when it is opened. Nothing is lost: a press in a sheet one tap away is
+still a press the phone has, and a dozen provenance lines times a page of a thousand
+would have doubled what the page costs so that one of them could be read.
+
 ## The one thing here that touches the client
 
 The coordinate press, and nothing else (#1371). Jumping the camera to a tile is a person
@@ -189,12 +221,13 @@ COLUMNS = (
 #: hundred thousand for ever, with nothing on the screen saying why.
 SORT_STEPS = tuple(col for col, _w, _a in COLUMNS if col in reg.SORT_KEYS)
 
-#: WHICH WAY, as the two values the choice offers (#2133). The phone had one press that
-#: CYCLED the column and another that flipped the direction, and a cycle whose next value
-#: nobody can see is a control people press until it lands — over three hundred thousand
-#: rows that is eight presses to reach «мощь». Two dropdowns say where they stand and go
-#: straight there, which is what the window's headings already do.
-SORT_WAYS = ("desc", "asc")
+#: HOW LONG A CACHED LIST OF SERVERS IS GOOD FOR (#2308). The server filter is a
+#: dropdown of every warzone the register has seen, and «every warzone the register has
+#: seen» is a `DISTINCT` over three hundred thousand rows — far too dear to run on the
+#: Tk thread every time the phone re-reads the screen. So it is read on the worker that
+#: answers for a page and kept, and a warzone met in the last minute joins the list on
+#: the next page fetch rather than instantly.
+SERVERS_GOOD_FOR = 60.0
 
 #: The column a click JUMPS from. A coordinate printed anywhere in the panel is a place
 #: you can go (`panel/widgets.py`, the log's own links), and a table that prints one and
@@ -275,9 +308,6 @@ class PlayersTab(PanelTab):
         self._hidden = 0
         self._merging = False
         self._armed_forget = (None, 0.0)
-        #: Whose «Подробно» is open on the phone — the card at the top of the screen.
-        #: The window says the same list in a dialog, which needs no state.
-        self._detail_uid = ""
         # The filter, as ONE dict the window's variables write into and the phone's
         # presses move. Two front-ends, one state (`docs/panel-tabs.md`).
         self._filter = dict(BLANK_FILTER)
@@ -296,6 +326,12 @@ class PlayersTab(PanelTab):
         #: puts a lap of the map back on the screen without a card of a thousand players
         #: riding the two-and-a-half-second poll.
         self._stamp = 0
+        #: THE SERVERS THE FILTER OFFERS, and WHEN they were read (#2308). A `DISTINCT`
+        #: over the whole register is a question for a worker, never for the loop every
+        #: open profile's window shares — so the list is refreshed inside
+        #: :meth:`web_data` and merely read here.
+        self._server_list = []
+        self._server_read = 0.0
         self._tree = None
         self._vars = {}
 
@@ -925,47 +961,48 @@ class PlayersTab(PanelTab):
 
     # -- the phone's copy ---------------------------------------------------
     def web_view(self) -> dict:
-        """The same register, the same filter, the same two writes.
+        """ONE CARD: the controls of the grid, standing on the grid itself (#2308).
 
-        `search: true` hands the card to the renderer's own text box, which is the
-        phone's version of «Поиск» — it filters the ITEMS already drawn, so this view
-        stays cheap however hard somebody types.
+        The person's words: «Управление гридом с игроками максимально ущербное… Кнопки
+        фильтра должны быть небольшие, клик по ним это переключение по
+        возрастанию/убыванию соответствующего фильтра, фильтры к гриду перенеси».
 
-        The filters are presses that STEP through the same lists the window's boxes
-        hold, and they move the very same `self._filter`: one state, two views
-        (`docs/panel-tabs.md`). A phone that narrows to «35, server 100» leaves the
-        window's boxes reading exactly that.
+        What that is, item by item, and why each was wrong before:
+
+        * **The sort is a row of small buttons over the grid**, one per column, and a
+          press flips THAT column between ascending and descending. It was two dropdowns
+          (#2133) standing in a card of their own above the list — two controls, four
+          taps and a scroll to reach «мощь по убыванию», and neither of them beside the
+          rows they order.
+        * **The filters moved onto the list card**, behind its own gear, in the ONE
+          modal this front-end has (`CLAUDE.md`). They were six cycling presses in that
+          same separate card, and a cycle whose next value nobody can see is a control
+          people press until it lands.
+        * **The server filter is a real one at last** — a dropdown of the warzones the
+          register has actually seen, read on a worker and kept (:data:`SERVERS_GOOD_FOR`).
+
+        The head card is gone with them: a card of readings above the grid is what put
+        the first player below the fold on a phone, and everything it said is either on
+        the grid's own head (how many there are) or behind its gear (what is narrowing
+        them).
         """
         now = time.time()
-        head = {"title": "tab.players",
-                "rows": self._web_filter_rows(),
-                "fields": self._web_sort_fields(),
-                "actions": self._web_filter_actions()}
-        # CARDS, NOT A TABLE (#2119) — the person's words: «переделай таблицу игроков на
-        # карточки». The same card an errand is drawn as (`ui/ErrandCard.tsx`): the
-        # picture at full brightness behind it, the words in one bubble over it, the name
-        # on one line. Not a fourth shape of its own — a row of nine columns on a phone
-        # is nine columns nobody can read, and there were already three shapes too many.
-        #
-        # AND ITS ITEMS ARE NOT HERE (#2133). `paged` says «this card's rows come off
-        # `/api/screen/data`, and only when `stamp` moves»: a page of a thousand cards is
-        # some six hundred kilobytes, and this view is re-read every two and a half
-        # seconds. The stamp moves when a merge wrote something, when the page turned and
-        # when the sort or a filter changed — so a lap of the map refreshes the cards by
-        # itself, and a lap that found nothing costs one unchanged integer.
+        # CARDS, NOT A TABLE (#2119) — the same card an errand is drawn as
+        # (`ui/ErrandCard.tsx`). AND ITS ITEMS ARE NOT HERE (#2133): `paged` says «this
+        # card's rows come off `/api/screen/data`, and only when `stamp` moves».
         card = {"title": "players.web.list", "search": True, "layout": "cards",
                 "paged": {"kind": "page", "size": WEB_PAGE,
                           "stamp": str(self._stamp)},
                 "empty": "players.empty",
+                "rows": self._web_filter_rows(),
+                # THE FILTERS, ON THE GRID, BEHIND ITS OWN GEAR (#2308).
+                "options": self._web_filter_fields(),
+                "options_title": "players.filters",
+                # …AND THE SORT, AS SMALL BUTTONS DIRECTLY OVER THE ROWS.
+                "sorts": self._web_sorts(),
                 "actions": [{"id": "page_prev", "label": "players.web.page.prev"},
                             {"id": "page_next", "label": "players.web.page.next"}]}
-        cards = [head, card]
-        detail = self._web_detail_card()
-        if detail is not None:
-            # In FRONT of the list: a card the person just asked for, below two screens
-            # of names, is a card they will decide did not open.
-            cards.insert(0, detail)
-        return {"cards": cards, "now": now,
+        return {"cards": [card], "now": now,
                 "actions": [{"id": "refresh", "label": "players.refresh"},
                             {"id": "reset", "label": "players.filters.reset"}]}
 
@@ -1002,44 +1039,17 @@ class PlayersTab(PanelTab):
         if found:
             self._moved()
 
-    def _web_detail_card(self):
-        """The phone's «Подробно» — the window's dialog, as a card that can be closed.
-
-        A renderer has no modal to put a list in, so the answer stands at the top of the
-        screen until it is dismissed. Same lines, same order, same words as the dialog
-        (`details_lines`).
-        """
-        uid = self._detail_uid
-        if not uid:
-            return None
-        row = self._registry.get(uid)
-        if row is None:
-            self._detail_uid = ""
-            return None
-        lines = self.details_lines(uid) or [self.t("players.details.empty")]
-        rows = [{"label": "players.details.of", "value": str(row.get("name") or uid)}]
-        rows += [{"label": "players.details.row", "value": line} for line in lines]
-        return {"title": "players.details.card", "rows": rows,
-                "actions": [{"id": "details_close", "label": "players.details.close"}]}
-
     def _web_filter_rows(self) -> list:
-        """WHERE EACH FILTER STANDS, in words, above the buttons that step it.
-
-        The renderer says a button's label with no arguments, so a cycling button
-        cannot spell its own value — and a cycle whose current value is invisible is a
-        control nobody can use. So the state is read off these rows and the buttons only
-        move it, which is also how the window reads: boxes above, «Сбросить» beside.
+        """WHAT IS NARROWING THE GRID, in words, on the grid's own card.
 
         A FILTER AT «ЛЮБОЙ» IS NOT SHOWN (#2119, measured). Seven rows saying «любой
         сервер», «когда угодно», «нет», «—» filled the whole first screen of an iPhone,
-        so the first player stood below the fold and the page a person opened to look at
-        players opened on a page of dashes. A filter that narrows nothing is not a
-        reading — it is furniture. What is always here is the two counts and the SORT,
-        because those three are what decide WHICH sixty of three hundred thousand are on
-        the screen; the rest appear the moment they are set, which is exactly when
-        somebody needs to see them («почему список такой короткий»).
+        so the first player stood below the fold. A filter that narrows nothing is not a
+        reading — it is furniture. What is set appears the moment it is set, which is
+        exactly when somebody asks «почему список такой короткий»; where to change it is
+        the gear beside the heading.
         """
-        # WHERE THE PAGE STANDS is NOT here: it needs a COUNT over the filter, and
+        # HOW MANY THE FILTER LEFT is NOT here: it needs a COUNT over the filter, and
         # this method runs on the Tk thread every open profile shares. The page, how many
         # there are and how many the filter kept ride the page's own answer instead
         # (:meth:`web_data`), which is on a worker.
@@ -1069,58 +1079,111 @@ class PlayersTab(PanelTab):
         value = self._filter.get(key)
         return "—" if value is None else str(value)
 
-    def _web_filter_actions(self) -> list:
-        """Every filter the window has, as a press that steps to the next value.
+    def web_servers(self) -> list:
+        """The warzones the server filter offers — the LAST list a worker read (#2308).
 
-        A phone has no pair of number boxes worth typing into on a bus, so the ranges
-        are offered as the steps people actually pick — and the window keeps the boxes,
-        which is the same state said two ways rather than two states. Where it stands
-        is on the rows above (`_web_filter_rows`).
+        Never read here: `DISTINCT server_id` over three hundred thousand rows is a
+        question for the thread that answers for a page, and this runs on the loop every
+        open profile's window shares. A register that has not been paged through yet
+        offers whichever server is already picked and «любой», which is the honest
+        answer rather than a stall.
         """
+        servers = list(self._server_list)
+        picked = str(self._filter.get("server") or "")
+        if picked and picked not in servers:
+            servers.append(picked)
+        return servers
+
+    def _read_servers(self) -> None:
+        """Refresh :meth:`web_servers` — ON A WORKER, at most once a minute."""
+        now = time.monotonic()
+        if self._server_list and now - self._server_read < SERVERS_GOOD_FOR:
+            return
+        try:
+            self._server_list = [str(s) for s in self._registry.servers()]
+        except Exception:                    # noqa: BLE001 — a dropdown, never the page
+            self._server_list = []
+        self._server_read = now
+
+    def _web_filter_fields(self) -> list:
+        """EVERY FILTER THE WINDOW HAS, as the knobs this front-end already draws.
+
+        `choice` and `switch` are `ui/FieldRow.tsx` — nothing new is written and the
+        moved value travels back through the screen's own `set` press. They open behind
+        the grid's gear, in the one modal (`CLAUDE.md`), because a form of five controls
+        standing open above a list is the list starting below the fold.
+
+        The window keeps its typed boxes: the same state said two ways, which is the
+        rule these two front-ends are built on, and a phone has no pair of number boxes
+        worth typing into on a bus.
+        """
+        f = self._filter
+        levels = [{"value": "" if v is None else str(v),
+                   "text": "—" if v is None else "%d+" % v} for v in LEVEL_STEPS]
+        powers = [{"value": "" if v is None else str(v),
+                   "text": "—" if v is None else human_power(v) + "+"}
+                  for v in POWER_STEPS]
+        servers = [{"value": "", "text": self.t("players.server.any")}]
+        servers += [{"value": s, "text": s} for s in self.web_servers()]
         return [
-            # THE SORT IS TWO DROPDOWNS NOW and no longer two cycling presses (#2133) —
-            # see :meth:`_web_sort_fields`.
-            # THE SEARCH THAT SEARCHES THE REGISTER, and not the sixty rows already
-            # drawn (#2119). The renderer's own box narrows what is on the screen, which
-            # on a register of three hundred thousand answers «нет такого игрока» about
-            # somebody who is plainly in it. This one carries the typed word to the same
-            # `text` filter the window's box writes, so the search is done in the
-            # database and the sixty come back from the whole book.
-            {"id": "search", "label": "players.web.search",
-             "prompt": "players.web.search.prompt",
-             "value": self._filter.get("text") or ""},
-            {"id": "level", "label": "players.web.level"},
-            {"id": "power", "label": "players.web.power"},
-            {"id": "server", "label": "players.web.server"},
-            {"id": "seen", "label": "players.web.seen"},
-            {"id": "noted", "label": "players.web.noted"},
+            {"key": "f_server", "label": "players.filter.server", "kind": "choice",
+             "value": str(f.get("server") or ""), "options": servers},
+            {"key": "f_level", "label": "players.filter.level", "kind": "choice",
+             "value": "" if f.get("level_min") is None else str(f["level_min"]),
+             "options": levels},
+            {"key": "f_power", "label": "players.filter.power", "kind": "choice",
+             "value": "" if f.get("power_min") is None else str(f["power_min"]),
+             "options": powers},
+            {"key": "f_seen", "label": "players.filter.seen", "kind": "choice",
+             "value": f.get("seen") or "any",
+             "options": [{"value": s, "text": self.t("players.seen." + s)}
+                         for s in SEEN_STEPS]},
+            {"key": "f_noted", "label": "players.filter.noted", "kind": "switch",
+             "value": bool(f.get("noted"))},
         ]
 
-    def _web_sort_fields(self) -> list:
-        """THE SORT, AS TWO DROPDOWNS — «Сортировать по» and «Порядок» (#2133).
+    def _web_sorts(self) -> list:
+        """THE SORT, AS SMALL BUTTONS OVER THE GRID (#2308).
 
-        The person asked for «возможность сортировки», and what the phone had was two
-        CYCLING presses (#2119): one stepped the column and the other flipped the
-        direction, and neither could say where the next press would land. Over nine
-        columns that is up to eight presses and a re-read between each of them to reach
-        «мощь». A `choice` is the control this front-end already draws for exactly this
-        (`ui/FieldRow.tsx`), so nothing new is written and the value goes back through
-        the screen's own `set` press.
+        One per sortable column, and a press flips THAT column between ascending and
+        descending — exactly what clicking a heading does in the window, which is where
+        this shape comes from. `dir` is «which way, for the column the list is actually
+        sorted by» and empty for all the others, so the row says where it stands without
+        anybody pressing anything.
 
-        The option TEXTS are said here rather than sent as keys, because a `Field`'s
-        options are data (`docs/panel-tabs.md`) — the panel translates, the phone shows.
+        It replaces the two dropdowns of #2133, which replaced two cycling presses of
+        #2119. The dropdowns were right that a control must say where it stands and
+        wrong about where they stood: a separate card above the list, four taps from the
+        rows they order.
         """
         column, down = self._sort or reg.DEFAULT_SORT
-        return [
-            {"key": "sort", "label": "players.filter.sort", "kind": "choice",
-             "value": column,
-             "options": [{"value": name, "text": self.t("players.col." + name)}
-                         for name in SORT_STEPS]},
-            {"key": "sortway", "label": "players.web.sortway", "kind": "choice",
-             "value": "desc" if down else "asc",
-             "options": [{"value": way, "text": self.t("players.sortway." + way)}
-                         for way in SORT_WAYS]},
-        ]
+        return [{"key": name, "label": "players.col." + name,
+                 "dir": ("desc" if down else "asc") if name == column else ""}
+                for name in SORT_STEPS]
+
+    def details_rows(self, uid) -> list:
+        """The same lines as :meth:`details_lines`, as label-and-value pairs.
+
+        What the «i» in a card's corner opens (#2308). The window says the list in a
+        message box, one sentence a line; a modal has two columns, so the field's NAME
+        is a locale key the phone translates and everything else — the value, who said
+        it and how long ago — is data.
+        """
+        row = self._registry.get(uid) or {}
+        now = time.time()
+        out = []
+        for field, value, who, when in reg.provenance_of(row):
+            if field == "src":
+                continue
+            shown = human_power(value) if field in ("power", "army_power",
+                                                    "march_power") else str(value)
+            out.append({"label": "players.field." + field,
+                        "value": self.t("players.details.value", value=shown,
+                                        source=self.t("players.src." + who) if who
+                                        else self.t("players.src.unknown"),
+                                        ago=self.ago(now - when) if when
+                                        else self.t("players.src.unknown"))})
+        return out
 
     def web_data(self, kind: str, args: dict) -> "dict | None":
         """ONE PAGE OF THE REGISTER — a thousand cards, off the Tk thread (#2133).
@@ -1138,7 +1201,14 @@ class PlayersTab(PanelTab):
         WHOLE register here rather than the page already drawn, which is the difference
         between «нет такого игрока» and finding them: a box that searches a thousand of
         three hundred and twenty-six thousand rows answers about the thousand.
+
+        `details` is the second reading, and it is fetched RATHER THAN CARRIED (#2308):
+        everything known about one player, with who said it and when, is a dozen lines,
+        and a dozen lines times a page of a thousand would double what the fetch above
+        costs so that a person could read one of them.
         """
+        if kind == "details":
+            return self._web_details(str((args or {}).get("uid") or ""))
         if kind != "page":
             return None
         needle = str((args or {}).get("needle") or "").strip()
@@ -1155,6 +1225,8 @@ class PlayersTab(PanelTab):
         rows = self._registry.search(chosen, self._sort, limit=WEB_PAGE,
                                      offset=page * WEB_PAGE, now=now)
         self._faces_for(rows)
+        # THE SERVER FILTER'S OWN LIST, read here because here is a worker (#2308).
+        self._read_servers()
         items = [self._web_item(row, now) for row in rows]
         # EVERY COORDINATE ON A CARD IS A PLACE TO GO (#1982). The screen route marks
         # its own payload (`panel/web/coordlinks.py`); this one is answered by a
@@ -1166,7 +1238,47 @@ class PlayersTab(PanelTab):
         return {"items": items, "page": page, "pages": pages, "total": total,
                 "size": WEB_PAGE}
 
+    def _web_details(self, uid: str) -> dict:
+        """WHAT THE «i» OPENS: every field of one player, and what may be done to them.
+
+        The presses live here rather than on the card — the person's words: «Убираем все
+        кнопки. Добавляем аккуратный i в правом верхнем углу, которая вызывает модалку с
+        подробными данными базы». Four buttons under every card is four buttons times a
+        thousand, and none of them is what a person came to the grid to read. They are
+        not LOST, which would be a control the window has and the phone has not: they
+        stand in the sheet the «i» opens, beside the data they act on.
+        """
+        row = self._registry.get(uid)
+        if row is None:
+            return {"error": "unknown"}
+        rows = self.details_rows(uid)
+        if not rows:
+            rows = [{"label": "players.details",
+                     "value": self.t("players.details.empty")}]
+        from ...web import coordlinks
+        for line in rows:
+            coordlinks.mark_row(line)
+        return {"title": str(row.get("name") or uid), "rows": rows,
+                "actions": [
+                    {"id": "note", "label": "players.note.edit",
+                     "prompt": "players.note.prompt.short",
+                     "value": row.get("note") or "", "args": {"uid": uid}},
+                    {"id": "goto", "label": "players.goto", "args": {"uid": uid}},
+                    {"id": "forget", "label": "players.forget",
+                     "args": {"uid": uid}}]}
+
     def _web_item(self, row: dict, now: float) -> dict:
+        """ONE BASE, AS A CARD — a name with its mark, one line of facts, and an «i».
+
+        The person's words (#2308): «Метку выводим у имени, убираем комментарий, откуда
+        данные. Убираем все кнопки. Добавляем аккуратный i в правом верхнем углу».
+
+        So: the mark rides the NAME as a badge, because a mark is the reason somebody
+        looks a player up; «откуда» is gone from the card and lives in the sheet, where
+        it is one line among the dozen it belongs with; and the four presses are gone
+        with it. What is left on the card is what a person reads at a glance — who,
+        what level, how strong, whose alliance, where, and when they were last seen.
+        """
         uid = str(row.get("uid"))
         detail = " · ".join(bit for bit in (
             str(row.get("level")) if row.get("level") is not None else "",
@@ -1182,20 +1294,16 @@ class PlayersTab(PanelTab):
                 # table cannot place: then the card draws its words and no picture, which
                 # is the honest answer rather than somebody else's art.
                 "avatar": self._faces.get(uid) or "",
-                "facts": [{"label": "players.col.source",
-                           "value": self.freshest(row, now) or "—"}],
-                "actions": [
-                    {"id": "note", "label": "players.note.edit",
-                     "prompt": "players.note.prompt.short",
-                     "value": row.get("note") or "", "args": {"uid": uid}},
-                    {"id": "goto", "label": "players.goto", "args": {"uid": uid}},
-                    {"id": "details", "label": "players.details",
-                     "args": {"uid": uid}},
-                    {"id": "forget", "label": "players.forget",
-                     "args": {"uid": uid}}]}
+                # THE «i» IN THE CORNER, and what is behind it is FETCHED rather than
+                # carried: `kind` and `args` are what the phone asks `/api/screen/data`
+                # for when the sheet is opened, so a page of a thousand pays nothing for
+                # the one somebody reads.
+                "info": {"kind": "details", "args": {"uid": uid},
+                         "title": str(row.get("name") or uid)}}
         note = self.note_of(row)
         if note:
-            item["note"] = note
+            # AT THE NAME (#2308), not on the line of facts under it.
+            item["badge"] = note
         return item
 
     def web_press(self, action: str, args: dict) -> dict:
@@ -1206,23 +1314,22 @@ class PlayersTab(PanelTab):
         if action == "reset":
             self._reset_filters()
             return {"ok": True}
-        if action in ("level", "power", "server", "seen", "noted"):
-            return {"ok": self._step_filter(action)}
+        if action == "sort":
+            # A SMALL BUTTON PER COLUMN, and a press flips that column's direction
+            # (#2308) — the very thing clicking a heading does in the window, which is
+            # why both ends here are `_sort_by`.
+            key = str(args.get("key") or "")
+            if key not in reg.SORT_KEYS:
+                return {"ok": False, "reason": "players.web.no_such_sort"}
+            self._sort_by(key)
+            return {"ok": True}
         if action == "set":
-            # THE SORT, MOVED BY ITS OWN DROPDOWN (#2133). One handler for this tab's
-            # knobs, which is the contract every screen's `set` press keeps.
-            key, value = str(args.get("key") or ""), str(args.get("value") or "")
-            column, down = self._sort or reg.DEFAULT_SORT
-            if key == "sort":
-                if value not in reg.SORT_KEYS:
-                    return {"ok": False, "reason": "players.web.no_such_sort"}
-                self._set_sort(value, down)
-                return {"ok": True}
-            if key == "sortway":
-                if value not in SORT_WAYS:
-                    return {"ok": False, "reason": "players.web.no_such_sort"}
-                self._set_sort(column, value == "desc")
-                return {"ok": True}
+            # ONE handler for this tab's knobs, which is the contract every screen's
+            # `set` press keeps. Since #2308 they are the FILTERS, behind the grid's own
+            # gear; the sort left for buttons of its own.
+            key = str(args.get("key") or "")
+            if key.startswith("f_"):
+                return self._set_filter(key[2:], args.get("value"))
             return {"error": "unknown"}
         if action in ("page_prev", "page_next"):
             # THE EDGE IS SAID, never silently ignored: a press that does nothing and
@@ -1237,16 +1344,6 @@ class PlayersTab(PanelTab):
             if (self._page + 1) * WEB_PAGE >= total:
                 return {"ok": False, "reason": "players.web.page.last"}
             self._turned(self._page + 1)
-            return {"ok": True}
-        if action == "search":
-            if "text" not in args:
-                return {"ok": False, "reason": "players.web.no_text"}
-            text = str(args.get("text") or "").strip()
-            self._filter["text"] = text
-            self._turned()
-            if self.drawn:
-                # Writing the variable is what repaints: it is traced (`_var`).
-                self._vars["text"].set(text)
             return {"ok": True}
         if action == "note":
             uid = str(args.get("uid") or "")
@@ -1267,49 +1364,48 @@ class PlayersTab(PanelTab):
             if not self._jump(self.coords_of(row)):
                 return {"ok": False, "reason": "players.web.no_coords"}
             return {"ok": True}
-        if action == "details":
-            uid = str(args.get("uid") or "")
-            if self._registry.get(uid) is None:
-                return {"ok": False, "reason": "players.web.no_such_row"}
-            self._detail_uid = uid
-            return {"ok": True}
-        if action == "details_close":
-            self._detail_uid = ""
-            return {"ok": True}
         if action == "forget":
             return self._web_forget(str(args.get("uid") or ""))
         return {"error": "unknown"}
 
-    def _step_filter(self, which: str) -> bool:
-        """Move one filter to its next value, on both front-ends at once."""
+    def _set_filter(self, which: str, value) -> dict:
+        """Move one filter from the phone's gear — ONE state, both front-ends (#2308).
+
+        The window's boxes are written from the same dict afterwards, so a phone that
+        narrows to «35+, сервер 100» leaves the window reading exactly that. A value the
+        code cannot mean is refused out loud rather than stored: a filter nobody can see
+        and nobody meant is how «показано 0 · скрыто 4259» happened once already.
+        """
+        text = "" if value is None else str(value)
+        if which == "server":
+            self._filter["server"] = text if text.isdigit() else ""
+        elif which == "seen":
+            if text not in SEEN_STEPS:
+                return {"ok": False, "reason": "players.web.no_such_filter"}
+            self._filter["seen"] = text
+        elif which == "noted":
+            self._filter["noted"] = value is True or text.lower() in ("1", "true")
+        elif which in ("level", "power"):
+            steps = LEVEL_STEPS if which == "level" else POWER_STEPS
+            key = "level_min" if which == "level" else "power_min"
+            if not text:
+                self._filter[key] = None
+            else:
+                try:
+                    number = int(text)
+                except ValueError:
+                    return {"ok": False, "reason": "players.web.no_such_filter"}
+                if number not in steps:
+                    return {"ok": False, "reason": "players.web.no_such_filter"}
+                self._filter[key] = number
+        else:
+            return {"error": "unknown"}
         self._turned()
-        if which == "noted":
-            self._filter["noted"] = not self._filter["noted"]
-            if self.drawn:
-                # Writing the variable is what redraws: it is traced (`_var`).
-                self._noted.set(self._filter["noted"])
-            return True
-        if which in ("server", "seen"):
-            steps = self.server_steps() if which == "server" else list(SEEN_STEPS)
-            here = self._filter.get(which) or ("" if which == "server" else "any")
-            index = ((steps.index(here) + 1) % len(steps)) if here in steps else 0
-            self._filter[which] = steps[index]
-            if self.drawn:
-                box = self._server_box if which == "server" else self._seen_box
-                box.current(index)
-                self._render()
-            return True
-        steps = LEVEL_STEPS if which == "level" else POWER_STEPS
-        key = "level_min" if which == "level" else "power_min"
-        current = self._filter.get(key)
-        # A number typed into the window's box that is on no step — 27, say — steps to
-        # the first real one rather than raising: the two front-ends offer different
-        # granularities of the same filter on purpose.
-        index = (steps.index(current) + 1) % len(steps) if current in steps else 1
-        self._filter[key] = steps[index]
         if self.drawn:
-            self._vars[key].set("" if steps[index] is None else str(steps[index]))
-        return True
+            # The window follows: writing a traced variable is what repaints it (`_var`).
+            self._filter_to_widgets()
+            self._render()
+        return {"ok": True}
 
     def _web_forget(self, uid: str) -> dict:
         """The phone's version of the window's «точно?» — ask once, act on the second.
