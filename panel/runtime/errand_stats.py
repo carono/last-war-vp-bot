@@ -350,6 +350,11 @@ PROVIDERS: dict = {
     "upgrade_decorations": _from_daily("timers.stat.decor", "decorations"),
     "collect_visitor_gifts": _visitors,
     "recruit_survivors": _visitors,
+    # …and the explorer's chests (#2381), which ride on the same reading: how many
+    # chests the keys buy right now, with the purse beside it. Both are a dash while
+    # the activity is not running, and a dash draws nothing rather than a zero.
+    "open_explorer_chests": _from_daily("timers.stat.explorer_chests",
+                                        "explorer_chests", ("keys", "explorer_keys")),
 }
 
 

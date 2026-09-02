@@ -590,6 +590,21 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.bag_snapshot(),
         wait=0.3, label="Note down what the bag holds",
     ),
+    "open_explorer_treasure": Button(
+        # One chest of the explorer («Сундуки исследователя», #2381) — the send that the
+        # game's own «Открыть» makes, `hero.dispatch.explorer.treasure.open`, which takes
+        # no parameter at all: one send is one chest. It SPENDS the keys our own secret
+        # tasks paid out, so the price gate is inside the Lua and a recipe can park a
+        # floor of keys never to be spent (`DataCenter.__lw_explorer_keep`).
+        lua=_lua_actions.explorer_treasure_open(),
+        # The purse is the proof: the server takes the keys, and the count moving is the
+        # only thing that says the chest was really opened rather than merely asked for.
+        verify_lua=_lua_actions.explorer_treasure_left(),
+        wait=3.0, label="Open one explorer chest",
+        count_lua=_lua_actions.explorer_treasure_left(),
+        max_taps=40,
+        relay=("explorer_open",),
+    ),
     "open_mega_refresh": Button(
         # Raises the confirm dialog and sends nothing. This is how the price is learned.
         lua=_lua_actions.secret_post_mega_open(),

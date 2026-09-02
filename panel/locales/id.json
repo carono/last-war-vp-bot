@@ -2640,5 +2640,14 @@
   "settings.tabs.hide": "Sembunyikan",
   "rally_group.today_all": "hari ini total {n}",
   "rally_group.cap_each": "{n} per jenis",
-  "rally_group.cap_each.any": "tanpa batas per jenis"
+  "rally_group.cap_each.any": "tanpa batas per jenis",
+  "timers.item.open_explorer_chests": "Buka peti penjelajah di jendela skuad seluler",
+  "timers.item.open_explorer_chests.short": "Peti penjelajah",
+  "triggers.item.explorer_chests": "Buka peti penjelajah setelah tugas rahasia kita diambil",
+  "triggers.item.explorer_chests.short": "Peti penjelajah",
+  "timers.stat.explorer_chests": "peti siap dibuka: {n} · kunci: {keys}",
+  "explorer.keep": "Kunci yang tidak pernah dipakai",
+  "explorer.keep.hint": "0 memakai seluruh simpanan. Setel batas bawah untuk menabung demi hadiah terjamin.",
+  "explorer.max": "Peti per jalan",
+  "explorer.max.hint": "0 membuka semua peti yang bisa dibeli kunci."
 }

@@ -5447,6 +5447,19 @@ class SecretTasksTab(PanelTab):
                                   errandopts.NUMBER, low=0, high=1440,
                                   get=lambda: self.pieces.share_every_var.get(),
                                   set=lambda v: self.set_pieces_option("share_every", v))),
+            # THE EXPLORER'S CHESTS (#2381) — a timer and a trigger of the same name,
+            # both of which spend the keys our own secret tasks pay out. Their two knobs
+            # are the recipe's own ARGS and they live in the errand's row, so the gear
+            # writes them where the run reads them and there is no second copy.
+            "open_explorer_chests": (
+                errandopts.Option("keep", "explorer.keep", errandopts.NUMBER,
+                                  low=0, high=999, hint_key="explorer.keep.hint",
+                                  get=lambda: self._explorer_arg("keep"),
+                                  set=lambda v: self._set_explorer_arg("keep", v)),
+                errandopts.Option("max", "explorer.max", errandopts.NUMBER,
+                                  low=0, high=999, hint_key="explorer.max.hint",
+                                  get=lambda: self._explorer_arg("max"),
+                                  set=lambda v: self._set_explorer_arg("max", v))),
             "ghost_autoloot": (
                 errandopts.Option("ghost_level_min", "ghost.level_min",
                                   errandopts.TEXT,
@@ -5455,6 +5468,24 @@ class SecretTasksTab(PanelTab):
                                                else ""),
                                   set=self.set_ghost_level),),
         }
+
+    def _explorer_arg(self, key: str) -> int:
+        """One knob of «Сундуки исследователя», read where it really lives (#2381).
+
+        The errand's own row, never a copy here: the recipe takes `keep` and `max` as
+        ARGS and the schedule hands the row's args to the run, so the gear and the run
+        read one value.
+        """
+        try:
+            return int(self.rt.schedule.timer_arg("open_explorer_chests", key, 0) or 0)
+        except Exception:                # noqa: BLE001 — a knob, never the page
+            return 0
+
+    def _set_explorer_arg(self, key: str, value) -> None:
+        try:
+            self.rt.schedule.set_timer_arg("open_explorer_chests", key, int(value or 0))
+        except Exception:                # noqa: BLE001 — a knob, never the page
+            pass
 
     def _toggle_show_spent(self) -> None:
         """Flip «Показывать исчерпанные» from the phone, on the Tk thread.

@@ -2640,5 +2640,14 @@
   "settings.tabs.hide": "Gizle",
   "rally_group.today_all": "bugün toplam {n}",
   "rally_group.cap_each": "her tür için {n}",
-  "rally_group.cap_each.any": "tür başına sınır yok"
+  "rally_group.cap_each.any": "tür başına sınır yok",
+  "timers.item.open_explorer_chests": "Mobil ekip penceresindeki kâşif sandıklarını aç",
+  "timers.item.open_explorer_chests.short": "Kâşif sandıkları",
+  "triggers.item.explorer_chests": "Gizli görevlerimiz toplandıktan sonra kâşif sandıklarını aç",
+  "triggers.item.explorer_chests.short": "Kâşif sandıkları",
+  "timers.stat.explorer_chests": "açılacak sandık: {n} · anahtar: {keys}",
+  "explorer.keep": "Asla harcanmayacak anahtarlar",
+  "explorer.keep.hint": "0 tüm keseyi harcar. Garantili ödül için biriktirmek istiyorsan bir alt sınır belirle.",
+  "explorer.max": "Çalıştırma başına sandık",
+  "explorer.max.hint": "0, anahtarların yettiği her sandığı açar."
 }

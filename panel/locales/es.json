@@ -2640,5 +2640,14 @@
   "settings.tabs.hide": "Ocultar",
   "rally_group.today_all": "hoy en total {n}",
   "rally_group.cap_each": "{n} por tipo",
-  "rally_group.cap_each.any": "sin límite por tipo"
+  "rally_group.cap_each.any": "sin límite por tipo",
+  "timers.item.open_explorer_chests": "Abrir los cofres del explorador en la ventana del escuadrón móvil",
+  "timers.item.open_explorer_chests.short": "Cofres del explorador",
+  "triggers.item.explorer_chests": "Abrir los cofres del explorador tras recoger nuestras tareas secretas",
+  "triggers.item.explorer_chests.short": "Cofres del explorador",
+  "timers.stat.explorer_chests": "cofres por abrir: {n} · llaves: {keys}",
+  "explorer.keep": "Llaves que nunca se gastan",
+  "explorer.keep.hint": "0 gasta toda la reserva. Fija un mínimo para ahorrar hacia la recompensa garantizada.",
+  "explorer.max": "Cofres por ejecución",
+  "explorer.max.hint": "0 abre todos los cofres que permitan las llaves."
 }

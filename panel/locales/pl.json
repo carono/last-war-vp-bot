@@ -2640,5 +2640,14 @@
   "settings.tabs.hide": "Ukryj",
   "rally_group.today_all": "dziś łącznie {n}",
   "rally_group.cap_each": "po {n} na rodzaj",
-  "rally_group.cap_each.any": "bez limitu na rodzaj"
+  "rally_group.cap_each.any": "bez limitu na rodzaj",
+  "timers.item.open_explorer_chests": "Otwieraj skrzynie odkrywcy w oknie mobilnego oddziału",
+  "timers.item.open_explorer_chests.short": "Skrzynie odkrywcy",
+  "triggers.item.explorer_chests": "Otwieraj skrzynie odkrywcy po odebraniu naszych tajnych zadań",
+  "triggers.item.explorer_chests.short": "Skrzynie odkrywcy",
+  "timers.stat.explorer_chests": "skrzyń do otwarcia: {n} · kluczy: {keys}",
+  "explorer.keep": "Klucze, których nie wydajemy",
+  "explorer.keep.hint": "0 wydaje cały zapas. Ustaw próg, aby oszczędzać na nagrodę gwarantowaną.",
+  "explorer.max": "Skrzyń na jedno uruchomienie",
+  "explorer.max.hint": "0 otwiera wszystkie skrzynie, na które starczy kluczy."
 }

@@ -2640,5 +2640,14 @@
   "settings.tabs.hide": "Ẩn",
   "rally_group.today_all": "hôm nay tổng {n}",
   "rally_group.cap_each": "{n} mỗi loại",
-  "rally_group.cap_each.any": "không giới hạn mỗi loại"
+  "rally_group.cap_each.any": "không giới hạn mỗi loại",
+  "timers.item.open_explorer_chests": "Mở rương của nhà thám hiểm trong cửa sổ đội đặc nhiệm cơ động",
+  "timers.item.open_explorer_chests.short": "Rương nhà thám hiểm",
+  "triggers.item.explorer_chests": "Mở rương nhà thám hiểm sau khi nhận thưởng nhiệm vụ bí mật của ta",
+  "triggers.item.explorer_chests.short": "Rương nhà thám hiểm",
+  "timers.stat.explorer_chests": "rương chờ mở: {n} · chìa khoá: {keys}",
+  "explorer.keep": "Chìa khoá không bao giờ tiêu",
+  "explorer.keep.hint": "0 tiêu hết số chìa đang có. Đặt mức sàn để dành cho phần thưởng bảo đảm.",
+  "explorer.max": "Số rương mỗi lượt chạy",
+  "explorer.max.hint": "0 mở mọi rương mà số chìa khoá cho phép."
 }

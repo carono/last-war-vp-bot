@@ -2640,5 +2640,14 @@
   "settings.tabs.hide": "Nascondi",
   "rally_group.today_all": "oggi in tutto {n}",
   "rally_group.cap_each": "{n} per tipo",
-  "rally_group.cap_each.any": "nessun limite per tipo"
+  "rally_group.cap_each.any": "nessun limite per tipo",
+  "timers.item.open_explorer_chests": "Aprire i forzieri dell'esploratore nella finestra della squadra mobile",
+  "timers.item.open_explorer_chests.short": "Forzieri dell'esploratore",
+  "triggers.item.explorer_chests": "Aprire i forzieri dell'esploratore dopo aver riscosso le nostre missioni segrete",
+  "triggers.item.explorer_chests.short": "Forzieri dell'esploratore",
+  "timers.stat.explorer_chests": "forzieri da aprire: {n} · chiavi: {keys}",
+  "explorer.keep": "Chiavi da non spendere mai",
+  "explorer.keep.hint": "0 spende tutta la riserva. Imposta una soglia per risparmiare verso la ricompensa garantita.",
+  "explorer.max": "Forzieri per esecuzione",
+  "explorer.max.hint": "0 apre tutti i forzieri che le chiavi consentono."
 }

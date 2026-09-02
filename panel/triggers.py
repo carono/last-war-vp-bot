@@ -738,6 +738,26 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         enabled=False,
         label_key="triggers.item.alliance_train_board",
     ),
+    Trigger(
+        name="explorer_chests",
+        # THE ONE MOMENT THE KEYS CAN ARRIVE (#2381). «Ключ исследователя» is paid out by
+        # our OWN finished secret tasks and by nothing else, so a chest becomes openable
+        # exactly when a claim is answered — `hero.dispatch.batch.reward`, which is what
+        # `collect_secret_tasks.md` sends and what the server answers under the same
+        # name. Between two claims the purse cannot move, so a clock in front of this
+        # would be a question asked for nothing (`CLAUDE.md`, «Read once, then LISTEN»).
+        #
+        # It is the ANSWER that is heard rather than our own send: the ear carries down
+        # commands, and the keys are in the bag only once the server has said so.
+        #
+        # The recipe gates itself in one round trip — activity closed, or not enough keys
+        # for a chest — so a claim that paid no key costs a sentence in the log. Opt-in.
+        kind=KIND_WIRE,
+        event_pattern="hero.dispatch.batch.reward",
+        scenario=("open_explorer_chests",),
+        enabled=False,
+        label_key="triggers.item.explorer_chests",
+    ),
 )
 
 

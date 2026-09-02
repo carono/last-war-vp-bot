@@ -2640,5 +2640,14 @@
   "settings.tabs.hide": "Ocultar",
   "rally_group.today_all": "hoje no total {n}",
   "rally_group.cap_each": "{n} por tipo",
-  "rally_group.cap_each.any": "sem limite por tipo"
+  "rally_group.cap_each.any": "sem limite por tipo",
+  "timers.item.open_explorer_chests": "Abrir os baús do explorador na janela do esquadrão móvel",
+  "timers.item.open_explorer_chests.short": "Baús do explorador",
+  "triggers.item.explorer_chests": "Abrir os baús do explorador depois de recolher as nossas tarefas secretas",
+  "triggers.item.explorer_chests.short": "Baús do explorador",
+  "timers.stat.explorer_chests": "baús a abrir: {n} · chaves: {keys}",
+  "explorer.keep": "Chaves que nunca se gastam",
+  "explorer.keep.hint": "0 gasta toda a reserva. Defina um limite para poupar para a recompensa garantida.",
+  "explorer.max": "Baús por execução",
+  "explorer.max.hint": "0 abre todos os baús que as chaves permitirem."
 }

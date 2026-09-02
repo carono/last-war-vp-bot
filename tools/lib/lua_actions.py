@@ -15421,3 +15421,88 @@ def reward_watch_hold(minutes: float = 30.0) -> str:
             "local t=0 pcall(function() t=UITimeManager.Instance:GetServerTime() end) "
             "t=math.floor((tonumber(tostring(t)) or 0)+0) "
             f"B.hold=(({span:.0f})>0) and (t+{span:.0f}) or nil end)")
+
+
+# --- Explorer treasure: the chests in the mobile squad's window (#2381) ---------------
+#
+# The keys («Ключ исследователя», item 771001) are paid out by our OWN secret tasks, and
+# `ExplorerTreasureManager` holds the whole of it: `GetTreasureHaveItemNum` is the purse,
+# `GetTreasureOpenNeedItemNum` the price of one chest (5), `IsOpen` whether the activity
+# runs at all, and `GetGuaranteedTimes` / `GetGuaranteedNeedTimes` the run towards the
+# guaranteed reward. The send is `hero.dispatch.explorer.treasure.open` and it takes NO
+# parameter — the message class's own `OnCreate(self)` reads nothing, so one send is one
+# chest (docs/research/explorer-treasure.md).
+
+def explorer_treasure_state() -> str:
+    """Lua *expression* — the whole reading as one `key=value` string.
+
+    Read-only, opens nothing, sends nothing. `have` is the purse, `need` the price,
+    `chests` how many the purse buys right now.
+    """
+    return (
+        "(function() local M = DataCenter and DataCenter.ExplorerTreasureManager "
+        "if M == nil then return 'open=0 why=no-manager' end "
+        "local function num(fn) local v = 0 "
+        "pcall(function() v = math.floor((M[fn](M) or 0) + 0) end) return v end "
+        "local open = false pcall(function() open = M:IsOpen() and true or false end) "
+        "local have, need = num('GetTreasureHaveItemNum'), num('GetTreasureOpenNeedItemNum') "
+        "if need <= 0 then need = math.floor(tonumber(M.treasureNeedNum) or 0) end "
+        "local chests = (need > 0) and math.floor(have / need) or 0 "
+        "local item = num('GetTreasureItemId') "
+        "return 'open=' .. (open and 1 or 0) .. ' have=' .. have .. ' need=' .. need "
+        ".. ' chests=' .. chests .. ' guar=' .. num('GetGuaranteedTimes') "
+        ".. ' guar_need=' .. num('GetGuaranteedNeedTimes') .. ' item=' .. item end)()"
+    )
+
+
+def explorer_treasure_left() -> str:
+    """Lua *expression* — how many chests the keys still buy, minus what is kept back.
+
+    `DataCenter.__lw_explorer_keep` is the floor a recipe parks: keys never spent, so a
+    person saving up for the guaranteed reward is not emptied by a scheduled run.
+    """
+    return (
+        "(function() local M = DataCenter and DataCenter.ExplorerTreasureManager "
+        "if M == nil then return 0 end "
+        "local open = false pcall(function() open = M:IsOpen() and true or false end) "
+        "if not open then return 0 end "
+        "local have, need = 0, 0 "
+        "pcall(function() have = math.floor((M:GetTreasureHaveItemNum() or 0) + 0) end) "
+        "pcall(function() need = math.floor((M:GetTreasureOpenNeedItemNum() or 0) + 0) end) "
+        "if need <= 0 then need = math.floor(tonumber(M.treasureNeedNum) or 0) end "
+        "if need <= 0 then return 0 end "
+        "local keep = math.floor(tonumber(DataCenter.__lw_explorer_keep) or 0) "
+        "local spendable = have - keep "
+        "if spendable < 0 then spendable = 0 end "
+        "return math.floor(spendable / need) end)()"
+    )
+
+
+def explorer_treasure_open() -> str:
+    """Open ONE explorer chest — the game's own «Открыть», with the price gate in front.
+
+    Everything that could make the send pointless is answered before it goes out: no
+    manager, the activity not running, no price to read, or a purse that would drop below
+    `DataCenter.__lw_explorer_keep`. The refusals are named in the marker line rather than
+    swallowed, so a run that opened nothing says WHY.
+    """
+    return (
+        "local M = DataCenter and DataCenter.ExplorerTreasureManager "
+        "local sent, why, have, need = 0, '', 0, 0 "
+        "if M == nil then why = 'no-manager' else "
+        "local open = false pcall(function() open = M:IsOpen() and true or false end) "
+        "pcall(function() have = math.floor((M:GetTreasureHaveItemNum() or 0) + 0) end) "
+        "pcall(function() need = math.floor((M:GetTreasureOpenNeedItemNum() or 0) + 0) end) "
+        "if need <= 0 then need = math.floor(tonumber(M.treasureNeedNum) or 0) end "
+        "local keep = math.floor(tonumber(DataCenter.__lw_explorer_keep) or 0) "
+        "if not open then why = 'closed' "
+        "elseif need <= 0 then why = 'no-price' "
+        "elseif have - keep < need then why = 'no-keys' "
+        "else local ok = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.ExplorerTreasureOpen) end) "
+        "if ok then sent = 1 else why = 'send-failed' end end end "
+        "DataCenter.__lw_explorer = {sent = sent, why = why, have = have, need = need} "
+        'CS.UnityEngine.Debug.LogError("ACT explorer_open sent=" .. tostring(sent) '
+        '.. " have=" .. tostring(have) .. " need=" .. tostring(need) '
+        '.. " why=" .. tostring(why))'
+    )

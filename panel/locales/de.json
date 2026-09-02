@@ -2640,5 +2640,14 @@
   "settings.tabs.hide": "Verbergen",
   "rally_group.today_all": "heute insgesamt {n}",
   "rally_group.cap_each": "{n} je Art",
-  "rally_group.cap_each.any": "kein Limit je Art"
+  "rally_group.cap_each.any": "kein Limit je Art",
+  "timers.item.open_explorer_chests": "Truhen des Forschers im Fenster des mobilen Trupps öffnen",
+  "timers.item.open_explorer_chests.short": "Forscher-Truhen",
+  "triggers.item.explorer_chests": "Forscher-Truhen öffnen, sobald unsere Geheimaufträge abgeholt sind",
+  "triggers.item.explorer_chests.short": "Forscher-Truhen",
+  "timers.stat.explorer_chests": "zu öffnende Truhen: {n} · Schlüssel: {keys}",
+  "explorer.keep": "Schlüssel, die nie ausgegeben werden",
+  "explorer.keep.hint": "0 gibt den ganzen Vorrat aus. Setze eine Untergrenze, um für die garantierte Belohnung zu sparen.",
+  "explorer.max": "Truhen pro Durchlauf",
+  "explorer.max.hint": "0 öffnet jede Truhe, für die die Schlüssel reichen."
 }

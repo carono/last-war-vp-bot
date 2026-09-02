@@ -2640,5 +2640,14 @@
   "settings.tabs.hide": "Hide",
   "rally_group.today_all": "{n} today, all kinds",
   "rally_group.cap_each": "{n} per kind",
-  "rally_group.cap_each.any": "no limit per kind"
+  "rally_group.cap_each.any": "no limit per kind",
+  "timers.item.open_explorer_chests": "Open the explorer's chests in the mobile squad's window",
+  "timers.item.open_explorer_chests.short": "Explorer's chests",
+  "triggers.item.explorer_chests": "Open the explorer's chests once our secret tasks are claimed",
+  "triggers.item.explorer_chests.short": "Explorer's chests",
+  "timers.stat.explorer_chests": "chests to open: {n} · keys: {keys}",
+  "explorer.keep": "Keys never to be spent",
+  "explorer.keep.hint": "0 spends the whole purse. Set a floor to save up for the guaranteed reward.",
+  "explorer.max": "Chests per run",
+  "explorer.max.hint": "0 opens every chest the keys will buy."
 }

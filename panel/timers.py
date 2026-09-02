@@ -743,6 +743,28 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         args={"hero": 1},
         label_key="timers.item.perform_arms_race",
     ),
+    Timer(
+        name="open_explorer_chests",
+        scenario=("open_explorer_chests",),
+        # SIX HOURS, AND IT IS THE SAFETY NET RATHER THAN THE SCHEDULE (#2381). The keys
+        # that open these chests are paid out by our OWN finished secret tasks and by
+        # nothing else, so the purse cannot grow while nobody claims a task — which is
+        # why the errand's real wake-up is the `explorer_chests` trigger on the claim's
+        # own answer. This period is for the case that trigger cannot cover: a profile
+        # that ran with the listener off, or claims that were made from the phone with
+        # nothing listening. A run with no keys stops in one round trip and costs a
+        # sentence in the log.
+        interval_sec=6 * 3600,
+        # A failure here is a client that was not answering; a few minutes is soon
+        # enough for chests that nothing is counting down.
+        retry_sec=300,
+        enabled=False,
+        # `keep` is how many keys are never spent (0 spends the purse), `max` how many
+        # chests one run may open (0 = every one the keys buy). Both are the recipe's
+        # own ARGS, and the gear on «Таймеры» edits exactly these.
+        args={"keep": 0, "max": 0},
+        label_key="timers.item.open_explorer_chests",
+    ),
 )
 
 
