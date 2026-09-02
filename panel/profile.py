@@ -349,7 +349,8 @@ def _shown(value) -> str:
 def _audit(name: str, before: dict, after: dict, own: dict, source: str) -> None:
     """Say what this save moved, in the profile's OWN log. Never raises."""
     try:
-        log = debug_log.get_logger("settings", scope=name)
+        log = debug_log.logger_in("settings", name,
+                                  os.path.join(PROFILES_DIR, name))
         old, new = _flat(before), _flat(after)
         mine = set(_flat(own))
         moved = [key for key in sorted(set(old) | set(new))
@@ -908,9 +909,12 @@ class ProfileManager:
         name = sanitize(name) if name else self._active
         self._ensure_dir(name)
         base = self._default_base(name)
-        before = self._load_own(name)
+        try:
+            before = self._load_own(name)
+        except Exception:                # noqa: BLE001 — the audit, never the save
+            before = None
         own = config if name == DEFAULT_PROFILE else _deep_diff(config, base)
-        if own != before:
+        if before is not None and own != before:
             _audit(name,
                    _deep_merge(base, before) if base else before,
                    _deep_merge(base, own) if base else own,

@@ -142,6 +142,34 @@ def get_logger(component: str = "panel", scope: "str | None" = None) -> logging.
     return logging.getLogger(f"{name}.{component}")
 
 
+def logger_in(component: str, scope: str, directory: str) -> logging.Logger:
+    """The logger whose file is the one in ``directory`` — scoped or not (#1957).
+
+    A profile's debug log is not always a SCOPED logger: the FIRST open profile writes
+    through the shared tree, and only the second and later ones get a scope of their
+    own (module docstring). A caller that has a profile name and no session — the
+    settings store, which is asked to write from anywhere — cannot tell which of the
+    two it is looking at, and picking wrong is silent: a scoped logger with no handler
+    is sealed off the shared tree, so every record it is given is dropped.
+
+    So ask the handlers where they are WRITING. The scope when it has a file of its
+    own; otherwise the shared tree when the file it holds is in this profile's own
+    directory; and failing both, the scope — which drops, and is the honest answer,
+    because that profile has no log open here at all.
+    """
+    scoped = logging.getLogger(_scope_name(scope))
+    if any(getattr(h, "_panel_debug", False) for h in scoped.handlers):
+        return get_logger(component, scope=scope)
+    want = os.path.normcase(os.path.abspath(directory or ""))
+    for handler in logging.getLogger(ROOT_NAME).handlers:
+        if not getattr(handler, "_panel_debug", False):
+            continue
+        base = getattr(handler, "baseFilename", "")
+        if base and os.path.normcase(os.path.dirname(os.path.abspath(base))) == want:
+            return get_logger(component)
+    return get_logger(component, scope=scope)
+
+
 #: The scope of the WINDOW itself — see the module docstring. Named with a leading
 #: underscore so it can never collide with a profile: `panel/profile.py::sanitize`
 #: refuses one, and a scope is a profile name everywhere else in this module.
