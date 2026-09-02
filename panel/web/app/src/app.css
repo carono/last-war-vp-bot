@@ -423,6 +423,18 @@ main {
 .kv .k { color: var(--ink-soft); font-size: 13px; }
 .kv .v { font-weight: 600; text-align: right; }
 
+/* A SHEET OF READINGS IS A LIST, NOT A LEDGER (#2308). A card's `kv` puts the name on
+   the left and the value hard right, which is right for two words and wrong for a dozen
+   lines of «Мощь — 327.4M — профиль игрока, 56 минут назад»: the value took the row, the
+   name was squeezed into «Мощ|ь», and both were shouting. In a modal the pair stacks —
+   the field's name quietly above what it says. */
+.modal .kv {
+  display: block;
+  padding: 6px 0;
+}
+.modal .kv .k { display: block; }
+.modal .kv .v { display: block; text-align: left; font-weight: 500; }
+
 /* -- items ------------------------------------------------------------------ */
 
 .item {

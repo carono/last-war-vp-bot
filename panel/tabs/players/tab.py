@@ -1177,12 +1177,18 @@ class PlayersTab(PanelTab):
                 continue
             shown = human_power(value) if field in ("power", "army_power",
                                                     "march_power") else str(value)
-            out.append({"label": "players.field." + field,
-                        "value": self.t("players.details.value", value=shown,
-                                        source=self.t("players.src." + who) if who
-                                        else self.t("players.src.unknown"),
-                                        ago=self.ago(now - when) if when
-                                        else self.t("players.src.unknown"))})
+            if not who and not when:
+                # NOTHING IS KNOWN ABOUT WHERE IT CAME FROM, so the line says the value
+                # and stops. «12.4M — неизвестно, неизвестно» is three words of noise
+                # around the one word that is an answer.
+                said = shown
+            else:
+                said = self.t("players.details.value", value=shown,
+                              source=self.t("players.src." + who) if who
+                              else self.t("players.src.unknown"),
+                              ago=self.ago(now - when) if when
+                              else self.t("players.src.unknown"))
+            out.append({"label": "players.field." + field, "value": said})
         return out
 
     def web_data(self, kind: str, args: dict) -> "dict | None":
