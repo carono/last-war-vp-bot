@@ -1895,7 +1895,11 @@ class WebApi:
         def go() -> None:
             try:
                 rt.tabs.realize(tab)     # the same draw-before-asking as `screen`
-                box["result"] = tab.web_press(action, args or {})
+                # A knob this press moves says «from web» in the profile's own log
+                # (#1957). The label travels on a context variable and this function is
+                # what crosses onto the Tk thread, so it is what carries it.
+                with profilemod.writing("web"):
+                    box["result"] = tab.web_press(action, args or {})
             except Exception as exc:     # noqa: BLE001
                 # A CRASH IS SAID IN WORDS, AND THE INTERNALS GO TO THE LOG (#2074).
                 # It used to travel as `detail`, so a tab that reached for a widget it
@@ -1993,6 +1997,19 @@ class WebApi:
 
     # -- routing -------------------------------------------------------------
     def dispatch(self, method: str, path: str, query: dict, body: dict) -> tuple:
+        """One request, with anything it WRITES labelled as the web's (#1957).
+
+        A settings write says where it came from in the profile's own log, and the
+        label travels on a context variable — so it is put on here, once, rather than
+        at each of the thirty handlers that might move a knob. A press that hops onto
+        the Tk thread carries it over itself (:meth:`press`, :meth:`_on_tk`).
+        """
+        if method == "GET":
+            return self._dispatch(method, path, query, body)
+        with profilemod.writing("web"):
+            return self._dispatch(method, path, query, body)
+
+    def _dispatch(self, method: str, path: str, query: dict, body: dict) -> tuple:
         """``(status, payload)`` for one request. The server does the HTTP, this the panel.
 
         Split out from the handler so the whole surface can be exercised without a
