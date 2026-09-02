@@ -50,6 +50,9 @@ OWNERS = {
     "parked": "golden_parked",
     "picked": "golden_picked",
     "queued": "golden_queued",
+    # THE WINDOW THE CHAIN LIVES IN (#2390): our own march, still there to be
+    # re-aimed. The wait brick reads it to decide whether to wait at all.
+    "reaimable": "golden_reaimable",
     "refreshed": "golden_refresh_done",
     "ride_report": "golden_approach_report",
     "riding": "golden_approach_planned",

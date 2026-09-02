@@ -213,7 +213,10 @@ def test_a_send_that_never_became_a_march_moves_on_rather_than_ending_the_run():
 def test_a_zombie_somebody_else_killed_does_not_stall_the_chain():
     """#1702: the monster going is the proof the attack is OVER — from whoever's hand."""
     gone = lua_actions.golden_gone()
-    assert "p.hit" in gone and "GetMonsterListInArea" in gone
+    # THE SLOT IS `p.judge` SINCE #2390 — the send parks the zombie it has just fought
+    # there before it overwrites `p.hit` with the one it is ordering, because the order
+    # now goes out before the looking is done.
+    assert "p.judge" in gone and "GetMonsterListInArea" in gone
     assert "return 1 end" in gone, "nothing to look for must answer «gone»"
     body, lines = _chain()
     assert "TAP golden_kill" in lines, "a confirmed kill is never counted"
@@ -1138,8 +1141,8 @@ def test_the_map_is_walked_ONCE_and_never_again():
 # The chain is four bricks, and the three faults the operator named (#1702)
 # ---------------------------------------------------------------------------
 
-BRICKS = ("golden_wait_for_the_march", "golden_judge_the_kill",
-          "golden_send_the_squad", "golden_choose_a_target")
+BRICKS = ("golden_wait_for_the_march", "golden_send_the_squad",
+          "golden_judge_the_kill", "golden_choose_a_target")
 
 #: …and the same four names in the order a LAP reads them, which is not the order the
 #: loop runs them in any more (#2390): the pick for lap N happens at the end of lap N-1,
@@ -1177,7 +1180,11 @@ def test_the_chain_is_four_bricks_each_runnable_on_its_own():
     body, lines = _brick("attack_golden_zombies")
     loop = next(i for i, w in enumerate(lines) if w.startswith("WHILE go == 1"))
     calls = [w.split()[1] for w in lines[loop:] if w.startswith("CALL ")]
-    assert calls == list(BRICKS), f"the chain's lap is {calls}"
+    # …and the LAST kill is judged after the loop, when the march is already over — the
+    # chain judges one lap behind since #2390, so the final order has nobody behind it.
+    assert calls[:len(BRICKS)] == list(BRICKS), f"the chain's lap is {calls}"
+    assert calls[len(BRICKS):] in ([], ["golden_judge_the_kill"]), \
+        f"the chain does more after its loop than judge the last kill: {calls}"
     before = [w.split()[1] for w in lines[:loop] if w.startswith("CALL golden_")]
     assert before and before[-1] == "golden_choose_a_target", \
         "the loop opens with no target chosen, so the first lap picks with the squad idle"

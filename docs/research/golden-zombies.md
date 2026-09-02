@@ -759,6 +759,84 @@ is one way to learn a message and not the only one — and for an OUTGOING messa
 client it is the harder one.**
 
 
+## 4j — the window is REAL, and §4i's «it does not exist» was our own wait (#2390)
+
+**Recorded on the wire, from the operator playing by hand, 2026-09-02.** The capture
+§4i said had caught nothing was taken again with `tools/secret_task_capture.py --dump`
+(the DOWN-only ear was the reason the first one was empty — see the end of §4i), and the
+chain the person drives with their thumb is right there in it: **five
+`world.march.change` in a row over ONE march uuid**, no `world.march.formation.new`
+between them, no walk home.
+
+    22:31:07  world.march.change  uuid=…688152  path "255735;258738"  targetUid=…712809
+    22:31:14  world.march.change  uuid=…688152  path "255738;268740"  targetUid=…029177
+    22:31:31  world.march.change  uuid=…688152  path "267740;295742"  targetUid=…712813
+    22:32:07  world.march.change  uuid=…688152  path "291742;303744"  targetUid=…712826
+    22:32:22  world.march.change  uuid=…688152  path "302744;306745"  targetUid=…452080
+
+The uplink payload, in full, is seven fields and nothing else:
+
+```json
+{"uuid": 1412337042108688152, "targetServer": 935, "autoBackHome": true,
+ "targetUid": 1412337037230712813, "path": "267740;295742",
+ "worldId": 0, "target": 1}
+```
+
+Read against our own `world.march.formation.new`, line by line:
+
+| field | the chain by hand | our send |
+|---|---|---|
+| message | `world.march.change` | `world.march.formation.new` |
+| march | `uuid` of the march already out — the SAME one all five times | none: a new march, a new `teamUuid` every kill |
+| start | `path` opens on the tile the squad is standing on (`267740`) | `path "37715;39704"` — the BASE tile, every time |
+| squad | not sent at all | `formationUuid` + `formationParam.heroInfos[6]` + `soldierType` + `waitTimeIndex` + `clientCreateUuid` |
+| `target` | `1` | `6` |
+| `autoBackHome` | `true` | `true` |
+
+**`autoBackHome` is `true` in the operator's chain too, and the squad still never went
+home.** That kills the last of the flag theories, including this task's own (§4 and
+`lua_actions.golden_send`): the flag is not what keeps a squad in the field. The re-aim
+is. A march that is re-aimed never reaches the state in which «come home» applies.
+
+### What the window actually is, in seconds
+
+The reply to each `change` carries the leg's own clock (`f13` start, `f14` arrival), so
+the gap between «the previous leg landed» and «the next order left» is measurable:
+
+| change at | previous leg landed | gap |
+|---|---|---|
+| 22:31:14.969 | 22:31:13.378 | **1.6 s** |
+| 22:31:31.355 | 22:31:31.272 | **0.08 s** |
+| 22:32:07.720 | 22:32:04.316 | **3.4 s** |
+| 22:32:22.470 | 22:32:22.920 | **−0.45 s** (sent while still moving, and the kill still landed) |
+
+So the window is a few seconds wide and the client will take an order inside it — and
+§4i's conclusion, «there is no moment between the kill and the walk home in which an
+order can be given», was a description of OUR OWN LAP rather than of the game. The lap
+waited for the march to disappear from `GetOwnerMarches()` and for the formation to read
+free, which is a squad that has finished walking home; by then, of course, there was
+nothing to re-aim. The reading `stand=nomarch` is true — it is just taken ninety seconds
+too late.
+
+### What changed in the chain
+
+* **the wait ends at the arrival**, not at «the squad is free». When the run's own march
+  is still there (`golden_reaimable`), `golden_wait_for_the_march` stops right after the
+  landing and the rest of its gates — the march clock, the parked check, the two
+  free-squad loops — are skipped;
+* **the gate on the redeploy door is our own march, in ANY status** (`_reaim` in
+  `tools/lib/lua_actions.py`), banner-free. `_landed` — «standing still with no clock» —
+  is the reading a MINE gives and it is never what a march looks like a second after a
+  zombie fight;
+* **the order goes out before the kill is judged.** Judging costs two scans and a camera
+  move, which is the whole window; so the lap sends first and looks afterwards, and the
+  zombie of the previous order is parked in `p.judge` for the looking. The chain counts
+  kills one lap behind, and the last order of a run is judged after the loop when its
+  march is already over;
+* **a missed window is counted, not hidden**: `fallbacks=` in the run report is the number
+  of laps that had to make a new march out of the base, beside `redeploys=` which is the
+  number that did not.
+
 ## 4f — the hunt recalled its own attack, one second after ordering it (#1702)
 
 The worst kind of bug: every part of it had already been thought about, and the fix was
