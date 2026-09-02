@@ -2191,15 +2191,23 @@ class WebApi:
     @staticmethod
     def _on_tk(rt, func) -> None:
         """Run ``func`` on the Tk thread and wait, or run it here if there is none."""
+        # LABELLED AS THE WEB'S, on whichever thread it ends up running (#1957). A
+        # settings write says where it came from in the profile's log, and the label
+        # travels on a context variable — which a hop onto the Tk thread does not
+        # carry. So the wrapper is what crosses, not the label.
+        def labelled() -> None:
+            with profilemod.writing("web"):
+                func()
+
         root = getattr(rt, "root", None)
         if root is None or threading.current_thread() is threading.main_thread():
             try:
-                func()
+                labelled()
             except Exception:                # noqa: BLE001 — a read, never the server
                 pass
             return
         try:
-            rt.tick.on_tk(func, timeout=TK_TIMEOUT_SEC)
+            rt.tick.on_tk(labelled, timeout=TK_TIMEOUT_SEC)
         except Exception:                    # noqa: BLE001 — the window is going away
             pass
 

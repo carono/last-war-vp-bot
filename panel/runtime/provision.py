@@ -235,7 +235,7 @@ def apply(profiles, name: str, one: Plan) -> Plan:
     """
     config = dict(profiles.load(name))
     config.update(one.settings)
-    profiles.save(config, name)
+    profiles.save(config, name, source="provision")
     return one
 
 

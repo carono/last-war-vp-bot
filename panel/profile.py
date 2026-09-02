@@ -58,6 +58,7 @@ the on-disk layout. The panel binds its Tk variables to config keys and calls
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import json
 import os
 import re
@@ -66,6 +67,7 @@ import re
 # the dialog showing it can be in the person's language. No translator is built here —
 # that stays the UI's business (see the module docstring).
 from .i18n import Message
+from . import debug_log
 from . import paths
 
 # Re-exported rather than re-spelled: `panel/paths.py` is where these are decided, and
@@ -279,6 +281,96 @@ def _deep_diff(full: dict, base: dict) -> dict:
         elif key not in base or value != base_value:
             out[key] = value
     return out
+
+
+# -- the audit trail of a settings write ----------------------------------------
+#
+# EVERY WRITE OF A KNOB IS SAID OUT LOUD (#1957), because until this existed none of
+# them was. A profile's settings are stored as a WHOLE SNAPSHOT, so a value that got
+# lost — a widget that did not exist when the snapshot was taken, a knob somebody
+# unticked on a phone, an import that layered the wrong block — left no trace at all:
+# not a line in `panel.log`, not one in `debug.log`, and not even a usable mtime,
+# because the row is rewritten in full on every save. The live watchdog went off on
+# four accounts at once that way and nobody could name what turned it off.
+#
+# So `save` diffs what the profile OBEYED before against what it obeys now and writes
+# one line per moved key into that profile's own `debug.log`: the key, old → new,
+# whether the value is the profile's OWN or INHERITED from the default profile, and
+# where the write came from. «Кто это выключил» is one `grep` now.
+_AUDIT_MOST = 40          #: lines per save — a whole-profile seed is not worth 400
+_AUDIT_VALUE = 120        #: characters per value; a tab block is a fingerprint, not a read
+_MISSING = object()
+
+#: Where the write CAME FROM, for the line above. Best effort by design: it travels on
+#: a context variable, so a write handed to another thread (the web's hop onto the Tk
+#: thread) is only labelled because that hop re-enters :func:`writing` on the far side.
+#: A source nobody set reads «panel», which is honest — it says the write came from the
+#: panel itself and not from any door this module knows the name of.
+_source = contextvars.ContextVar("lw_profile_write_source", default="panel")
+
+
+@contextlib.contextmanager
+def writing(source: str):
+    """Label every settings write made inside this block (``web``, ``import``, …)."""
+    token = _source.set(str(source or "panel").strip() or "panel")
+    try:
+        yield
+    finally:
+        _source.reset(token)
+
+
+def _flat(data: dict, prefix: str = "") -> dict:
+    """A settings dict as dotted paths — ``tabs.config.rally.squads`` and so on.
+
+    A subtree :func:`_deep_diff` wrapped as a WHOLE value is left whole: it is there
+    precisely because its keys cannot be compared one at a time.
+    """
+    out = {}
+    for key, value in (data or {}).items():
+        path = f"{prefix}{key}"
+        if isinstance(value, dict) and _WHOLE_KEY not in value:
+            out.update(_flat(value, path + "."))
+        else:
+            out[path] = value
+    return out
+
+
+def _shown(value) -> str:
+    """One value, short enough to sit on a log line."""
+    if value is _MISSING:
+        return "-"
+    try:
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        text = repr(value)
+    return text if len(text) <= _AUDIT_VALUE else text[:_AUDIT_VALUE] + "..."
+
+
+def _audit(name: str, before: dict, after: dict, own: dict, source: str) -> None:
+    """Say what this save moved, in the profile's OWN log. Never raises."""
+    try:
+        log = debug_log.get_logger("settings", scope=name)
+        old, new = _flat(before), _flat(after)
+        mine = set(_flat(own))
+        moved = [key for key in sorted(set(old) | set(new))
+                 if old.get(key, _MISSING) != new.get(key, _MISSING)]
+        for key in moved[:_AUDIT_MOST]:
+            was, now = old.get(key, _MISSING), new.get(key, _MISSING)
+            whose = "own" if key in mine else "inherited"
+            if now is _MISSING:
+                # The one that cost seven hours of a dead client: a key that simply
+                # stopped being in the snapshot. The next load answers with the code's
+                # DEFAULT, which for a switch means off.
+                log.warning("%s: %s -> gone, back to the default (%s, from %s)",
+                            key, _shown(was), whose, source)
+            else:
+                log.info("%s: %s -> %s (%s, from %s)",
+                         key, _shown(was), _shown(now), whose, source)
+        if len(moved) > _AUDIT_MOST:
+            log.info("...and %d more keys in the same save (from %s)",
+                     len(moved) - _AUDIT_MOST, source)
+    except Exception:                    # noqa: BLE001 — a log line, never the save
+        pass
 
 
 def migrate_legacy_layout() -> list[str]:
@@ -784,17 +876,45 @@ class ProfileManager:
         base = self._default_base(name)
         return _deep_merge(base, own) if base else own
 
-    def save(self, config: dict, name: str | None = None) -> None:
+    def owns(self, key: str, name: str | None = None) -> bool:
+        """Is this profile's value for ``key`` ITS OWN, or the default profile's?
+
+        The knob a person moves on a page is the same widget either way, and that is
+        the trap #1957 was opened over: the default profile's watchdog is the watchdog
+        of every profile that never set one of its own, so one tick turned it off on
+        four accounts at once and each of the other three looked untouched. A
+        front-end that wants to say «inherited from default» beside a knob asks here;
+        the audit line every save writes already carries the same answer.
+        """
+        name = sanitize(name) if name else self._active
+        if name == DEFAULT_PROFILE:
+            return True
+        return str(key) in self._load_own(name)
+
+    def save(self, config: dict, name: str | None = None, *,
+             source: str | None = None) -> None:
         """Persist a profile's settings.
 
         The default profile stores ``config`` whole — it IS the base. Any other
         profile stores only what of ``config`` differs from the default profile's own
         file, so a knob left untouched here starts following the default from now on
         instead of freezing at whatever it happened to equal at the last save.
+
+        EVERY KEY THIS MOVES IS WRITTEN INTO THE PROFILE'S OWN ``debug.log`` (#1957) —
+        old value, new value, own or inherited, and where the write came from
+        (:func:`writing`). Nothing else in the panel records a settings change, and a
+        snapshot store cannot be read backwards.
         """
         name = sanitize(name) if name else self._active
         self._ensure_dir(name)
-        own = config if name == DEFAULT_PROFILE else _deep_diff(config, self._default_base(name))
+        base = self._default_base(name)
+        before = self._load_own(name)
+        own = config if name == DEFAULT_PROFILE else _deep_diff(config, base)
+        if own != before:
+            _audit(name,
+                   _deep_merge(base, before) if base else before,
+                   _deep_merge(base, own) if base else own,
+                   own, source or _source.get())
         with panel_store() as store:
             store.profile_set_config(name, own)
 

@@ -2140,7 +2140,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # Seed the new profile with the current settings so it starts from a sane state —
         # then give it a client of its OWN, which is the one part of a seed that must
         # never be a copy.
-        self._profiles.save(self._collect_settings(), created)
+        self._profiles.save(self._collect_settings(), created, source="new profile")
         try:
             plan = runtime.provision.provision(self._profiles, created, login=login)
         except ValueError as exc:
@@ -2568,12 +2568,26 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # игру» silently stopped working. Not written here means an old one drops out of
         # the file on the next save, and `runtime.settings.MACHINE_KEYS` means it is not
         # obeyed in the meantime.
+        # A KNOB WITH NO WIDGET KEEPS ITS LAST KNOWN VALUE (#1957). This loop used to
+        # write a key only when its variable existed, and a snapshot is stored WHOLE:
+        # a key left out is a key deleted, and the next load answers with the code's
+        # default — `False` for a switch. Widgets are not always there. The Settings
+        # page is a `LAZY` tab, a save can happen during the boot before anything is
+        # drawn, a headless panel has no widgets at all, and any of those saves would
+        # silently wipe the knobs the person had set. That is how the watchdog came
+        # back off on four accounts with nothing anywhere saying it had moved.
+        #
+        # So: the widget when there is one, otherwise what the profile already had.
+        # Never the default, and never nothing — a value is only dropped by somebody
+        # actually changing it.
         for key in SETTINGS_DEFAULTS:
             if key in runtime.settings.MACHINE_KEYS:
                 continue
             var = self._opt_vars.get(key)
             if var is not None:
                 out[key] = var.get()
+            elif key in self._settings:
+                out[key] = self._settings[key]
         # …and the plugin tabs' own blocks, plus the flat keys they used to be spelled
         # with, so a profile this panel touches still opens in an older one (§5 rule 2).
         out["tabs"] = self._tabs_block()

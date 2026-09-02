@@ -1222,7 +1222,7 @@ class TimersTab(PanelTab):
         # Consume the flag so this runs ONCE: without clearing it, a user who then
         # unticks the trigger would have it switched back on at the next switch.
         self.rt.settings.values.pop("alliance_autohelp", None)
-        self.rt.profiles.save(self.rt.settings.values)
+        self.rt.profiles.save(self.rt.settings.values, source="timers")
         trig = self._trigger_catalogue.by_name("alliance_help")
         if trig is None or trig.enabled:
             return
