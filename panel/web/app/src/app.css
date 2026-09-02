@@ -1321,7 +1321,18 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
    under the switch's corner, and its pill was climbing into it. The gap is on the FIRST
    thing under the head, whichever of the three it is, so a card with no facts and only a
    reading clears the corner too. */
-.item.errand.cover .errand-head + * { margin-top: 8px; }
+/* …but NEVER the foot row (#2370). The person: «линия с кнопкой запуска и статистика
+   должны быть прижаты к низу». The foot has carried `margin-top: auto` since #2340 and
+   it stopped working the moment the schedule moved under the «i»: with the facts line
+   gone, `.errand-head + *` IS the foot, and 8 px of clearance beat the `auto` that
+   pinned it — measured on the live page, the gap under the row ran 75–104 px instead of
+   the card's own 12. The clearance is for the lines of TEXT under the head; the foot
+   takes what is left over instead. */
+.item.errand.cover .errand-head + *:not(.errand-acts) { margin-top: 8px; }
+/* Stated again after that rule so the cascade cannot lose it a second time: whatever
+   stands above it, the row of signs and the reading beside them sit on the floor of the
+   card. A card with neither draws no row at all and nothing takes its place. */
+.item.errand.cover .errand-acts { margin-top: auto; }
 
 /* «Описание сделай всегда минимум на 3 строки» (#2340, third pass) — the line of facts
    is three lines TALL whether or not it has three lines of words in it. It is what makes
