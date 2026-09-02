@@ -1,5 +1,5 @@
-# Take the recruit banners' free pulls — the free hero and the free survivor.
-# ru: Таверна: забрать бесплатного героя и бесплатного жителя.
+# Take EVERY free pull the recruit banners are offering — the survivor and each hero banner.
+# ru: Таверна: забрать все бесплатные наймы — жителя и каждый баннер героев.
 #
 # It also books its own next turn: see step 4 below.
 #
