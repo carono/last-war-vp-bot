@@ -48,3 +48,17 @@ def cover_for(errand: str) -> str:
     if not name:
         return ""
     return "/api/errandicon?art=" + _url.quote(name)
+
+
+def cover_focus(errand: str) -> str:
+    """Where the card crops that cover — a CSS vertical position, or `""` (#2340).
+
+    A cover is square and a card is a wide band, so a stripe of the picture is what is
+    seen; which stripe is a fact about the picture and travels with it.
+    """
+    try:
+        import errand_icons
+
+        return errand_icons.cover_focus(errand)
+    except Exception:                    # noqa: BLE001 — a picture, never the page
+        return ""

@@ -151,6 +151,8 @@ export interface TimerRow {
      out of the picture's way. Absent on every row this machine has no cover for, and
      then the card draws exactly as it did. */
   cover?: boolean
+  /** Where the card crops that cover — a CSS vertical position, e.g. `"45%"` (#2340). */
+  focus?: string
   stat?: ErrandStat | null
 }
 

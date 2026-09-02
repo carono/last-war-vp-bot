@@ -784,6 +784,9 @@ class WebApi:
                 # draws a cover at full colour with nothing washed over it.
                 "icon": artmod.cover_for(timer.name) or artmod.name_for(timer.name),
                 "cover": bool(artmod.cover_for(timer.name)),
+                # …and WHERE the card crops it, which belongs to the picture rather than
+                # to the stylesheet: crates sit low in one, a loaded bed high in another.
+                "focus": artmod.cover_focus(timer.name),
             })
         return {"timers": rows, "profile": self._name_of(rt),
                 "running": bool(getattr(schedule.timers, "running", False)),

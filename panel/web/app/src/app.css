@@ -1222,9 +1222,12 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
    for. The title already wears a pill; the lines under it get one of their own, as wide
    as the words and no wider. */
 .item.errand.cover.art::after { content: none; }
-/* The crop lands on the subject rather than on the sky: a cover is composed with its
-   floor at the bottom, and `center 40%` (right for a stamp) cut it off. */
-.item.errand.cover.art::before { background-position: center 70%; }
+/* THE CROP LANDS WHERE THE PICTURE SAYS (#2340). A square cover inside a wide card shows
+   a stripe of itself, and which stripe holds the subject is a fact about the picture, not
+   a rule for all of them: the crates sit low, the loaded truck bed sits high. The panel
+   sends it beside the link (`tools/data/errand_art.json`, `focus`); a cover that names
+   none is cropped just below the middle, which is where a composed picture usually is. */
+.item.errand.cover.art::before { background-position: center var(--art-pos, 60%); }
 /* A picture worth showing gets room to be one — a band 144 px tall is a strip. */
 .item.errand.cover { min-height: 168px; }
 /* LOCAL, UNDER THE TEXT, NEVER OVER THE PICTURE. Same pill as the title's, so the card

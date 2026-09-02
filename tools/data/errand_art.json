@@ -20,6 +20,17 @@
     "are named here by stem, and the errand's own one is not sent at all: a clock in front",
     "of a model asked for a truck is noise, not a reference."
   ],
+  "_focus_comment": [
+    "WHERE THE CROP LANDS (#2340). A cover is square and a card is a wide band, so the",
+    "browser shows a stripe of it — and which stripe is a fact about the PICTURE, not a",
+    "rule for all of them: the crates picture has its subject low, the truck has its loaded",
+    "bed high. One CSS vertical position per errand, read by the panel and handed to the",
+    "stylesheet; an errand not named here is cropped at the default (60%)."
+  ],
+  "focus": {
+    "collect_base_resources": "70%",
+    "collect_truck_resources": "45%"
+  },
   "references": {
     "collect_truck_resources": ["zyf_wanfatujing_danrenhuoche", "itemResourceBox"]
   },

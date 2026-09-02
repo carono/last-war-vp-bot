@@ -32,8 +32,12 @@ ICON_ROOT = os.path.join(_ROOT, "results", "errand_icons")
 #: has not run the generator simply has no cover and its cards draw as they always did.
 ART_ROOT = os.path.join(_ROOT, "results", "errand_art")
 MAP_PATH = os.path.join(_ROOT, "tools", "data", "errand_icons.json")
+#: …and the covers' own spec, which holds the prompt each was drawn from and — the part
+#: the PANEL needs — where the crop lands on it (#2340).
+ART_SPEC = os.path.join(_ROOT, "tools", "data", "errand_art.json")
 
 _map: "dict | None" = None
+_focus: "dict | None" = None
 
 
 def _icons() -> dict:
@@ -52,8 +56,28 @@ def _icons() -> dict:
 
 def forget() -> None:
     """Drop the cached map — for a test that writes its own."""
-    global _map
+    global _map, _focus
     _map = None
+    _focus = None
+
+
+def cover_focus(errand: str) -> str:
+    """Where a cover is cropped, as a CSS vertical position, or `""` for the default.
+
+    A square picture inside a wide card shows a STRIPE of itself, and which stripe is a
+    fact about the picture — crates low, a loaded truck bed high. Read out of the same
+    spec the prompts live in, so choosing it is one line beside the prompt it belongs to.
+    """
+    global _focus
+    if _focus is None:
+        try:
+            with open(ART_SPEC, encoding="utf-8") as fh:
+                spec = json.load(fh)
+            focus = spec.get("focus")
+            _focus = {str(k): str(v) for k, v in focus.items()} if isinstance(focus, dict) else {}
+        except (OSError, ValueError, AttributeError):
+            _focus = {}
+    return _focus.get(str(errand or ""), "")
 
 
 def stem_for(errand: str) -> str:

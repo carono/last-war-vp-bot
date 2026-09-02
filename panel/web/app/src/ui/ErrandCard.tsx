@@ -71,8 +71,17 @@ export function useAbout(title: string, about?: string) {
  * 5daa8eb2 — the compactness was fought for and a background is not a reason to give it
  * back). Measured on an emulated iPhone 15 over the live list: 35 cards, min 93 px,
  * average 159 px, max 241 px, before and after. */
-export function artStyle(icon?: string): CSSProperties | undefined {
+export function artStyle(icon?: string, focus?: string): CSSProperties | undefined {
   if (!icon) return undefined
+  // WHERE THE CROP LANDS (#2340) rides beside the link, because it is a fact about the
+  // PICTURE: a square cover inside a wide card shows a stripe of itself, and the stylesheet
+  // cannot know which stripe holds the subject. Absent, and the sheet's own default stands.
+  if (focus) {
+    return {
+      ['--art' as string]: 'url("' + icon + '")',
+      ['--art-pos' as string]: focus,
+    } as CSSProperties
+  }
   // `url("…")` rather than the bare link: a sprite name is the game's own file name and
   // may hold anything a file name may hold.
   return { ['--art' as string]: 'url("' + icon + '")' } as CSSProperties
@@ -152,6 +161,7 @@ export function Stat({ stat }: { stat?: ErrandStat | null }) {
 export function ErrandCard({
   icon,
   cover,
+  focus,
   title,
   about,
   badge,
@@ -169,6 +179,8 @@ export function ErrandCard({
   icon?: string
   /** THE PICTURE WAS DRAWN FOR THE CARD (#2340) — full colour, no wash, «i» at the name. */
   cover?: boolean
+  /** Where the card crops that picture — a CSS vertical position (#2340). */
+  focus?: string
   title: string
   about?: string
   /** A MARK WORN AT THE NAME (#2308) — a player's own note, beside the title. */
@@ -202,7 +214,7 @@ export function ErrandCard({
     <div
       className={'item errand' + (icon ? ' art' : '') + (cover ? ' cover' : '') +
                  (on ? '' : ' off')}
-      style={artStyle(icon)}
+      style={artStyle(icon, focus)}
     >
       {/* ONE BUBBLE, NOT FOUR (#2061). The picture is at full brightness behind it, so
           the words need a panel of their own — and it is a single element around all of
