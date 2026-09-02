@@ -25,6 +25,12 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(os.path.dirname(_HERE))
 
 ICON_ROOT = os.path.join(_ROOT, "results", "errand_icons")
+#: …and the CARD-SIZED pictures (#2340), which are not the game's art: they are drawn
+#: from the sprite above as a reference by `tools/generate_errand_art.py`, one per errand,
+#: named after the ERRAND rather than after a sprite. Git-ignored for the same reason the
+#: sprites are — a picture is not text and this repository holds text — so a machine that
+#: has not run the generator simply has no cover and its cards draw as they always did.
+ART_ROOT = os.path.join(_ROOT, "results", "errand_art")
 MAP_PATH = os.path.join(_ROOT, "tools", "data", "errand_icons.json")
 
 _map: "dict | None" = None
@@ -69,6 +75,24 @@ def name_for(errand: str) -> str:
     return name if file_named(name) else ""
 
 
+def cover_name_for(errand: str) -> str:
+    """The card-sized picture drawn for this errand, or ``""`` when there is none.
+
+    Named after the errand, so nothing has to be mapped: the generator writes
+    ``results/errand_art/<errand>.png`` and this is the reading half of that one rule.
+    """
+    name = str(errand or "").strip()
+    if not name:
+        return ""
+    file = name + ".png"
+    return file if cover_named(file) else ""
+
+
+def cover_named(name: str) -> "str | None":
+    """A bare file name back into a path inside the COVER folder, or ``None``."""
+    return _inside(ART_ROOT, name)
+
+
 def file_named(name: str) -> "str | None":
     """A bare file name back into a path inside the icon folder, or ``None``.
 
@@ -76,12 +100,21 @@ def file_named(name: str) -> "str | None":
     route is reachable from a phone, so the name must be a plain name, carry the one
     suffix this folder holds, and land INSIDE the folder.
     """
+    return _inside(ICON_ROOT, name)
+
+
+def _inside(root_dir: str, name: str) -> "str | None":
+    """The three checks both folders make, written once (#2340).
+
+    The route is reachable from a phone, so the name must be a plain name, carry the one
+    suffix these folders hold, and land INSIDE the folder it was asked of.
+    """
     clean = str(name or "").strip()
     if not clean or clean != os.path.basename(clean) or clean.startswith("."):
         return None
     if os.path.splitext(clean)[1].lower() != ".png":
         return None
-    root = os.path.abspath(ICON_ROOT)
+    root = os.path.abspath(root_dir)
     full = os.path.abspath(os.path.join(root, clean))
     if os.path.dirname(full) != root or not os.path.isfile(full):
         return None

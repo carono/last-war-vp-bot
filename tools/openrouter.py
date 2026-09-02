@@ -6,6 +6,8 @@ r"""Ask OpenRouter something from a terminal — and see what the answer cost.
     python -m tools.openrouter --model <id> --prompt "Count to ten." --stream
     python -m tools.openrouter --model <id> --prompt "..." --json
     python -m tools.openrouter --key
+    python -m tools.openrouter --model <id> --prompt "..." \
+        --image results/art/card.png --reference results/errand_icons/some.png
 
 The key is read from ``OPENROUTER_API_KEY`` — the environment first, then the
 repository's git-ignored ``.env``. There is no default and no key in this file: with
@@ -137,6 +139,42 @@ def _chat_stream(client: "api.Client", args: argparse.Namespace,
     return 0
 
 
+def _image(client: "api.Client", args: argparse.Namespace) -> int:
+    """`--image out.png` — one picture, optionally drawn from references on disk."""
+    model = args.model or api.default_model()
+    if not model:
+        print("no model: pass --model <id>, or set OPENROUTER_MODEL", file=sys.stderr)
+        return 2
+    prompt = sys.stdin.read() if args.prompt == "-" else args.prompt
+    answer = client.image(prompt, model=model, references=args.reference,
+                          system=args.system)
+    if not answer.images:
+        print("the model sent no picture; it said: " + (answer.text or "(nothing)"),
+              file=sys.stderr)
+        return 1
+    out = Path(args.image)
+    written = []
+    for index, blob in enumerate(answer.images):
+        # One picture keeps the name it was given; a model that sent several numbers
+        # them rather than overwriting the first with the last.
+        target = out if index == 0 else out.with_name(f"{out.stem}-{index + 1}{out.suffix}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(blob)
+        written.append(str(target))
+    if args.json:
+        print(json.dumps({"model": answer.model or model, "files": written,
+                          "text": answer.text, "usage": answer.usage.as_dict()},
+                         indent=2, ensure_ascii=False))
+        return 0
+    for path in written:
+        print(path)
+    if answer.text:
+        print(answer.text)
+    print(f"\n{_usage_line(answer.model or model, answer.provider, answer.usage)}",
+          file=sys.stderr)
+    return 0
+
+
 def _usage_line(model: str, provider: str, usage: "api.Usage") -> str:
     where = f" via {provider}" if provider else ""
     return (f"[{model}{where}] {usage.prompt_tokens} in + {usage.completion_tokens} out"
@@ -165,6 +203,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-tokens", dest="max_tokens", type=int, default=None)
     parser.add_argument("--timeout", type=float, default=api.DEFAULT_TIMEOUT,
                         help=f"seconds (default {api.DEFAULT_TIMEOUT:.0f})")
+    parser.add_argument("--image", default="", help="ask for a PICTURE and write it here")
+    parser.add_argument("--reference", action="append", default=[],
+                        help="with --image: a picture on disk the model draws FROM "
+                             "(repeatable)")
     parser.add_argument("--base-url", default=None,
                         help="override OPENROUTER_BASE_URL for this run")
     return parser
@@ -178,6 +220,8 @@ def main(argv: list | None = None) -> int:
             return _print_models(client, args)
         if args.key:
             return _print_key(client, args)
+        if args.image:
+            return _image(client, args)
         if not args.prompt:
             print("nothing to do: pass --prompt, or --models / --key", file=sys.stderr)
             return 2

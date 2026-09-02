@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "The PICTURE each errand's card is drawn as (#2340) — one prompt per errand, and the",
+    "prompt is what is kept rather than the picture: this repository holds text, so the",
+    "art lives in results/errand_art/ (git-ignored) and any machine re-draws its own with",
+    "tools/generate_errand_art.py.",
+    "THE GAME'S OWN SPRITE IS THE REFERENCE, never the picture itself: the sprite named in",
+    "errand_icons.json travels with the prompt so the model matches the client's colours",
+    "and materials, and the scene is composed for a card instead of an icon being blown up",
+    "to fill one.",
+    "The default model is the newest OpenAI picture model OpenRouter carries; a run says",
+    "what it cost, and one picture is roughly a quarter of a credit."
+  ],
+  "model": "openai/gpt-5.4-image-2",
+  "shared": "Use the attached sprite ONLY as a style and colour reference — do not copy, crop or stretch it; compose a full scene of your own. Mobile-game 3D render look, clean rim light, painterly, high detail, crisp. No text, no letters, no numbers, no UI frames, no watermark. Composition: the subject in the left two thirds, the right side calmer and darker so overlaid white text stays readable.",
+  "prompts": {
+    "collect_base_resources": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect the resources the base has produced'. The scene: several blue-and-yellow armoured supply crates stacked at the edge of a futuristic survival base, glowing collection sparkles rising from them, resource icons (gold coins, food, steel bars) floating upward as they are gathered, warm evening light. It must read instantly as 'resources are being collected from the base'."
+  }
+}

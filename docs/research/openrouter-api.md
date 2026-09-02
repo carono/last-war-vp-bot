@@ -206,13 +206,40 @@ Returns `{"data": {...}}` describing the key in use:
 
 Calling this before requests start failing is the documented way to watch a budget.
 
+## Pictures: reference in, image out
+
+The same `POST /chat/completions` draws pictures — it is a modality, not a second
+endpoint. Two things make the difference, and both were verified live on **2026-09-02**:
+
+* `"modalities": ["image", "text"]` on the request. Without it an image-capable model
+  answers in WORDS about the picture it would have drawn.
+* A picture given to the model rides the user message as a content part:
+  `{"type": "image_url", "image_url": {"url": "data:image/png;base64,…"}}`. That is what
+  «use this as a reference» is on the wire — the model sees the art itself.
+
+The answer carries the pictures on `choices[0].message.images`, each
+`{"type": "image_url", "image_url": {"url": "data:image/png;base64,…"}}`, alongside the
+usual `message.content` text. `usage.cost` prices the whole call as always.
+
+Which models can: `architecture.output_modalities` contains `image`. On the day this was
+read that was OpenAI's `openai/gpt-5.4-image-2` (newest), `openai/gpt-5-image`,
+`openai/gpt-5-image-mini`, and Google's Gemini image models. **Pricing is a separate
+field, `pricing.image_output`, per output token** — the image tokens dominate, so one
+1024×1024 picture off `openai/gpt-5.4-image-2` measured **0.2308 credits** (7 270 output
+tokens at $0.00003). It is not a cheap call: a run says what it spent for that reason.
+
+The size of the picture is the model's to choose — nothing in the request asked for one,
+and the answer came back square (1024×1024) despite a prompt asking for 3:2.
+
 ## What this repository implements
 
 `tools/lib/openrouter.py` — `Client.models()`, `Client.key_info()`, `Client.chat()`,
-`Client.chat_stream()`, a `Usage` that carries tokens **and** cost, and one exception class
+`Client.chat_stream()`, `Client.image()` (pictures, with references off this disk),
+a `Usage` that carries tokens **and** cost, and one exception class
 per reaction (`NotConfigured`, `AuthError`, `OutOfCredit`, `Forbidden`, `BadRequest`,
 `RateLimited` with `retry_after`, `ServerError`, `Timeout`).
 
 `tools/openrouter.py` — the terminal wrapper: `--models` (with `--search`, `--free`,
 `--limit`), `--model` + `--prompt` (`-` reads stdin), `--stream`, `--key`, `--json`, and
-the sampling flags. Offline tests: `tests/test_openrouter.py`.
+the sampling flags, and `--image out.png` with repeatable `--reference path.png`. Offline
+tests: `tests/test_openrouter.py`.

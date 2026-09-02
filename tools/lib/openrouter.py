@@ -34,7 +34,9 @@ from a provider that is down — retry, possibly with another model).
 """
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import os
 import urllib.error
 import urllib.request
@@ -152,6 +154,26 @@ class Usage:
             "cached_tokens": self.cached_tokens,
             "upstream_cost": self.upstream_cost,
         }
+
+
+@dataclass
+class ImageAnswer:
+    """What a picture-making model sent back: the images, any words, and the bill.
+
+    ``images`` are raw bytes, already decoded from the ``data:`` URLs OpenRouter puts on
+    ``message.images`` — a caller writes them to a file and is done. ``text`` is whatever
+    the model said alongside (these models like to describe what they drew), and ``usage``
+    carries the same ``cost`` every other call reports, so the price of a picture is
+    visible without a second request.
+    """
+
+    images: list = field(default_factory=list)
+    text: str = ""
+    model: str = ""
+    provider: str = ""
+    usage: Usage = field(default_factory=Usage)
+    id: str = ""
+    raw: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -372,6 +394,34 @@ class Client:
                 if chunk.get("usage"):
                     yield Usage.from_payload(chunk["usage"])
 
+    def image(self, prompt: str, *, model: str, references: Sequence[str] | None = None,
+              system: str | None = None, timeout: float | None = None,
+              **params: Any) -> ImageAnswer:
+        """Ask a picture-making model for an image — optionally FROM a reference picture.
+
+        ``references`` are paths to pictures already on this disk. They travel as
+        ``data:`` URLs on the user message, which is what «take this icon as a reference»
+        means on the wire: the model sees the art rather than a description of it. The
+        request carries ``modalities: ["image", "text"]``, without which an image-capable
+        model answers in words about the picture it would have drawn.
+        """
+        content: list = [{"type": "text", "text": prompt}]
+        for path in references or ():
+            content.append({"type": "image_url", "image_url": {"url": data_url(path)}})
+        messages: list = [{"role": "user", "content": content}]
+        if system:
+            messages.insert(0, {"role": "system", "content": system})
+        payload: dict = {"model": model, "messages": messages,
+                         "modalities": ["image", "text"]}
+        payload.update({k: v for k, v in params.items() if v is not None})
+        if not model:
+            raise BadRequest("no model: pass --model, or set OPENROUTER_MODEL")
+        with self._request("POST", "/chat/completions", payload,
+                           timeout=timeout) as response:
+            body = _read_json(response)
+        _raise_for_body(body)
+        return _image_from_body(body)
+
     # -- payload -------------------------------------------------------------------
 
     @staticmethod
@@ -521,6 +571,59 @@ def _answer_from_body(body: dict) -> ChatAnswer:
         provider=str(body.get("provider") or ""),
         finish_reason=str(first.get("finish_reason") or ""),
         tool_calls=list(message.get("tool_calls") or []),
+        usage=Usage.from_payload(body.get("usage")),
+        id=str(body.get("id") or ""),
+        raw=body,
+    )
+
+
+# --------------------------------------------------------------------------- pictures
+
+def data_url(path: str | Path) -> str:
+    """A picture on this disk as the ``data:`` URL a message carries it in.
+
+    The type is read off the suffix rather than pinned to PNG: a reference may be a JPEG,
+    and a wrong ``image/png`` in front of JPEG bytes is refused by some providers and
+    silently mis-decoded by others.
+    """
+    file = Path(path)
+    raw = file.read_bytes()
+    kind = mimetypes.guess_type(file.name)[0] or "image/png"
+    return f"data:{kind};base64," + base64.b64encode(raw).decode("ascii")
+
+
+def _image_bytes(url: str) -> bytes:
+    """The bytes inside a ``data:...;base64,...`` URL, or ``b""`` for anything else."""
+    if not isinstance(url, str) or not url.startswith("data:"):
+        return b""
+    _, _, payload = url.partition(",")
+    try:
+        return base64.b64decode(payload)
+    except (ValueError, TypeError):
+        return b""
+
+
+def _image_from_body(body: dict) -> ImageAnswer:
+    choices = body.get("choices") or []
+    first = choices[0] if choices and isinstance(choices[0], dict) else {}
+    message = first.get("message") or {}
+    images = []
+    for item in message.get("images") or []:
+        if not isinstance(item, dict):
+            continue
+        url = (item.get("image_url") or {}).get("url") if isinstance(item.get("image_url"), dict) else item.get("url")
+        raw = _image_bytes(url or "")
+        if raw:
+            images.append(raw)
+    content = message.get("content")
+    if isinstance(content, list):
+        content = "".join(part.get("text", "") for part in content
+                          if isinstance(part, dict))
+    return ImageAnswer(
+        images=images,
+        text=content or "",
+        model=str(body.get("model") or ""),
+        provider=str(body.get("provider") or ""),
         usage=Usage.from_payload(body.get("usage")),
         id=str(body.get("id") or ""),
         raw=body,

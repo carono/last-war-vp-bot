@@ -28,3 +28,23 @@ def name_for(errand: str) -> str:
     if not name:
         return ""
     return "/api/errandicon?icon=" + _url.quote(name)
+
+
+def cover_for(errand: str) -> str:
+    """The CARD-SIZED picture for an errand, or `""` when this machine has none (#2340).
+
+    A cover is not the game's sprite: it is a picture drawn FROM that sprite by
+    `tools/generate_errand_art.py`, sized for the card rather than for a corner of it. A
+    card that has one draws it at full brightness and in full colour, with no wash over
+    the picture — which is only honest for a picture composed for the card, and is why the
+    two are told apart here rather than in the stylesheet.
+    """
+    try:
+        import errand_icons
+
+        name = errand_icons.cover_name_for(errand)
+    except Exception:                    # noqa: BLE001 — a picture, never the page
+        return ""
+    if not name:
+        return ""
+    return "/api/errandicon?art=" + _url.quote(name)

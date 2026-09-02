@@ -779,7 +779,11 @@ class WebApi:
                 # …and the game's own picture for it (#2019), as a NAME the phone
                 # fetches once off `/api/errandicon` — a sprite inside the view
                 # would be tens of kilobytes on every poll of the page.
-                "icon": artmod.name_for(timer.name),
+                # A COVER WINS OVER THE SPRITE (#2340): a picture drawn for the card
+                # is the card, so the row says which of the two it sent and the page
+                # draws a cover at full colour with nothing washed over it.
+                "icon": artmod.cover_for(timer.name) or artmod.name_for(timer.name),
+                "cover": bool(artmod.cover_for(timer.name)),
             })
         return {"timers": rows, "profile": self._name_of(rt),
                 "running": bool(getattr(schedule.timers, "running", False)),

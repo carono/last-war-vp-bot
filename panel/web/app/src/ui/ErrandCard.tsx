@@ -151,6 +151,7 @@ export function Stat({ stat }: { stat?: ErrandStat | null }) {
  */
 export function ErrandCard({
   icon,
+  cover,
   title,
   about,
   badge,
@@ -166,6 +167,8 @@ export function ErrandCard({
   sheets,
 }: {
   icon?: string
+  /** THE PICTURE WAS DRAWN FOR THE CARD (#2340) — full colour, no wash, «i» at the name. */
+  cover?: boolean
   title: string
   about?: string
   /** A MARK WORN AT THE NAME (#2308) — a player's own note, beside the title. */
@@ -188,10 +191,17 @@ export function ErrandCard({
   sheets?: ReactNode
 }) {
   const info = useAbout(title, about)
-  const row = [info.button, ...(acts || [])].filter(Boolean)
+  /* THE «i» LEADS THE NAME ON A COVER CARD (#2340) — the person's words: «кнопку i
+     ставим перед названием и переделываем в иконку». On a card whose picture is a
+     sprite it stays where it has been since #2061, first in the row of signs: the two
+     drawings are told apart by the PICTURE, not by the row, so nothing else changes
+     under a card that has no cover yet. */
+  const lead = cover ? info.button : null
+  const row = (cover ? (acts || []) : [info.button, ...(acts || [])]).filter(Boolean)
   return (
     <div
-      className={'item errand' + (icon ? ' art' : '') + (on ? '' : ' off')}
+      className={'item errand' + (icon ? ' art' : '') + (cover ? ' cover' : '') +
+                 (on ? '' : ' off')}
       style={artStyle(icon)}
     >
       {/* ONE BUBBLE, NOT FOUR (#2061). The picture is at full brightness behind it, so
@@ -201,6 +211,7 @@ export function ErrandCard({
           gets no bubble at all and draws exactly as it did. */}
       <div className="errand-body">
         <div className="errand-head">
+          {lead}
           <span className="title">{title}</span>
           {/* THE MARK RIDES THE NAME (#2308): it is the reason somebody looks a row up,
               and on the line of facts underneath it was one word among six. */}

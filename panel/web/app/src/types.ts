@@ -146,6 +146,11 @@ export interface TimerRow {
   options?: Field[]
   /* The game's own picture for it, and one live line under it (#2019). */
   icon?: string
+  /* THE PICTURE IS A COVER, not a sprite (#2340): drawn for this card at card size, so
+     it is shown in full colour with nothing washed over it and the card's own signs move
+     out of the picture's way. Absent on every row this machine has no cover for, and
+     then the card draws exactly as it did. */
+  cover?: boolean
   stat?: ErrandStat | null
 }
 

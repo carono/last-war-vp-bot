@@ -78,6 +78,7 @@ function useGear(errand: string, title: string, options: Field[] | undefined, re
  */
 function ErrandBlock({
   icon,
+  cover,
   title,
   about,
   on,
@@ -91,6 +92,7 @@ function ErrandBlock({
   run,
 }: {
   icon?: string
+  cover?: boolean
   title: string
   about?: string
   on: boolean
@@ -107,6 +109,7 @@ function ErrandBlock({
   return (
     <ErrandCard
       icon={icon}
+      cover={cover}
       title={title}
       about={about}
       on={on}
@@ -159,6 +162,7 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
   return (
     <ErrandBlock
       icon={row.icon}
+      cover={row.cover}
       title={row.title}
       about={row.about}
       on={row.enabled}

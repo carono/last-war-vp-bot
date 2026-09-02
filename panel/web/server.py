@@ -530,9 +530,18 @@ def _make_handler(server: WebServer):
             than trusted. A machine that has not run the extractor answers 404 for every
             one of them and the phone draws blocks with no picture — which is what the
             page looked like before, not a fault.
+
+            THE SAME ROUTE SERVES THE CARD-SIZED COVERS (#2340, `art=`), and it is
+            deliberately not a seventh door: they are pictures for the same cards, asked
+            for by the same page, and a route per folder is how a front-end ends up with
+            six ways of fetching one thing. Both names are checked by `errand_icons`
+            against their own folder rather than trusted.
             """
             def resolve():
                 import errand_icons
+                art = _one(query.get("art"))
+                if art:
+                    return errand_icons.cover_named(art)
                 return errand_icons.file_named(_one(query.get("icon")))
 
             self._picture(query, resolve)
