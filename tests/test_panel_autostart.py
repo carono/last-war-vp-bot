@@ -589,6 +589,55 @@ def test_the_panel_is_opened_with_the_windowed_interpreter_when_there_is_one():
     assert autostartmod.panel_python("/usr/bin/python3") == "/usr/bin/python3"
 
 
+def test_only_a_restarts_replacement_waits_for_a_profile_lock():
+    """#1897: the replacement read the old panel's lock as «somebody else is on this account».
+
+    The old panel drops each lock on its way out, but the replacement is started from
+    inside that shutdown — and a profile whose heartbeat never started keeps its lock
+    until the process itself ends. The replacement then exited 0, silently, and there
+    was no panel at all until the hourly look.
+
+    So exactly one caller waits: the one whose environment names the panel it replaces,
+    and only while that pid is alive. Everybody else — a second shortcut, a second
+    account's window — is refused instantly, which is what «one panel per profile» is.
+    """
+    calls = []
+
+    def _never(_handle):
+        calls.append(time.time())
+        return False
+
+    was_lock, was_grace = autostartmod._lock_exclusive, autostartmod.RELAUNCH_GRACE_SEC
+    was_env = os.environ.pop(autostartmod.RELAUNCH_ENV, None)
+    autostartmod._lock_exclusive = _never
+    autostartmod.RELAUNCH_GRACE_SEC = 0.75
+    try:
+        # Nobody sent us: no wait at all, whatever the lock says.
+        started = time.time()
+        assert autostartmod._wait_out_the_panel_we_replace(None) is False
+        assert time.time() - started < 0.2, "an ordinary caller must not wait"
+        assert not calls, "and must not even ask a second time"
+
+        # A restart's replacement, told which panel it replaces — and that panel is this
+        # process, which is alive, so it waits out the grace and asks repeatedly.
+        os.environ[autostartmod.RELAUNCH_ENV] = str(os.getpid())
+        started = time.time()
+        assert autostartmod._wait_out_the_panel_we_replace(None) is False
+        assert time.time() - started >= 0.5, "the replacement must wait for the lock"
+        assert len(calls) > 1, calls
+
+        # …and takes it the moment the old panel lets go.
+        answers = [False, False, True]
+        autostartmod._lock_exclusive = lambda _h: answers.pop(0) if answers else True
+        assert autostartmod._wait_out_the_panel_we_replace(None) is True
+    finally:
+        autostartmod._lock_exclusive = was_lock
+        autostartmod.RELAUNCH_GRACE_SEC = was_grace
+        os.environ.pop(autostartmod.RELAUNCH_ENV, None)
+        if was_env is not None:
+            os.environ[autostartmod.RELAUNCH_ENV] = was_env
+
+
 def _main() -> int:
     if autostartmod is None:
         print("  SKIP no tkinter — panel.runtime cannot be imported here")

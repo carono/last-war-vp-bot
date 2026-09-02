@@ -39,6 +39,7 @@ from . import profile as profilemod
 from . import runtime as runtimemod
 from . import tabs as tabsreg
 from .runtime import autostart as autostartmod
+from .runtime import streams as streamsmod
 from .runtime import panel_control as panelctl
 from .runtime import profile_control as profilectl
 from .runtime import provision as provisionmod
@@ -685,6 +686,9 @@ def _last_open() -> list:
 
 
 def main(argv=None) -> int:
+    # BEFORE ANYTHING PRINTS — see `panel/runtime/streams.py`. This entrypoint is the
+    # one most often started detached, and it says everything it has to say on stderr.
+    streamsmod.ensure()
     ap = argparse.ArgumentParser(prog="panel.headless", description=__doc__)
     ap.add_argument("--profile", action="append", default=[],
                     help="open this profile (repeatable); default is what was last open")

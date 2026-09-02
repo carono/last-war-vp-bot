@@ -79,6 +79,12 @@ SHARED_DB = os.path.join(PROFILES_DIR, "panel.db")
 TIMERS_TEMPLATE = os.path.join(PROFILES_DIR, "timers.json")
 TRIGGERS_TEMPLATE = os.path.join(PROFILES_DIR, "triggers.json")
 
+#: What a RESTART left behind: the command it ran, the pid it got, and whatever the
+#: replacement printed before its own logging was up (`panel/runtime/updates.py`).
+#: Panel-wide, beside the fallback debug log, because the process writing it belongs to
+#: no profile — it is the one that is on its way out (#1897).
+RELAUNCH_LOG = os.path.join(PROFILES_DIR, "panel_relaunch.log")
+
 #: The fallback debug log — used only before the panel has pointed the handler at a
 #: profile's own ``debug.log`` (``panel/debug_log.py``).
 FALLBACK_DEBUG_LOG = os.path.join(PROFILES_DIR, "panel_debug.log")

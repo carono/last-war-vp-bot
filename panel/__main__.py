@@ -121,6 +121,7 @@ from . import debug_log as dbgmod
 from . import i18n as i18nmod
 from . import runtime
 from .runtime import stall as stallmod
+from .runtime import streams as streamsmod
 from .runtime import tick as tickmod
 from . import profile as profilemod
 from . import tabs as tabsreg
@@ -4845,6 +4846,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
     # switchable at all.
 
 def main(argv: list[str] | None = None) -> int:
+    # BEFORE ANYTHING PRINTS. A detached `pythonw` has no stdout and no stderr, and the
+    # first `print` into a `None` stream kills a panel nobody can hear (#1897).
+    streamsmod.ensure()
     import argparse
     parser = argparse.ArgumentParser(prog="panel", description="Last War control panel")
     parser.add_argument("--profile", metavar="NAME", default=None,
@@ -4882,6 +4886,16 @@ def _already_open(profile: str | None) -> bool:
     name = profilemod.sanitize(profile or "") or profiles.active
     if not autostartmod.locked(profiles, name):
         return False
+
+    # SAID OUT LOUD, in the one log that exists before a profile is open (#1897). This
+    # is where a restart's replacement used to disappear: it exits 0, no profile log is
+    # ever opened, and from the outside the panel is simply gone. `panel_logger` writes
+    # to the panel-wide file, and the relaunch log has this process' stdout as well.
+    dbgmod.panel_logger().warning(
+        "panel not opened: profile %r is held by pid %s", name,
+        autostartmod.holder(profiles, name) or "?")
+    print(f"panel: profile {name!r} is held by another panel — not opening",
+          file=sys.stderr, flush=True)
 
     say = i18nmod.I18n().t
     root = None

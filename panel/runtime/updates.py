@@ -646,14 +646,109 @@ def relaunch_command(argv: list | None = None, module: str = "panel") -> list:
     return [sys.executable, "-m", str(module or "panel"), *args]
 
 
-def relaunch(argv: list | None = None, repo: str = REPO, module: str = "panel"):
+#: Environment variable the replacement is started with: the pid of the panel it
+#: replaces. Read by `panel/runtime/autostart.py`, which then WAITS for that panel to
+#: let a profile's lock go instead of declaring the profile busy and exiting (#1897).
+RELAUNCH_ENV = "LW_PANEL_RELAUNCH_OF"
+
+#: How long :func:`relaunch` watches the process it started before giving up on it. A
+#: replacement that is going to die on an import error or on a busy profile dies within
+#: a couple of seconds; one that is still running after this is booting.
+RELAUNCH_WATCH_SEC = 8.0
+
+#: Cap on the relaunch log before it is rolled over to ``.1``.
+RELAUNCH_LOG_MAX = 512 * 1024
+
+
+def relaunch_log() -> str:
+    """Where the trail of a restart is kept. A function, so a test can redirect it."""
+    from .. import paths as panelpaths          # noqa: PLC0415 — no import cycle at boot
+
+    return panelpaths.RELAUNCH_LOG
+
+
+def relaunch_note(line: str) -> None:
+    """One line into the relaunch log. Best effort — a note is never worth a crash."""
+    path = relaunch_log()
+    try:
+        if os.path.getsize(path) > RELAUNCH_LOG_MAX:
+            os.replace(path, path + ".1")
+    except OSError:
+        pass
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {line}\n")
+    except OSError:
+        pass
+
+
+def relaunch(argv: list | None = None, repo: str = REPO, module: str = "panel",
+             watch: float = RELAUNCH_WATCH_SEC):
     """Start a fresh panel and return the new process.
 
     The caller closes the old window FIRST — the new panel reads the profile on the way
     up, and a shutdown that has not yet written it is a lost session's worth of
     settings. Detached, so the replacement outlives the process that spawned it.
+
+    **AND ITS OUTPUT IS KEPT (#1897).** Detached with no redirection, a replacement that
+    died on the way up said it into nothing: the old panel was already closed, no log
+    grew, no line anywhere said the restart had not landed, and the panel lay down until
+    the hourly autostart check happened to look. So this is `open_panel`'s shape now —
+    stdin from nowhere, stdout and stderr into :func:`relaunch_log` — plus a WATCH: the
+    child is polled for ``watch`` seconds while this process is still alive to say
+    something, and a child that has already exited is written down and tried once more.
+
+    :data:`RELAUNCH_ENV` carries this process' pid to the replacement, which is what
+    lets it wait out a profile lock this panel has not let go of yet rather than read it
+    as «another panel holds this account» and exit silently.
     """
     flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
              | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-    return subprocess.Popen(relaunch_command(argv, module), cwd=repo, close_fds=True,
-                            creationflags=flags)
+    cmd = relaunch_command(argv, module)
+    env = dict(os.environ)
+    env[RELAUNCH_ENV] = str(os.getpid())
+
+    def _spawn():
+        try:
+            sink = open(relaunch_log(), "a", encoding="utf-8")
+        except OSError:
+            sink = subprocess.DEVNULL
+        try:
+            return subprocess.Popen(cmd, cwd=repo, close_fds=True, creationflags=flags,
+                                    stdin=subprocess.DEVNULL, stdout=sink,
+                                    stderr=subprocess.STDOUT, env=env)
+        finally:
+            if sink is not subprocess.DEVNULL:
+                try:
+                    sink.close()
+                except OSError:
+                    pass
+
+    relaunch_note(f"relaunch: {' '.join(cmd)} (cwd={repo}, from pid {os.getpid()})")
+    proc = _spawn()
+    relaunch_note(f"started pid {proc.pid}")
+    if watch <= 0:
+        return proc
+    rc = _watch(proc, watch)
+    if rc is None:
+        relaunch_note(f"pid {proc.pid} still up after {watch:.0f}s — booting")
+        return proc
+    relaunch_note(f"pid {proc.pid} exited rc={rc} within {watch:.0f}s — starting one more")
+    second = _spawn()
+    relaunch_note(f"started pid {second.pid} (retry)")
+    rc2 = _watch(second, watch)
+    if rc2 is not None:
+        relaunch_note(f"pid {second.pid} exited rc={rc2} too — no panel was started")
+    return second
+
+
+def _watch(proc, seconds: float):
+    """Poll ``proc`` for ``seconds``. The exit code if it ended, ``None`` if it is up."""
+    deadline = time.monotonic() + max(0.0, seconds)
+    while time.monotonic() < deadline:
+        rc = proc.poll()
+        if rc is not None:
+            return rc
+        time.sleep(0.25)
+    return proc.poll()

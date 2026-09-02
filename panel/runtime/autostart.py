@@ -192,6 +192,53 @@ def _lock_exclusive(handle) -> bool:
         return False
 
 
+#: Set on the replacement a restart starts (`panel/runtime/updates.py::relaunch`): the
+#: pid of the panel it replaces.
+RELAUNCH_ENV = "LW_PANEL_RELAUNCH_OF"
+#: How long that replacement waits for a lock the panel it replaces has not let go of
+#: yet. Longer than a shutdown of four profiles takes and short enough that a panel
+#: nobody is replacing never notices it.
+RELAUNCH_GRACE_SEC = 30.0
+
+
+def _relaunch_parent() -> int:
+    """The pid of the panel this process was started to replace, or ``0``."""
+    try:
+        return int(os.environ.get(RELAUNCH_ENV) or 0)
+    except ValueError:
+        return 0
+
+
+def _wait_out_the_panel_we_replace(handle) -> bool:
+    """A restart's replacement waits for the lock; anybody else is told «held» at once.
+
+    THE SILENT DEATH OF A RESTART (#1897). The old panel drops each profile's lock on
+    its way out, but «on its way out» is not «before the replacement asks»: the
+    replacement is started from inside that shutdown, and a profile whose heartbeat was
+    never running keeps its lock until the process itself ends. The replacement then
+    read the lock as «another panel holds this account», said so to a log nobody was
+    reading, and exited — leaving no panel at all until the hourly check looked.
+
+    So the one process that is allowed to wait does: only when :data:`RELAUNCH_ENV`
+    names a pid, only while that pid is still alive, and only for
+    :data:`RELAUNCH_GRACE_SEC`. Every other caller — a second shortcut, a second
+    account's window — gets the same instant refusal it always did.
+    """
+    parent = _relaunch_parent()
+    if not parent:
+        return False
+    deadline = time.time() + RELAUNCH_GRACE_SEC
+    while time.time() < deadline:
+        if _pid_alive(parent) is False:
+            # It is gone; one last ask, because the lock may have been released by the
+            # kernel between the poll above and here.
+            return _lock_exclusive(handle)
+        time.sleep(0.25)
+        if _lock_exclusive(handle):
+            return True
+    return False
+
+
 def take_lock(profiles, name: str | None = None):
     """Hold this profile's instance lock for as long as the returned handle lives.
 
@@ -206,7 +253,7 @@ def take_lock(profiles, name: str | None = None):
         handle = open(path, "a+b")
     except OSError:
         return None
-    if not _lock_exclusive(handle):
+    if not _lock_exclusive(handle) and not _wait_out_the_panel_we_replace(handle):
         handle.close()
         return None
     try:                                      # for a person reading the folder

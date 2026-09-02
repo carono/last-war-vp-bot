@@ -749,6 +749,52 @@ def test_relaunch_command_runs_the_package_not_the_file():
     assert not any(c.endswith("__main__.py") for c in cmd), cmd
 
 
+def test_a_relaunch_that_dies_leaves_a_trail_and_is_tried_once_more():
+    """#1897: a detached replacement died into nothing and the panel lay down for an hour.
+
+    The old panel is already closed when the replacement is started, and the child had
+    no stdout, no stderr and no watcher — so «the panel did not come back» was reported
+    by no line in any file. Now the command, the pid, the child's own output and the
+    exit code all land in one log, and a child that has already exited is tried again.
+    """
+    import panel.paths as panelpaths
+
+    with tempfile.TemporaryDirectory() as tmp:
+        was, panelpaths.RELAUNCH_LOG = panelpaths.RELAUNCH_LOG, \
+            os.path.join(tmp, "panel_relaunch.log")
+        try:
+            updates.relaunch(argv=["-c", "raise SystemExit(\"cannot start\")"],
+                             module="this_module_does_not_exist", watch=2.0)
+            said = Path(panelpaths.RELAUNCH_LOG).read_text(encoding="utf-8")
+        finally:
+            panelpaths.RELAUNCH_LOG = was
+
+    assert "relaunch: " in said, said
+    assert "started pid " in said, said
+    # What the child said for itself — the whole point: without this the failure is
+    # invisible from outside.
+    assert "cannot start" in said or "No module named" in said, said
+    assert "exited rc=" in said, said
+    assert "(retry)" in said, said
+
+
+def test_the_replacement_is_told_which_panel_it_replaces():
+    """The pid travels in the environment so the new panel can wait out the old one's lock.
+
+    Not in argv: `relaunch_command` passes `sys.argv[1:]` on, so a flag added there
+    would be inherited by every restart after it, for ever.
+    """
+    assert updates.RELAUNCH_ENV not in " ".join(updates.relaunch_command([]))
+    assert autostart_relaunch_env() == updates.RELAUNCH_ENV, (
+        "the two sides of the handshake must name the same variable")
+
+
+def autostart_relaunch_env() -> str:
+    from panel.runtime import autostart as autostartmod
+
+    return autostartmod.RELAUNCH_ENV
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
