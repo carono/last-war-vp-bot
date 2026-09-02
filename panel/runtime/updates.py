@@ -719,7 +719,14 @@ def relaunch(argv: list | None = None, repo: str = REPO, module: str = "panel",
     lets it wait out a profile lock this panel has not let go of yet rather than read it
     as «another panel holds this account» and exit silently.
     """
-    flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
+    # NOT `DETACHED_PROCESS`, and that is a MEASUREMENT rather than a preference: #2069
+    # tried the service restarter one flag at a time and found the child exiting 0 having
+    # done nothing at all with it, and running normally without it. The flag was never
+    # what makes a child outlive its parent — on Windows nothing kills a child when the
+    # parent goes. `CREATE_NO_WINDOW` gives it no console to flash over the desktop and
+    # `CREATE_NEW_PROCESS_GROUP` keeps this process' Ctrl+C off it, which is all that was
+    # ever wanted here (#1897).
+    flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0)
              | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     cmd = relaunch_command(argv, module)
     env = dict(os.environ)
