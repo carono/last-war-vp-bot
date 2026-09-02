@@ -1073,7 +1073,14 @@ class WebApi:
                 "options": schedule.options.fields(trig.name),
                 # …and its own live line, where one is free (#2019).
                 "stat": statsmod.of(rt, trig.name),
-                "icon": artmod.name_for(trig.name),
+                # A LISTENER GETS A COVER TOO, on the same terms as a timer (#2370).
+                # It was the timers alone until every errand had a picture drawn for it,
+                # and the difference showed: two cards in full colour at the top of the
+                # page and thirty sprites under a wash below them, which is the «все
+                # остальное старое» this pass answers.
+                "icon": artmod.cover_for(trig.name) or artmod.name_for(trig.name),
+                "cover": bool(artmod.cover_for(trig.name)),
+                "focus": artmod.cover_focus(trig.name),
             })
         # THE STANDING ORDERS THAT ARE IN NO CATALOGUE (#2017): «Автолут ★»,
         # «Автопомощь», «Автолут отрядов призрака». They are watchers a tab owns, and to
@@ -1088,7 +1095,10 @@ class WebApi:
                    "hint": order.hint_key,
                    "options": schedule.options.fields(order.name),
                    "stat": statsmod.of(rt, order.name),
-                   "icon": artmod.name_for(order.name)}
+                   "icon": (artmod.cover_for(order.name)
+                            or artmod.name_for(order.name)),
+                   "cover": bool(artmod.cover_for(order.name)),
+                   "focus": artmod.cover_focus(order.name)}
                   for order in schedule.options.orders()]
         return {"triggers": rows, "orders": orders,
                 "profile": self._name_of(rt), "time": time.time()}

@@ -1,41 +1,155 @@
 {
-  "_comment": [
-    "The PICTURE each errand's card is drawn as (#2340) — one prompt per errand, and the",
-    "prompt is what is kept rather than the picture: this repository holds text, so the",
-    "art lives in results/errand_art/ (git-ignored) and any machine re-draws its own with",
-    "tools/generate_errand_art.py.",
-    "THE GAME'S OWN SPRITE IS THE REFERENCE, never the picture itself: the sprite named in",
-    "errand_icons.json travels with the prompt so the model matches the client's colours",
-    "and materials, and the scene is composed for a card instead of an icon being blown up",
-    "to fill one.",
-    "The default model is the newest OpenAI picture model OpenRouter carries; a run says",
-    "what it cost, and one picture is roughly a quarter of a credit."
+ "_comment": [
+  "The PICTURE each errand's card is drawn as (#2340) — one prompt per errand, and the",
+  "prompt is what is kept rather than the picture: this repository holds text, so the",
+  "art lives in results/errand_art/ (git-ignored) and any machine re-draws its own with",
+  "tools/generate_errand_art.py.",
+  "THE GAME'S OWN SPRITE IS THE REFERENCE, never the picture itself: the sprite named in",
+  "errand_icons.json travels with the prompt so the model matches the client's colours",
+  "and materials, and the scene is composed for a card instead of an icon being blown up",
+  "to fill one.",
+  "The default model is the newest OpenAI picture model OpenRouter carries; a run says",
+  "what it cost, and one picture is roughly a quarter of a credit."
+ ],
+ "model": "openai/gpt-5.4-image-2",
+ "shared": "Use the attached sprite ONLY as a style and colour reference — do not copy, crop or stretch it; compose a full scene of your own. Mobile-game 3D render look, clean rim light, painterly, high detail, crisp. No text, no letters, no numbers, no UI frames, no watermark. Composition: the subject in the left two thirds, the right side calmer and darker so overlaid white text stays readable.",
+ "_references_comment": [
+  "Which sprites travel WITH the prompt (#2340). Left unsaid, an errand sends its own",
+  "sprite off errand_icons.json — right when that sprite depicts the thing. Where it",
+  "does not (the truck errand's own icon is the idle-reward CLOCK), the sprites that do",
+  "are named here by stem, and the errand's own one is not sent at all: a clock in front",
+  "of a model asked for a truck is noise, not a reference.",
+  "#2370 drew the other forty-two, and where an errand has no game sprite of its own —",
+  "or wears one that depicts something else — the reference named here is a MANUAL",
+  "choice, made from what the client actually has and written down so it can be argued",
+  "with. Four errands are drawn with no reference at all (nothing in the client depicts",
+  "them): restart_game, session_kick, leaderboard_collect, resource_tracker."
+ ],
+ "_focus_comment": [
+  "WHERE THE CROP LANDS (#2340). A cover is square and a card is a wide band, so the",
+  "browser shows a stripe of it — and which stripe is a fact about the PICTURE, not a",
+  "rule for all of them: the crates picture has its subject low, the truck has its loaded",
+  "bed high. One CSS vertical position per errand, read by the panel and handed to the",
+  "stylesheet; an errand not named here is cropped at the default (60%)."
+ ],
+ "focus": {
+  "collect_base_resources": "70%",
+  "collect_truck_resources": "45%",
+  "attack_codename_daily": "45%",
+  "attack_crystal_boss_daily": "45%",
+  "work_alert_tower": "40%",
+  "arena_3v3_battles": "50%",
+  "alliance_train_board": "50%",
+  "firework_collect": "40%",
+  "firework_watch": "35%",
+  "recruit_survivors": "55%",
+  "send_trucks": "55%",
+  "radar_full_cycle": "45%"
+ },
+ "references": {
+  "collect_truck_resources": [
+   "zyf_wanfatujing_danrenhuoche",
+   "itemResourceBox"
   ],
-  "model": "openai/gpt-5.4-image-2",
-  "shared": "Use the attached sprite ONLY as a style and colour reference — do not copy, crop or stretch it; compose a full scene of your own. Mobile-game 3D render look, clean rim light, painterly, high detail, crisp. No text, no letters, no numbers, no UI frames, no watermark. Composition: the subject in the left two thirds, the right side calmer and darker so overlaid white text stays readable.",
-  "_references_comment": [
-    "Which sprites travel WITH the prompt (#2340). Left unsaid, an errand sends its own",
-    "sprite off errand_icons.json — right when that sprite depicts the thing. Where it",
-    "does not (the truck errand's own icon is the idle-reward CLOCK), the sprites that do",
-    "are named here by stem, and the errand's own one is not sent at all: a clock in front",
-    "of a model asked for a truck is noise, not a reference."
+  "collect_visitor_gifts": [
+   "zyf_wanfatujing_xingcunzhezhaomu"
   ],
-  "_focus_comment": [
-    "WHERE THE CROP LANDS (#2340). A cover is square and a card is a wide band, so the",
-    "browser shows a stripe of it — and which stripe is a fact about the PICTURE, not a",
-    "rule for all of them: the crates picture has its subject low, the truck has its loaded",
-    "bed high. One CSS vertical position per errand, read by the panel and handed to the",
-    "stylesheet; an errand not named here is cropped at the default (60%)."
+  "heal_units": [
+   "zyf_zhuchengyiyuan_zhuyeqipao"
   ],
-  "focus": {
-    "collect_base_resources": "70%",
-    "collect_truck_resources": "45%"
-  },
-  "references": {
-    "collect_truck_resources": ["zyf_wanfatujing_danrenhuoche", "itemResourceBox"]
-  },
-  "prompts": {
-    "collect_base_resources": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect the resources the base has produced'. The scene: several blue-and-yellow armoured supply crates stacked at the edge of a futuristic survival base, glowing collection sparkles rising from them, resource icons (gold coins, food, steel bars) floating upward as they are gathered, warm evening light. It must read instantly as 'resources are being collected from the base'.",
-    "collect_truck_resources": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect what the armed supply truck has brought in'. The scene: a heavy armoured cargo truck — plated cab, bull bar, a mounted gun turret over the roof — standing at the gate of a futuristic survival base, seen from a three-quarter front angle. Its open cargo bed is FULL of resources and they are the point of the picture: blue-and-yellow armoured supply crates, stacked steel bars, sacks of grain and a spill of gold coins, catching the light. Warm evening light, faint dust in the air. It must read instantly as 'the armed truck came back loaded'."
-  }
+  "collect_vip_gifts": [
+   "cfm_zhujiemian_libao_tubiao_1"
+  ],
+  "mail_gifts": [
+   "cfm_zhujiemian_libao_tubiao_1"
+  ],
+  "daily_quests": [
+   "cfm_zhujiemian_libao_tubiao_1"
+  ],
+  "attack_crystal_boss_daily": [
+   "zyf_wanfatujing_guaiwuruqing"
+  ],
+  "arena_3v3_battles": [
+   "ljq_zhujiemian_jungong"
+  ],
+  "occupation_skills": [
+   "Common_icon_worker"
+  ],
+  "perform_arms_race": [
+   "zyf_lianmengkejijuanxian_jifen"
+  ],
+  "work_alert_tower": [
+   "icon_leida"
+  ],
+  "ghost_recon_alliance": [
+   "lyp_daditu_zhencha_01"
+  ],
+  "ghost_autoloot": [
+   "lyp_daditu_zhencha_01"
+  ],
+  "alliance_help": [
+   "szj_tongmengbangzhu_shijian_di"
+  ],
+  "inventory_refresh": [
+   "wxy_icon_jinli_beibao"
+  ],
+  "upgrade_decorations": [
+   "lrb_zhuangshiwu_huishou"
+  ],
+  "exchange_treasure_pieces": [
+   "FX_icon_suipiancheng"
+  ],
+  "piece_exchange": [
+   "FX_icon_suipiancheng"
+  ],
+  "treasure_auto": [
+   "icon_baoxiang_jin"
+  ]
+ },
+ "prompts": {
+  "collect_base_resources": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect the resources the base has produced'. The scene: several blue-and-yellow armoured supply crates stacked at the edge of a futuristic survival base, glowing collection sparkles rising from them, resource icons (gold coins, food, steel bars) floating upward as they are gathered, warm evening light. It must read instantly as 'resources are being collected from the base'.",
+  "collect_truck_resources": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect what the armed supply truck has brought in'. The scene: a heavy armoured cargo truck — plated cab, bull bar, a mounted gun turret over the roof — standing at the gate of a futuristic survival base, seen from a three-quarter front angle. Its open cargo bed is FULL of resources and they are the point of the picture: blue-and-yellow armoured supply crates, stacked steel bars, sacks of grain and a spill of gold coins, catching the light. Warm evening light, faint dust in the air. It must read instantly as 'the armed truck came back loaded'.",
+  "collect_visitor_gifts": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect the gifts a wandering survivor left at the base'. The scene: a road-worn civilian survivor in a patched coat standing at the gate of a futuristic survival base, handing over a small stack of wrapped gift boxes and a supply crate; grateful gesture, warm evening light. It must read instantly as 'a visitor brought presents'.",
+  "recruit_survivors": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'take in the survivors waiting at the gate'. The scene: a small queue of ragged civilian survivors — an adult with a bundle, an older man, a teenager — walking through the open blast gate of a futuristic survival base while a soldier waves them in; searchlight beams, dusk. It must read instantly as 'new survivors are joining the base'.",
+  "apply_ministry_interior": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'apply for a government post in the alliance capital'. The scene: an ornate desk in a command hall with an official seal being stamped onto a document, a military cap and epaulettes beside it, banners of the alliance behind, gold and steel materials, cool interior light. It must read instantly as 'a ministry appointment'.",
+  "attack_codename_daily": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'spend the day's attacks on the event boss'. The scene: a huge armoured mutant boss looming over a wasteland while missiles and tracer fire from off-screen tanks strike its hide, sparks and shockwave dust, night lit by muzzle flashes. It must read instantly as 'the boss is being attacked'.",
+  "restart_game": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'restart the game client'. The scene: a large glowing circular refresh arrow made of blue energy floating over a darkened command console with monitors rebooting behind it, cool blue light, faint sparks. It must read instantly as 'the client is being restarted'.",
+  "donate_alliance_tech": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'donate to alliance research'. The scene: hands placing a glowing blue tech core into a laboratory pedestal inside an alliance research hall, holographic circuit diagrams in the air, ranks of researchers' desks blurred behind, cool blue light with warm gold highlights. It must read instantly as 'resources are given to alliance technology'.",
+  "collect_alliance_gifts": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect the alliance gift chests'. The scene: several ornate gold-trimmed chests open on a table in an alliance hall, alliance coins and tokens spilling out and floating upward, banners on the wall behind, warm golden light. It must read instantly as 'alliance gifts are being collected'.",
+  "tavern_free_pull": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'take the free recruitment pulls at the tavern'. The scene: a neon-lit post-apocalyptic tavern counter with glowing recruitment cards fanned out and rising into the air, a bartender's silhouette, warm amber light against blue neon. It must read instantly as 'free recruits are being drawn'.",
+  "secret_tasks_day": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'work through the day's secret tasks'. The scene: a folded classified dossier with a wax seal and a star stamp lying on a lit map table, a small opened strongbox beside it spilling coins, magnifier and pins on the map, moody desk light. It must read instantly as 'secret assignments are being handled'.",
+  "send_trucks": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'send the trade trucks out'. The scene: a convoy of two armoured cargo trucks rolling out of a base gate onto a desert road, dust trails behind them, cargo strapped down, morning light ahead. It must read instantly as 'trade convoys are leaving'.",
+  "radar_full_cycle": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'clear the whole radar board'. The scene: a large military radar dish beside a glowing tactical screen showing a full board of mission markers being ticked off one by one, antenna masts, night sky, cool green-blue glow. It must read instantly as 'the radar board is being worked through'.",
+  "do_radar_marches": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'send squads to the radar missions'. The scene: armoured squad vehicles driving away from a radar station toward glowing waypoint markers on a tactical map overlay, dust, cool blue mission holograms. It must read instantly as 'squads are being sent to radar missions'.",
+  "sweep_star_servers": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'sweep the warzones for star tasks'. The scene: a glowing holographic map of many war zones with a scanning beam crossing it and golden stars lighting up on several zones, a command room silhouette in front, cool blue with gold star highlights. It must read instantly as 'the zones are being scanned for stars'.",
+  "upgrade_decorations": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'upgrade the base decorations'. The scene: an ornamental statue and a decorative arch inside a futuristic base courtyard being raised in quality — golden upgrade sparks and rising star symbols around them, evening light. It must read instantly as 'base decorations are being improved'.",
+  "exchange_treasure_pieces": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'trade treasure map pieces with allies'. The scene: two hands over a lit table exchanging torn map fragments that glow along their edges and fit together, a compass and a gold chest corner in view, warm lamp light. It must read instantly as 'map pieces are being traded'.",
+  "play_frontline_breakthrough": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'play the frontline breakthrough event'. The scene: an armoured column smashing through a fortified barricade line, sandbags and razor wire flying, explosions behind, low camera, dramatic dusk. It must read instantly as 'the defence line is being broken through'.",
+  "perform_arms_race": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'complete the current arms race phase'. The scene: a factory floor inside a futuristic base with tank hulls on the assembly line, sparks from welding arms, a progress banner of glowing points rising over the line, industrial light. It must read instantly as 'weapons are being built for the arms race'.",
+  "heal_units": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'heal the wounded soldiers'. The scene: a field hospital ward inside a futuristic base — wounded soldiers on medical beds under soft green healing light, medics working, a glowing red cross panel on the wall. It must read instantly as 'the wounded are being healed'.",
+  "collect_vip_gifts": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'take the VIP rewards'. The scene: an ornate purple-and-gold gift chest open on a pedestal with a VIP crown emblem above it, gold coins and reward tokens rising, velvet and gold materials, rich warm light. It must read instantly as 'VIP rewards are being taken'.",
+  "occupation_skills": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'apply the ready profession skills'. The scene: a survivor specialist in work gear at a glowing skill console, holographic profession icons — wrench, microscope, harvest — lighting up one after another around them, cool blue holograms in a warm workshop. It must read instantly as 'profession skills are being used'.",
+  "arena_3v3_battles": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'fight the daily 3v3 arena matches'. The scene: two teams of three heroes facing each other across a floodlit arena floor, energy barriers around the ring, crowd lights in the dark stands, dramatic spotlights. It must read instantly as 'a three against three arena match'.",
+  "work_alert_tower": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'work the alert tower'. The scene: a tall watchtower with a rotating warning beacon over a futuristic base at night, its light sweeping the wall while a soldier reads an alert panel at its foot, amber warning glow against blue night. It must read instantly as 'the alert tower is being worked'.",
+  "attack_crystal_boss_daily": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'spend the day's attacks on the crystal boss'. The scene: a towering monster armoured in glowing violet crystal shards, struck by tank fire and missiles from off-screen, crystal fragments shattering into the air, night lit violet and orange. It must read instantly as 'the crystal boss is being attacked'.",
+  "alliance_help": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'help allies with their tasks'. The scene: a hand pressing a large glowing 'help' bubble over an alliance base while several more help bubbles pop above nearby buildings, allied banners, warm gold light on blue. It must read instantly as 'allies are being helped'.",
+  "rally_monitor": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'watch and log the alliance rallies'. The scene: a lit command table with a rally banner planted on a map and glowing march lines converging on it, an officer's hand tracking them, notes and a clipboard beside, cool command-room light. It must read instantly as 'rallies are being watched'.",
+  "rally_auto_join": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'join the alliance rally automatically'. The scene: squads of armoured vehicles converging from several directions onto a raised rally banner on a battlefield map, dust trails behind each column, dusk. It must read instantly as 'squads are joining the rally'.",
+  "resource_tracker": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'keep the tally of resources coming in'. The scene: a glowing holographic ledger panel over a supply depot, rising bar charts and counters of gold, food and steel next to stacked crates, cool blue data light over warm depot light. It must read instantly as 'incoming resources are being counted'.",
+  "inventory_refresh": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'refresh the inventory list'. The scene: an open military backpack on a table with equipment laid out around it — ammo, chips, a canteen — and a glowing circular refresh arrow above, cool blue light over warm leather and canvas. It must read instantly as 'the inventory is being re-read'.",
+  "leaderboard_collect": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect the leaderboard history'. The scene: a glowing ranking board with gold, silver and bronze places lit and a stack of archived record sheets beside it, a podium silhouette behind, gold on cool blue. It must read instantly as 'rankings are being recorded'.",
+  "session_kick": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'recover after being kicked out of the session'. The scene: a darkened command console with a broken connection symbol on screen and a fresh login link reconnecting in blue energy, a cleared device panel beside it, cool blue light with a red warning edge. It must read instantly as 'the session was lost and is being restored'.",
+  "secret_task_share": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'pick up the secret tasks allies shared'. The scene: a classified dossier being passed across a lit map table between two gloved hands, several more sealed folders pinned to the map with star markers, moody desk light. It must read instantly as 'shared secret assignments are arriving'.",
+  "ghost_recon_alliance": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'track the alliance ghost recon squads'. The scene: a stealth recon squad in dark camouflage moving through night terrain, seen through a green surveillance overlay with position markers around them, night-vision glow. It must read instantly as 'ghost recon squads are being tracked'.",
+  "treasure_auto": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'send a squad to the nearest hidden treasure'. The scene: a golden treasure chest half buried in desert sand, glowing from its seams, with an armoured squad vehicle approaching along the dune ridge toward it, dawn light. It must read instantly as 'a hidden treasure is being claimed'.",
+  "firework_collect": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect the gifts from fireworks'. The scene: fireworks bursting over a futuristic base at night while gift boxes drift down under small parachutes into the courtyard, festive colours against a dark sky. It must read instantly as 'firework gifts are being collected'.",
+  "firework_watch": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'keep watch for fireworks'. The scene: a lookout soldier on a base wall at night watching the horizon where the first firework is bursting, a signal flare rising, cold night blue with a single warm burst of colour. It must read instantly as 'fireworks are being watched for'.",
+  "piece_exchange": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'answer when our map piece offer is taken'. The scene: a lit exchange board with a map fragment offer card being lifted away and a handshake forming over the table, glowing fragment edges, warm lamp light. It must read instantly as 'our offer was accepted'.",
+  "alliance_train_board": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'board the alliance train'. The scene: an armoured alliance freight train at a platform with soldiers stepping aboard the open carriage doors, steam and dust around the wheels, alliance banners on the carriages, warm platform light. It must read instantly as 'the alliance train is being boarded'.",
+  "daily_quests": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'take the completed daily quests'. The scene: a quest board with several task sheets stamped complete and a reward chest opening beneath them, glowing tick marks rising, warm gold on a dark board. It must read instantly as 'finished daily quests are being claimed'.",
+  "mail_gifts": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'take the gifts waiting in the mail'. The scene: an armoured mailbox at the base gate overflowing with sealed envelopes and small gift boxes, one envelope opening into golden light, evening light. It must read instantly as 'gifts from the mail are being taken'.",
+  "secret_autoloot": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'rob the ripe star secret tasks by itself'. The scene: a glowing golden star marker over a secret task site on a night battlefield map, a raiding squad vehicle already leaving it with a loaded strongbox, tracer lines fading, night blue with gold star light. It must read instantly as 'star tasks are being robbed automatically'.",
+  "secret_autoassist": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'help allies with their secret tasks by itself'. The scene: an allied secret task site on a night map with a friendly squad arriving to assist, a glowing help symbol over the site and a star ripening beside it, cool night blue with warm gold. It must read instantly as 'allies' secret tasks are being helped with'.",
+  "ghost_autoloot": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'rob the ghost recon squads by itself'. The scene: a stealth recon camp at night seen through a green surveillance overlay while a raiding squad slips away from it carrying a captured case, position markers fading, night-vision green with a warm loot glow. It must read instantly as 'ghost recon sites are being robbed'."
+ }
 }

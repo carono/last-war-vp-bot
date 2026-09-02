@@ -170,6 +170,10 @@ export interface TriggerRow {
   /* The knobs behind this listener's gear (#2017) — what the auto-join may spend. */
   options?: Field[]
   icon?: string
+  /* …and a listener's picture may be a COVER too since #2370, on the same terms a
+     timer's is: drawn for the card, shown in full colour, cropped where it says. */
+  cover?: boolean
+  focus?: string
   stat?: ErrandStat | null
 }
 
@@ -188,6 +192,9 @@ export interface OrderRow {
   hint?: string
   options?: Field[]
   icon?: string
+  /* …and the same cover a timer and a listener may carry (#2370). */
+  cover?: boolean
+  focus?: string
   stat?: ErrandStat | null
 }
 

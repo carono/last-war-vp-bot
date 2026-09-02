@@ -220,6 +220,9 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
   return (
     <ErrandBlock
       icon={row.icon}
+      /* A listener's picture is a cover too since #2370 — same card, same rules. */
+      cover={row.cover}
+      focus={row.focus}
       title={row.title}
       about={row.about}
       on={row.enabled}
@@ -248,6 +251,8 @@ function OrderItem({ row, refresh }: { row: OrderRow; refresh: () => Promise<voi
   return (
     <ErrandBlock
       icon={row.icon}
+      cover={row.cover}
+      focus={row.focus}
       title={row.title}
       about={row.about}
       on={row.enabled}

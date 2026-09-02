@@ -1256,20 +1256,33 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   flex: 0 0 auto;
   min-width: 0;
   min-height: 0;
-  padding: 6px;
-  margin: -6px 2px -6px -6px;
   border: 0;
-  background: none;
   box-shadow: none;
-  /* WITHOUT A BUTTON UNDER IT, THE PICTURE IS THE BACKGROUND — and a soft-grey glyph on a
-     dark truck is a glyph nobody finds. Full ink and the same halo of card colour the
-     fact lines wear: it costs no height, and it works over the brightest and the darkest
-     of these pictures in either palette. */
-  color: var(--ink);
-  text-shadow: 0 1px 2px var(--card), 0 0 6px var(--card), 0 0 10px var(--card);
+  /* A DISC UNDER THE GLYPH (#2370) — the person's words: «на конку i подложку круглую
+     сделай». A halo of card colour was the previous answer and it is not enough: it
+     works by smearing the card's own colour behind the ink, so on a cover whose stripe
+     happens to be that colour — a pale sky, a dust cloud — the halo and the picture are
+     the same thing and the «i» disappears into it. A disc does not depend on what is
+     behind it: the glyph is white on its own dark ground in either palette, and the
+     circle reads as a mark rather than as a button because it has no border and no
+     shadow of its own.
+
+     IT IS ITS OWN TAP TARGET. The disc is 26 px — the size the padding used to buy —
+     so nothing is given back as a negative margin except the alignment with the name. */
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin: -3px 4px -3px 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, #000 52%, transparent);
+  backdrop-filter: blur(2px);
+  color: #fff;
+  text-shadow: none;
   font-size: 15px;
   line-height: 1;
-  border-radius: 4px;
 }
 .item.errand.cover .errand-head > .go.icon:hover { opacity: 0.75; }
 /* «Кнопку запуск сделай в правом нижнем углу» (#2340, second pass) — the corner, not
