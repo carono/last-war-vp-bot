@@ -1056,6 +1056,14 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   position: relative;
   gap: 4px;
   min-height: 144px;
+  /* A THOUSAND OF THESE ARE ON ONE PAGE (#2308 follow-up): the register's page is a
+     thousand rows and it is drawn whole, because the panel already cut it in SQL. The
+     browser is told it may skip laying out the ones nobody has scrolled to, and how tall
+     to assume they are so the scrollbar does not jump. A browser that does not know the
+     property ignores it and draws exactly as before — the page is correct either way,
+     merely slower. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 150px;
 }
 /* ONE CORNER FOR WHATEVER STANDS IN IT (#2308): the switch a card is about, the «i»
    that opens everything else about the row, or both side by side. It was the switch

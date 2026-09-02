@@ -2500,6 +2500,36 @@ def test_the_errands_screen_offers_no_way_to_write_one():
     assert "timers.editor" not in script, "the editor is back on the phone"
 
 
+def test_a_paged_card_is_drawn_whole_and_not_cut_a_second_time():
+    """«Пагинацию игроков сделай по 1000 записей» — asked, delivered, and INVISIBLE.
+
+    The panel cut a page of a thousand in SQL (#2133), `/api/screen/data` answered a
+    thousand items — and the renderer sliced them to twenty and drew «Показать ещё 20»
+    underneath. Measured on the live panel: 1000 in the payload, 20 in the DOM, with
+    «страница 1 из 5» over them saying something that was not true of what was on screen.
+
+    Two pagers over one list is one too many, and the panel's is the one that counts:
+    it is the one that knows the register. So `shown` narrows only a card that sent its
+    own items — where it is what keeps the map's six hundred rows from being drawn under
+    every other card — and a paged card is drawn exactly as the panel cut it.
+    """
+    script = _front_end_source()
+    assert "const rest = paged ? 0 : Math.max(0, items.length - shown)" in script, \
+        "a paged card offers «показать ещё» again — the page is not the page"
+    assert "const drawing = paged ? items : items.slice(0, shown)" in script, \
+        "a paged card is sliced in the browser again"
+    assert "items.slice(0, shown).map" not in script, \
+        "a list is still cut by the browser somewhere the paged card can reach"
+    # A THOUSAND CARDS IN ONE PAGE HAVE TO BE CHEAP TO SCROLL PAST: the browser is told
+    # it may skip the ones nobody has reached, and how tall to assume they are.
+    css = _css()
+    card = re.search(r"\.item\.errand\s*\{[^}]*\}", css)
+    assert card and "content-visibility: auto" in card.group(0), \
+        "a page of a thousand cards lays every one of them out"
+    assert card and "contain-intrinsic-size" in card.group(0), \
+        "the skipped cards have no assumed height — the scrollbar will jump"
+
+
 def test_a_card_says_whether_it_is_on_by_its_colour_and_switches_in_the_corner():
     """Two of the person's eight (#2061), and each has a way of quietly coming undone.
 

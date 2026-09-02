@@ -681,7 +681,20 @@ function Card({
   // A narrowed search starts from the top again: «показать ещё» over a list that has
   // just changed under the person is the wrong twenty.
   useEffect(() => setShown(page), [needle, card.title, page])
-  const rest = Math.max(0, items.length - shown)
+  /* A PAGED CARD IS ALREADY ONE PAGE, AND IT IS DRAWN WHOLE (#2308 follow-up).
+   *
+   * The person asked for «пагинацию игроков по 1000 записей», got it in the payload and
+   * did not get it on the screen: the panel cut a thousand rows in SQL, the fetch
+   * carried a thousand — and this cut them again, to twenty, with a «Показать ещё 20»
+   * under them. Measured live: `/api/screen/data` answered 1000 items and the page held
+   * 20 cards. Two pagers over one list is one pager too many, and the one that was
+   * visible was the wrong one: «страница 1 из 5» over twenty rows says nothing true.
+   *
+   * So `shown` only applies to a card that sent its items itself, where it is what keeps
+   * the map's six hundred rows from being drawn under every other card. A page cut by
+   * the panel is drawn as the panel cut it. */
+  const rest = paged ? 0 : Math.max(0, items.length - shown)
+  const drawing = paged ? items : items.slice(0, shown)
   const rows = card.rows || []
   /* WHAT NARROWS THIS GRID, behind the gear beside its heading (#2308). */
   const gear = useCardGear(card, screen, after)
@@ -747,7 +760,7 @@ function Card({
       {(card.sorts || []).length ? <SortBar sorts={card.sorts || []} screen={screen} after={after} /> : null}
       {tiled ? (
         <div className="minis">
-          {items.slice(0, shown).map((item, i) => (
+          {drawing.map((item, i) => (
             <MiniItem key={i} item={item} now={now} screen={screen} after={after} />
           ))}
         </div>
@@ -755,12 +768,12 @@ function Card({
         /* The same grid the errands are laid out on — one column on a phone, more as
            the page grows, decided by the stylesheet rather than by a breakpoint. */
         <div className="tiles">
-          {items.slice(0, shown).map((item, i) => (
+          {drawing.map((item, i) => (
             <CardItem key={i} item={item} now={now} screen={screen} after={after} />
           ))}
         </div>
       ) : (
-        items.slice(0, shown).map((item, i) => (
+        drawing.map((item, i) => (
           <Item key={i} item={item} now={now} screen={screen} after={after} />
         ))
       )}
