@@ -79,17 +79,24 @@ def main(argv: list | None = None) -> int:
         print(f"{target} already exists — pass --force to redraw it (it costs credits)")
         return 0
 
-    # The sprite the card used to draw IS the reference: same colours, same materials,
-    # so a cover does not look like it came from another game.
-    stem = errand_icons.stem_for(args.errand)
+    # The sprite the card used to draw IS the reference: same colours, same materials, so
+    # a cover does not look like it came from another game — UNLESS the spec names other
+    # sprites, which is for the errands whose own icon does not depict the thing (the
+    # truck errand wears the idle-reward clock).
+    stems = list((spec.get("references") or {}).get(args.errand) or [])
+    if not stems:
+        stem = errand_icons.stem_for(args.errand)
+        stems = [stem] if stem else []
     references = []
-    sprite = errand_icons.file_named(stem + ".png") if stem else None
-    if sprite:
-        references.append(sprite)
-    else:
-        print(f"warning: no sprite for {args.errand} on this machine — drawing without a "
-              f"reference (run tools/extract_errand_icons.py first for a closer match)",
-              file=sys.stderr)
+    for stem in stems:
+        sprite = errand_icons.file_named(stem + ".png")
+        if sprite:
+            references.append(sprite)
+        else:
+            print(f"warning: no sprite {stem!r} on this machine", file=sys.stderr)
+    if not references:
+        print(f"warning: drawing {args.errand} without a reference (run "
+              f"tools/extract_errand_icons.py first for a closer match)", file=sys.stderr)
 
     model = args.model or spec.get("model") or api.default_model()
     text = prompt + " " + str(spec.get("shared") or "")

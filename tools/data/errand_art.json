@@ -13,7 +13,18 @@
   ],
   "model": "openai/gpt-5.4-image-2",
   "shared": "Use the attached sprite ONLY as a style and colour reference — do not copy, crop or stretch it; compose a full scene of your own. Mobile-game 3D render look, clean rim light, painterly, high detail, crisp. No text, no letters, no numbers, no UI frames, no watermark. Composition: the subject in the left two thirds, the right side calmer and darker so overlaid white text stays readable.",
+  "_references_comment": [
+    "Which sprites travel WITH the prompt (#2340). Left unsaid, an errand sends its own",
+    "sprite off errand_icons.json — right when that sprite depicts the thing. Where it",
+    "does not (the truck errand's own icon is the idle-reward CLOCK), the sprites that do",
+    "are named here by stem, and the errand's own one is not sent at all: a clock in front",
+    "of a model asked for a truck is noise, not a reference."
+  ],
+  "references": {
+    "collect_truck_resources": ["zyf_wanfatujing_danrenhuoche", "itemResourceBox"]
+  },
   "prompts": {
-    "collect_base_resources": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect the resources the base has produced'. The scene: several blue-and-yellow armoured supply crates stacked at the edge of a futuristic survival base, glowing collection sparkles rising from them, resource icons (gold coins, food, steel bars) floating upward as they are gathered, warm evening light. It must read instantly as 'resources are being collected from the base'."
+    "collect_base_resources": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect the resources the base has produced'. The scene: several blue-and-yellow armoured supply crates stacked at the edge of a futuristic survival base, glowing collection sparkles rising from them, resource icons (gold coins, food, steel bars) floating upward as they are gathered, warm evening light. It must read instantly as 'resources are being collected from the base'.",
+    "collect_truck_resources": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'collect what the armed supply truck has brought in'. The scene: a heavy armoured cargo truck — plated cab, bull bar, a mounted gun turret over the roof — standing at the gate of a futuristic survival base, seen from a three-quarter front angle. Its open cargo bed is FULL of resources and they are the point of the picture: blue-and-yellow armoured supply crates, stacked steel bars, sacks of grain and a spill of gold coins, catching the light. Warm evening light, faint dust in the air. It must read instantly as 'the armed truck came back loaded'."
   }
 }
