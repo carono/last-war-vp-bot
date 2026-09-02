@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Torre d'allarme",
   "errand.arg.heal.chests": "Aprire i pacchetti di risorse",
   "errand.arg.heal.chests.hint": "Quando la base non può pagare la cura, apre esattamente i pacchetti di risorse che il gioco stesso sceglie per coprire quel che manca, e non uno di più. Disattivato: il giro dice comunque quanto costa la cura e cosa manca.",
-  "players.web.no_such_filter": "filtro inesistente"
+  "players.web.no_such_filter": "filtro inesistente",
+  "settings.group.log": "Registro",
+  "settings.group.autoloot": "Furto automatico ★",
+  "settings.group.autoassist": "Aiuto automatico agli alleati",
+  "settings.group.sniff": "Sniffer e diagnostica",
+  "settings.group.watchdog": "Sorveglianza del gioco",
+  "settings.tabs.on": "visibile",
+  "settings.tabs.off": "nascosta",
+  "settings.tabs.show": "Mostra",
+  "settings.tabs.hide": "Nascondi"
 }

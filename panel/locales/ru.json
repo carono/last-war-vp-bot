@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Вышка оповещения",
   "errand.arg.heal.chests": "Вскрывать пачки ресурсов",
   "errand.arg.heal.chests.hint": "Если базе нечем оплатить лечение, вскрывает ровно те пачки ресурсов, которые игра сама выбирает под нехватку, — и ни одной лишней. Выключено: пробег всё равно скажет, сколько стоит лечение и чего не хватает.",
-  "players.web.no_such_filter": "такого фильтра нет"
+  "players.web.no_such_filter": "такого фильтра нет",
+  "settings.group.log": "Журнал",
+  "settings.group.autoloot": "Автолут секреток ★",
+  "settings.group.autoassist": "Автопомощь союзникам",
+  "settings.group.sniff": "Снифер и диагностика",
+  "settings.group.watchdog": "Присмотр за игрой",
+  "settings.tabs.on": "показана",
+  "settings.tabs.off": "скрыта",
+  "settings.tabs.show": "Показать",
+  "settings.tabs.hide": "Скрыть"
 }

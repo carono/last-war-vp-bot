@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Wieża alarmowa",
   "errand.arg.heal.chests": "Otwieraj paczki surowców",
   "errand.arg.heal.chests.hint": "Gdy bazy nie stać na leczenie, otwiera dokładnie te paczki surowców, które gra sama wybiera na brakującą część — i ani jednej więcej. Wyłączone: przebieg i tak powie, ile kosztuje leczenie i czego brakuje.",
-  "players.web.no_such_filter": "nie ma takiego filtra"
+  "players.web.no_such_filter": "nie ma takiego filtra",
+  "settings.group.log": "Dziennik",
+  "settings.group.autoloot": "Automatyczna kradzież ★",
+  "settings.group.autoassist": "Automatyczna pomoc sojusznikom",
+  "settings.group.sniff": "Sniffer i diagnostyka",
+  "settings.group.watchdog": "Pilnowanie gry",
+  "settings.tabs.on": "widoczna",
+  "settings.tabs.off": "ukryta",
+  "settings.tabs.show": "Pokaż",
+  "settings.tabs.hide": "Ukryj"
 }

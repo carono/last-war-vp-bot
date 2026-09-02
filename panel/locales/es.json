@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Torre de alerta",
   "errand.arg.heal.chests": "Abrir paquetes de recursos",
   "errand.arg.heal.chests.hint": "Cuando la base no puede pagar la curación, abre exactamente los paquetes de recursos que el propio juego elige para cubrir lo que falta, y ni uno más. Desactivado: la tarea sigue diciendo cuánto cuesta la curación y qué falta.",
-  "players.web.no_such_filter": "no existe ese filtro"
+  "players.web.no_such_filter": "no existe ese filtro",
+  "settings.group.log": "Registro",
+  "settings.group.autoloot": "Robo automático ★",
+  "settings.group.autoassist": "Ayuda automática a los aliados",
+  "settings.group.sniff": "Rastreador y diagnóstico",
+  "settings.group.watchdog": "Vigilancia del juego",
+  "settings.tabs.on": "visible",
+  "settings.tabs.off": "oculta",
+  "settings.tabs.show": "Mostrar",
+  "settings.tabs.hide": "Ocultar"
 }

@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Alarmturm",
   "errand.arg.heal.chests": "Ressourcenpakete öffnen",
   "errand.arg.heal.chests.hint": "Wenn die Basis die Behandlung nicht bezahlen kann, öffnet sie genau die Ressourcenpakete, die das Spiel selbst für den Fehlbetrag auswählt – und kein einziges mehr. Aus: Der Lauf nennt trotzdem die Kosten und was fehlt.",
-  "players.web.no_such_filter": "so einen Filter gibt es nicht"
+  "players.web.no_such_filter": "so einen Filter gibt es nicht",
+  "settings.group.log": "Protokoll",
+  "settings.group.autoloot": "Automatischer Raub ★",
+  "settings.group.autoassist": "Automatische Bündnishilfe",
+  "settings.group.sniff": "Sniffer und Diagnose",
+  "settings.group.watchdog": "Spielüberwachung",
+  "settings.tabs.on": "sichtbar",
+  "settings.tabs.off": "verborgen",
+  "settings.tabs.show": "Anzeigen",
+  "settings.tabs.hide": "Verbergen"
 }

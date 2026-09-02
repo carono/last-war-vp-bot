@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Alarm kulesi",
   "errand.arg.heal.chests": "Kaynak paketlerini aç",
   "errand.arg.heal.chests.hint": "Üs tedaviyi ödeyemediğinde, eksiği kapatmak için oyunun kendi seçtiği kaynak paketlerini tam olarak açar; bir tane bile fazlasını değil. Kapalı: koşu yine de tedavinin maliyetini ve neyin eksik olduğunu söyler.",
-  "players.web.no_such_filter": "böyle bir filtre yok"
+  "players.web.no_such_filter": "böyle bir filtre yok",
+  "settings.group.log": "Günlük",
+  "settings.group.autoloot": "Otomatik yağma ★",
+  "settings.group.autoassist": "Müttefiklere otomatik yardım",
+  "settings.group.sniff": "Dinleyici ve tanılama",
+  "settings.group.watchdog": "Oyun gözetimi",
+  "settings.tabs.on": "görünür",
+  "settings.tabs.off": "gizli",
+  "settings.tabs.show": "Göster",
+  "settings.tabs.hide": "Gizle"
 }

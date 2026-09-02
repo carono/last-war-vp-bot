@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Tháp báo động",
   "errand.arg.heal.chests": "Mở gói tài nguyên",
   "errand.arg.heal.chests.hint": "Khi căn cứ không đủ trả cho việc chữa trị, mở đúng những gói tài nguyên mà chính trò chơi chọn để bù phần thiếu — không dư một gói nào. Tắt: lượt chạy vẫn cho biết chữa trị tốn bao nhiêu và thiếu những gì.",
-  "players.web.no_such_filter": "không có bộ lọc đó"
+  "players.web.no_such_filter": "không có bộ lọc đó",
+  "settings.group.log": "Nhật ký",
+  "settings.group.autoloot": "Tự động cướp ★",
+  "settings.group.autoassist": "Tự động giúp đồng minh",
+  "settings.group.sniff": "Bộ bắt gói và chẩn đoán",
+  "settings.group.watchdog": "Trông chừng trò chơi",
+  "settings.tabs.on": "hiển thị",
+  "settings.tabs.off": "đã ẩn",
+  "settings.tabs.show": "Hiện",
+  "settings.tabs.hide": "Ẩn"
 }

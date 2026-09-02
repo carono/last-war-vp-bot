@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Alert tower",
   "errand.arg.heal.chests": "Open resource packs",
   "errand.arg.heal.chests.hint": "When the base cannot pay for the treatment, opens exactly the resource packs the game itself picks to cover what is missing — and no more. Off: the run still says what the treatment costs and what is short.",
-  "players.web.no_such_filter": "no such filter"
+  "players.web.no_such_filter": "no such filter",
+  "settings.group.log": "Log",
+  "settings.group.autoloot": "Secret-task auto-loot ★",
+  "settings.group.autoassist": "Auto-help for allies",
+  "settings.group.sniff": "Sniffer and diagnostics",
+  "settings.group.watchdog": "Watching the game",
+  "settings.tabs.on": "shown",
+  "settings.tabs.off": "hidden",
+  "settings.tabs.show": "Show",
+  "settings.tabs.hide": "Hide"
 }

@@ -198,18 +198,94 @@ class SettingsTab(PanelTab):
                               "value": str(settings.opt("rdp_user") or "")})
         cards = [
             {"title": "settings.tab.general", "rows": general_rows,
-             "fields": [self._web_field(key, bounds) for key, bounds in self.GENERAL_KNOBS]},
-            {"title": "debug.frame",
-             "fields": [self._web_field("debug_send_url", None)],
-             "actions": [{"id": "debug_send", "label": "debug.send"}]},
+             "layout": "tiles", "items": self._web_general_tiles()},
             {"title": "settings.tab.game", "rows": game_rows,
-             "fields": [self._web_field("watchdog", None),
-                        self._web_field("kick_hold_min", (0, 1440))]},
+             "layout": "tiles", "items": self._web_game_tiles()},
             self._web_session_card(),
-            self._web_graphics_card(),
             self._web_tabs_card(),
         ]
         return {"title": "tab.settings", "cards": cards}
+
+    #: The knobs of «Общие», grouped by the ABILITY each of them paces (#2370). The
+    #: eleven of them were one flat list, which is the wall the person objected to on
+    #: the rally page — «плохо, я просил карточки». A group is a tile: its name, one
+    #: line of words saying where it stands, and its own knobs behind the gear.
+    GENERAL_GROUPS: tuple = (
+        ("log", ("log_max_lines",)),
+        ("autoloot", ("autoloot_limit", "autoloot_poll", "autoloot_pause_min")),
+        ("autoassist", ("autoassist_poll", "autoassist_pause_min",
+                        "autoassist_star_wait_min", "autoassist_sprint_lead_sec",
+                        "autoassist_sprint_window_sec")),
+        ("sniff", ("trace_filter", "sniff_ready_timeout", "debug_send_url")),
+    )
+
+    def _web_general_tiles(self) -> list:
+        """«Общие» as four tiles rather than eleven fields in a column (#2370).
+
+        Nothing about a knob changes: the fields inside the sheet are the same ones the
+        flat card handed out, with the same bounds, and they travel back through the
+        same `set` press. What changes is that a person looking for the auto-loot budget
+        reads one word instead of scanning eleven labels.
+
+        The diagnostic ARCHIVE goes on the tile that holds its address — a card of its
+        own for a single field and a single button was the thinnest of the six.
+        """
+        bounds = dict(self.GENERAL_KNOBS)
+        tiles = []
+        for group, keys in self.GENERAL_GROUPS:
+            fields = [self._web_field(key, bounds.get(key)) for key in keys]
+            tile = {"label": f"settings.group.{group}",
+                    "options_title": f"settings.group.{group}",
+                    "options": fields,
+                    "detail": self._web_group_detail(keys)}
+            if group == "sniff":
+                tile["actions"] = [{"id": "debug_send", "label": "debug.send"}]
+            tiles.append(tile)
+        return tiles
+
+    def _web_group_detail(self, keys) -> str:
+        """One line of WORDS for a tile: the first two knobs, named and valued.
+
+        A tile draws bare values and keeps the label for a tooltip, and a phone has no
+        tooltips — «4000 5 2» says nothing (the lesson of the rally groups, #2051). Two
+        because a third wraps the line on an emulated iPhone.
+        """
+        bits = []
+        for key in list(keys)[:2]:
+            value = opt_value.get(self.rt, key)
+            if isinstance(value, bool):
+                value = self.t("web.ui.yes" if value else "web.ui.no")
+            text = str(value)
+            if not text:
+                text = self.t("opt.value.unknown")
+            bits.append("%s %s" % (self.t(f"opt.{key}"), text))
+        return " · ".join(bits)
+
+    def _web_game_tiles(self) -> list:
+        """«Игра» as two tiles: what watches the client, and what it draws (#2370).
+
+        «Качество графики» was a card of its own with one field, one line and one
+        button; it is the same three things on a tile, beside the watchdog's pair. The
+        line the client answered with stays as it was — a reading, not a knob.
+        """
+        line = getattr(self, "_graphics_line", "")
+        mode = self.rt.settings.opt_str("graphics_mode")
+        options = [{"value": name, "text": self.t(f"graphics.mode.{name}")}
+                   for name in ("standard", "low")]
+        return [
+            {"label": "settings.group.watchdog",
+             "options_title": "settings.group.watchdog",
+             "detail": self._web_group_detail(("watchdog", "kick_hold_min")),
+             "options": [self._web_field("watchdog", None),
+                         self._web_field("kick_hold_min", (0, 1440))]},
+            {"label": "graphics.frame",
+             "options_title": "graphics.frame",
+             "detail": line or self.t(f"graphics.mode.{mode}"),
+             "options": [{"key": "graphics_mode", "label": "graphics.frame",
+                          "kind": opt_value.CHOICE, "value": mode,
+                          "options": options}],
+             "actions": [{"id": "graphics_refresh", "label": "graphics.refresh"}]},
+        ]
 
     def _web_session_card(self) -> dict:
         """«Windows-сессия»: what the two knobs amount to, and the two presses (#1976).
@@ -258,31 +334,6 @@ class SettingsTab(PanelTab):
             field["min"], field["max"] = bounds[0], bounds[1]
         return field
 
-    def _web_graphics_card(self) -> dict:
-        """«Качество графики»: which picture this profile asks for, and what the client
-        says it is actually drawing (#1976).
-
-        The mode is a CHOICE rather than two buttons because it is one setting with two
-        values, and the phone draws a choice as a list. Pressing it plays the same
-        scenario the window's radio button does — the ability is `set_graphics_load.md`
-        and nothing about it is assembled here.
-
-        The line under it is a reading of the CLIENT, not of the setting: the two part
-        company the moment the game restarts, because it comes back at full quality
-        without telling anybody. «Обновить» asks again.
-        """
-        mode = self.rt.settings.opt_str("graphics_mode")
-        options = [{"value": name, "text": self.t(f"graphics.mode.{name}")}
-                   for name in ("standard", "low")]
-        line = getattr(self, "_graphics_line", "")
-        return {"title": "graphics.frame",
-                "note": "graphics.hint",
-                "fields": [{"key": "graphics_mode", "label": "graphics.frame",
-                            "kind": opt_value.CHOICE, "value": mode,
-                            "options": options}],
-                "items": ([{"text": line}] if line else []),
-                "actions": [{"id": "graphics_refresh", "label": "graphics.refresh"}]}
-
     def _web_tabs_card(self) -> dict:
         """«Вкладки»: one switch per tab this profile could show, and what applies it."""
         from .. import tabs as tabsreg
@@ -290,11 +341,24 @@ class SettingsTab(PanelTab):
         saved = self.rt.settings.tab_list("enabled")
         known = self.rt.settings.tab_list("known")
         asked = set(tabsreg.chosen_ids(enabled=saved, known=known))
+        # A TILE PER TAB, AND THE TILE ITSELF IS THE SWITCH (#2370). Twenty-two switches
+        # in a column is the wall this task exists to take down, but a tumbler behind a
+        # gear would be worse than the wall: two taps and a sheet to flip one tick. So
+        # the knob is the tile's own button, and the pill says which way it stands.
+        items = []
+        for spec in tabsreg.listed(enabled=saved, known=known):
+            on = spec.id in asked
+            items.append({
+                "label": spec.title_key,
+                "pill": "settings.tabs.on" if on else "settings.tabs.off",
+                "actions": [{"id": "set",
+                             "label": "settings.tabs.hide" if on else "settings.tabs.show",
+                             "args": {"key": f"tab:{spec.id}", "value": not on}}],
+            })
         return {"title": "settings.tab.tabs",
                 "note": "settings.tabs.hint",
-                "fields": [{"key": f"tab:{spec.id}", "label": spec.title_key,
-                            "kind": opt_value.SWITCH, "value": spec.id in asked}
-                           for spec in tabsreg.listed(enabled=saved, known=known)]}
+                "layout": "tiles",
+                "items": items}
 
     def web_press(self, action: str, args: dict) -> dict:
         """Move one knob, or one tab's tick. Runs on the Tk thread, like every press."""

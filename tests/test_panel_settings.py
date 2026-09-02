@@ -494,6 +494,66 @@ def test_create_rally_squad_is_a_single_banner_and_a_bounded_level():
         root.destroy()
 
 
+def test_the_settings_screen_is_tiles_with_their_knobs_behind_a_gear():
+    """«Настройки» is cards on the phone, never a column of knobs (#2370).
+
+    Eleven fields in «Общие» and twenty-two in «Вкладки» is the wall the person objected
+    to on the rally page — «плохо, я просил карточки». What is pinned here is the shape
+    that replaced it, because it is the part a later edit can undo without anything
+    failing: every knob still reaches the phone, but grouped onto tiles whose gear opens
+    the ONE modal this front-end has.
+
+    The tabs card is deliberately NOT gears: a tumbler behind a sheet costs two taps and
+    a page to flip one tick, so the tile carries its own button and its pill says which
+    way it stands.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception:                                   # noqa: BLE001
+        _skip()
+        return
+    try:
+        root, page, rt = _page()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        view = page.web_view()
+        cards = {card.get("title"): card for card in view["cards"]}
+        for title in ("settings.tab.general", "settings.tab.game", "settings.tab.tabs"):
+            assert cards[title].get("layout") == "tiles", (
+                f"«{title}» is not tiles any more — that is the wall #2370 took down")
+            assert not cards[title].get("fields"), (
+                f"«{title}» grew a flat field again: {cards[title].get('fields')}")
+            assert cards[title].get("items"), f"«{title}» has no tiles at all"
+        # Every knob the flat card used to hand out is still reachable, behind a gear.
+        knobs = {field["key"]
+                 for card in view["cards"] for item in card.get("items") or ()
+                 for field in item.get("options") or ()}
+        for key, _bounds in page.GENERAL_KNOBS:
+            assert key in knobs, f"«{key}» reaches no phone any more (#2370)"
+        for key in ("watchdog", "kick_hold_min", "graphics_mode"):
+            assert key in knobs, f"«{key}» reaches no phone any more (#2370)"
+        for item in cards["settings.tab.general"]["items"]:
+            assert item.get("options_title"), "a gear with no name over its sheet"
+            assert item.get("detail"), (
+                "a tile with no words on it — a phone has no tooltips, so bare numbers "
+                "say nothing (#2051)")
+        # …and the tabs are one press each, not a sheet each.
+        tabs_card = cards["settings.tab.tabs"]
+        for item in tabs_card["items"]:
+            assert not item.get("options"), "a tab's tick went behind a gear (#2370)"
+            assert item.get("pill") in ("settings.tabs.on", "settings.tabs.off"), item
+            actions = item.get("actions") or []
+            assert len(actions) == 1 and actions[0]["id"] == "set", item
+            args = actions[0]["args"]
+            assert args["key"].startswith("tab:"), args
+            assert args["value"] is (item["pill"] == "settings.tabs.off"), (
+                "the button does not flip the tick it is drawn beside")
+    finally:
+        root.destroy()
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

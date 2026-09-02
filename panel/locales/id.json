@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Menara peringatan",
   "errand.arg.heal.chests": "Buka paket sumber daya",
   "errand.arg.heal.chests.hint": "Saat markas tidak mampu membayar penyembuhan, membuka persis paket sumber daya yang dipilih game sendiri untuk menutup kekurangannya — tidak satu pun lebih. Mati: proses tetap menyebutkan biaya penyembuhan dan apa yang kurang.",
-  "players.web.no_such_filter": "filter itu tidak ada"
+  "players.web.no_such_filter": "filter itu tidak ada",
+  "settings.group.log": "Log",
+  "settings.group.autoloot": "Rampok otomatis ★",
+  "settings.group.autoassist": "Bantuan otomatis untuk sekutu",
+  "settings.group.sniff": "Sniffer dan diagnostik",
+  "settings.group.watchdog": "Pengawasan permainan",
+  "settings.tabs.on": "tampil",
+  "settings.tabs.off": "tersembunyi",
+  "settings.tabs.show": "Tampilkan",
+  "settings.tabs.hide": "Sembunyikan"
 }

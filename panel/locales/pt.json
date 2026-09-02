@@ -2628,5 +2628,14 @@
   "timers.item.work_alert_tower.short": "Torre de alerta",
   "errand.arg.heal.chests": "Abrir pacotes de recursos",
   "errand.arg.heal.chests.hint": "Quando a base não consegue pagar o tratamento, abre exatamente os pacotes de recursos que o próprio jogo escolhe para cobrir o que falta — e nem um a mais. Desligado: a tarefa ainda diz quanto custa o tratamento e o que falta.",
-  "players.web.no_such_filter": "esse filtro não existe"
+  "players.web.no_such_filter": "esse filtro não existe",
+  "settings.group.log": "Registro",
+  "settings.group.autoloot": "Roubo automático ★",
+  "settings.group.autoassist": "Ajuda automática aos aliados",
+  "settings.group.sniff": "Sniffer e diagnóstico",
+  "settings.group.watchdog": "Vigilância do jogo",
+  "settings.tabs.on": "visível",
+  "settings.tabs.off": "oculta",
+  "settings.tabs.show": "Mostrar",
+  "settings.tabs.hide": "Ocultar"
 }
