@@ -12208,8 +12208,19 @@ def golden_reaim_now() -> str:
         "local kind = MarchTargetType.ATTACK_MONSTER "
         "if p.server ~= nil and srv ~= 0 and srv ~= p.server then "
         "kind = MarchTargetType.CROSS_ATTACK_MONSTER end "
-        "local own = _ownmarch(p) "
-        "local mu = _reaim(own, p) "
+        # THE uuid IS THE ONE THE SEND KEPT, AND IT IS NOT ASKED FOR AGAIN (#2390).
+        # Reading the march back after the fight is what kept failing: 16 readings
+        # out of 22 answered `stand=nomarch`, because the client drops the march
+        # object the moment the fight resolves. The operator plays it the other way
+        # round — «маршрут могу поменять в моменте», the march being a live thing for
+        # the whole flight — and the wire agrees: one of the five re-aims in the
+        # capture left 0.45 s BEFORE its leg was due to land. So the order goes out
+        # at the uuid this run has been holding since it sent it, with no question
+        # asked in between; whether the server took it is settled afterwards by the
+        # ordinary proof (`golden_launched`), and a re-aim that did not land is
+        # answered by the ordinary march out of the base.
+        "local mu = p.own_march "
+        "if mu == nil then local own = _ownmarch(p) mu = _reaim(own, p) end "
         "if mu == nil then return 0 end "
         "local uuid = _freshuuid(ws, p, t) "
         "if uuid == nil then p.used[tostring(t.pid)] = true "
