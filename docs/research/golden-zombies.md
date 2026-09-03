@@ -858,6 +858,43 @@ second question would cost exactly what this exists to save. The wait plays it t
 the landing shows; the send either watches an order it did not give, or makes the
 ordinary march out of the base and counts a `fallback`.
 
+## 4k — the chain works the fullest SQUARE of the map, not the nearest zombie (#2390)
+
+The operator's instruction, in their own words: **«ищи сектор, где полно зомби и иди
+туда»**. The measurement behind it is one line of a live run — `found=1 … queued=0
+energy=215`: the invasion wave had moved off the base, so «the nearest zombie» was one
+lone target two dozen tiles out with nobody beside it, and a chain with one link in it is
+not a chain. Every re-aim §4j bought is worth nothing when the next target is a minute's
+flight away.
+
+So the pick is made in two steps instead of one:
+
+1. **the queue is cut into squares of `cluster` tiles** (`ARGS cluster = 50`, `0` restores
+   the old plain-nearest behaviour). Each live target — not used, not already somebody's —
+   falls into the square `math.floor(x / step) * step, math.floor(y / step) * step`;
+2. **the fullest square wins**, ties broken by which of them is nearer the squad. It is
+   then held in `p.crowd` and **every pick is made INSIDE it** until nothing live is left
+   there, at which point the next fullest square is chosen.
+
+The flight to the first zombie of a square is the ride over, and the point of the shape is
+that it is paid **once for the whole square** rather than once per kill. `reach` — the
+limit that stops a chain walking all morning for ONE kill — is deliberately not applied to
+a target inside the chosen square (`if step > 0 and p.crowd ~= nil and _incell(...) then
+reach = 0`): a ride into a crowd is not the thing that limit exists to refuse.
+
+`p.crowd` is dropped wherever the run's other orders are dropped — «Вернуть отряд»
+(`golden_unstick`) and a recorded miss (`golden_note_miss`) — so a chain that was sent
+somewhere by hand does not keep working a square it was taken out of.
+
+**The pick's own log line says which square it is working and how full it was**:
+
+    crowd=650,700+50x9@37
+
+— the square with its corner at `650,700`, 50 tiles a side, **9** live zombies in it, its
+centre **37** tiles from where the squad stands; `crowd=-` when the cutting is off or the
+queue is empty. So a run that is walking rather than chaining says so, in one word, on
+every lap.
+
 ## 4f — the hunt recalled its own attack, one second after ordering it (#1702)
 
 The worst kind of bug: every part of it had already been thought about, and the fix was
