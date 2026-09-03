@@ -977,6 +977,16 @@ and read out of the VM rather than off the socket. The one genuine wire push in 
 `push.detect.treasure.claim`, says «this chest is dug and payable» about a chest the errand
 is already working, and the claim it gates has ridden the in-game watch since #1318.
 
+**And removing the clause was not enough, which is the second half of the measurement.**
+With the world clause gone the errand still took the client every 40–90 s, against an
+allowance already spent and an empty queue. The reason is the poll's OTHER truth: the arm
+rewrites the very table the check reads, so a poll landing mid-run read «nobody is
+listening» and fired again — which armed again. So the day is asked FIRST, against the
+game's own clock (`UITimeManager…GetServerTime` vs `A.day_until`): while the allowance is
+spent and the stamp has not passed, neither «the errand is off» nor «nothing is listening»
+is worth the client. It re-opens by itself at the reset, with nothing pressed, and
+`tests/test_treasure_auto.py::test_a_spent_day_does_not_even_get_the_arm` pins both halves.
+
 **What this closes, said plainly: the «simply found» door no longer opens by itself.** A
 chest nobody announced is found when something else plays the errand — a person's press, a
 chest heard, the dig feed — and if the lap is wanted back it comes back as a clock with a

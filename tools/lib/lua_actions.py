@@ -4154,8 +4154,7 @@ def treasure_auto_check() -> str:
         "local D = DataCenter "
         "local W = D.__lw_treasure_watch "
         "local A = D.__lw_treasure_auto "
-        "if A == nil or not A.on then return true end "
-        "if W == nil or not W.hooked then return true end "
+        "if A == nil then return true end "
         # …AND A CHEST THE DAY'S ALLOWANCE IS HOLDING IS NOT WORK (#1965). It is unfinished
         # and will stay unfinished until the reset, so counting it as a reason to run turns
         # the poll into a clock that wakes the errand every few seconds to do nothing. The
@@ -4163,6 +4162,21 @@ def treasure_auto_check() -> str:
         # same chest work again with nothing pressed.
         "local until_ms = tonumber(A.day_until) or 0 "
         "local stop = (A.day_full and until_ms > 0) and true or false "
+        # A DAY THAT IS SPENT DOES NOT EVEN GET THE ARM (#2390). The two truths below —
+        # «the errand is off» and «nothing is listening» — exist so a client restart is
+        # noticed; they are not worth the client when there is nothing left to hear TODAY.
+        # Measured live: with the allowance full and the queue empty, the errand still ran
+        # every 40–90 s, because the arm it performs rewrites this very table and the next
+        # poll caught it half-written and read «nobody is listening». So the day is asked
+        # FIRST, against the game's own clock, and it re-opens by itself when the stamp
+        # passes — no press, no restart.
+        "local now = 0 "
+        "pcall(function() "
+        "now = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end) "
+        "local shut = (stop and (now <= 0 or now < until_ms)) and true or false "
+        "if not shut then "
+        "if not A.on then return true end "
+        "if W == nil or not W.hooked then return true end end "
         "for _, t in ipairs(A.targets or {}) do if not t.done then "
         # …and neither is a chest whose TYPE the day is full of, whatever its own stamp
         # says: the watch may not have beaten since it was heard (#2092).

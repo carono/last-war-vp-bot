@@ -1949,6 +1949,39 @@ def test_the_day_limit_holds_the_chest_instead_of_claiming_it_into_the_dark():
     assert len(_claims(lua)) == before, _claims(lua)
 
 
+def test_a_spent_day_does_not_even_get_the_arm():
+    """The poll's two remaining truths are worth the client only while the day is open.
+
+    Measured live (#2390): allowance full, queue empty, ear armed — and the errand still
+    ran every 40–90 s. The arm it performs rewrites the very table this check reads, so a
+    poll landing mid-run saw «nobody is listening» and fired again, which armed again. The
+    day is therefore asked FIRST, against the game's own clock, and it re-opens by itself
+    when the stamp passes.
+    """
+    if not _needs_lua("a spent day is quiet"):
+        return
+    lua = _vm()
+    _day_manager(lua, groups=((602, 10, True), (39, 9, True)))
+    _dug(lua)
+    _refused(lua, lua_actions.TREASURE_ERR_DAY_LIMIT, "day times limit 2")
+    _step(lua)
+    assert int(_day_state(lua)["full"]) == 1, _day_state(lua)
+
+    #: a chest is held, the ear is armed — quiet
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, _day_state(lua)
+
+    #: …and quiet even with the ear knocked out, which is what the arm race looked like
+    lua.execute("DataCenter.__lw_treasure_watch.hooked = false "
+                "DataCenter.__lw_treasure_auto.on = false")
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, \
+        "a spent day must not buy an arm — that is the loop this closes"
+
+    #: the day turning over re-opens it with nothing pressed
+    lua.execute("NOW = NOW + 3700000")
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, \
+        "past the reset the errand must be able to arm again"
+
+
 def test_the_hold_lets_go_by_itself_when_the_game_says_the_day_turned_over():
     """No restart and no hand on the panel: the hold is measured against the GAME's stamp.
 
