@@ -134,9 +134,11 @@ ELSE
     WHILE opened < {keep_free} LIMIT 60
         IF finished == 0
             LOG "radar: {free} place(s) open and nothing ripe to spend — the room is not mine to make"
+            TAP radar_mark_window
             STOP
         IF left == 0
             LOG "radar: the day has nothing left to hand out — no reason to make room, holding all {finished}"
+            TAP radar_mark_window
             STOP
         TAP radar_claim
         READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetFinishedDetectEventNum() end) return (ok and tonumber(n)) or 0 end)() INTO finished

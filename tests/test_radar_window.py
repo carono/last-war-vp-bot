@@ -97,8 +97,20 @@ def test_the_recipe_gates_on_the_window_and_marks_it_at_the_end():
     for press in ("TAP radar_read_board", "TAP radar_claim", "TAP radar_march"):
         if press in text:
             assert gate < text.index(press), "%s runs before the gate" % press
-    assert text.index("TAP radar_mark_window") > text.rindex("TAP radar_claim"), \
+    assert text.rindex("TAP radar_mark_window") > text.rindex("TAP radar_claim"), \
         "the window is marked after the work, never before it"
+
+    #: EVERY way the cycle can END marks it, and an early STOP is one of them (#2390).
+    #: The hoard loop stops on «nothing ripe to spend» and on «the day has nothing left
+    #: to hand out» — both are the cycle being finished, and a run that ended there
+    #: without marking left the errand running the whole board again half an hour later,
+    #: which is the loop this pacing exists to close.
+    stops = [i for i, ln in enumerate(text.splitlines()) if ln.strip() == "STOP"]
+    lines = text.splitlines()
+    for i in stops:
+        before = lines[i - 1].strip()
+        assert before == "TAP radar_mark_window" or "window_done" in lines[i - 2], \
+            "a STOP that ends the cycle must mark the window first: %r" % lines[i - 1]
 
 
 def _run() -> int:
