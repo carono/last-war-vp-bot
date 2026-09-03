@@ -4118,19 +4118,36 @@ def treasure_auto_check() -> str:
     no map, no window — so the cost is one daemon round trip (~0.15 s with the daemon
     free) and nothing the game can notice.
 
-    True in three cases, and only the first is the obvious one:
+    True in two cases, and only the first is the obvious one:
 
       * **an unfinished target** — a chest is queued and its next step is owed;
       * **no ear at all** — a client restart wipes the VM and with it the hook, and a
         poll that only ever asked about targets would then wait for ever for a chest it
         could not hear. So «nobody is listening» is itself work, and the errand's first
-        step is to arm;
-      * **the client is in the WORLD** (#1296). The third door is not an ear: nothing
-        tells the client about a chest that is merely lying there, so somebody has to
-        look — and since the whole-server lap was deleted, looking means reading the box
-        the camera is already in, which costs a hundredth of a second and moves nothing.
-        So «we are on the map» is reason enough to run, every tick, and in the city this
-        clause is false and the errand stays quiet.
+        step is to arm.
+
+    IT USED TO BE THREE, AND THE THIRD ONE TOOK THE CLIENT AWAY FROM EVERYTHING ELSE
+    (#2390). «The client is in the WORLD» was reason enough to run, every tick — on the
+    grounds that looking is one box of the point manager and costs a hundredth of a
+    second. What actually ran was the WHOLE errand, and measured against a golden-zombie
+    hunt, which keeps the client in the world for as long as it lasts: **53 runs in 44
+    minutes, 1096 s of the client — 42 % of the wall clock — every one of them ending
+    «nothing was sent this run»**, with the day's own allowance already full. The chain
+    it was starving got four and a half minutes into its first target in that time.
+
+    The operator's decision, in their words: **«клады должны только по пушам
+    определяться, там нечему отбирать управление»**. So the errand is what it says on the
+    tin — an answer to something HEARD. The ear is the in-client hook on the chat share
+    (#1277), because the announcement rides a TLS websocket this repository cannot decode
+    and a wire listener is deaf to it by construction
+    (`docs/research/world-treasures.md`); what this poll does is read the panel's own
+    table in the VM, which is a local read of about 0.15 s and never a run.
+
+    **What that closes is the «simply found» door**: a chest nobody announced is no
+    longer looked for on a tick. It is still found by anything that plays the errand for
+    another reason — a person's press, a chest heard, the dig feed — and putting the lap
+    back means a clock with a period somebody chose out loud, not a poll that fires every
+    ten seconds.
     """
     return (
         "(function() "
@@ -4155,13 +4172,11 @@ def treasure_auto_check() -> str:
         "local held = stop or bad or ((tonumber(t.hold_until) or 0) > 0 "
         "and until_ms > 0 and (tonumber(A.tick_at) or 0) < tonumber(t.hold_until)) "
         "if not held then return true end end end "
-        # ON THE MAP IS REASON ENOUGH. There is no period to compare against any more:
-        # the look reads one box of the point manager and moves nothing, so the only
-        # question left is whether there is anything to look AT — and in the city the
-        # point manager is not there to read.
-        "local world = false "
-        "pcall(function() world = SceneUtils.GetIsInWorld() and true or false end) "
-        "if world then return true end "
+        # …AND NOTHING ELSE IS WORK (#2390). Being on the map used to answer «yes» here,
+        # which turned an errand into a clock that took the client every ten seconds to
+        # find out there was nothing to do — 42 % of the client over a measured 44
+        # minutes, against a day whose allowance was already spent. A chest that was
+        # never announced is not heard, and this says so.
         "return false end)()"
     )
 

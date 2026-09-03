@@ -550,13 +550,20 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         # cost is the same read the session-kick poll pays, and the chest is heard in the
         # same second the client hears it.
         #
-        # The check is true while a chest is unfinished, whenever nothing is listening —
-        # so a client restart, which wipes the VM and the hook with it, is picked up on
-        # the next tick instead of leaving the errand silently deaf — and whenever the
-        # client is out in the WORLD, because that is when there is something to look at.
-        # The look is one box of the client's own point manager, a hundredth of a second,
-        # and it moves nothing: the whole-server lap this used to schedule was deleted
-        # (#1296) after two laps found 19 and 21 chests with ours zero both times.
+        # The check is true while a chest is unfinished, and whenever nothing is
+        # listening — so a client restart, which wipes the VM and the hook with it, is
+        # picked up on the next tick instead of leaving the errand silently deaf. It is
+        # true for NOTHING ELSE (#2390).
+        #
+        # «The client is out in the WORLD» used to be a third truth (#1296), on the
+        # grounds that looking is one box of the point manager and costs a hundredth of a
+        # second. What ran on each of those ticks was the whole errand, and beside a
+        # golden-zombie chain — which holds the client in the world for as long as it
+        # lasts — that measured **53 runs in 44 minutes, 42 % of the client, every one of
+        # them ending «nothing was sent this run»** against a day whose allowance was
+        # already full. The operator's decision, in their words: «клады должны только по
+        # пушам определяться, там нечему отбирать управление». So the errand answers what
+        # it HEARD, and a chest nobody announced is no longer looked for on a tick.
         kind=KIND_POLL,
         check=lua_actions.treasure_auto_check(),
         # Ten seconds, because the whole point is to be early: the chest is out for

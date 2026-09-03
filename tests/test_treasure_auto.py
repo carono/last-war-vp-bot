@@ -1491,25 +1491,31 @@ def test_the_lap_is_refused_in_the_city_and_between_periods():
     assert int(lua.eval("DataCenter.__lw_treasure_scan_due")) == 0, "zero is off"
 
 
-def test_the_poll_is_true_whenever_the_client_is_out_in_the_world():
-    """Being on the map IS the work now (#1296).
+def test_being_out_in_the_world_is_not_work_by_itself():
+    """The errand answers what it HEARD, and nothing else (#2390).
 
-    Nothing announces a chest that is merely lying there, so somebody has to look — and
-    since the whole-server lap was deleted, looking is one box of the client's own point
-    manager, a hundredth of a second, moving nothing. There is no period left to compare
-    against: an armed errand with an empty queue answers «yes» while the client is out in
-    the world, and «no» in the city, where there is no point manager to read.
+    «We are on the map» used to answer «yes» here (#1296), on the grounds that looking is
+    one box of the point manager. What ran was the whole errand: measured beside a
+    golden-zombie chain, which holds the client in the world for as long as it lasts, 53
+    runs in 44 minutes and 42 % of the client, every one of them ending «nothing was sent
+    this run» against a day whose allowance was already full.
+
+    So an armed errand with an empty queue is quiet — in the world exactly as in the
+    city — and only a chest it can name gets the client.
     """
-    if not _needs_lua("the poll asks whether we are on the map"):
+    if not _needs_lua("the poll no longer asks whether we are on the map"):
         return
     lua = _scan_vm()
-    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "in the world"
+    lua.execute(lua_actions.treasure_watch_install())
+    lua.execute(lua_actions.treasure_auto_arm_parked())
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, \
+        "an armed errand with nothing queued must not take the client"
 
-    #: looking does not stamp anything the poll consults — there is no period to keep
+    #: …and looking, which is still what a run does, does not make the next tick true
     lua.execute(lua_actions.treasure_look_around())
-    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "still in the world"
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, "still nothing heard"
 
-    #: …and in the city an empty queue is genuinely idle
+    #: the city was never the difference — an empty queue is idle in both scenes
     lua.execute("WORLD = false")
     assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, "not in the world"
 

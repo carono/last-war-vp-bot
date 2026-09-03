@@ -941,6 +941,47 @@ feed, and one simply found. A chest that arrives twice stays ONE target and keep
 half of each — the dig feed's uuid and the lap's tile — and the report says which door it
 came through and how long ago (`x17/scan/33s:squad1`).
 
+## The third door was a CLOCK in disguise, and it cost 42 % of the client (#2390)
+
+Measured while a golden-zombie chain was running, over 44 minutes of one live session:
+
+| what held the client | seconds | runs |
+|---|---|---|
+| `radar_full_cycle` | 1344 (51 %) | 2 |
+| `auto_treasure` | **1096 (42 %)** | **53** |
+| the chain the person had started | the rest | 1 |
+
+Every one of those 53 runs ended `nothing was sent this run (heard=0 queued=0 working=0
+finished=0)`, and the day's own allowance was already spent (`groups=[602=10/full]`). The
+chain, which yields to anything that asks (`DETACH`), spent four and a half minutes
+setting its arguments and fourteen getting as far as choosing its first target.
+
+**The cause is the poll's third truth, `if world then return true end`** (§«What the third
+door is, in the end»). It was written as a cheap look — one box of the point manager, a
+hundredth of a second — but the poll does not look: it decides whether to RUN THE ERRAND,
+and the errand is twenty seconds of readings. Anything that keeps the client on the map
+therefore turned this errand into a clock at the poll's own interval, ten seconds.
+
+The operator's decision, in their words: **«клады должны только по пушам определяться, там
+нечему отбирать управление»**. So the clause is gone. What is left is two truths — a chest
+this errand can NAME is unfinished, or nothing is listening and the ear must be re-armed
+after a client restart — and both are read out of the panel's own table in the VM, which is
+a local read of about 0.15 s.
+
+**«По пушам» is the in-client ear, and there is no wire push to use instead.** §«The
+announcement, and where it does NOT travel» measured that: the chest's chat share arrives
+under `world.treasure.share.chat` on a TLS websocket, present in the Lua trace and absent
+from the capture taken beside it, so a `panel/triggers.py` WIRE trigger on the appearance
+is deaf by construction. The hook of #1277 IS the push — it is just heard inside the client
+and read out of the VM rather than off the socket. The one genuine wire push in this area,
+`push.detect.treasure.claim`, says «this chest is dug and payable» about a chest the errand
+is already working, and the claim it gates has ridden the in-game watch since #1318.
+
+**What this closes, said plainly: the «simply found» door no longer opens by itself.** A
+chest nobody announced is found when something else plays the errand — a person's press, a
+chest heard, the dig feed — and if the lap is wanted back it comes back as a clock with a
+period somebody chose out loud, never as a poll firing every ten seconds.
+
 ## The chest that was ours, and the two bugs it uncovered in one evening
 
 A fresh chest of the account's own alliance finally appeared on 2026-08-08, and the errand
