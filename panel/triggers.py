@@ -947,7 +947,17 @@ def parse_catalogue(data, path: str | None = None,
         # to evaluate. Missing the one its kind requires costs the entry, not the set.
         pattern = str(raw.get("event_pattern") or "").strip() or \
             (base.event_pattern if base else "")
-        check = str(raw.get("check") or "").strip() or (base.check if base else "")
+        # …AND SO IS THE CHECK ITSELF (#2390). A poll's `check` is a Lua expression against
+        # the client's own internals — nobody tunes one by hand the way they might retarget
+        # an `event_pattern`, and a copy of one is stale the day the code moves. It was
+        # taken from the FILE first, and the file is written once, when a profile first
+        # meets the trigger: so every later fix to a check was dead on arrival. Measured
+        # here — the treasure poll went on asking «are we in the world» long after that
+        # clause was deleted, because this profile was carrying a copy of the old
+        # expression. A name the code knows is answered by the code; a name it has never
+        # heard of is somebody's own trigger and keeps what the file says.
+        check = (base.check if base is not None
+                 else str(raw.get("check") or "").strip())
         if kind == KIND_WIRE and not pattern:
             errors.append(Message("log.triggers.no_pattern",
                                   f"{name}: no event_pattern to watch for — skipped",

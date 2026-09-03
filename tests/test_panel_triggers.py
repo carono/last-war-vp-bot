@@ -33,6 +33,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from panel import triggers as triggersmod
 from panel.runtime import settings_files  # noqa: E402
+from tools.lib import lua_actions  # noqa: E402
 
 
 # -- the catalogue ----------------------------------------------------------
@@ -222,6 +223,33 @@ def test_merge_new_appends_the_missing_builtins_switched_off():
     assert set(grown.names()) >= {t.name for t in triggersmod.DEFAULT_TRIGGERS}
     # …and every newcomer arrives opt-in, so a start cannot begin acting on its own
     assert all(grown.by_name(name).enabled is False for name in added)
+
+
+def test_a_stored_check_never_outlives_the_code_that_wrote_it():
+    """A poll's Lua is CODE, and a profile's copy of it is stale the day the code moves.
+
+    Measured on a live panel (#2390): the treasure poll went on asking «are we in the
+    world» — the clause that had it running 53 times in 44 minutes — for two restarts
+    after that clause was deleted, because the profile's own catalogue was carrying the
+    expression it had been written with months earlier. The switch, the period and the
+    args stay the operator's; the question the client is asked does not.
+    """
+    old = triggersmod.parse_catalogue([
+        {"name": "treasure_auto", "kind": "poll", "scenario": "auto_treasure",
+         "check": "(function() return true end)()",       # …the file's stale copy
+         "enabled": True, "interval_sec": 33, "cooldown_sec": 44},
+    ])
+    t = old.by_name("treasure_auto")
+    assert t.check == lua_actions.treasure_auto_check(), "the code answers, not the file"
+    assert t.enabled is True                     # the switch is still the operator's
+    assert t.interval_sec == 33 and t.cooldown_sec == 44      # …and so is the cadence
+
+    #: a trigger the code has never heard of is somebody's own, and keeps its check
+    mine = triggersmod.parse_catalogue([
+        {"name": "my_own_poll", "kind": "poll", "scenario": "x",
+         "check": "(function() return 1 == 1 end)()"},
+    ]).by_name("my_own_poll")
+    assert mine.check == "(function() return 1 == 1 end)()"
 
 
 def test_merge_new_leaves_a_complete_file_alone():
