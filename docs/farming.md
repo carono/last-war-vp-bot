@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **36%** — 66 of 183
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **37%** — 67 of 183
 
-🟩 66 done · 🟨 84 partly · 🟥 33 not automated
+🟩 67 done · 🟨 84 partly · 🟥 32 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -260,8 +260,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 ### Store
 
-- ❌ Daily diamond bonuses, weekly card
-- ❌ Monthly card reward
+- ✅ Taking everything the shop gives for nothing, in one press with no window opened: today's free gift from the week-card page, the daily reward of the week cards already held, and what a running month card owes for today. Nothing is ever bought — no diamonds, no gold bricks, no honour, no coupons — and every other tab of the shop is left alone. What is on offer is asked of the game rather than counted by the panel, so a day already collected is a clean no-op that says so, and a claim the game refuses is reported as refused instead of being written down as done. Its own page shows what is waiting and offers the press; can run on its own every six hours from «Таймеры» (off by default)
+- ❌ Anything in the shop that costs something — every one of the fifteen tabs of the two shop windows sells for a currency, and the panel makes no purchases
 - 🟡 The shop opens and switches between its tabs on command
 
 ### Promotions
