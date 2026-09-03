@@ -56,8 +56,11 @@ OWNERS = {
     # re-aimed. The wait brick reads it to decide whether to wait at all.
     "reaimable": "golden_reaimable",
     # CHECK AND ORDER IN ONE CALL (#2390) — the window is seconds wide, so the
-    # re-aim asks and sends inside one round trip instead of four.
-    "reaimed": "golden_reaim_now",
+    # re-aim asks and sends inside one round trip instead of four. …AND THE BEAT
+    # THAT FINDS THE LANDING IS THAT CALL: `golden_land_or_reaim` wraps the re-aim
+    # in the arrival clock, so the wait no longer spends a turn of the player
+    # between «it has landed» and «here is the next order».
+    "reaimed": "golden_land_or_reaim",
     "refreshed": "golden_refresh_done",
     "ride_report": "golden_approach_report",
     "riding": "golden_approach_planned",

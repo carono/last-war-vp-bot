@@ -12365,7 +12365,11 @@ def golden_reaim_now() -> str:
         "MarchUtil.SendChangeMarchToServer(mu, kind, pid, uuid, home, srv, 0) end) "
         'CS.UnityEngine.Debug.LogError("ACT golden_reaim ok="..tostring(ok)'
         '.." err="..tostring(err).." pid="..tostring(pid)) '
-        "end, 0.5) "
+        # A TENTH, NOT A HALF (#2390). Every send in this file hops to the main
+        # thread, and the ordinary attack does it at 0.1 s. The re-aim was
+        # sitting at 0.5, which is four tenths given away inside a window
+        # measured at 0.08-3.4 s wide.
+        "end, 0.1) "
         "p.own_march = tostring(mu) "
         "p.redeploy = 1 "
         "p.redeploys = (tonumber(p.redeploys) or 0) + 1 "
@@ -12390,6 +12394,38 @@ def golden_reaim_now() -> str:
         "return 1 end)()"
         % {"gold": _GOLD, "energy": golden_energy(), "fallback": GOLDEN_ATTACK_COST}
     )
+
+
+
+def golden_land_or_reaim() -> str:
+    """Lua *expression* -> ``-1`` while the march is still flying, else `golden_reaim_now`.
+
+    THE BEAT THAT FINDS THE LANDING IS THE BEAT THAT SENDS THE ORDER (#2390). The wait
+    used to read «has our march landed» on a four-tenths beat and then, in a SECOND
+    statement, ask for the re-aim. Between those two statements sits a whole turn of the
+    player — 0.2 s at the VM and about a second and a half by the time it has been logged
+    — and the window a march can be re-aimed in was measured off the operator's own
+    hand-driven chain at 0.08-3.4 s. So the turn between them was most of the window.
+
+    Here they are one call. While the server's arrival stamp for this run's own order
+    (`p.eta_ms`) is still in the future the answer is `-1` and the caller beats again; on
+    the first beat that finds it past, the re-aim goes out inside the same round trip and
+    the answer is whatever `golden_reaim_now` answers (1 re-aimed, 0 nothing to re-aim,
+    -3 nothing chosen, -4 the zombie is gone).
+
+    Nothing parked means nothing to wait for — the first lap of a run — and that falls
+    straight through to the re-aim, which answers `0` and sends the ordinary way.
+    """
+    return ("(function() " + _GOLD_P +
+            "local due = tonumber(p.eta_ms) "
+            "if due ~= nil and due > 0 then "
+            "local now = nil "
+            "pcall(function() now = tonumber(UITimeManager.Instance:GetServerTime()) end) "
+            "if now == nil then "
+            "pcall(function() now = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end "
+            "if now == nil then now = os.time() * 1000 end "
+            "if now < due then return -1 end end "
+            "return " + golden_reaim_now() + " end)()")
 
 
 def golden_confirm() -> str:
