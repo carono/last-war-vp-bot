@@ -2701,5 +2701,19 @@
   "hidden.card": "Hidden Treasures",
   "events.golden.lap": "Seconds per zombie (avg · last)",
   "events.golden.options": "Hunt settings",
-  "events.golden.approach.hint": "A long haul is ridden to a mine beside the target on a gather order, which travels two and a half times faster, and only the last tiles are marched."
+  "events.golden.approach.hint": "A long haul is ridden to a mine beside the target on a gather order, which travels two and a half times faster, and only the last tiles are marched.",
+  "events.group.lucky": "Surprise box: free diamonds",
+  "events.lucky.state.open": "there is a packet to give away",
+  "events.lucky.state.closed": "nothing to give away",
+  "events.lucky.state.unknown": "nobody has asked yet",
+  "events.lucky.left": "Minutes left",
+  "events.lucky.watch": "The ear",
+  "events.lucky.read": "Refresh",
+  "events.lucky.arm": "Arm the ear",
+  "events.lucky.share": "Give it away",
+  "events.lucky.confirm": "Post the packet of free diamonds in the alliance chat? Everyone there will see it and it cannot be taken back.",
+  "triggers.item.lucky_watch": "Keep the ear on for the packet a surprise box drops",
+  "triggers.item.lucky_watch.short": "Ear for the packet",
+  "triggers.item.lucky_share": "Give away the packet of free diamonds while the hour lasts",
+  "triggers.item.lucky_share.short": "Give the packet away"
 }

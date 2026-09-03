@@ -2701,5 +2701,19 @@
   "hidden.card": "Tesoros Escondidos",
   "events.golden.lap": "Segundos por zombi (med. · últ.)",
   "events.golden.options": "Ajustes de la caza",
-  "events.golden.approach.hint": "Un trayecto largo se hace con una orden de recolección hasta una mina junto al objetivo — dos veces y media más rápido — y solo las últimas casillas se marchan."
+  "events.golden.approach.hint": "Un trayecto largo se hace con una orden de recolección hasta una mina junto al objetivo — dos veces y media más rápido — y solo las últimas casillas se marchan.",
+  "events.group.lucky": "Caja sorpresa: diamantes gratis",
+  "events.lucky.state.open": "hay algo que compartir",
+  "events.lucky.state.closed": "nada que compartir",
+  "events.lucky.state.unknown": "nadie lo ha preguntado",
+  "events.lucky.left": "Minutos restantes",
+  "events.lucky.watch": "La escucha",
+  "events.lucky.read": "Actualizar",
+  "events.lucky.arm": "Activar la escucha",
+  "events.lucky.share": "Compartir",
+  "events.lucky.confirm": "¿Publicar el paquete de diamantes gratis en el chat de la alianza? Lo verán todos y no se puede deshacer.",
+  "triggers.item.lucky_watch": "Mantener la escucha del paquete que suelta una caja sorpresa",
+  "triggers.item.lucky_watch.short": "Escucha del paquete",
+  "triggers.item.lucky_share": "Compartir el paquete de diamantes gratis mientras dure la hora",
+  "triggers.item.lucky_share.short": "Compartir el paquete"
 }

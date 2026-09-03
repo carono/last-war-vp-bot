@@ -2701,5 +2701,19 @@
   "hidden.card": "Gizli Hazine",
   "events.golden.lap": "Zombi başına saniye (ort. · son)",
   "events.golden.options": "Av ayarları",
-  "events.golden.approach.hint": "Uzun yol, hedefin yanındaki bir madene toplama emriyle katedilir — iki buçuk kat hızlı — ve yalnızca son kareler yürüyerek geçilir."
+  "events.golden.approach.hint": "Uzun yol, hedefin yanındaki bir madene toplama emriyle katedilir — iki buçuk kat hızlı — ve yalnızca son kareler yürüyerek geçilir.",
+  "events.group.lucky": "Sürpriz sandık: bedava elmas",
+  "events.lucky.state.open": "paylaşacak bir şey var",
+  "events.lucky.state.closed": "paylaşacak bir şey yok",
+  "events.lucky.state.unknown": "henüz kimse sormadı",
+  "events.lucky.left": "Kalan dakika",
+  "events.lucky.watch": "Nöbet",
+  "events.lucky.read": "Yenile",
+  "events.lucky.arm": "Nöbeti aç",
+  "events.lucky.share": "Paylaş",
+  "events.lucky.confirm": "Bedava elmas paketi ittifak sohbetinde yayımlansın mı? Herkes görecek ve geri alınamaz.",
+  "triggers.item.lucky_watch": "Sürpriz sandıktan düşen paket için nöbeti açık tut",
+  "triggers.item.lucky_watch.short": "Paket nöbeti",
+  "triggers.item.lucky_share": "Saat dolmadan bedava elmas paketini paylaş",
+  "triggers.item.lucky_share.short": "Paketi paylaş"
 }

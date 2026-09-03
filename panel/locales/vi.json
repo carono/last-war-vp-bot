@@ -2701,5 +2701,19 @@
   "hidden.card": "Kho Báu Bí Mật",
   "events.golden.lap": "Giây mỗi zombie (TB · gần nhất)",
   "events.golden.options": "Cài đặt săn",
-  "events.golden.approach.hint": "Quãng đường xa được đi bằng lệnh thu thập tới mỏ cạnh mục tiêu — nhanh gấp hai rưỡi — và chỉ những ô cuối mới hành quân."
+  "events.golden.approach.hint": "Quãng đường xa được đi bằng lệnh thu thập tới mỏ cạnh mục tiêu — nhanh gấp hai rưỡi — và chỉ những ô cuối mới hành quân.",
+  "events.group.lucky": "Rương bất ngờ: kim cương miễn phí",
+  "events.lucky.state.open": "có thứ để chia sẻ",
+  "events.lucky.state.closed": "không có gì để chia sẻ",
+  "events.lucky.state.unknown": "chưa ai hỏi",
+  "events.lucky.left": "Số phút còn lại",
+  "events.lucky.watch": "Phiên canh",
+  "events.lucky.read": "Làm mới",
+  "events.lucky.arm": "Bật phiên canh",
+  "events.lucky.share": "Chia sẻ",
+  "events.lucky.confirm": "Đăng gói kim cương miễn phí vào kênh chat liên minh? Mọi người sẽ thấy và không thể thu hồi.",
+  "triggers.item.lucky_watch": "Giữ phiên canh gói quà rơi ra từ rương bất ngờ",
+  "triggers.item.lucky_watch.short": "Canh gói quà",
+  "triggers.item.lucky_share": "Chia sẻ gói kim cương miễn phí khi giờ vẫn còn",
+  "triggers.item.lucky_share.short": "Chia sẻ gói quà"
 }

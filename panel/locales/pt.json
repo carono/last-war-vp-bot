@@ -2701,5 +2701,19 @@
   "hidden.card": "Tesouro Secreto",
   "events.golden.lap": "Segundos por zumbi (méd. · últ.)",
   "events.golden.options": "Ajustes da caçada",
-  "events.golden.approach.hint": "Um trajeto longo é feito com uma ordem de coleta até uma mina ao lado do alvo — duas vezes e meia mais rápido — e só as últimas casas são marchadas."
+  "events.golden.approach.hint": "Um trajeto longo é feito com uma ordem de coleta até uma mina ao lado do alvo — duas vezes e meia mais rápido — e só as últimas casas são marchadas.",
+  "events.group.lucky": "Caixa surpresa: diamantes grátis",
+  "events.lucky.state.open": "há o que partilhar",
+  "events.lucky.state.closed": "nada para partilhar",
+  "events.lucky.state.unknown": "ninguém perguntou ainda",
+  "events.lucky.left": "Minutos restantes",
+  "events.lucky.watch": "A escuta",
+  "events.lucky.read": "Atualizar",
+  "events.lucky.arm": "Ligar a escuta",
+  "events.lucky.share": "Partilhar",
+  "events.lucky.confirm": "Publicar o pacote de diamantes grátis no chat da aliança? Toda a gente o verá e não dá para desfazer.",
+  "triggers.item.lucky_watch": "Manter a escuta do pacote que sai de uma caixa surpresa",
+  "triggers.item.lucky_watch.short": "Escuta do pacote",
+  "triggers.item.lucky_share": "Partilhar o pacote de diamantes grátis enquanto durar a hora",
+  "triggers.item.lucky_share.short": "Partilhar o pacote"
 }

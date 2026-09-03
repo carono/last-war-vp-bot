@@ -2701,5 +2701,19 @@
   "hidden.card": "Trésors Cachés",
   "events.golden.lap": "Secondes par zombie (moy. · dern.)",
   "events.golden.options": "Réglages de la chasse",
-  "events.golden.approach.hint": "Un long trajet se fait sur un ordre de récolte vers une mine près de la cible — deux fois et demie plus rapide —, et seules les dernières cases sont parcourues en marche."
+  "events.golden.approach.hint": "Un long trajet se fait sur un ordre de récolte vers une mine près de la cible — deux fois et demie plus rapide —, et seules les dernières cases sont parcourues en marche.",
+  "events.group.lucky": "Coffre surprise : diamants gratuits",
+  "events.lucky.state.open": "il y a de quoi partager",
+  "events.lucky.state.closed": "rien à partager",
+  "events.lucky.state.unknown": "personne n'a encore demandé",
+  "events.lucky.left": "Minutes restantes",
+  "events.lucky.watch": "La veille",
+  "events.lucky.read": "Actualiser",
+  "events.lucky.arm": "Activer la veille",
+  "events.lucky.share": "Partager",
+  "events.lucky.confirm": "Publier le paquet de diamants gratuits dans le chat de l'alliance ? Tout le monde le verra et c'est irréversible.",
+  "triggers.item.lucky_watch": "Garder la veille sur le paquet lâché par un coffre surprise",
+  "triggers.item.lucky_watch.short": "Veille sur le paquet",
+  "triggers.item.lucky_share": "Partager le paquet de diamants gratuits tant que l'heure dure",
+  "triggers.item.lucky_share.short": "Partager le paquet"
 }

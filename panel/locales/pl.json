@@ -2701,5 +2701,19 @@
   "hidden.card": "Ukryte skarby",
   "events.golden.lap": "Sekund na zombie (śr. · ost.)",
   "events.golden.options": "Ustawienia polowania",
-  "events.golden.approach.hint": "Długą drogę oddział pokonuje rozkazem zbiórki do kopalni obok celu — dwa i pół raza szybciej — a maszeruje tylko ostatnie pola."
+  "events.golden.approach.hint": "Długą drogę oddział pokonuje rozkazem zbiórki do kopalni obok celu — dwa i pół raza szybciej — a maszeruje tylko ostatnie pola.",
+  "events.group.lucky": "Skrzynia niespodzianka: darmowe diamenty",
+  "events.lucky.state.open": "jest czym się podzielić",
+  "events.lucky.state.closed": "nie ma czym się dzielić",
+  "events.lucky.state.unknown": "nikt jeszcze nie pytał",
+  "events.lucky.left": "Pozostało minut",
+  "events.lucky.watch": "Nasłuch",
+  "events.lucky.read": "Odśwież",
+  "events.lucky.arm": "Włącz nasłuch",
+  "events.lucky.share": "Rozdaj",
+  "events.lucky.confirm": "Opublikować paczkę darmowych diamentów na czacie sojuszu? Zobaczą ją wszyscy i nie da się tego cofnąć.",
+  "triggers.item.lucky_watch": "Utrzymywać nasłuch paczki wypadającej ze skrzyni niespodzianki",
+  "triggers.item.lucky_watch.short": "Nasłuch paczki",
+  "triggers.item.lucky_share": "Rozdać paczkę darmowych diamentów, póki trwa godzina",
+  "triggers.item.lucky_share.short": "Rozdaj paczkę"
 }

@@ -2701,5 +2701,19 @@
   "hidden.card": "Verborgene Schätze",
   "events.golden.lap": "Sekunden pro Zombie (Ø · letzte)",
   "events.golden.options": "Jagdeinstellungen",
-  "events.golden.approach.hint": "Eine weite Strecke wird per Sammelbefehl zu einer Mine neben dem Ziel geritten — zweieinhalbmal schneller —, nur die letzten Felder werden marschiert."
+  "events.golden.approach.hint": "Eine weite Strecke wird per Sammelbefehl zu einer Mine neben dem Ziel geritten — zweieinhalbmal schneller —, nur die letzten Felder werden marschiert.",
+  "events.group.lucky": "Überraschungskiste: Gratis-Diamanten",
+  "events.lucky.state.open": "es gibt etwas zu verschenken",
+  "events.lucky.state.closed": "nichts zu verschenken",
+  "events.lucky.state.unknown": "noch niemand hat gefragt",
+  "events.lucky.left": "Minuten übrig",
+  "events.lucky.watch": "Die Wache",
+  "events.lucky.read": "Aktualisieren",
+  "events.lucky.arm": "Wache einschalten",
+  "events.lucky.share": "Verschenken",
+  "events.lucky.confirm": "Das Päckchen mit Gratis-Diamanten im Allianz-Chat veröffentlichen? Alle dort sehen es, und es lässt sich nicht zurücknehmen.",
+  "triggers.item.lucky_watch": "Die Wache für das Päckchen aus der Überraschungskiste anlassen",
+  "triggers.item.lucky_watch.short": "Wache für das Päckchen",
+  "triggers.item.lucky_share": "Das Päckchen mit Gratis-Diamanten verschenken, solange die Stunde läuft",
+  "triggers.item.lucky_share.short": "Päckchen verschenken"
 }

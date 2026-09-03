@@ -681,6 +681,59 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.firework_watch",
     ),
     Trigger(
+        name="lucky_watch",
+        # A surprise box sometimes drops a packet of free diamonds the player may give
+        # away in chat, once, inside an hour. It falls out of DIFFERENT boxes, so there is
+        # no press to hang it on — and the client is told about it by a command #2397
+        # could not name: the drop it acted on had happened before anybody was listening,
+        # and the client had loaded no push module for it. Guessing between
+        # `push.prepare.red.packet` and `push.receive.assign.red.packet` would buy a
+        # trigger that either never fires or fires on the wrong thing.
+        #
+        # So `watch_lucky_packet` parks a hook on the client's own `SFSNetwork
+        # .HandleMessage` that watches the size of `notSharedLuckyPacketList` and NAMES
+        # the command that grew it. This poll keeps that hook alive — its check is the
+        # hook's own flag, so the ordinary answer is «no» and nothing is played; a client
+        # restart is what makes it answer «yes». The same shape as `firework_watch`
+        # above, and for the same reason.
+        kind=KIND_POLL,
+        check=("(function() local B = DataCenter.__lw_lucky "
+               "return (B == nil) or (not B.on) end)()"),
+        interval_sec=300,
+        cooldown_sec=280,
+        scenario=("watch_lucky_packet",),
+        enabled=False,
+        label_key="triggers.item.lucky_watch",
+    ),
+    Trigger(
+        name="lucky_share",
+        # …and the press the watch cannot make. Giving the packet away drives three of the
+        # client's own windows, and opening windows inside a message handler is how a VM
+        # gets wedged — so the hook records and this trigger acts.
+        #
+        # A POLL, deliberately and with the cost stated: the reading behind `check` is
+        # LOCAL (`notSharedLuckyPacketList` against the client's own clock) and asks the
+        # server for nothing, so what it spends is one VM round trip every five minutes on
+        # a profile that has switched it on. The window is an hour and the packet is free,
+        # so five minutes is small beside it. It becomes a wire trigger the moment the
+        # watch above names the command — that is the whole point of the watch.
+        kind=KIND_POLL,
+        check=("(function() local m = DataCenter.LuckyBuffManager if not m then "
+               "return false end local inst = m.Instance or m local now = 0 "
+               "pcall(function() now = UITimeManager:GetInstance():GetServerTime() end) "
+               "if now == nil or now == 0 then now = os.time() * 1000 end "
+               "local al = '' pcall(function() al = tostring(LuaEntry.Player.allianceId "
+               "or '') end) if al == '' or al == 'nil' or al == '0' then return false end "
+               "for _, e in pairs(inst.notSharedLuckyPacketList or {}) do if "
+               "type(e) == 'table' and (tonumber(e.expireTime) or 0) > now then "
+               "return true end end return false end)()"),
+        interval_sec=300,
+        cooldown_sec=280,
+        scenario=("share_lucky_packet",),
+        enabled=False,
+        label_key="triggers.item.lucky_share",
+    ),
+    Trigger(
         name="piece_exchange",
         # SOMEBODY TOOK OUR OFFER — measured, not assumed (#1975). Twice over, the wire
         # shows `push.treasure.fragment.exchange {DIG_GAME_TREASURE_FRAGMENT = 1}`

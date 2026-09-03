@@ -2701,5 +2701,19 @@
   "hidden.card": "Tesoro Nascosti",
   "events.golden.lap": "Secondi per zombie (media · ultimo)",
   "events.golden.options": "Impostazioni della caccia",
-  "events.golden.approach.hint": "Un tragitto lungo si percorre con un ordine di raccolta fino a una miniera accanto al bersaglio — due volte e mezzo più veloce — e solo le ultime caselle si fanno in marcia."
+  "events.golden.approach.hint": "Un tragitto lungo si percorre con un ordine di raccolta fino a una miniera accanto al bersaglio — due volte e mezzo più veloce — e solo le ultime caselle si fanno in marcia.",
+  "events.group.lucky": "Cassa a sorpresa: diamanti gratis",
+  "events.lucky.state.open": "c'è qualcosa da condividere",
+  "events.lucky.state.closed": "niente da condividere",
+  "events.lucky.state.unknown": "nessuno l'ha ancora chiesto",
+  "events.lucky.left": "Minuti rimasti",
+  "events.lucky.watch": "L'ascolto",
+  "events.lucky.read": "Aggiorna",
+  "events.lucky.arm": "Attiva l'ascolto",
+  "events.lucky.share": "Condividi",
+  "events.lucky.confirm": "Pubblicare il pacchetto di diamanti gratis nella chat dell'alleanza? Lo vedranno tutti e non si può annullare.",
+  "triggers.item.lucky_watch": "Tenere l'ascolto sul pacchetto che esce da una cassa a sorpresa",
+  "triggers.item.lucky_watch.short": "Ascolto del pacchetto",
+  "triggers.item.lucky_share": "Condividere il pacchetto di diamanti gratis finché dura l'ora",
+  "triggers.item.lucky_share.short": "Condividi il pacchetto"
 }

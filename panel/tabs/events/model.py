@@ -1096,3 +1096,64 @@ def arms_phase_clock(start: int, end: int) -> str:
     except (TypeError, ValueError, OSError):
         return "—"
     return f"{a}–{b}"
+
+
+#: «Ящик с сюрпризом» — the packet of free diamonds a surprise box sometimes drops.
+#:
+#: The bonus is a red packet the player may give away in the ALLIANCE chat, once, inside
+#: an hour of the drop; the diamonds are the server's, so giving it away costs the account
+#: nothing and an hour later it is gone whether anybody pressed anything or not.
+#:
+#: There is no reading scenario on a clock behind this card and there must not be: the
+#: packet is announced by a command nobody has named yet (#2397), so what keeps the card
+#: fresh is the hook `actions/watch_lucky_packet.md` and a person's «Обновить».
+LUCKY = "lucky"
+
+#: The three scenarios behind it: what is there, give it away, and the ear that will name
+#: the announcement on the next drop.
+LUCKY_READ = "read_lucky_packet"
+LUCKY_SHARE = "share_lucky_packet"
+LUCKY_WATCH = "watch_lucky_packet"
+
+#: The variable each of them lands in.
+LUCKY_VARIABLE = "lucky"
+LUCKY_WATCH_VARIABLE = "lucky_watch"
+
+
+def lucky_fields(said: str) -> dict:
+    """`have=1 live=1 min=48 alliance=1` → a dict of whole numbers.
+
+    A field the reading did not say is absent rather than zero: «нет пакета» and «никто
+    не спрашивал» are different answers, and the card draws them differently.
+    """
+    out: dict = {}
+    for chunk in str(said or "").split():
+        name, _, value = chunk.partition("=")
+        try:
+            out[name] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def lucky_state(said: str) -> str:
+    """Which of the three states the packet is in, for the card's own pill."""
+    got = lucky_fields(said)
+    if not got:
+        return UNKNOWN
+    if int(got.get("live", 0)) > 0:
+        return OPEN
+    return CLOSED
+
+
+def lucky_left(said: str) -> str:
+    """`48` — the minutes left of the hour, or `—` when there is nothing to share.
+
+    The number and nothing else: the unit belongs to the row's LABEL, which is a locale
+    key, so «мин» is not written in Python in one language (`CLAUDE.md`).
+    """
+    got = lucky_fields(said)
+    minutes = int(got.get("min", -1))
+    if not got or minutes < 0 or int(got.get("live", 0)) <= 0:
+        return "—"
+    return str(minutes)

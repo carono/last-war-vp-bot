@@ -2701,5 +2701,19 @@
   "hidden.card": "Скрытые Сокровища",
   "events.golden.lap": "Секунд на зомби (средн. · посл.)",
   "events.golden.options": "Настройки охоты",
-  "events.golden.approach.hint": "Дальний путь отряд едет приказом на сбор к шахте рядом с целью — это в два с половиной раза быстрее — и только последние клетки идёт маршем."
+  "events.golden.approach.hint": "Дальний путь отряд едет приказом на сбор к шахте рядом с целью — это в два с половиной раза быстрее — и только последние клетки идёт маршем.",
+  "events.group.lucky": "Ящик с сюрпризом: бесплатные алмазы",
+  "events.lucky.state.open": "есть чем поделиться",
+  "events.lucky.state.closed": "делиться нечем",
+  "events.lucky.state.unknown": "никто не спрашивал",
+  "events.lucky.left": "Осталось, мин",
+  "events.lucky.watch": "Караул",
+  "events.lucky.read": "Обновить",
+  "events.lucky.arm": "Включить караул",
+  "events.lucky.share": "Раздать",
+  "events.lucky.confirm": "Опубликовать пакет с бесплатными алмазами в чате альянса? Его увидят все, и отменить это нельзя.",
+  "triggers.item.lucky_watch": "Держать караул за пакетом из ящика с сюрпризом",
+  "triggers.item.lucky_watch.short": "Караул за пакетом",
+  "triggers.item.lucky_share": "Раздать пакет с бесплатными алмазами, пока идёт час",
+  "triggers.item.lucky_share.short": "Раздать пакет"
 }
