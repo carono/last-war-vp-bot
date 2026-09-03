@@ -2736,5 +2736,6 @@
   "farming.page.next": "Seguinte",
   "farming.state.done": "funciona",
   "farming.state.partial": "em parte",
-  "farming.state.todo": "à mão"
+  "farming.state.todo": "à mão",
+  "farming.of": "{done} de {total}"
 }

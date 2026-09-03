@@ -2736,5 +2736,6 @@
   "farming.page.next": "İleri",
   "farming.state.done": "çalışıyor",
   "farming.state.partial": "kısmen",
-  "farming.state.todo": "elle"
+  "farming.state.todo": "elle",
+  "farming.of": "{total} içinden {done}"
 }

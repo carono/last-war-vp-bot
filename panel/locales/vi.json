@@ -2736,5 +2736,6 @@
   "farming.page.next": "Tiếp",
   "farming.state.done": "chạy được",
   "farming.state.partial": "một phần",
-  "farming.state.todo": "thủ công"
+  "farming.state.todo": "thủ công",
+  "farming.of": "{done} trên {total}"
 }

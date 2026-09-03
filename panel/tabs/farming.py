@@ -68,7 +68,12 @@ def _split(text: str) -> tuple:
     page of twenty-five features readable on a phone; nothing is dropped.
     """
     head, sep, rest = text.partition(" — ")
-    return (head, rest.strip()) if sep else (text, "")
+    if not sep:
+        return text, ""
+    # A name that ran on into a subordinate clause keeps its comma when the dash is
+    # taken away — «Применение навыков, которым не нужна цель,» — and a heading that
+    # ends in a comma reads as a sentence somebody cut off.
+    return head.rstrip(",;:"), rest.strip()
 
 
 class FarmingTab(PanelTab):
@@ -204,8 +209,13 @@ class FarmingTab(PanelTab):
                     "rows": rows}
         tiles = {"title": "farming.sections", "layout": "tiles",
                  "empty": "farming.empty",
+                 # «10 из 20» AND NOT «10/20» (measured on the phone): the panel marks
+                 # every coordinate it sends (`panel/web/coordlinks.py`), and «10/20» is
+                 # a coordinate — the count on a tile was drawn as a link that walks the
+                 # camera somewhere nobody asked about.
                  "items": [{"text": section["title"],
-                            "detail": "%d/%d" % (section["done"], section["total"]),
+                            "detail": self.t("farming.of", done=section["done"],
+                                             total=section["total"]),
                             "actions": [{"id": "pick", "label": "farming.pick",
                                          "args": {"section": section["title"]}}]}
                            for section in self.doc()["sections"]]}

@@ -2736,5 +2736,6 @@
   "farming.page.next": "Вперёд",
   "farming.state.done": "работает",
   "farming.state.partial": "частично",
-  "farming.state.todo": "вручную"
+  "farming.state.todo": "вручную",
+  "farming.of": "{done} из {total}"
 }

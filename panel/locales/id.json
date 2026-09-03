@@ -2736,5 +2736,6 @@
   "farming.page.next": "Maju",
   "farming.state.done": "berjalan",
   "farming.state.partial": "sebagian",
-  "farming.state.todo": "manual"
+  "farming.state.todo": "manual",
+  "farming.of": "{done} dari {total}"
 }
