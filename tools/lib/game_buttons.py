@@ -1468,6 +1468,12 @@ BUTTONS["use_stamina"] = Button(
     lua=_lua_actions.use_stamina_items(),
     wait=0.4, label="spend bag items for march energy",
 )
+BUTTONS["claim_free_stamina"] = Button(
+    # The day's FREE energy (#2390), and it is taken BEFORE anything is spent out of the
+    # bag: the free claim renews every server day, the bag does not renew at all.
+    lua=_lua_actions.claim_free_stamina(),
+    wait=0.6, label="take the day's free march energy",
+)
 BUTTONS["golden_arm"] = Button(
     # Not a press: the run's setup. Which squad, what the game charges for one attack,
     # and how much energy there is to charge it against.

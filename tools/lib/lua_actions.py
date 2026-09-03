@@ -11198,6 +11198,64 @@ def use_stamina_items() -> str:
     )
 
 
+def free_stamina_ready() -> str:
+    """Lua *expression* -> 1 when the day's FREE energy has not been taken yet.
+
+    The game keeps two fields about it on the player — `lastClaimFreeStaminaTime`, the
+    stamp of the last claim, and `todayFreeStamina`. The stamp is the one trusted here,
+    measured against the SERVER's own midnight (`GetTomorrowZero()` less a day), because a
+    count called «today» is only as good as whoever resets it and a stamp says when.
+
+    Read out of the client's own copy: no request, no window, nothing the server hears.
+    """
+    return ("(function() local p = nil "
+            "pcall(function() p = LuaEntry.Player end) "
+            "if p == nil then return -1 end "
+            "local at = tonumber(rawget(p, 'lastClaimFreeStaminaTime')) or 0 "
+            "local zero = 0 "
+            "pcall(function() zero = math.floor(tonumber("
+            "UITimeManager:GetInstance():GetTomorrowZero()) or 0) end) "
+            "if zero <= 0 then return -1 end "
+            "local day = zero - 86400000 "
+            "if at >= day then return 0 end "
+            "return 1 end)()")
+
+
+def claim_free_stamina() -> str:
+    """Take the day's FREE energy — `user.claim.daily.stamina`, one send, no window.
+
+    FIRST OF THE THREE, and the order is the operator's own (#2390): «сначала бесплатные,
+    потом за 300 алмазов и только в конце из запасов». The bag comes LAST because what is
+    in it does not come back by itself, while the free claim and the cheap refill are
+    renewed every server day — spending the reserve while a free one is standing there is
+    the one order that cannot be undone.
+
+    The purse before the send is parked so the caller can say what it gave.
+    """
+    return (
+        "DataCenter.__lw_freestam = {before = %(energy)s, sent = false} "
+        "local ok = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.ClaimDailyStamina, {}) end) "
+        "DataCenter.__lw_freestam.sent = ok "
+        'CS.UnityEngine.Debug.LogError("ACT claim_free_stamina sent="..tostring(ok)'
+        '.." before="..tostring(DataCenter.__lw_freestam.before))'
+        % {"energy": golden_energy()}
+    )
+
+
+def free_stamina_report() -> str:
+    """Lua *expression* -> what the free claim gave, for the log."""
+    return (
+        "(function() local f = DataCenter.__lw_freestam or {} "
+        "local before = math.floor(tonumber(f.before) or 0) "
+        "local now = math.floor(tonumber(%(energy)s) or 0) "
+        "return 'sent=' .. tostring(f.sent == true) .. "
+        "' before=' .. tostring(before) .. ' now=' .. tostring(now) .. "
+        "' gained=' .. tostring(now - before) end)()"
+        % {"energy": golden_energy()}
+    )
+
+
 def stamina_report() -> str:
     """Lua *expression* -> one line about the last stamina purchase, for the log."""
     return (

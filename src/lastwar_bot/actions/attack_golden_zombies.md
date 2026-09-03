@@ -235,6 +235,15 @@ READ_LUA (function() local want = math.floor(tonumber((DataCenter.__lw_gold or {
 IF squad_is_rallying == 1
     LOG "heads up: the squad this hunt uses is also one the rally auto-join takes, so a banner can walk off with it mid-hunt"
 
+# THE FREE ENERGY OF THE DAY IS TAKEN BEFORE THE PURSE IS COUNTED (#2390). The operator's
+# order for the three sources is «сначала бесплатные, потом за 300 алмазов и только в конце
+# из запасов» — the free claim and the cheap refill renew every server day, the bag does
+# not renew at all. So this runs first and the reading below counts what it gave.
+#
+# It costs one reading on a day the claim has already been taken, and the recipe stops
+# itself on that reading rather than sending anything.
+CALL claim_free_stamina
+
 READ_LUA (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() INTO energy
 READ_LUA (function() local v = nil pcall(function() v = tonumber(MarchUtil.GetCostStaminaByTargetType(MarchTargetType.ATTACK_MONSTER)) end) if v == nil or v <= 0 then return 10 end return math.floor(v) end)() INTO cost
 
