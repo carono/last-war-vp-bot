@@ -12143,6 +12143,90 @@ def golden_send() -> str:
     )
 
 
+def golden_reaim_now() -> str:
+    """Lua *expression* -> 1 when the squad was RE-AIMED where it stands, else 0.
+
+    CHECK AND ORDER IN ONE BREATH, and here that is not tidiness — it is the whole
+    ability (#2390). The window in which a march can be re-aimed is a few seconds wide:
+    measured off the operator's own hand-driven chain on the wire, the next
+    `world.march.change` left between 0.08 s and 3.4 s after the previous leg landed. The
+    chain used to spend that window on questions — «is the march re-aimable», «is the
+    squad free», «is this the last march» — each one a round trip to the game VM at
+    0.2 s plus the player's own logging, and measured live it was **ten seconds** from
+    the landing to the order, by which time the march had gone and the send made a new
+    one out of the base (`redeploys=0 fallbacks=5` over five laps).
+
+    So this asks and orders inside a single call, and answers what happened:
+
+    * ``1``  — the run's own march was re-aimed at the chosen zombie where it stood;
+    * ``0``  — there is nothing to re-aim (no march of ours, or it carries somebody's
+      banner). The caller then sends the ordinary way, out of the base, and the report
+      counts it as a `fallback`;
+    * ``-3`` — nothing is chosen, so there was nothing to send at;
+    * ``-4`` — the client can no longer name that zombie: it is gone, and the target is
+      written off rather than marched at.
+
+    Everything the ordinary send parks for the lap that follows is parked here too — the
+    anchor, the pending target, the zombie set aside for judging, the marches that
+    existed before the order — so `golden_launched`, `golden_confirm` and
+    `golden_judge_the_kill` read exactly what they always read.
+    """
+    return (
+        "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID + _GOLD_OWN_MARCH +
+        "if p.cur == nil or p.formation == nil then return -3 end "
+        "local t = p.cur "
+        "local srv = math.floor(tonumber(t.server or p.server) or 0) "
+        "local kind = MarchTargetType.ATTACK_MONSTER "
+        "if p.server ~= nil and srv ~= 0 and srv ~= p.server then "
+        "kind = MarchTargetType.CROSS_ATTACK_MONSTER end "
+        "local own = _ownmarch(p) "
+        "local mu = _reaim(own, p) "
+        "if mu == nil then return 0 end "
+        "local uuid = _freshuuid(ws, p, t) "
+        "if uuid == nil then p.used[tostring(t.pid)] = true "
+        "p.dropped = (tonumber(p.dropped) or 0) + 1 p.cur = nil "
+        "%(gold)s = p return -4 end "
+        # THE LAST MARCH STILL COMES HOME (#2390). The ordinary send asks the recipe for
+        # that; here the question is answered inside the same call, because a second
+        # round trip is the very thing this function exists to remove.
+        "local home = false "
+        "local left = %(energy)s "
+        "local cost = math.floor(tonumber(p.cost) or %(fallback)d) "
+        "if cost <= 0 then cost = %(fallback)d end "
+        "if left < cost * 2 then home = true end "
+        "local lim = math.floor(tonumber(p.limit) or 0) "
+        "if lim > 0 and (tonumber(p.attacks) or 0) + 1 >= lim then home = true end "
+        "local pid = t.pid "
+        "TimerManager:GetInstance():DelayInvoke(function() "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendChangeMarchToServer(mu, kind, pid, uuid, home, srv, 0) end) "
+        'CS.UnityEngine.Debug.LogError("ACT golden_reaim ok="..tostring(ok)'
+        '.." err="..tostring(err).." pid="..tostring(pid)) '
+        "end, 0.5) "
+        "p.own_march = tostring(mu) "
+        "p.redeploy = 1 "
+        "p.redeploys = (tonumber(p.redeploys) or 0) + 1 "
+        "p.used[tostring(t.pid)] = true "
+        "_goldclaim(p, t.pid) "
+        "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
+        "p.last_sent = {x = t.x, y = t.y, pid = t.pid} "
+        "p.pending = {pid = pid, uuid = uuid, key = tostring(uuid), x = t.x, y = t.y} "
+        "p.judge = p.hit "
+        "p.hit = p.pending "
+        "p.march_before = {} "
+        "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
+        "if ms == nil then return end "
+        "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
+        "if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) "
+        "if u ~= nil then p.march_before[u] = true end end end end) "
+        "p.before = %(energy)s "
+        "p.cur = nil "
+        "%(gold)s = p "
+        "return 1 end)()"
+        % {"gold": _GOLD, "energy": golden_energy(), "fallback": GOLDEN_ATTACK_COST}
+    )
+
+
 def golden_confirm() -> str:
     """Count the attack — but only once the GAME holds a march of ours.
 

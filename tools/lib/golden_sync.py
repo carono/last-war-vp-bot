@@ -53,6 +53,9 @@ OWNERS = {
     # THE WINDOW THE CHAIN LIVES IN (#2390): our own march, still there to be
     # re-aimed. The wait brick reads it to decide whether to wait at all.
     "reaimable": "golden_reaimable",
+    # CHECK AND ORDER IN ONE CALL (#2390) — the window is seconds wide, so the
+    # re-aim asks and sends inside one round trip instead of four.
+    "reaimed": "golden_reaim_now",
     "refreshed": "golden_refresh_done",
     "ride_report": "golden_approach_report",
     "riding": "golden_approach_planned",
