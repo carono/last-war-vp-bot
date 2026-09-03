@@ -554,6 +554,21 @@ class EventsTab(PanelTab):
                 self.refresh_arms()
         self.rt.tick.arm("events_poll", self.TICK_MS, self._tick)
 
+    def on_hide(self) -> None:
+        """Nobody is looking any more: stop the clock (#2393).
+
+        Until the web had a look at all, this pair did not matter — the window armed
+        `events_poll` on show and simply never stopped it, which on a machine with a
+        window is a poll behind a page somebody had opened once. It matters now, because
+        the phone opens this board and puts itself in a pocket: a clock left running
+        there is a read of five events every three minutes that nobody asked for, which
+        is precisely what «нет активных действий в фоне» forbids.
+
+        The readings themselves are KEPT, with their ages: what is on screen when a page
+        is left is still the truth about when it was read.
+        """
+        self.rt.tick.disarm("events_poll")
+
     def on_language_change(self) -> None:
         self._render()
 
@@ -2062,6 +2077,15 @@ class EventsTab(PanelTab):
              "value": modelmod.arms_day_chests(arms)},
             {"label": "events.arms.day",
              "value": ("—" if arms.done is None else "%d / 6" % arms.done)},
+            # HOW OLD THIS CARD IS, and its own age rather than the board's (#2393).
+            # The strip at the top of the screen carries the age of the CODENAME
+            # reading; the arms one is a separate scenario on a separate chain, and a
+            # phase that changed while this reading did not is exactly the failure that
+            # brought the task — «текущий час не работает» over numbers that were true
+            # three days ago and said so nowhere.
+            {"label": "events.arms.read",
+             "value": (modelmod.ago(self._age_of(self._arms))
+                       if self._arms is not None and not self._arms.error else "—")},
         ]}
         if arms.state == modelmod.OPEN:
             acard["rows"].append({"label": "events.arms.until",

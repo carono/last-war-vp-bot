@@ -2568,6 +2568,7 @@
   "events.arms.chests": "Coffres réclamés",
   "events.arms.day_chests": "Coffres du jour pris",
   "events.arms.day": "Phases faites aujourd'hui",
+  "events.arms.read": "Lu",
   "events.arms.until": "Fin de la phase dans",
   "events.arms.calendar": "Phases du jour",
   "events.arms.hero": "Recruter pendant la phase de héros",

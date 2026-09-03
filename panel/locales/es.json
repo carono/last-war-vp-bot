@@ -2568,6 +2568,7 @@
   "events.arms.chests": "Cofres reclamados",
   "events.arms.day_chests": "Cofres del día tomados",
   "events.arms.day": "Fases hechas hoy",
+  "events.arms.read": "Leído",
   "events.arms.until": "La fase termina en",
   "events.arms.calendar": "Fases del día",
   "events.arms.hero": "Reclutar en la fase de héroe",

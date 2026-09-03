@@ -320,6 +320,19 @@ start-up, for a tab that may never be opened. The contract test asserts an `EAGE
 tab's `ensure_loaded` touches no game, and it is there because that exact thing
 happened.
 
+**THE PHONE IS A LOOK TOO, and until #2393 it was not.** `on_show` / `on_hide` were
+called by the WINDOW alone — the notebook moving from one tab to another
+(`panel/__main__.py`) — so on the panel that actually farms the accounts, which has no
+window at all, `on_show` never happened and every board whose numbers are read there was
+empty for ever. «События» is where it was caught: the arms-race card said «неизвестно»
+over the phase running now, and the events board had not been read since the last time
+somebody opened a window on that machine. Opening a screen on the phone now takes the
+same three steps the notebook takes — `realize` → `ensure_loaded()` → `on_show()`
+(`panel/web/api.py::_look`) — and a screen the phone has stopped asking about
+(`LOOK_GAP_SEC`, longer than its poll) hears `on_hide`. So **a tab that arms a clock in
+`on_show` must disarm it in `on_hide`**: a page left open in a pocket would otherwise be
+a reading nobody asked for, which is the one thing `CLAUDE.md` forbids outright.
+
 The rest of the lifecycle: `on_hide`, `on_profile_switch` (a different account — bounce
 children, re-read files), `on_language_change` (only for what `tr` cannot re-render),
 `shutdown` (the window is closing — children, listeners, `rt.tick.disarm(...)`, bus

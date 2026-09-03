@@ -76,6 +76,23 @@ from . import coordlinks
 #: the time anything it reports actually changes.
 STATUS_TTL_SEC = 5.0
 
+#: How long a screen the phone has stopped asking about still counts as OPEN.
+#:
+#: THE WEB HAD NO «SOMEBODY IS LOOKING» AT ALL until #2393, and that is a whole class of
+#: hole rather than one tab's bug. A tab takes the reading that fills its screen in
+#: `on_show` (`panel/tabs/base.py`) and the WINDOW is what calls it — so on the panel
+#: that actually farms the accounts, which has no window at all, every board whose
+#: numbers come from `on_show` said «неизвестно» for ever. «Гонка вооружений» is where it
+#: was noticed: the phase running now is the one thing that card is for, and the events
+#: board had not been read since the last time a window was open on the machine.
+#:
+#: So opening a screen IS the look, and closing it IS the leave — which is exactly what
+#: «Read once, then LISTEN» allows: a person asking for a page is a press, and nothing
+#: keeps reading once the page is gone. The phone re-asks `/api/screen` every couple of
+#: seconds while a page is up, so a gap longer than this is somebody having navigated
+#: away, put the phone down, or closed the tab.
+LOOK_GAP_SEC = 30.0
+
 #: How many log lines are held PER PROFILE for a phone that connects late. The window
 #: keeps four thousand; this is a phone screen and a poll every couple of seconds.
 TAIL_LINES = 400
@@ -198,6 +215,11 @@ class WebApi:
         #: at (`panel/runtime/servers_dialog.py`).
         self._servers_needle = ""
         self._servers_undated = False
+        #: Which screens the phone is LOOKING at: `(profile, screen)` -> `(rt, tab, at)`.
+        #: An entry appears when a screen is opened and goes when it has not been asked
+        #: for in `LOOK_GAP_SEC` — see :meth:`_look`.
+        self._looks: dict = {}
+        self._looks_lock = threading.Lock()
 
     # -- which profiles there are -------------------------------------------
     def sessions(self) -> list:
@@ -1340,6 +1362,9 @@ class WebApi:
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
             return {"error": "unknown"}
         box: dict = {}
+        # IS THIS AN OPEN, or the same page still up? Answered before the hop, because
+        # the answer decides what runs on the other side of it (#2393).
+        opened = self._look(rt, screen_id, tab)
 
         def build() -> None:
             try:
@@ -1348,6 +1373,15 @@ class WebApi:
                 # widgets, and most screens are a view of them. The phone must not see
                 # less than the window does — so opening a screen draws the tab, once.
                 rt.tabs.realize(tab)
+                if opened:
+                    # …AND THE SAME THREE STEPS THE WINDOW TAKES WHEN A TAB IS SHOWN
+                    # (`panel/__main__.py`, #1215): draw it, bring up what it is FOR,
+                    # then let it read what its screen draws. A page opened on the phone
+                    # is somebody looking at that tab, and until #2393 nothing said so —
+                    # so a panel with no window never called `on_show` at all and every
+                    # board that reads there stayed empty (see LOOK_GAP_SEC).
+                    tab.ensure_loaded()
+                    tab.on_show()
                 box["view"] = tab.web_view()
             except Exception as exc:     # noqa: BLE001 — one screen, never the panel
                 box["error"] = str(exc)
@@ -1362,6 +1396,32 @@ class WebApi:
         # parser this repository has (`tools/lib/coords.py`), so the browser draws links
         # rather than deciding what a coordinate is — see `panel/web/coordlinks.py`.
         return coordlinks.mark_screen(view)
+
+    def _look(self, rt, screen_id: str, tab) -> bool:
+        """Note that the phone is on this screen. ``True`` when it has just been OPENED.
+
+        The phone re-asks `/api/screen` while a page is up, so «open» is «nobody was
+        asking a moment ago» — the first ask, or the first after a gap. Every other ask
+        is the same page still there and must cost nothing: a look reported on each poll
+        would be a read every couple of seconds, which is the background poll this
+        repository forbids rather than the one press it allows.
+
+        Whatever else has gone quiet is told it was LEFT, here, on the ask of some other
+        screen — there is no clock behind this and there must not be one.
+        """
+        name = self._name_of(rt)
+        now = time.time()
+        key = (name, screen_id)
+        with self._looks_lock:
+            was = self._looks.get(key)
+            self._looks[key] = (rt, tab, now)
+            gone = [(k, v) for k, v in self._looks.items()
+                    if k != key and now - v[2] > LOOK_GAP_SEC]
+            for k, _v in gone:
+                self._looks.pop(k, None)
+        for _k, (other_rt, other_tab, _at) in gone:
+            self._on_tk(other_rt, other_tab.on_hide)
+        return was is None or (now - was[2]) > LOOK_GAP_SEC
 
     def screen_data(self, screen_id: str, kind: str, args: dict,
                     profile: str | None = None) -> dict:

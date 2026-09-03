@@ -1800,6 +1800,18 @@ class _Screen:
 
     def __init__(self) -> None:
         self.pressed: list = []
+        self.shown = 0
+        self.hidden = 0
+        self.loaded = 0
+
+    def ensure_loaded(self) -> None:
+        self.loaded += 1
+
+    def on_show(self) -> None:
+        self.shown += 1
+
+    def on_hide(self) -> None:
+        self.hidden += 1
 
     def web_view(self) -> dict:
         return {"cards": [{"title": "tab.demo",
@@ -2095,6 +2107,49 @@ def test_the_page_has_a_word_for_each_of_the_three():
     # …and no press site left drawing an answer by hand, which is how the three merged.
     assert "answer.ok ? t('web.ui.done')" not in js, (
         "a press is still drawn as done-or-refused — «принято, идёт» has nowhere to go")
+
+
+def test_opening_a_screen_is_a_look_and_leaving_it_stops_the_reading():
+    """The signal the web did not have — and the reason a board could stay empty (#2393).
+
+    A tab takes the reading that fills its screen in `on_show`, and the WINDOW is what
+    called it. The panel that actually farms the accounts has no window, so on it
+    `on_show` was never called at all: «Гонка вооружений» drew «неизвестно» over the one
+    thing that card is for — which phase is running now — and had done since the last
+    time somebody opened a window on that machine.
+
+    Three facts, and the middle one is what keeps this from becoming a poll: opening a
+    screen is a look, the SAME page asked for again is not, and a page nobody is asking
+    about any more is left.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        screen = _Screen()
+        rt.tabs.live = [screen]
+        rt.tabs.get = lambda tab_id: screen if tab_id == "demo" else None
+
+        api.screen("demo")
+        assert screen.shown == 1, "opening a screen did not tell the tab anybody looked"
+        assert screen.loaded == 1, "the tab was never brought up"
+        api.screen("demo")
+        api.screen("demo")
+        assert screen.shown == 1, "the same page still open read again — that is a poll"
+        assert screen.hidden == 0, "a page still being asked for was called closed"
+
+        # …and the phone put in a pocket: the next ask about ANY screen is what notices,
+        # because a clock behind this would be the background the panel may not have.
+        other = _Screen()
+        other.ID = "demo2"
+        rt.tabs.get = lambda tab_id: {"demo": screen, "demo2": other}.get(tab_id)
+        api._looks[(api._name_of(rt), "demo")] = (
+            rt, screen, time.time() - apimod.LOOK_GAP_SEC - 1)
+        api.screen("demo2")
+        assert screen.hidden == 1, "a screen nobody asks about any more still ticks"
+        assert other.shown == 1, other.shown
+
+        # …and coming back to it is a look again, not «already seen once».
+        api.screen("demo")
+        assert screen.shown == 2, "a page reopened was handed no reading"
 
 
 def test_a_screen_is_handed_over_as_data_and_a_press_reaches_the_tab():

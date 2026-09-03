@@ -2568,6 +2568,7 @@
   "events.arms.chests": "Chests taken",
   "events.arms.day_chests": "Day chests taken",
   "events.arms.day": "Phases done today",
+  "events.arms.read": "Read",
   "events.arms.until": "Phase ends in",
   "events.arms.calendar": "Today's phases",
   "events.arms.hero": "Hire during the hero phase",
