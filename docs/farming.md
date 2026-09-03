@@ -261,8 +261,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 ### Store
 
-- ✅ Taking everything the shop gives for nothing, in one press with no window opened: today's free gift from the week-card page, the daily reward of the week cards already held, and what a running month card owes for today. Nothing is ever bought — no diamonds, no gold bricks, no honour, no coupons — and every other tab of the shop is left alone. What is on offer is asked of the game rather than counted by the panel, so a day already collected is a clean no-op that says so, and a claim the game refuses is reported as refused instead of being written down as done. Its own page shows what is waiting and offers the press; can run on its own every six hours from «Таймеры» (off by default)
-- ❌ Anything in the shop that costs something — every one of the fifteen tabs of the two shop windows sells for a currency, and the panel makes no purchases
+- ✅ Taking everything the shop gives for nothing, in one press with no window opened: today's free gift from the week-card page, the daily reward of the week cards already held, what a running month card owes for today, and every level of an event battle pass («Акция») that has been earned and not yet paid out — the free track always, the premium one when it has already been unlocked. Nothing is ever bought — no diamonds, no gold bricks, no honour, no coupons — and every other tab of the shop is left alone. What is on offer is asked of the game rather than counted by the panel, so a day already collected is a clean no-op that says so, and a claim the game refuses is reported as refused instead of being written down as done. Its own page shows what is waiting and offers the press; can run on its own every six hours from «Таймеры» (off by default)
+- ❌ Anything in the shop that costs something — every one of the fifteen tabs of the two shop windows sells for a currency, and the panel makes no purchases; buying levels of a battle pass is a purchase too and is never made
 - 🟡 The shop opens and switches between its tabs on command
 
 ### Promotions

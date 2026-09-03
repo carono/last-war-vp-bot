@@ -3,14 +3,17 @@
 **Question asked:** «зайди в магазин, и найди все бонусы, что можно взять, там несколько
 вкладок, пройдись по всем».
 
-**Short answer.** Three claims in the whole shop cost nothing: the **daily free gift** of
+**Short answer.** Four claims in the whole shop cost nothing: the **daily free gift** of
 the week-card page, handed out whether or not a card was ever bought; the **daily reward
-of the week cards the account already holds**; and the **daily reward of a running month
-card**. Everything else on every tab has a price. Buying a subscription is a purchase and
+of the week cards the account already holds**; the **daily reward of a running month
+card**; and — added on the second pass, after the person said «раздел акции, там боевой
+пропуск, появляются бонусы» — the **levels of every event BATTLE PASS that are earned and
+not yet paid out** (§8). Everything else on every tab has a price. Buying a subscription is a purchase and
 is never made — claiming what a running one owes costs nothing, and a day it is not
-claimed is a day of it thrown away. The ability that takes those two is
+claimed is a day of it thrown away. The ability that takes all four is
 `actions/collect_shop_freebies.md`, and the reading behind it is
-`actions/read_shop_freebies.md`.
+`actions/read_shop_freebies.md`. There is ONE errand for them (every six hours), because
+that is what the person asked for.
 
 Everything below was read off the live client on 2026-09-03 through the panel's own web
 API (`POST /api/actions/run` playing throwaway recipes under `actions/dev/`). Nothing was
@@ -176,6 +179,67 @@ is the first thing to try if either of them ever changes shape.
 ones that belong to a shop tab. The rest belong to activities, buildings and marches and
 are somebody else's ability.
 
+## 8. The battle pass of the «Акция» tab — the fourth free claim (#2395, second pass)
+
+The first census wrote the mall's activity tab off as «праздничные наборы · деньги». That
+is true of what it SELLS and false about the tab: what runs there is a **battle pass**,
+and its ladder pays out for levels the account earned by playing. Claiming a level costs
+nothing. The person said so in one sentence and it was worth a whole second pass.
+
+### Where it lives
+
+| what | where |
+|---|---|
+| the record | `DataCenter.ActBattlePassData` — one entry per running pass in `.list`, keyed by `activityId` |
+| the ladder | `entry.stateInfo[level]` — `normalState` / `hightRewardState` / `specialState`, `1` = the level is REACHED, `0` = not |
+| the account's place on it | `entry.battlePass` — `level`, `exp`, `unlock`, `high_unlock` |
+| how much is still owed | `ActBattlePassData:GetActRed(activityId)` — a COUNT, `0` when there is nothing |
+| the tasks that earn the levels | `entry.taskArr` — `state` `0` not done, `2` / `4` done; **there is no task-claim message at all**, the experience is granted by the server |
+| the levels | 50 on one of the two passes seen, 20 on the other; `entry.extraExp` is what an overflow box costs beyond the last level |
+
+Two passes were running when this was written; the recipe never names one — it walks
+`.list`, so a pass that starts tomorrow is read the same way.
+
+### The three families, and only one of them is the live one
+
+This is the part that cost the time, and it is written down so nobody pays for it twice:
+
+| family | messages | what the server said |
+|---|---|---|
+| v1 | `receive.battlepass.all.reward`, `.stage.`, `.task.`, `.extra.` | `E000000 battle pass not exist` — and `get.battlepass.info` answered **`E000000 activity is new battlePass`**, which is the whole clue |
+| season | `receive.season.battlepass.*` | the send leaves and **nothing comes back at all** |
+| **bpv2 — the live one** | `receive.bpv2.all.reward`, `receive.bpv2.stage.reward`, `receive.bpv2.extra.reward` | the reward, and the record pushed back |
+
+All of them take the same first field, `PutInt activityId` (read without sending a byte,
+with the `NewEmpty` + recording `sfsObj` trick from `alliance-train.md`); the stage one
+adds `level` and `type`. The recipe sends **`receive.bpv2.all.reward` and nothing else**:
+one message per pass, no level list to get wrong, and the server hands over every level
+the account has earned on every track it has unlocked.
+
+### What is free here and what is not
+
+* **Free, and taken:** every earned level of the free track, always; and of the premium
+  track when it has ALREADY been unlocked, because unlocking was paid for once and the
+  payout costs nothing — the same argument as a running month card (§4.3). The game keeps
+  the two apart by itself: a pass whose premium is not unlocked leaves those rewards out
+  of `GetActRed`, so a recipe that trusts the count cannot claim what it has not got.
+* **Free, and taken when it is there:** the overflow box past the last level,
+  `receive.bpv2.extra.reward`. Gated on `level >= <the last level>` **and**
+  `exp >= extraExp`; sent early it answers `E000000 not reach max level`.
+* **PAID, and never sent:** `buy.battle.pass.level` (`MsgDefines.BuyBattlePassLevel`) —
+  buying your way up the ladder. It is not in the recipe and must not be.
+
+### Measured live, 2026-09-03
+
+| pass | before | the one message | after |
+|---|---|---|---|
+| the 50-level one, premium unlocked | level 40, `GetActRed` = 2 | `receive.bpv2.all.reward` | level 41, `GetActRed` = 0, reward in the reply |
+| the 20-level one, free track only | level 14, `GetActRed` = 6 | `receive.bpv2.all.reward` | level 16, `GetActRed` = 0, `push.resource.item.update` beside it |
+
+The level rose because some of what the ladder pays out is pass experience — which is why
+the recipe reads the count back afterwards and reports what MOVED rather than what it
+sent, exactly as the other three claims do.
+
 ## 7. How to re-read any of this
 
 Dev recipes through the panel's web API, so the client is never touched by hand:
@@ -190,4 +254,7 @@ The gates in one line, with no window opened:
 local M = DataCenter.WeekCardManager
 M:CheckIfHasFreeReward()                       -- today's free gift
 for _, c in pairs(M:GetWeekCardList()) do print(c.id, c:GetStatus()) end   -- 2 = due
+
+local P = DataCenter.ActBattlePassData         -- and the battle pass, §8
+for id, v in pairs(P.list) do print(id, v.battlePass.level, P:GetActRed(id)) end
 ```

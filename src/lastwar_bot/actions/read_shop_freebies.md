@@ -14,7 +14,7 @@
 # ordinary «Магазин» (UICommonShop) hold 175 goods and not one of them is free, and what
 # IS free lives on the gift mall's week-card page.
 #
-# THE TWO THINGS THAT ARE FREE (both confirmed live on 2026-09-03, #2395):
+# THE FOUR THINGS THAT ARE FREE (all confirmed live on 2026-09-03, #2395):
 #
 #   * `free`  — the DAILY FREE GIFT of the week-card page. It is handed out whether or
 #               not a card was ever bought, once a game day.
@@ -30,6 +30,19 @@
 #               `MonthCardNewManager:CheckIfMonthCardActive()` and
 #               `CheckIfHasGolloesGift()` — the second is the game's own answer about
 #               today and it flipped to `false` the moment the claim landed.
+#   * `pass`  — the BATTLE PASS of whatever event is running («Акция» in the gift mall).
+#               Its ladder hands out a reward at every level the account has reached, and
+#               claiming one costs nothing: the levels are earned by playing, and the
+#               premium track is claimed for free once it has been unlocked. Gate:
+#               `DataCenter.ActBattlePassData:GetActRed(activityId)` — the game's own
+#               count of rewards still owed on that pass, `0` when there is nothing.
+#               Two passes were running when this was written and the census of them is
+#               in the research file; the recipe never names one — it walks
+#               `ActBattlePassData.list`, so a pass that starts tomorrow is read too.
+#               NOT counted, and never pressed: `buy.battle.pass.level`, which is the
+#               paid way up the ladder, and the premium track of a pass that has NOT been
+#               unlocked — the game leaves those rewards out of `GetActRed` by itself.
+#
 #
 # WHAT IS DELIBERATELY NOT COUNTED, because it is not free:
 #
@@ -54,10 +67,17 @@
 READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local M = DataCenter and DataCenter.WeekCardManager local t = {known = 0, free = 0, cards = 0, held = 0, month = 0, text = ''} DataCenter.__lw_shop = t local now = 0 pcall(function() now = num(UITimeManager.Instance:GetServerTime()) end) if now < 1600000000000 then t.text = 'клиент ещё на экране входа — ничего не прочитано' return t.text end if M == nil then t.text = 'у этого клиента нет записи о недельных картах' return t.text end local free = false pcall(function() free = (M:CheckIfHasFreeReward() == true) end) local held, due, rows = 0, 0, {} pcall(function() for _, c in pairs(M:GetWeekCardList() or {}) do local st = num(c:GetStatus()) if st == 2 or st == 3 then held = held + 1 end if st == 2 then due = due + 1 end rows[#rows + 1] = num(c.id) .. ':' .. st end end) local red = false pcall(function() red = (M:CheckIfHasRed() == true) end) local month, mcard = 0, false pcall(function() local MC = DataCenter.MonthCardNewManager if MC ~= nil and MC:CheckIfMonthCardActive() == true then mcard = true if MC:CheckIfHasGolloesGift() == true then month = 1 end end end) t.known = 1 t.free = free and 1 or 0 t.cards = due t.held = held t.month = month t.text = 'бесплатный подарок=' .. tostring(free) .. ' карт куплено=' .. held .. ' наград по картам=' .. due .. ' месячная карта=' .. (mcard and (month == 1 and 'ждёт' or 'сегодня забрана') or 'нет') .. ' значок=' .. tostring(red) .. ' [' .. table.concat(rows, ' ') .. ']' return t.text end)() INTO shop
 LOG "Магазин: {shop}"
 
+# ---- the battle pass of whatever event is running, in one more round trip ------------
+READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local M = DataCenter and DataCenter.ActBattlePassData local t = {due = 0, acts = 0, extra = 0, text = ''} DataCenter.__lw_shop_bp = t if M == nil or M.list == nil then t.text = 'боевого пропуска у этого клиента нет' return t.text end local rows = {} for id, v in pairs(M.list) do local bp = v.battlePass or {} local red = 0 pcall(function() red = num(M:GetActRed(id)) end) local stages = 0 pcall(function() for i, _ in pairs(v.stateInfo or {}) do local k = num(i) if k > stages then stages = k end end end) local lv = num(bp.level) local exp = num(bp.exp) local need = num(v.extraExp) local unl = num(bp.unlock) local extra = 0 if stages > 0 and lv >= stages and need > 0 and exp >= need then extra = 1 end t.due = t.due + red t.extra = t.extra + extra t.acts = t.acts + 1 rows[#rows + 1] = tostring(id) .. ': ступень ' .. lv .. '/' .. stages .. ' ждёт ' .. red .. (unl == 1 and ', платная дорожка открыта' or ', только бесплатная дорожка') .. (extra == 1 and ', есть сверхнаграда' or '') end if t.acts == 0 then t.text = 'сейчас не идёт ни один боевой пропуск' else t.text = 'пропусков ' .. t.acts .. ', ждёт наград ' .. t.due .. ' [' .. table.concat(rows, '; ') .. ']' end return t.text end)() INTO pass
+LOG "Боевой пропуск: {pass}"
+
 # ---- the readings the panel draws, one cheap field each -----------------------------
 READ_LUA (math.floor((DataCenter.__lw_shop or {}).known or 0)) INTO known
 READ_LUA (math.floor((DataCenter.__lw_shop or {}).free or 0)) INTO free_due
 READ_LUA (math.floor((DataCenter.__lw_shop or {}).cards or 0)) INTO cards_due
 READ_LUA (math.floor((DataCenter.__lw_shop or {}).held or 0)) INTO cards_held
 READ_LUA (math.floor((DataCenter.__lw_shop or {}).month or 0)) INTO month_due
-READ_LUA (function() local t = DataCenter.__lw_shop or {} return math.floor((t.free or 0) + (t.cards or 0) + (t.month or 0)) end)() INTO due
+READ_LUA (math.floor((DataCenter.__lw_shop_bp or {}).due or 0)) INTO pass_due
+READ_LUA (math.floor((DataCenter.__lw_shop_bp or {}).acts or 0)) INTO pass_acts
+READ_LUA (math.floor((DataCenter.__lw_shop_bp or {}).extra or 0)) INTO pass_extra
+READ_LUA (function() local t = DataCenter.__lw_shop or {} local b = DataCenter.__lw_shop_bp or {} return math.floor((t.free or 0) + (t.cards or 0) + (t.month or 0) + (b.due or 0) + (b.extra or 0)) end)() INTO due
