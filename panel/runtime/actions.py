@@ -402,8 +402,8 @@ class ActionRunner:
         return bool(script_engine.action_detached(name))
 
     def play(self, name: str, args: dict | None = None, *, hwnd: int = 0,
-             on_event=None, cancel=None, yield_to=None, human: bool = False,
-             **kw) -> Outcome:
+             on_event=None, cancel=None, yield_to=None, regain=None,
+             human: bool = False, **kw) -> Outcome:
         """Play the named scenario and report HOW it ended, not just whether.
 
         Use this wherever the answer to "why not?" is worth showing. `run()` stays for
@@ -418,8 +418,13 @@ class ActionRunner:
         # the context, so anything left in ``kw`` would reach :meth:`run` — which has a
         # context already and drops it. A step-aside hook that quietly did nothing is a
         # detached run nobody can get past (#1702).
+        # `regain` is named for the same reason (#2390): a detached chain is handed a
+        # PATIENT one, and left in ``kw`` it would reach :meth:`run`, which has a
+        # context already and drops it — the chain would then inherit the runtime's
+        # own hook and die on the first lease somebody took outright.
         ctx = self.context(on_event=on_event, hwnd=hwnd, variables=args or {},
-                           cancel=cancel, yield_to=yield_to)
+                           cancel=cancel, yield_to=yield_to,
+                           **({"regain": regain} if regain is not None else {}))
         ok = self.run(name, args, hwnd=hwnd, ctx=ctx, human=human, **kw)
         reason = str(getattr(ctx, "fail_reason", "") or "").strip()
         if not reason and getattr(ctx, "cancelled", False):

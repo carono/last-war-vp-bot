@@ -70,6 +70,16 @@ RELAUNCH_SETTLE_SEC = 30.0
 #: seconds — and short enough that a client which is genuinely somebody
 #: else's does not hold a hunt in front of it.
 LEASE_WAIT_SEC = 90.0
+#: …and how long a DETACHED one waits (#2390). A background chain is the one
+#: kind of run that is never in a hurry and always has somewhere to come back
+#: to: its queue, its anchor and its march live in the game VM, so losing the
+#: client is a PAUSE for it and not a death. Ninety seconds was written for a
+#: press somebody is standing in front of; measured on a live panel, the golden
+#: hunt was ended nine times in an hour by ordinary errands — treasures, banners,
+#: alliance help — none of which lasted a minute, and it left the squad in the
+#: field each time. Fifteen minutes is longer than any errand this panel has and
+#: still short enough to give up on a client that is genuinely gone.
+LEASE_WAIT_DETACHED_SEC = 900.0
 LEASE_POLL_SEC = 2.0
 
 
@@ -641,7 +651,7 @@ class PanelRuntime:
         return step_aside
 
     # -- getting the lease back after the daemon restarted (#1411) -----------
-    def regain_hook(self, tag: str = "action"):
+    def regain_hook(self, tag: str = "action", patient: bool = False):
         """A lease-regain callable for a run — `Context.regain`, played on a refusal.
 
         THE OTHER WAY A LEASE GOES, and until #1411 only one of them was answered. A run
@@ -675,7 +685,10 @@ class PanelRuntime:
             # So the hook waits, briefly and out loud. Bounded because a lease that is
             # still somebody else's after a minute and a half is a client this run is not
             # going to get back, and hanging in front of it is worse than stopping.
-            deadline = time.time() + LEASE_WAIT_SEC
+            # A DETACHED chain waits far longer than a press does — see
+            # :data:`LEASE_WAIT_DETACHED_SEC`.
+            deadline = time.time() + (LEASE_WAIT_DETACHED_SEC if patient
+                                      else LEASE_WAIT_SEC)
             said = False
             while not self.game.regain(tag):
                 if time.time() >= deadline:
@@ -891,14 +904,23 @@ class PanelRuntime:
                 # already the most urgent thing there is, and one that parked for a
                 # background errand would be the queue this whole area exists to remove.
                 step_aside = self.yield_hook(tag, patient=True) if detached else None
+                # …AND THE SAME PATIENCE ON THE WAY BACK (#2390). Stepping aside was
+                # only half of it: a chain that let go politely still DIED the next
+                # time somebody took the lease outright, because the regain hook it
+                # inherited was the one written for a press. Its own hook waits the
+                # detached while, and says so under this run's own tag rather than
+                # under the runtime's, so the log names which run is waiting.
+                come_back = self.regain_hook(tag, patient=detached)
                 if on_result is None:
                     self.actions.run(name, args, hwnd=0, on_event=on_event,
                                      profile=None, cancel=cancel, tag=tag,
-                                     human=human, yield_to=step_aside)
+                                     human=human, yield_to=step_aside,
+                                     regain=come_back)
                 else:
                     outcome = self.actions.play(name, args, hwnd=0, on_event=on_event,
                                                 profile=None, cancel=cancel, tag=tag,
-                                                human=human, yield_to=step_aside)
+                                                human=human, yield_to=step_aside,
+                                                regain=come_back)
             except Exception as exc:                   # noqa: BLE001 — never the panel
                 raised = str(exc)
                 self.log.put(f"[{tag}] {name}: error: {exc}")

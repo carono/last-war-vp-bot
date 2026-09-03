@@ -171,6 +171,31 @@ def test_a_detached_run_is_patient_about_getting_the_client_back():
         "every run now retries, which turns a timer's honest failure into a long wait"
 
 
+def test_a_detached_run_is_patient_about_a_lease_somebody_TOOK():
+    """#2390: parking politely was only half of it — the other half killed the hunt.
+
+    A detached chain steps aside when asked (`yield_hook(patient=True)`), and that is the
+    case where IT lets go. The other case is somebody taking the lease outright, and there
+    the run inherited the hook written for a press: ninety seconds, then dead. Measured on
+    a live panel, the golden hunt was ended nine times in an hour by treasures, banners
+    and alliance help — none of which lasted a minute — and each death left a squad in the
+    field with its chain broken.
+
+    So the detached run is handed its OWN regain hook, waiting the detached while, and it
+    says so under the run's own tag rather than the runtime's.
+    """
+    src = HOST.read_text(encoding="utf-8")
+    assert "LEASE_WAIT_DETACHED_SEC" in src, "a detached run waits a press's ninety seconds"
+    assert "def regain_hook(self, tag: str = \"action\", patient: bool = False)" in src
+    assert "self.regain_hook(tag, patient=detached)" in src, \
+        "the detached run inherits the runtime's hook and dies on the first taken lease"
+    assert re.search(r"regain=come_back", src), \
+        "the patient hook is built and never handed to the run"
+    # …and `play` has to take it by name, for the same reason `yield_to` does.
+    assert re.search(r"def play\([^)]*regain=None",
+                     ACTIONS.read_text(encoding="utf-8"), re.S)
+
+
 def test_the_clock_does_not_block_on_a_detached_errand():
     src = SCHEDULE.read_text(encoding="utf-8")
     assert "_detached_errand" in src and "_run_detached" in src, \
