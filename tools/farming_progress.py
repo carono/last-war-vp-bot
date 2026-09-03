@@ -8,56 +8,32 @@ double-count.
 
     python3 tools/farming_progress.py            # print the current numbers
     python3 tools/farming_progress.py --write    # rewrite the bar in both files
+
+THE COUNTING ITSELF IS NOT HERE (#2399). It is `tools/lib/farming_doc.py`, which
+the panel's «Что умеет бот» page reads as well — so the bar in the documents and
+the percentage on the page are the same number arrived at once, rather than two
+numbers that happen to agree today. This file is the command line around it.
 """
+import os
 import re
 import sys
 from pathlib import Path
 
-CELLS = 20
-DOCS = Path(__file__).resolve().parent.parent / "docs"
-START, END = "<!-- progress:start -->", "<!-- progress:end -->"
-ITEM = re.compile(r"^- (✅|🟡|❌) ", re.M)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
-# per-file wording — the EN copy is canonical, the RU one mirrors it
-TEXT = {
-    "farming.md": ("{bar}  **{pct}%** — {done} of {total}\n\n"
-                   "🟩 {done} done · 🟨 {partial} partly · 🟥 {todo} not automated"),
-    "farming.ru.md": ("{bar}  **{pct}%** — {done} из {total}\n\n"
-                      "🟩 {done} готово · 🟨 {partial} частично · 🟥 {todo} не реализовано"),
-}
+import farming_doc  # noqa: E402
 
-
-def counts(text):
-    marks = ITEM.findall(text)
-    done = marks.count("✅")
-    partial = marks.count("🟡")
-    return done, partial, len(marks) - done - partial, len(marks)
-
-
-def bar(done, partial, total):
-    if not total:
-        return "🟥" * CELLS
-    green = round(done / total * CELLS)
-    yellow = round(partial / total * CELLS)
-    red = max(0, CELLS - green - yellow)
-    return "🟩" * green + "🟨" * yellow + "🟥" * red
-
-
-def block(name, text):
-    done, partial, todo, total = counts(text)
-    pct = round(done / total * 100) if total else 0
-    body = TEXT[name].format(bar=bar(done, partial, total), pct=pct,
-                             done=done, partial=partial, todo=todo, total=total)
-    return f"{START}\n{body}\n{END}", (done, partial, todo, total, pct)
+DOCS = Path(farming_doc.DOCS_DIR)
+START, END = farming_doc.START, farming_doc.END
 
 
 def main():
     write = "--write" in sys.argv[1:]
     failed = False
-    for name in TEXT:
+    for name in farming_doc.TEXT:
         path = DOCS / name
         text = path.read_text(encoding="utf-8")
-        new_block, (done, partial, todo, total, pct) = block(name, text)
+        new_block, (done, partial, todo, total, pct) = farming_doc.block(name, text)
         print(f"{name}: {pct}% — ✅ {done} · 🟡 {partial} · ❌ {todo} of {total}")
         if START not in text or END not in text:
             print(f"  ! no {START} … {END} markers in {name}", file=sys.stderr)

@@ -169,6 +169,11 @@ DEV_TAB = "develop"
 
 # Order numbers are spaced so a tab can be slotted between two without renumbering.
 TABS: tuple = (
+    # «Что умеет бот» — the feature list, BUILT from `docs/farming*.md` and never
+    # written down twice (#2399). It reads a file and nothing else, so it needs
+    # neither the daemon nor a child, and it is first because «сколько готово» is
+    # the question somebody opens the panel with.
+    TabSpec("farming",   "panel.tabs.farming",   "FarmingTab",   order=15),
     TabSpec("checklist", "panel.tabs.checklist", "ChecklistTab", order=20),
     TabSpec("events",    "panel.tabs.events",    "EventsTab",    order=25),
     TabSpec("timers",    "panel.tabs.timers",    "TimersTab",    order=30),
