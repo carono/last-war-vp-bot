@@ -3,10 +3,12 @@
 **Question asked:** «зайди в магазин, и найди все бонусы, что можно взять, там несколько
 вкладок, пройдись по всем».
 
-**Short answer.** Two things in the whole shop cost nothing, and both live on the gift
-mall's week-card page: the **daily free gift**, handed out whether or not a card was ever
-bought, and the **daily reward of the week cards the account already holds**. Everything
-else on every tab has a price. The ability that takes those two is
+**Short answer.** Three claims in the whole shop cost nothing: the **daily free gift** of
+the week-card page, handed out whether or not a card was ever bought; the **daily reward
+of the week cards the account already holds**; and the **daily reward of a running month
+card**. Everything else on every tab has a price. Buying a subscription is a purchase and
+is never made — claiming what a running one owes costs nothing, and a day it is not
+claimed is a day of it thrown away. The ability that takes those two is
 `actions/collect_shop_freebies.md`, and the reading behind it is
 `actions/read_shop_freebies.md`.
 
@@ -95,6 +97,28 @@ round trip and puts nothing on the wire.
 * Claiming this **buys nothing**: the card was paid for once and pays out every day of its
   week. A claim that is not made is a day of that card thrown away.
 
+### 4.3 The month card's daily reward — and the argument that decides everything
+
+* **Gate:** `MonthCardNewManager:CheckIfMonthCardActive()` and `CheckIfHasGolloesGift()`.
+  The second is the game's own answer about today; it flipped to `false` the moment the
+  claim landed. The card's own record — `GetGolloesMonthCard()` — carries `monthCardId`,
+  `buyTime`, `endTime` and `lastClaimTime`.
+* **Press:** `SFSNetwork.SendMessage(MsgDefines.ClaimGolloesDailyReward, <monthCardId>)`
+  → `month.card.reward`.
+* **THE ARGUMENT IS THE WHOLE OF IT, and it cost two probes to find.** Sent BARE — which
+  is what the mall's own `LWBuyDiamondCtrl:ClaimDailyRewards()` appeared to do — the
+  message was answered by **silence**: nothing on the wire, `lastClaimTime` unmoved, the
+  gate still open. Sent with the card's `monthCardId` it came back at once:
+
+  ```
+  push.resource.item.update{resource_items=tbl}
+  month.card.reward{_id=…, _time=11, gold=…, golloesMonthCard=tbl, reward=tbl, tipsDay=0}
+  ```
+
+  and `lastClaimTime` moved to the second of the press with `CheckIfHasGolloesGift()`
+  → `false`. A claim that answers with silence is not a claim that failed to be
+  understood — it is one that was sent without what it asks for.
+
 ## 5. What is NOT free, and why each one is excluded
 
 * **Every row of `UICommonShop`** — §2. All 175 have a price.
@@ -105,25 +129,48 @@ round trip and puts nothing on the wire.
 * **Магазин золотых слитков.** Gold bricks are a currency (`GoldBrickDataManager:
   GetGoldBrickCount()` = a balance). `GoldBrickTemplateManager:GetFreeGoldBrick()` reads
   `0` on this account.
-* **Месячная карта.** `LWBuyDiamondCtrl:ClaimDailyRewards()` sends `month.card.reward`;
-  it was pressed once with an ear on the wire and nothing came back, which is what an
-  account with no active month card should look like. Not shipped: a press nobody has
-  seen answered cannot be told from a refusal.
+* **Buying anything at all.** A subscription, a pack, a skin, a diamond bundle. What a
+  RUNNING subscription owes is claimed (§4.3); nothing is ever bought.
 * **«Постоянный подарок», «Наборы», the activity tab.** Money.
 
-## 6. The two free-SHAPED claims that were pressed and are NOT shipped
+## 6. The three free-SHAPED claims that were pressed and are NOT shipped
 
-Both are named here so the next agent does not spend the afternoon finding them again.
+Named here with what each one's gate turned out to be, so the next agent does not spend
+the afternoon finding them again. **All three are «nothing on offer», not «broken»** —
+which is exactly what the fourth finding below explains.
 
-* **`receive.week.free.reward`** (`MsgDefines.BuyFreeWeeklyPackage`) — the server answered
-  `{success=true}` and **nothing moved**: no gate flipped, no item push arrived,
-  `lastRecvFreeTime` unchanged. Either it wants a payload nobody has pinned or it is the
-  ack of something already taken. Not shipped.
+* **`receive.week.free.reward`** (`MsgDefines.BuyFreeWeeklyPackage`) — answered
+  `{success=true}` and **nothing moved**. Its gate is `RechargeManager:
+  GetIsCanReceiveFreeReward(type)`, and on this account every type from `0` to `6` reads
+  `false`; only type `1` even has a `GetFreeRewardIdByType`. So there was nothing to give.
+* **`receive.golloes.daily.free.reward`** (`MsgDefines.ClaimGolloesFreeReward`) — the same
+  shape: `{success=true}`, `lastClaimTime` unmoved, both with and without the card id. It
+  is a DIFFERENT reward from §4.3 and its own gate has not been found.
 * **`decoration.shop.receive.free.reward`** (`MsgDefines.DecorationShopReceiveFreeReward`)
   — the decoration shop advertises a free daily reward
   (`ActivityListDataManager:GetActHasFreeDailyReward(1051010)` = `true`, and the activity
-  is `activity_name_98800`, the decoration direct-purchase gift page). The claim came back
-  `{errorCode=E000000}` with the gate still open. Not shipped for the same reason.
+  is `activity_name_98800`, the decoration direct-purchase gift page). Its real gate is in
+  `CommonShopManager.decorationShopDic[150]`: `freeCount = 0`, `freeRewardId = 0`,
+  `maxFreeTime` empty. There was nothing to claim, which is why the server refused.
+
+### `E000000` is a REFUSAL, not an «all clear»
+
+The decoration claim came back `{errorCode=E000000}` and it was read here at first as
+«accepted». It is not. The same code arrived on `week.month.card.reward.all` **with the
+reason attached**:
+
+```
+week.month.card.reward.all{errorCode=E000000, errorMsg=already received}
+```
+
+— sent a second after the month card had genuinely been claimed. So `E000000` is the
+generic «no» and the sentence beside it is where the answer is. Anything read off an
+`errorCode` in this game is read together with `errorMsg` or not at all.
+
+`week.month.card.reward.all` (`MsgDefines.ClaimSubscriptionsReward`) is worth a line of
+its own: it looks like ONE message that would cover §4.2 and §4.3 together. It has only
+ever been seen refusing, so it is not shipped in place of the two proven sends — but it
+is the first thing to try if either of them ever changes shape.
 
 `MsgDefines` holds **33** message names containing `free`; the ones above are the only
 ones that belong to a shop tab. The rest belong to activities, buildings and marches and

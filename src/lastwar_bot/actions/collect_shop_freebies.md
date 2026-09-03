@@ -17,7 +17,14 @@
 #      offer — `receive.week.card.daily.free.reward`, no payload;
 #   3. takes the daily reward of every week card the account already holds —
 #      `receive.all.week.card.reward`, one message for all of them, no payload;
-#   4. reads the gates back and reports what MOVED rather than what was sent.
+#   4. takes the MONTH card's daily reward when a card is running —
+#      `month.card.reward`, **with the card's own `monthCardId` as its one argument**.
+#      That argument is the whole of it: the same message sent bare was answered by
+#      silence and moved nothing, and sent with the id it came back with the reward, the
+#      gold and `push.resource.item.update`, and `CheckIfHasGolloesGift()` flipped to
+#      `false`. Buying a subscription is a purchase; claiming what a running one owes is
+#      free, and a day it is not claimed is a day of it thrown away;
+#   5. reads the gates back and reports what MOVED rather than what was sent.
 #
 # A REFUSAL IS NOT A SUCCESS. The server answers a claim it accepts by pushing the record
 # back — the free gate flips to `false`, a card's status goes from `2` to `3` — and one it
@@ -33,6 +40,7 @@
 
 ARGS free_gift = 1
 ARGS card_daily = 1
+ARGS month_card = 1
 
 # ---- what the game says is waiting -------------------------------------------------
 CALL read_shop_freebies
@@ -53,8 +61,14 @@ IF card_daily == 1
         LUA pcall(function() SFSNetwork.SendMessage(MsgDefines.ClaimAllWeekCardRewardMessage) end)
         WAIT 2.5
 
+# ---- 3. the month card's daily reward, when one is running --------------------------
+IF month_card == 1
+    IF month_due > 0
+        LUA pcall(function() local c = DataCenter.MonthCardNewManager:GetGolloesMonthCard() SFSNetwork.SendMessage(MsgDefines.ClaimGolloesDailyReward, c.monthCardId) end)
+        WAIT 2.5
+
 # ---- what actually moved ------------------------------------------------------------
-READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local was = DataCenter.__lw_shop or {} local M = DataCenter.WeekCardManager local free = false pcall(function() free = (M:CheckIfHasFreeReward() == true) end) local due = 0 pcall(function() for _, c in pairs(M:GetWeekCardList() or {}) do if num(c:GetStatus()) == 2 then due = due + 1 end end end) local said = {} if num(was.free) == 1 then said[#said + 1] = 'подарок=' .. (free and 'ОТКАЗАНО — всё ещё предлагается' or 'забран') else said[#said + 1] = 'подарок=сегодня не предлагался' end local wasdue = num(was.cards) if wasdue > 0 then said[#said + 1] = 'карты=' .. (wasdue - due) .. ' из ' .. wasdue .. (due > 0 and (' (ОТКАЗАНО ' .. due .. ')') or '') else said[#said + 1] = 'карты=нечего забирать' end return table.concat(said, ' ') end)() INTO taken
+READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local was = DataCenter.__lw_shop or {} local M = DataCenter.WeekCardManager local free = false pcall(function() free = (M:CheckIfHasFreeReward() == true) end) local due = 0 pcall(function() for _, c in pairs(M:GetWeekCardList() or {}) do if num(c:GetStatus()) == 2 then due = due + 1 end end end) local said = {} if num(was.free) == 1 then said[#said + 1] = 'подарок=' .. (free and 'ОТКАЗАНО — всё ещё предлагается' or 'забран') else said[#said + 1] = 'подарок=сегодня не предлагался' end local wasdue = num(was.cards) if wasdue > 0 then said[#said + 1] = 'карты=' .. (wasdue - due) .. ' из ' .. wasdue .. (due > 0 and (' (ОТКАЗАНО ' .. due .. ')') or '') else said[#said + 1] = 'карты=нечего забирать' end local mleft = false pcall(function() local MC = DataCenter.MonthCardNewManager mleft = (MC:CheckIfMonthCardActive() == true) and (MC:CheckIfHasGolloesGift() == true) end) if num(was.month) == 1 then said[#said + 1] = 'месячная карта=' .. (mleft and 'ОТКАЗАНО — всё ещё ждёт' or 'забрана') else said[#said + 1] = 'месячная карта=нечего забирать' end return table.concat(said, ' ') end)() INTO taken
 LOG "Магазин, итог: {taken}"
 
 # ---- and the readings the page draws, off the state as it is NOW --------------------

@@ -134,16 +134,19 @@ SPEC: dict = {
         _flag("chests", "errand.arg.heal.chests",
               hint_key="errand.arg.heal.chests.hint"),
     ),
-    # WHAT THE SHOP GIVES FOR NOTHING (#2395). Two claims, and each is a decision
+    # WHAT THE SHOP GIVES FOR NOTHING (#2395). Three claims, and each is a decision
     # about somebody's own account rather than a rule: the daily free gift of the
-    # week-card page, and the daily reward of the week cards already bought. Neither
-    # spends a thing — the errand never buys — so both default to on, and both are
+    # week-card page, and the daily reward of the week and month cards already bought.
+    # None of them
+    # spends a thing — the errand never buys — so all three default to on, and all are
     # drawn on «Магазин» as well as here.
     "collect_shop_freebies": (
         _flag("free_gift", "shop.free_gift",
               hint_key="shop.free_gift.hint"),
         _flag("card_daily", "shop.card_daily",
               hint_key="shop.card_daily.hint"),
+        _flag("month_card", "shop.month_card",
+              hint_key="shop.month_card.hint"),
     ),
     "send_trucks": (
         _flag("collect", "errand.arg.trucks.collect",

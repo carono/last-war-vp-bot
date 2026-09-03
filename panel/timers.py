@@ -385,13 +385,14 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
     Timer(
         name="collect_shop_freebies",
         scenario=("collect_shop_freebies",),
-        # AN HOUR, and for the same reason the VIP gifts have one. Both claims come back
-        # once a game day and both gates are the SERVER's own answer about today, so the
-        # period decides nothing except how long after the day turns over the free gift is
-        # picked up. A run with nothing waiting is one VM round trip against the client's
-        # own record — not one question goes on the wire — so looking hourly costs about
-        # as little as looking at all.
-        interval_sec=3600,
+        # SIX HOURS, and it is the person's own choice (#2395): «включить, но раз в 6
+        # часов». Both claims come back once a game DAY and both gates are the server's
+        # own answer about today, so the period decides nothing except how long after the
+        # day turns over the free gift is picked up — four looks a day is more than
+        # enough for two daily rewards, and an hourly one would only be cheaper to argue
+        # for than to justify. A run with nothing waiting is one VM round trip against
+        # the client's own record and not one question goes on the wire.
+        interval_sec=21600,
         # A failure here is a client that was not answering; a few minutes is soon enough.
         retry_sec=300,
         enabled=False,
