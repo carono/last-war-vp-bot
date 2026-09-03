@@ -10851,6 +10851,37 @@ def radar_marched_forget() -> str:
 # which is why neither may be written down here: the level is read per profile
 # (`GetDetectInfoLevel`) and the row is looked up under it.
 
+def radar_nothing_to_do() -> str:
+    """Lua *expression* -> 1 when there is nothing on the board worth a trip to it.
+
+    THE DAY'S RULES, AND THE FIRST OF THEM (#2390). The operator's, in their words: «лимит
+    выполненных достигнут — к радару не ходим». Before this, a board with nothing left in
+    it still cost the whole journey — the world scene, the squads refilled, the board read
+    three times, the points placed — and only at the claim did the cycle discover the day
+    had nothing left to hand out and stop. Measured live on 2026-09-03: `quota=40 left=0
+    board=12 ripe=12 helpable=0 free_places=0`, a board on which not one of those steps
+    could have changed anything.
+
+    Three readings, all out of the client's own copy, no request and no window:
+
+    * `detectInfo.eventNum` — what is LEFT of the day's allowance. Zero means a claim
+      frees a place the game cannot refill, so making room buys nothing;
+    * how many ally errands can be helped — the ones that need no march at all;
+    * how many errands on the board still want a squad.
+
+    All three zero and there is nothing a trip could do. It says nothing about the DUEL
+    day: on that one the ripe errands are the whole point, and the caller goes whatever
+    this answers.
+    """
+    return ("(function() local left = %(left)s "
+            "if left > 0 then return 0 end "
+            "if %(help)s > 0 then return 0 end "
+            "if %(march)s > 0 then return 0 end "
+            "return 1 end)()"
+            % {"left": radar_board_max(), "help": radar_helpable_count(),
+               "march": radar_marchable_count()})
+
+
 def radar_level() -> str:
     """The profile's own radar level — 0 when it cannot be read."""
     return ("(function() local M = DataCenter.RadarCenterDataManager "

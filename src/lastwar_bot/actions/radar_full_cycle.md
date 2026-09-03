@@ -96,6 +96,25 @@ IF discharge == 1
 ELSE
     LOG "radar: today is not a duel day — holding the rewards, keeping {keep_free} place(s) open"
 
+# --- is there anything a trip could change? ---------------------------------
+# THE DAY'S OWN RULE, AND IT IS CHECKED BEFORE THE JOURNEY (#2390). The operator's, in
+# their words: «лимит выполненных достигнут — к радару не ходим». Until this, a spent day
+# still cost the whole trip — the world scene, the squads refilled, the board read three
+# times, the points placed — and only at the claim did the cycle find out the day had
+# nothing left to hand out. Measured live on 2026-09-03: `quota=40 left=0 board=12 ripe=12
+# helpable=0 free_places=0`, a board on which not one of those steps could have changed
+# anything.
+#
+# On a DUEL day it never applies: the ripe errands are the whole point of that day, so the
+# cycle goes whatever the board looks like.
+READ_LUA (function() local left = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetMaxDetectNum() end) return (ok and tonumber(n)) or 0 end)() if left > 0 then return 0 end if (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local n = 0 for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') if rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH and t and rawget(t, 'type') == DetectEventType.HELPER and not rawget(e, 'isFrozen') then n = n + 1 end end return n end)() > 0 then return 0 end if (function() local M = DataCenter.RadarCenterDataManager local map = {[DetectEventType.GATHER_RESOURCE] = MarchTargetType.COLLECT, [DetectEventType.DetectEventPickGarbage] = MarchTargetType.PICK_GARBAGE, [DetectEventType.FAKE_PLAYER] = MarchTargetType.ATTACK_CITY, [DetectEventType.TREASURE] = MarchTargetType.DETECT_TREASURE} local done = DataCenter.__lw_radar_marched or {} local list = {} if M then for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') local kind = t and rawget(t, 'type') local u = rawget(e, 'uuid') if kind ~= nil and kind ~= DetectEventType.HELPER and rawget(e, 'state') ~= DetectEventState.DETECT_EVENT_STATE_FINISHED and rawget(e, 'state') ~= DetectEventState.DETECT_EVENT_STATE_REWARDED and not rawget(e, 'isFrozen') and not done[tostring(u)] then list[#list + 1] = {uuid = u, kind = kind, pid = rawget(e, 'pointId'), state = rawget(e, 'state'), target = map[kind]} end end end local n = 0 for _, r in ipairs(list) do if r.target ~= nil and r.state == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH then n = n + 1 end end return n end)() > 0 then return 0 end return 1 end)() INTO idle
+IF discharge == 1
+    READ_LUA (0) INTO idle
+IF idle == 1
+    LOG "radar: the day has nothing left to hand out, nothing to help and nothing to march — not going to the board at all"
+    TAP radar_mark_window
+    STOP
+
 # --- the world, and the squads, before anything is sent ---------------------
 GAME WORLD
 WAIT 1.5
@@ -129,6 +148,14 @@ READ_LUA (function() local cap = (function() local M = DataCenter.RadarCenterDat
 IF discharge == 1
     TAP radar_claim xall
 ELSE
+    # WHAT BOUNDS THE CLAIM ON AN ORDINARY DAY IS THE DAY ITSELF (#2390). The operator's
+    # rule: «собрать столько, чтобы к серверному сбросу не упереться в лимит, дальше только
+    # выполнять». A claim frees a place and the game refills it out of the day's allowance,
+    # so the number of places worth opening is never more than what the day has left —
+    # `keep_free` is the wish and `left` is the ceiling, and the loop below stops on
+    # whichever comes first. After that the cycle only PERFORMS: the marches and the ally
+    # errands above have already gone out, and the ripe ones are held for the duel day.
+    LOG "radar: an ordinary day — the day has {left} left to hand out, so at most that many place(s) are opened, wanting {keep_free}"
     LUA DataCenter.__lw_radar_hoard_from = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetDetectEventCount() end) return (ok and tonumber(n)) or 0 end)()
     READ_LUA 0 INTO opened
     WHILE opened < {keep_free} LIMIT 60
