@@ -837,6 +837,27 @@ too late.
   of laps that had to make a new march out of the base, beside `redeploys=` which is the
   number that did not.
 
+### …and the first cut at it missed the window by ten seconds
+
+Widening the gate and skipping the walk-home wait was not enough, and the measurement
+that says so is worth keeping: over five laps of one run the chain saw the landing, read
+`reaimable = 1` — the march really was still there — and the order left **ten seconds
+later**, by which time it was not. The report was unambiguous: `attacks=5 redeploys=0
+fallbacks=5`, five new marches out of the base.
+
+Where the ten seconds went, one round trip at a time: «is it re-aimable» in the wait,
+the same question again inside the send, «is the squad free», «is this the last march» —
+each 0.2 s at the VM and about a second and a half by the time the player has logged it.
+Against a window of 0.08–3.4 s that is not a delay, it is the whole of it.
+
+`golden_reaim_now` is the answer and it is the same shape as `golden_send_now` (§4f):
+ONE call that finds the march, re-aims it, and parks everything the lap after it reads —
+the anchor, the pending target, the zombie set aside for judging, the marches that
+existed before the order. «Home on the last march» is decided inside it too, because a
+second question would cost exactly what this exists to save. The wait plays it the moment
+the landing shows; the send either watches an order it did not give, or makes the
+ordinary march out of the base and counts a `fallback`.
+
 ## 4f — the hunt recalled its own attack, one second after ordering it (#1702)
 
 The worst kind of bug: every part of it had already been thought about, and the fix was
