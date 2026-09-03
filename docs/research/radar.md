@@ -428,6 +428,40 @@ SAME warzone (B and C) kept separate boards, separate squads and separate tallie
 другого устройства»), and a client that is not logged in answers plausibly and wrongly. Its
 readings are recorded as readings; nothing was sent to it.
 
+## ONE PASS PER REFRESH, and the stamp is the game's (#2390)
+
+The operator's rule, in their words: **«Радар обновляется раз в 4 часа, один раз выполнили
+задания и все, ждем обновления»**. What the errand did instead was run on a half-hour
+clock, and measured on a live panel beside a golden-zombie chain it held the client
+**1344 s out of 44 minutes — 51 % of the wall clock, in two runs** — working the same board
+over and over inside one refresh window.
+
+The board says when it refills, and the client keeps the answer:
+
+```
+detectInfo{completeNum=…, eventNum=0, level=16, nextRefreshTime=1788469656324, …}
+now=1788456710792          → the refill is 3 h 36 m away, and the day's allowance is
+                             already drawn to the last errand (eventNum = 0)
+```
+
+Read live on 2026-09-03 out of `RadarCenterDataManager.detectInfo` — **no request, no
+window, nothing the server hears**, which is what makes it usable as a gate.
+
+So the recipe opens with `radar_window_done()`: the stamp the last FINISHED cycle parked
+(`DataCenter.__lw_radar_done_for`, written by `TAP radar_mark_window` after the last press)
+against the stamp the board is showing now. Same stamp → the window is worked → `STOP`
+before a single press. The server moving the stamp is the only thing that opens the next
+pass; there is nothing to subscribe to, because **nothing on the wire announces the
+refresh** — the errand's own reading is the announcement.
+
+**A cycle that was cut short parks nothing.** The mark is the last step, so a client that
+crashed, a lease that went or a run somebody stopped leaves the window open and the next
+tick works it — which is also the whole of «no second pass while the first has not
+finished», since the timer never runs one name twice at once.
+
+The clock that remains is the timer's own half hour, and all it now buys is HOW SOON the
+refill is noticed: a tick inside a worked window is two local reads and a `STOP`.
+
 ## What is NOT known
 
 * **Whether an errand claimed while hoarding is the OLDEST one.** The recipe claims in

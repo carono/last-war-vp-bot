@@ -10890,6 +10890,54 @@ def _radar_level_field(field: str) -> str:
             "or tonumber(ld[tonumber(col) or -1]) or 0 end)()" % field)
 
 
+def radar_next_refresh() -> str:
+    """Lua *expression* -> the stamp the radar refills itself at, in server ms.
+
+    `detectInfo.nextRefreshTime`, read out of the client's own copy: no request, no
+    window, nothing the server hears. Live on 2026-09-03 it read ~3.6 h ahead with
+    `eventNum = 0` beside it — the day's allowance drawn to the last errand and the board
+    waiting for its own clock, which is the state this reading exists to recognise.
+
+    0 when the client cannot answer, and a 0 is deliberately treated as «work» by the gate
+    below: a board nobody can read is not a board somebody may skip.
+    """
+    return ("(function() local M = DataCenter.RadarCenterDataManager "
+            "if not M then return 0 end "
+            "local di = nil pcall(function() di = M.detectInfo end) "
+            "if di == nil then pcall(function() di = M:GetDetectInfo() end) end "
+            "if di == nil then return 0 end "
+            "return math.floor(tonumber(rawget(di, 'nextRefreshTime')) or 0) end)()")
+
+
+def radar_window_done() -> str:
+    """Lua *expression* -> 1 when this refresh window has already been worked.
+
+    THE WHOLE POINT OF THE ERRAND'S PACING (#2390), and it is the operator's own rule:
+    «Радар обновляется раз в 4 часа, один раз выполнили задания и все, ждем обновления».
+    The board hands out its allowance and then refills at `nextRefreshTime`, so the useful
+    unit of work is ONE PASS PER REFRESH — not a clock. Measured before this existed: the
+    errand held the client 1344 s over 44 minutes, 51 % of the wall clock, while a chain
+    that yields to everything crawled.
+
+    The stamp of the window a cycle finished in is parked by :func:`radar_window_mark`, so
+    a run that was cut short — the client crashed, the lease went — leaves nothing behind
+    and the next tick works the window again. There is no push behind the refresh
+    (`docs/research/radar.md`: nothing on the wire announces it), so the shape is «read the
+    game's own stamp and be quiet until it moves».
+    """
+    return ("(function() local now = %s "
+            "if now <= 0 then return 0 end "
+            "local seen = tonumber(DataCenter.__lw_radar_done_for) or 0 "
+            "if seen == now then return 1 end return 0 end)()" % radar_next_refresh())
+
+
+def radar_window_mark() -> str:
+    """Park the refresh stamp this cycle has just worked, so the next tick is quiet."""
+    return ("DataCenter.__lw_radar_done_for = %s "
+            'CS.UnityEngine.Debug.LogError("ACT radar_window_mark at="'
+            "..tostring(DataCenter.__lw_radar_done_for))" % radar_next_refresh())
+
+
 def radar_capacity() -> str:
     """How many errands this profile's board holds at once — `detect_show_num`.
 

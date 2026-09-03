@@ -56,6 +56,22 @@ ARGS keep_free = 3
 ARGS help = 1
 ARGS march = 1
 
+# --- has this refresh window already been worked? ---------------------------
+# ONE PASS PER REFRESH, and the moment is the GAME'S (#2390). The operator's rule, in
+# their words: «Радар обновляется раз в 4 часа, один раз выполнили задания и все, ждем
+# обновления». The board draws its day's allowance down to nothing and refills at
+# `detectInfo.nextRefreshTime`; nothing on the wire announces that (docs/research/radar.md),
+# so this reads the client's own copy of the stamp — no request, no window — and stops
+# dead when the stamp is the one the last finished cycle parked. Measured before it
+# existed: this errand held the client 1344 s out of 44 minutes, 51 % of the wall clock,
+# running the whole board over and over inside one window.
+#
+# A cycle that was cut short parks nothing, so the next tick works the window again.
+READ_LUA (function() local now = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local di = nil pcall(function() di = M.detectInfo end) if di == nil then pcall(function() di = M:GetDetectInfo() end) end if di == nil then return 0 end return math.floor(tonumber(rawget(di, 'nextRefreshTime')) or 0) end)() if now <= 0 then return 0 end local seen = tonumber(DataCenter.__lw_radar_done_for) or 0 if seen == now then return 1 end return 0 end)() INTO window_done
+IF window_done == 1
+    LOG "radar: this refresh window is already worked — nothing until the game refills the board"
+    STOP
+
 # --- which day is it, and what does that make today ------------------------
 READ_LUA (function() local ok, ms = pcall(function() return UITimeManager:GetInstance():GetTomorrowZero() end) if not ok or not tonumber(ms) then return 0 end local start = math.floor(tonumber(ms) / 1000) - 86400 local w = tonumber(os.date('!%w', start)) if w == nil then return 0 end if w == 0 then return 7 end return w end)() INTO gameday
 READ_LUA (function() local days = { {duel_days} } local today = (function() local ok, ms = pcall(function() return UITimeManager:GetInstance():GetTomorrowZero() end) if not ok or not tonumber(ms) then return 0 end local start = math.floor(tonumber(ms) / 1000) - 86400 local w = tonumber(os.date('!%w', start)) if w == nil then return 0 end if w == 0 then return 7 end return w end)() for _, d in ipairs(days) do if tonumber(d) == today then return 1 end end return 0 end)() INTO is_duel
@@ -135,5 +151,7 @@ READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then r
 READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetMaxDetectNum() end) return (ok and tonumber(n)) or 0 end)() INTO left
 READ_LUA (function() local cap = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local lvl = 0 pcall(function() lvl = tonumber(M:GetDetectInfoLevel()) or 0 end) if lvl < 1 then return 0 end local inst = LocalController.instance() pcall(function() inst:getTable('detect_level') end) local row = nil pcall(function() row = inst:getLine('detect_level', lvl) end) if type(row) ~= 'table' then return 0 end local md = nil pcall(function() md = row:getMetaData() end) if type(md) ~= 'table' then return 0 end local col = nil pcall(function() local e = md['detect_show_num'] col = e and e[1] end) if col == nil then return 0 end local ld = rawget(row, '_lineData') or {} return tonumber(ld[col]) or tonumber(ld[tostring(col)]) or tonumber(ld[tonumber(col) or -1]) or 0 end)() local now = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetDetectEventCount() end) return (ok and tonumber(n)) or 0 end)() local d = cap - now if d < 0 then d = 0 end return d end)() INTO free
 READ_LUA (function() local ok, n = pcall(function() local om = DataCenter.WorldMarchDataManager:GetOwnerMarches() local c = 0 if om then local e = om:GetEnumerator() while e:MoveNext() do c = c + 1 end end return c end) if not ok then return -1 end return n end)() INTO marches
+
+TAP radar_mark_window
 
 LOG "radar: done — {onboard} of {capacity} on the board, {finished} ripe held, {helpable} still runnable, {free} place(s) open, {left} of the day left, {marches} march(es) of ours out"

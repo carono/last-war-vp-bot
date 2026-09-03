@@ -1351,6 +1351,12 @@ BUTTONS["radar_read_board"] = Button(
     lua=_lua_actions.radar_fetch_board(),
     wait=1.0, label="Radar: refresh the board",
 )
+BUTTONS["radar_mark_window"] = Button(
+    # The cycle is over: park the refresh stamp it worked, so the next tick knows this
+    # window is done and stays off the client until the game moves the stamp (#2390).
+    lua=_lua_actions.radar_window_mark(),
+    wait=0.2, label="Radar: remember the refresh window just worked",
+)
 BUTTONS["radar_claim"] = Button(
     # «Получить» on one card. `xall` is «Получить все», because the in-game button is a
     # client-side loop over the same message and nothing more.
