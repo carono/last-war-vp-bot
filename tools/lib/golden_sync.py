@@ -34,6 +34,8 @@ OWNERS = {
     "cost": "golden_attack_cost",
     "energy": "golden_energy",
     "eta_left": "golden_eta_left",
+    # HOW LONG THE LAP HAS BEFORE THE WINDOW OPENS (#2390).
+    "flight_left": "golden_flight_left",
     "found": "golden_found",
     "go": "golden_can_go",
     "golden_report": "golden_report",

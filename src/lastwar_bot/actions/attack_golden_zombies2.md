@@ -352,14 +352,18 @@ WHILE go == 1 LIMIT 200
         # zombie it has just fought is judged afterwards from `p.judge`, which the send
         # sets aside for it.
         CALL golden2_send_the_squad
-        CALL golden2_judge_the_kill
-        # NOTHING WITHIN REACH IS AN ENDING, NOT A LAP (#1702). The invasion clusters, and
-        # when its near zombies are dead the queue still holds the far ones the sweep saw —
-        # measured live, 72 of them between 580 and 615 tiles out. A chain that keeps
-        # choosing from those looks hung for ten minutes per kill, so it says so and stops.
-        # …and the next one is picked NOW, with this march barely out of the base, so the
-        # moment it lands there is an order ready to go rather than four readings to take.
+        # …AND THE NEXT ZOMBIE IS CHOSEN BEFORE THE LAST ONE IS JUDGED (#2390). Both used
+        # to happen in the flight's shadow, which was true while the flights were long:
+        # measured live on hops of five to seventeen tiles, judging and choosing together
+        # outlast the march, and the chain arrived at the landing half a minute late with
+        # `eta_left = -29`. The pick is what the re-aim NEEDS; the judging only counts
+        # what already happened, so it goes second and only when the flight leaves room.
         CALL golden2_choose_a_target
+        READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end local due = tonumber(p.eta_ms) if due == nil or due <= 0 then return -1 end local now = nil pcall(function() now = tonumber(UITimeManager.Instance:GetServerTime()) end) if now == nil then now = os.time() * 1000 end return math.floor((due - now) / 1000) end)() INTO flight_left
+        IF flight_left > 12
+            CALL golden2_judge_the_kill
+        IF flight_left < 0
+            CALL golden2_judge_the_kill
         IF go == 1
             READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost then return 0 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) >= lim then return 0 end return ((function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() > 0) and 1 or 0 end)() INTO go
 

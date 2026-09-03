@@ -1142,7 +1142,7 @@ def test_the_map_is_walked_ONCE_and_never_again():
 # ---------------------------------------------------------------------------
 
 BRICKS = ("golden_wait_for_the_march", "golden_send_the_squad",
-          "golden_judge_the_kill", "golden_choose_a_target")
+          "golden_choose_a_target", "golden_judge_the_kill")
 
 #: …and the same four names in the order a LAP reads them, which is not the order the
 #: loop runs them in any more (#2390): the pick for lap N happens at the end of lap N-1,
@@ -1182,9 +1182,14 @@ def test_the_chain_is_four_bricks_each_runnable_on_its_own():
     calls = [w.split()[1] for w in lines[loop:] if w.startswith("CALL ")]
     # …and the LAST kill is judged after the loop, when the march is already over — the
     # chain judges one lap behind since #2390, so the final order has nobody behind it.
-    assert calls[:len(BRICKS)] == list(BRICKS), f"the chain's lap is {calls}"
-    assert calls[len(BRICKS):] in ([], ["golden_judge_the_kill"]), \
-        f"the chain does more after its loop than judge the last kill: {calls}"
+    # The judging appears TWICE in the lap and once after it, and all three are the same
+    # brick under different conditions (#2390): once when the flight leaves room for it,
+    # once when there is no flight to wait for at all, and once after the loop for the
+    # order that has nobody behind it. What the test is about is the ORDER of the four.
+    seen = [c for i, c in enumerate(calls) if i == 0 or c != calls[i - 1]]
+    assert seen[:len(BRICKS)] == list(BRICKS), f"the chain's lap is {calls}"
+    assert set(seen[len(BRICKS):]) <= {"golden_judge_the_kill"}, \
+        f"the chain does more after its lap than judge a kill: {calls}"
     before = [w.split()[1] for w in lines[:loop] if w.startswith("CALL golden_")]
     assert before and before[-1] == "golden_choose_a_target", \
         "the loop opens with no target chosen, so the first lap picks with the squad idle"

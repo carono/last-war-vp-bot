@@ -12120,6 +12120,13 @@ def golden_send() -> str:
         # WHAT THE LAST ORDER HIT, SET ASIDE BEFORE IT IS OVERWRITTEN (#2390). The chain
         # sends before it judges now — the re-aim window is seconds wide — so the zombie
         # of the order that has just finished has to survive this line to be looked at.
+        # A QUEUE rather than a slot, because a lap whose flight is too short to look
+        # in must not lose the kill: measured live, judging and choosing together cost
+        # 14-40 s against hops of 20-30 s, and the reading that says so is
+        # `eta_left = -29` — the march had landed half a minute before the chain came
+        # back to wait for it. What is not looked at this lap is looked at the next.
+        "if p.hit ~= nil then p.judgeq = p.judgeq or {} "
+        "table.insert(p.judgeq, p.hit) end "
         "p.judge = p.hit "
         "p.hit = p.pending "
         "_goldclaim(p, t.pid) "
@@ -12141,6 +12148,28 @@ def golden_send() -> str:
         '.." redeploy="..tostring(p.redeploy).." attack="..tostring(p.attacks))'
         % {"gold": _GOLD, "energy": golden_energy()}
     )
+
+
+def golden_flight_left() -> str:
+    """Lua *expression* -> seconds until THIS run's own march lands, ``-1`` when unknown.
+
+    How much room the lap has before the window opens (#2390). The chain's own work after
+    an order — judging the last kill, choosing the next zombie — costs 14 s on a quiet
+    panel and upwards of 40 s on a busy one, while a hop of five tiles is over in twenty:
+    measured live, the chain came back to wait for a march that had landed 29 seconds
+    earlier (`eta_left = -29`), and by then there was nothing left to re-aim. So the lap
+    asks how long it has and only looks at the last kill when the looking fits.
+
+    The server's own arrival stamp for the order this run sent (`p.eta_ms`), and never a
+    clock of ours.
+    """
+    return ("(function() " + _GOLD_P +
+            "local due = tonumber(p.eta_ms) "
+            "if due == nil or due <= 0 then return -1 end "
+            "local now = nil "
+            "pcall(function() now = tonumber(UITimeManager.Instance:GetServerTime()) end) "
+            "if now == nil then now = os.time() * 1000 end "
+            "return math.floor((due - now) / 1000) end)()")
 
 
 def golden_reaim_now() -> str:
@@ -12211,6 +12240,8 @@ def golden_reaim_now() -> str:
         "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
         "p.last_sent = {x = t.x, y = t.y, pid = t.pid} "
         "p.pending = {pid = pid, uuid = uuid, key = tostring(uuid), x = t.x, y = t.y} "
+        "if p.hit ~= nil then p.judgeq = p.judgeq or {} "
+        "table.insert(p.judgeq, p.hit) end "
         "p.judge = p.hit "
         "p.hit = p.pending "
         "p.march_before = {} "
@@ -12379,7 +12410,7 @@ def golden_gone() -> str:
         # attacked. `p.judge` is the previous one, parked by `golden_send`; with nothing
         # parked there is nothing to judge and the answer is «gone», which counts no kill
         # (`golden_note_kill` refuses an empty slot for the same reason).
-        "local t = p.judge "
+        "local t = (p.judgeq or {})[1] or p.judge "
         "if t == nil then return 1 end " +
         _GOLD_WS +
         "if ws == nil then return 1 end "
@@ -12408,9 +12439,11 @@ def golden_note_kill() -> str:
     """
     return (
         _GOLD_P +
-        "if p.judge == nil then return end "
+        "local t = (p.judgeq or {})[1] or p.judge "
+        "if t == nil then return end "
         "p.kills = (tonumber(p.kills) or 0) + 1 "
-        "local uuid = p.judge.uuid "
+        "local uuid = t.uuid "
+        "if p.judgeq ~= nil and p.judgeq[1] ~= nil then table.remove(p.judgeq, 1) end "
         "p.judge = nil "
         "p.dry = 0 "
         "local near = math.floor(tonumber(p.reach_near) or 0) "
@@ -12430,8 +12463,10 @@ def golden_drop_kill() -> str:
     """
     return (
         _GOLD_P +
-        "if p.judge == nil then return end "
-        "local uuid = p.judge.uuid "
+        "local t = (p.judgeq or {})[1] or p.judge "
+        "if t == nil then return end "
+        "local uuid = t.uuid "
+        "if p.judgeq ~= nil and p.judgeq[1] ~= nil then table.remove(p.judgeq, 1) end "
         "p.judge = nil "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_drop_kill uuid="..tostring(uuid))'
@@ -12610,7 +12645,7 @@ def golden_unstick() -> str:
         # «я его развернул и второй раз не смог отправить» was «Вернуть отряд»
         # throwing away the zombie the person had just fixed. The ORDER is forgotten,
         # the CHOICE is not.
-        "p.pending = nil p.hit = nil p.judge = nil "
+        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} "
         "if p.home ~= nil then p.anchor = nil end "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_unstick ok="..tostring(ok)'
@@ -13043,7 +13078,7 @@ def golden_note_miss() -> str:
         _GOLD_P +
         "p.misses = (tonumber(p.misses) or 0) + 1 "
         "local uuid = p.pending and p.pending.uuid "
-        "p.pending = nil p.hit = nil p.judge = nil "
+        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_note_miss uuid="..tostring(uuid)'
         '.." misses="..tostring(p.misses))'
@@ -13825,7 +13860,7 @@ def golden_send_now() -> str:
         "can = %(free)s(v) end end end) "
         # …the previous ORDER is forgotten, the CHOICE is kept: «отправил, развернул,
         # отправить снова» has to work.
-        "p.pending = nil p.hit = nil p.judge = nil p.march_uuid = nil p.misses = 0 "
+        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.march_uuid = nil p.misses = 0 "
         "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
         "%(gold)s = p "
         "if p.formation == nil then return -1 end "
@@ -13902,7 +13937,7 @@ def golden_ready_to_send() -> str:
         "if math.floor(tonumber(v.index) or -1) == p.squad then "
         "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
         "state = math.floor(tonumber(v.state) or 0) can = %(free)s(v) end end end) "
-        "p.pending = nil p.hit = nil p.judge = nil p.march_uuid = nil p.misses = 0 "
+        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.march_uuid = nil p.misses = 0 "
         "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
         "%(gold)s = p "
         "if p.formation == nil then return -2 end "
@@ -14130,7 +14165,7 @@ def golden_clear_order() -> str:
     The target itself is untouched, so this is «try that again», not «choose again».
     """
     return (_GOLD_P +
-            "p.pending = nil p.hit = nil p.judge = nil p.march_uuid = nil p.misses = 0 "
+            "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.march_uuid = nil p.misses = 0 "
             "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
             "%(gold)s = p "
             'CS.UnityEngine.Debug.LogError("ACT golden_clear_order")' % {"gold": _GOLD})
