@@ -383,6 +383,21 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.collect_vip_gifts",
     ),
     Timer(
+        name="collect_shop_freebies",
+        scenario=("collect_shop_freebies",),
+        # AN HOUR, and for the same reason the VIP gifts have one. Both claims come back
+        # once a game day and both gates are the SERVER's own answer about today, so the
+        # period decides nothing except how long after the day turns over the free gift is
+        # picked up. A run with nothing waiting is one VM round trip against the client's
+        # own record — not one question goes on the wire — so looking hourly costs about
+        # as little as looking at all.
+        interval_sec=3600,
+        # A failure here is a client that was not answering; a few minutes is soon enough.
+        retry_sec=300,
+        enabled=False,
+        label_key="timers.item.collect_shop_freebies",
+    ),
+    Timer(
         name="recruit_survivors",
         scenario=("recruit_survivors",),
         # An hour, the same cadence as the gifts — a recruitable survivor sits in the

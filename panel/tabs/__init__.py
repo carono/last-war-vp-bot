@@ -181,6 +181,11 @@ TABS: tuple = (
     # brought the profiles' copies across and swept the retired id out of their lists.
     TabSpec("chat",      "panel.tabs.chat",      "ChatTab",      order=50,
             in_development=True),
+    # What the shop gives for nothing (#2395): the week-card page's daily free
+    # gift and the daily reward of the cards already held. Nothing on it buys
+    # anything, which is why it is a page of its own rather than a corner of one
+    # that spends currency.
+    TabSpec("shop", "panel.tabs.shop", "ShopTab", order=63),
     TabSpec("alliance",  "panel.tabs.alliance",  "AllianceTab",  order=200,
             in_development=True),
     # …and no `in_development` on it since #1990: the live stock moved onto this tab
