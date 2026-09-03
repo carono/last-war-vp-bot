@@ -139,6 +139,12 @@
 
 ARGS squad = 1
 ARGS radius = 2000
+# THE SQUARE THE CHAIN WORKS, IN TILES (#2390). The queue is cut into squares of
+# this side, the fullest is chosen, and every pick is made inside it until it is
+# empty — then the next fullest. 0 goes back to «the nearest zombie anywhere»,
+# which is what left the hunt with one target in the queue and a full purse once
+# the invasion had moved off the base.
+ARGS cluster = 50
 ARGS reach = 600
 ARGS reach_far = 700
 ARGS breather = 90
@@ -185,6 +191,7 @@ CALL fill_empty_squads
 # arguments of its own.
 LUA DataCenter.__lw_gold_squad = {squad}
 LUA DataCenter.__lw_gold_radius = {radius}
+LUA DataCenter.__lw_gold_cluster = {cluster}
 LUA DataCenter.__lw_gold_reach = {reach}
 LUA DataCenter.__lw_gold_reach_far = {reach_far}
 LUA DataCenter.__lw_gold_breathers = {breathers}

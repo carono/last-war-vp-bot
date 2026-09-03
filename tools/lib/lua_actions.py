@@ -11419,6 +11419,7 @@ def golden_arm() -> str:
         "p.squad = math.floor(tonumber(%(gold)s_squad) or 1) "
         "p.radius = math.floor(tonumber(%(gold)s_radius) or 2000) "
         "p.reach = math.floor(tonumber(%(gold)s_reach) or 0) "
+        "p.cluster = math.floor(tonumber(%(gold)s_cluster) or 0) "
         "p.reach_near = p.reach "
         "p.breather_limit = math.floor(tonumber(%(gold)s_breathers) or 0) "
         "p.reach_far = math.floor(tonumber(%(gold)s_reach_far) or 0) "
@@ -11799,9 +11800,50 @@ def golden_pick() -> str:
         "local ox, oy, from = nil, nil, 'oracle' "
         "local o0, o0name = _origin(p) "
         "if o0 ~= nil then ox, oy, from = o0.x, o0.y, o0name end "
-        "local best, bestd = nil, nil "
+        # THE SQUAD WORKS A CROWD, NOT A MAP (#2390). The invasion moves, and with the
+        # zombies near the base dead the nearest one left is 24 tiles away with nobody
+        # beside it — measured live, `queued: 1` with 215 energy in the purse. A chain
+        # is only worth anything where the next zombie is a few tiles from the last, so
+        # the queue is cut into squares of `cluster` tiles, the fullest one is chosen,
+        # and every pick after that is made INSIDE it until it is empty. The march to
+        # the first of them is the ride over, and it is paid once instead of per kill.
+        # `cluster = 0` turns it off and the pick is the plain nearest again.
+        "local step = math.floor(tonumber(p.cluster) or 0) "
+        "local function _incell(c, t) "
+        "return c ~= nil and t.x >= c.x0 and t.x < (c.x0 + c.step) "
+        "and t.y >= c.y0 and t.y < (c.y0 + c.step) end "
+        "local function _cellsleft(p, c) "
+        "local n = 0 "
+        "for _, t in ipairs(p.targets or {}) do "
+        "if not (p.used or {})[tostring(t.pid)] and _goldfree(p, t.pid) "
+        "and _incell(c, t) then n = n + 1 end end return n end "
+        "if step > 0 then "
+        "if p.crowd ~= nil and _cellsleft(p, p.crowd) < 1 then p.crowd = nil end "
+        "if p.crowd == nil then "
+        "local cells = {} "
         "for _, t in ipairs(p.targets or {}) do "
         "if not (p.used or {})[tostring(t.pid)] and _goldfree(p, t.pid) then "
+        "local kx = math.floor(t.x / step) * step "
+        "local ky = math.floor(t.y / step) * step "
+        "local key = tostring(kx) .. ':' .. tostring(ky) "
+        "local cell = cells[key] "
+        "if cell == nil then cell = {x0 = kx, y0 = ky, step = step, n = 0} "
+        "cells[key] = cell end "
+        "cell.n = cell.n + 1 end end "
+        "local pickc, pickn, pickd = nil, 0, nil "
+        "for _, cell in pairs(cells) do "
+        "local cx, cy = cell.x0 + step / 2, cell.y0 + step / 2 "
+        "local d = nil "
+        "if ox ~= nil then local dx, dy = (cx - ox), (cy - oy) "
+        "d = math.sqrt(dx * dx + dy * dy) end "
+        "if cell.n > pickn or (cell.n == pickn and d ~= nil and pickd ~= nil "
+        "and d < pickd) then pickc, pickn, pickd = cell, cell.n, d end end "
+        "if pickc ~= nil then p.crowd = pickc p.crowd.n = pickn "
+        "p.crowd.dist = pickd and math.floor(pickd + 0.5) or -1 end end end "
+        "local best, bestd = nil, nil "
+        "for _, t in ipairs(p.targets or {}) do "
+        "if not (p.used or {})[tostring(t.pid)] and _goldfree(p, t.pid) "
+        "and (step <= 0 or p.crowd == nil or _incell(p.crowd, t)) then "
         "local d = nil "
         "if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) "
         "d = math.sqrt(dx * dx + dy * dy) "
@@ -11813,6 +11855,7 @@ def golden_pick() -> str:
         # minutes for one kill and reads as a hung chain. `reach` is that limit in
         # tiles; 0 keeps the old behaviour of walking anywhere.
         "local reach = math.floor(tonumber(p.reach) or 0) "
+        "if step > 0 and p.crowd ~= nil and _incell(p.crowd, t) then reach = 0 end "
         "if d ~= nil and reach > 0 and d > reach then d = nil end "
         "if d ~= nil and (bestd == nil or d < bestd) then best, bestd = t, d end end end "
         "if best ~= nil then p.cur = best p.curdist = math.floor(bestd + 0.5) "
@@ -11924,6 +11967,9 @@ def golden_pick_report() -> str:
         # WHY THE ORIGIN IS WHERE IT IS (#1702) — one word, every lap.
         "' stand=' .. _stand(p) .. "
         "' src=' .. tostring(c.src or '-') .. "
+        "' crowd=' .. (p.crowd and (tostring(p.crowd.x0) .. ',' .. tostring(p.crowd.y0) "
+        ".. '+' .. tostring(p.crowd.step) .. 'x' .. tostring(p.crowd.n) "
+        ".. '@' .. tostring(p.crowd.dist)) or '-') .. "
         "' queued=' .. tostring(#(p.targets or {})) .. "
         "' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)()"
     )
@@ -12656,7 +12702,7 @@ def golden_unstick() -> str:
         # «я его развернул и второй раз не смог отправить» was «Вернуть отряд»
         # throwing away the zombie the person had just fixed. The ORDER is forgotten,
         # the CHOICE is not.
-        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} "
+        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.crowd = nil "
         "if p.home ~= nil then p.anchor = nil end "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_unstick ok="..tostring(ok)'
@@ -13089,7 +13135,7 @@ def golden_note_miss() -> str:
         _GOLD_P +
         "p.misses = (tonumber(p.misses) or 0) + 1 "
         "local uuid = p.pending and p.pending.uuid "
-        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} "
+        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.crowd = nil "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_note_miss uuid="..tostring(uuid)'
         '.." misses="..tostring(p.misses))'
@@ -13871,7 +13917,7 @@ def golden_send_now() -> str:
         "can = %(free)s(v) end end end) "
         # …the previous ORDER is forgotten, the CHOICE is kept: «отправил, развернул,
         # отправить снова» has to work.
-        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.march_uuid = nil p.misses = 0 "
+        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.crowd = nil p.march_uuid = nil p.misses = 0 "
         "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
         "%(gold)s = p "
         "if p.formation == nil then return -1 end "
@@ -13948,7 +13994,7 @@ def golden_ready_to_send() -> str:
         "if math.floor(tonumber(v.index) or -1) == p.squad then "
         "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
         "state = math.floor(tonumber(v.state) or 0) can = %(free)s(v) end end end) "
-        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.march_uuid = nil p.misses = 0 "
+        "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.crowd = nil p.march_uuid = nil p.misses = 0 "
         "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
         "%(gold)s = p "
         "if p.formation == nil then return -2 end "
@@ -14176,7 +14222,7 @@ def golden_clear_order() -> str:
     The target itself is untouched, so this is «try that again», not «choose again».
     """
     return (_GOLD_P +
-            "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.march_uuid = nil p.misses = 0 "
+            "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.crowd = nil p.march_uuid = nil p.misses = 0 "
             "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
             "%(gold)s = p "
             'CS.UnityEngine.Debug.LogError("ACT golden_clear_order")' % {"gold": _GOLD})

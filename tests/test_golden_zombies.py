@@ -691,6 +691,55 @@ def test_the_lap_of_the_map_is_harvested_where_it_ENDS():
             "a camera move throws away what the client is holding right now"
 
 
+def test_the_pick_works_the_fullest_square_and_not_the_nearest_zombie():
+    """#2390: «ищи сектор, где полно зомби и иди туда» — the operator's own instruction.
+
+    Offline against the real Lua: a queue with one zombie twelve tiles from the base and a
+    crowd of four sixty tiles away. The plain nearest pick takes the lone one, works it,
+    and then walks to the crowd anyway — one long march per kill. With the square rule the
+    ride is paid ONCE: the fullest square is chosen, the pick lands inside it, and every
+    pick after that stays there until it is empty.
+
+    The `reach` limit does not refuse that ride, which is the trap this had: a crowd
+    further away than `reach` would be invisible and the hunt would sit on its one target
+    with a full purse — measured live as `queued: 1` at 215 energy.
+    """
+    import lupa
+    rt = lupa.LuaRuntime()
+    rt.execute("CS = {UnityEngine = {Debug = {LogError = function() end}}}")
+    rt.execute("""
+    DataCenter = {__lw_gold = {home = {x = 100, y = 100}, server = 1, used = {},
+      cluster = 50, reach = 20,
+      targets = {{pid = 1, x = 112, y = 100, uuid = 11},
+                 {pid = 2, x = 160, y = 160, uuid = 22},
+                 {pid = 3, x = 163, y = 161, uuid = 33},
+                 {pid = 4, x = 166, y = 158, uuid = 44},
+                 {pid = 5, x = 169, y = 162, uuid = 55}}}}
+    """)
+    rt.execute(lua_actions.golden_pick())
+    assert rt.eval("DataCenter.__lw_gold.crowd ~= nil"), "no square was chosen at all"
+    assert rt.eval("DataCenter.__lw_gold.crowd.n") == 4, \
+        "the square chosen is not the fullest one"
+    assert rt.eval("DataCenter.__lw_gold.cur.uuid") in (22, 33, 44, 55), \
+        "the pick left the crowd for the lone zombie beside the base"
+
+    # …and the square empties before another is taken: mark the four used and the lone
+    # one is what is left.
+    rt.execute("for _, u in ipairs({'2', '3', '4', '5'}) do "
+               "DataCenter.__lw_gold.used[u] = true end "
+               "DataCenter.__lw_gold.reach = 0")
+    rt.execute(lua_actions.golden_pick())
+    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 11, \
+        "an emptied square is not given up"
+
+    # …and `cluster = 0` is the old behaviour, unchanged.
+    rt.execute("DataCenter.__lw_gold.used = {} DataCenter.__lw_gold.cluster = 0 "
+               "DataCenter.__lw_gold.crowd = nil DataCenter.__lw_gold.reach = 0")
+    rt.execute(lua_actions.golden_pick())
+    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 11
+    assert rt.eval("DataCenter.__lw_gold.crowd == nil")
+
+
 def test_the_pick_takes_the_minimum_from_the_origin_and_is_taken_again_later():
     """#1702: «выбрана НЕ ближайшая цель» — and the sort was never the problem.
 
