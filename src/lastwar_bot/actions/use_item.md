@@ -42,3 +42,20 @@ READ_LUA (function() local u = DataCenter.__lw_use or {} return math.floor(tonum
 
 IF used == 0
     FAIL "nothing was used — {use_report}"
+
+# …AND IF WHAT WAS OPENED WAS A CHEST, LOOK FOR THE PACKET IT MAY HAVE DROPPED (#2397).
+# A surprise box sometimes gives the player a red packet of free diamonds to hand to the
+# alliance, and only for an hour. The drop is announced by nothing anybody has named, so
+# the person's decision was to check at the two moments that cost nothing: HERE — the run
+# that opened the box — and every half hour (the `lucky_share` errand).
+#
+# WHAT COUNTS AS «OPENING A BOX» is the item's own kind, as the game files it:
+# `USABLE_ITEM_TYPES` calls 5, 59, 109 and 150 chests and boxes (2 and 3 are speed-ups and
+# resource packs, which never drop a packet). So a speed-up costs this recipe nothing at
+# all, and a chest costs one local reading.
+#
+# The check is LAST on purpose and the give-away is a sub-recipe with its own gate: it
+# neither stops nor fails this run when there is nothing to share.
+READ_LUA (function() local u = DataCenter.__lw_use or {} local k = math.floor(tonumber(u.kind) or -1) if k == 5 or k == 59 or k == 109 or k == 150 then return 1 end return 0 end)() INTO was_chest
+IF was_chest == 1
+    CALL share_lucky_packet

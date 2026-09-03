@@ -36,29 +36,35 @@
 # to, and the run stops before a window is opened.
 CALL read_lucky_packet
 READ_LUA (function() local m = DataCenter.LuckyBuffManager if not m then return 0 end local inst = m.Instance or m local now = 0 pcall(function() now = UITimeManager:GetInstance():GetServerTime() end) if now == nil or now == 0 then now = os.time() * 1000 end local live = 0 for _, e in pairs(inst.notSharedLuckyPacketList or {}) do if type(e) == 'table' and (tonumber(e.expireTime) or 0) > now then live = live + 1 end end local al = 0 pcall(function() local a = tostring(LuaEntry.Player.allianceId or '') if a ~= '' and a ~= 'nil' and a ~= '0' then al = 1 end end) if al == 0 then return -1 end return live end)() INTO live
+# NO `STOP` HERE, AND THAT IS DELIBERATE (#2397). This recipe is CALLED by others — the
+# bag's own `use_item.md` runs it the moment a chest is opened — and a `STOP` inside a
+# sub-recipe halts the CALLER too (docs/dsl.md). «Делиться нечем» is the ordinary answer,
+# not a reason to end somebody else's run, so the whole give-away sits inside one `IF`
+# and a run with nothing to do says so and finishes.
 IF live == 0
-    STOP "делиться нечем — неотданных пакетов нет"
+    LOG "Делиться нечем — неотданных пакетов нет"
 IF live == -1
-    STOP "пакет есть, но раздать его некуда — аккаунт вне альянса"
+    LOG "Пакет есть, но раздать его некуда — аккаунт вне альянса"
+IF live > 0
 
-# The popup, and then its «Поделиться» — which does not send anything by itself: it opens
-# the room chooser with the packet already prepared inside it.
-LUA (function() local m = DataCenter.LuckyBuffManager local inst = m.Instance or m pcall(function() inst:OpenLuckyPacketSharePopup() end) end)()
-WAIT 2
-LUA (function() local w = UIManager.Instance:GetWindow('UIShareLuckyBuffPopup') DataCenter.__lw_lucky_step = 'no popup' if w and w.View then local ok, err = pcall(function() w.View:OnBtnShareClick() end) DataCenter.__lw_lucky_step = 'share-click ok=' .. tostring(ok) .. (ok and '' or (' err=' .. tostring(err))) end end)()
-WAIT 2
+    # The popup, and then its «Поделиться» — which does not send anything by itself: it opens
+    # the room chooser with the packet already prepared inside it.
+    LUA (function() local m = DataCenter.LuckyBuffManager local inst = m.Instance or m pcall(function() inst:OpenLuckyPacketSharePopup() end) end)()
+    WAIT 2
+    LUA (function() local w = UIManager.Instance:GetWindow('UIShareLuckyBuffPopup') DataCenter.__lw_lucky_step = 'no popup' if w and w.View then local ok, err = pcall(function() w.View:OnBtnShareClick() end) DataCenter.__lw_lucky_step = 'share-click ok=' .. tostring(ok) .. (ok and '' or (' err=' .. tostring(err))) end end)()
+    WAIT 2
 
-# The room, by its own category. `OnItemClick` takes the ROW, not an index — an index
-# throws inside the view («attempt to index a number value (local 'channel')»), which is
-# how it was found.
-READ_LUA (function() local w = UIManager.Instance:GetWindow('UIPositionShare') if not w or not w.View then return 'no-chooser' end local v = w.View local room = nil local seen = 0 for _, r in pairs(v.list or {}) do seen = seen + 1 if room == nil and tostring(r.group) == 'alliance' then room = r end end if room == nil then return 'no-alliance-room rooms=' .. seen end local ok, err = pcall(function() v:OnItemClick(room, 1) end) if not ok then return 'refused ' .. tostring(err) end return 'sent' end)() INTO sent
-WAIT 2.5
+    # The room, by its own category. `OnItemClick` takes the ROW, not an index — an index
+    # throws inside the view («attempt to index a number value (local 'channel')»), which is
+    # how it was found.
+    READ_LUA (function() local w = UIManager.Instance:GetWindow('UIPositionShare') if not w or not w.View then return 'no-chooser' end local v = w.View local room = nil local seen = 0 for _, r in pairs(v.list or {}) do seen = seen + 1 if room == nil and tostring(r.group) == 'alliance' then room = r end end if room == nil then return 'no-alliance-room rooms=' .. seen end local ok, err = pcall(function() v:OnItemClick(room, 1) end) if not ok then return 'refused ' .. tostring(err) end return 'sent' end)() INTO sent
+    WAIT 2.5
 
-# What the game says afterwards: the list is the authority, exactly as it was before the
-# press. A packet still in it was not given away, whatever the click returned.
-READ_LUA (function() local m = DataCenter.LuckyBuffManager local inst = m.Instance or m local left = 0 for _ in pairs(inst.notSharedLuckyPacketList or {}) do left = left + 1 end return left end)() INTO left
-LUA (function() local m = UIManager.Instance for _, n in ipairs({'LWUIRedPacketDetails', 'UIPositionShare', 'UIShareLuckyBuffPopup'}) do pcall(function() local w = m:GetWindow(n) if w and w.Ctrl and w.Ctrl.CloseSelf then w.Ctrl:CloseSelf() end end) end end)()
-IF left == 0
-    LOG "Счастливый пакет раздан в чат альянса — бесплатные алмазы забирают там ({sent})"
-IF left > 0
-    FAIL "пакет остался неотданным ({sent}), в списке ещё {left}"
+    # What the game says afterwards: the list is the authority, exactly as it was before the
+    # press. A packet still in it was not given away, whatever the click returned.
+    READ_LUA (function() local m = DataCenter.LuckyBuffManager local inst = m.Instance or m local left = 0 for _ in pairs(inst.notSharedLuckyPacketList or {}) do left = left + 1 end return left end)() INTO left
+    LUA (function() local m = UIManager.Instance for _, n in ipairs({'LWUIRedPacketDetails', 'UIPositionShare', 'UIShareLuckyBuffPopup'}) do pcall(function() local w = m:GetWindow(n) if w and w.Ctrl and w.Ctrl.CloseSelf then w.Ctrl:CloseSelf() end end) end end)()
+    IF left == 0
+        LOG "Счастливый пакет раздан в чат альянса — бесплатные алмазы забирают там ({sent})"
+    IF left > 0
+        FAIL "пакет остался неотданным ({sent}), в списке ещё {left}"

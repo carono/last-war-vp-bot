@@ -57,3 +57,10 @@ TAP dismiss_reward_popup
 READ_LUA (function() local was=DataCenter.__lw_bag_was if type(was)~='table' then return 'nothing was noted down first' end local now={} for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do local id=0 pcall(function() id=s.itemId+0 end) local c=0 pcall(function() c=s.count+0 end) if id>0 then now[id]=(now[id] or 0)+c end end local seen={} for id in pairs(was) do seen[id]=true end for id in pairs(now) do seen[id]=true end local rows={} for id in pairs(seen) do local d=(now[id] or 0)-(was[id] or 0) if d~=0 then local nm='' pcall(function() nm=tostring(DataCenter.ItemTemplateManager:GetName(id)) end) if nm=='' then nm='#'..tostring(id) end rows[#rows+1]={d=d,s=(d>0 and '+' or '')..tostring(d)..' '..nm} end end if #rows==0 then return 'nothing changed' end table.sort(rows,function(a,b) return math.abs(a.d)>math.abs(b.d) end) local out={} for i=1,math.min(#rows,12) do out[#out+1]=rows[i].s end if #rows>12 then out[#out+1]='…and '..tostring(#rows-12)..' more' end return table.concat(out,', ') end)() INTO gains
 READ_LUA (function() local M=DataCenter and DataCenter.ExplorerTreasureManager if M==nil then return '?' end local function num(fn) local v=0 pcall(function() v=math.floor((M[fn](M) or 0)+0) end) return v end return 'keys='..num('GetTreasureHaveItemNum')..' guar='..num('GetGuaranteedTimes')..'/'..num('GetGuaranteedNeedTimes') end)() INTO after
 LOG "explorer chests done: {after}; the bag gained: {gains}"
+
+# A CHEST WAS OPENED, SO LOOK FOR THE PACKET IT MAY HAVE DROPPED (#2397). Same reason as
+# in `use_item.md`: the free-diamond packet a box sometimes gives is announced by nothing
+# anybody has named, and it lives for an hour — so the run that opened the box checks for
+# it on the spot. The give-away has its own gate and says «делиться нечем» without
+# stopping this run.
+CALL share_lucky_packet

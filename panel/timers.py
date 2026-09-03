@@ -399,6 +399,31 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.collect_shop_freebies",
     ),
     Timer(
+        name="lucky_share",
+        scenario=("share_lucky_packet",),
+        # HALF AN HOUR, and it is the person's own choice (#2397): «раз в полчаса тоже
+        # проверял». A surprise box sometimes drops a packet of free diamonds that may be
+        # given away for ONE HOUR after the drop, so a half-hourly look catches one with
+        # the window to spare — and the drop is rare enough that listening for it was
+        # judged not worth it («слушать сейчас бесполезно, редкое событие»).
+        #
+        # THE LOOK IS LOCAL. The gate is `LuckyBuffManager.notSharedLuckyPacketList`
+        # against the client's own clock, so a run with nothing waiting is one VM round
+        # trip and not one question goes on the wire — which is what makes a period
+        # affordable here at all (`CLAUDE.md`, «read once, then LISTEN»: what is forbidden
+        # is asking the SERVER in the background).
+        #
+        # The other half of the answer is the hook that does not wait for this clock:
+        # opening a chest from the bag runs the same check on the spot
+        # (`actions/use_item.md`, `actions/open_explorer_chests.md`).
+        interval_sec=1800,
+        # A failure here is a client that was not answering, or a packet the chooser
+        # refused; a few minutes is soon enough to try again inside the hour.
+        retry_sec=300,
+        enabled=False,
+        label_key="timers.item.lucky_share",
+    ),
+    Timer(
         name="recruit_survivors",
         scenario=("recruit_survivors",),
         # An hour, the same cadence as the gifts — a recruitable survivor sits in the

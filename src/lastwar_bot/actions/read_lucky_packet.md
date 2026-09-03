@@ -19,8 +19,3 @@
 READ_LUA (function() local m = DataCenter.LuckyBuffManager if not m then return 'have=0 live=0 min=-1 alliance=0 err=no-manager' end local inst = m.Instance or m local now = 0 pcall(function() now = UITimeManager:GetInstance():GetServerTime() end) if now == nil or now == 0 then now = os.time() * 1000 end local have, live, soonest = 0, 0, nil for _, e in pairs(inst.notSharedLuckyPacketList or {}) do if type(e) == 'table' then have = have + 1 local t = tonumber(e.expireTime) or 0 if t > now then live = live + 1 if soonest == nil or t < soonest then soonest = t end end end end local mins = -1 if soonest then mins = math.floor((soonest - now) / 60000) end local al = 0 pcall(function() local a = tostring(LuaEntry.Player.allianceId or '') if a ~= '' and a ~= 'nil' and a ~= '0' then al = 1 end end) return 'have=' .. have .. ' live=' .. live .. ' min=' .. mins .. ' alliance=' .. al end)() INTO lucky
 LOG "Счастливый пакет: {lucky}"
 
-# …and what the watch has heard, when one is armed (`actions/watch_lucky_packet.md`).
-# `heard=` is the wire command that DELIVERED a packet — the answer #2397 could not get,
-# because the drop it acted on had happened before anybody was listening.
-READ_LUA (function() local B = DataCenter.__lw_lucky if not B or not B.on then return 'watch=off' end return 'watch=on drops=' .. tostring(B.drops) .. ' heard=[' .. table.concat(B.rows or {}, '; ') .. ']' end)() INTO lucky_watch
-LOG "Караул за пакетом: {lucky_watch}"

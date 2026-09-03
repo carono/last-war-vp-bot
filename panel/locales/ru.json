@@ -2707,13 +2707,9 @@
   "events.lucky.state.closed": "делиться нечем",
   "events.lucky.state.unknown": "никто не спрашивал",
   "events.lucky.left": "Осталось, мин",
-  "events.lucky.watch": "Караул",
   "events.lucky.read": "Обновить",
-  "events.lucky.arm": "Включить караул",
   "events.lucky.share": "Раздать",
   "events.lucky.confirm": "Опубликовать пакет с бесплатными алмазами в чате альянса? Его увидят все, и отменить это нельзя.",
-  "triggers.item.lucky_watch": "Держать караул за пакетом из ящика с сюрпризом",
-  "triggers.item.lucky_watch.short": "Караул за пакетом",
-  "triggers.item.lucky_share": "Раздать пакет с бесплатными алмазами, пока идёт час",
-  "triggers.item.lucky_share.short": "Раздать пакет"
+  "timers.item.lucky_share": "«Ящик с сюрпризом»: раздать бесплатные алмазы",
+  "timers.item.lucky_share.short": "Алмазы из ящика: раздать"
 }

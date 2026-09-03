@@ -2707,13 +2707,9 @@
   "events.lucky.state.closed": "paylaşacak bir şey yok",
   "events.lucky.state.unknown": "henüz kimse sormadı",
   "events.lucky.left": "Kalan dakika",
-  "events.lucky.watch": "Nöbet",
   "events.lucky.read": "Yenile",
-  "events.lucky.arm": "Nöbeti aç",
   "events.lucky.share": "Paylaş",
   "events.lucky.confirm": "Bedava elmas paketi ittifak sohbetinde yayımlansın mı? Herkes görecek ve geri alınamaz.",
-  "triggers.item.lucky_watch": "Sürpriz sandıktan düşen paket için nöbeti açık tut",
-  "triggers.item.lucky_watch.short": "Paket nöbeti",
-  "triggers.item.lucky_share": "Saat dolmadan bedava elmas paketini paylaş",
-  "triggers.item.lucky_share.short": "Paketi paylaş"
+  "timers.item.lucky_share": "«Sürpriz sandık»: bedava elmasları paylaş",
+  "timers.item.lucky_share.short": "Bedava elmas: paylaş"
 }

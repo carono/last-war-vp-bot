@@ -2707,13 +2707,9 @@
   "events.lucky.state.closed": "rien à partager",
   "events.lucky.state.unknown": "personne n'a encore demandé",
   "events.lucky.left": "Minutes restantes",
-  "events.lucky.watch": "La veille",
   "events.lucky.read": "Actualiser",
-  "events.lucky.arm": "Activer la veille",
   "events.lucky.share": "Partager",
   "events.lucky.confirm": "Publier le paquet de diamants gratuits dans le chat de l'alliance ? Tout le monde le verra et c'est irréversible.",
-  "triggers.item.lucky_watch": "Garder la veille sur le paquet lâché par un coffre surprise",
-  "triggers.item.lucky_watch.short": "Veille sur le paquet",
-  "triggers.item.lucky_share": "Partager le paquet de diamants gratuits tant que l'heure dure",
-  "triggers.item.lucky_share.short": "Partager le paquet"
+  "timers.item.lucky_share": "« Coffre surprise » : partager les diamants gratuits",
+  "timers.item.lucky_share.short": "Diamants gratuits : partager"
 }

@@ -2707,13 +2707,9 @@
   "events.lucky.state.closed": "nichts zu verschenken",
   "events.lucky.state.unknown": "noch niemand hat gefragt",
   "events.lucky.left": "Minuten übrig",
-  "events.lucky.watch": "Die Wache",
   "events.lucky.read": "Aktualisieren",
-  "events.lucky.arm": "Wache einschalten",
   "events.lucky.share": "Verschenken",
   "events.lucky.confirm": "Das Päckchen mit Gratis-Diamanten im Allianz-Chat veröffentlichen? Alle dort sehen es, und es lässt sich nicht zurücknehmen.",
-  "triggers.item.lucky_watch": "Die Wache für das Päckchen aus der Überraschungskiste anlassen",
-  "triggers.item.lucky_watch.short": "Wache für das Päckchen",
-  "triggers.item.lucky_share": "Das Päckchen mit Gratis-Diamanten verschenken, solange die Stunde läuft",
-  "triggers.item.lucky_share.short": "Päckchen verschenken"
+  "timers.item.lucky_share": "«Überraschungskiste»: die Gratis-Diamanten verschenken",
+  "timers.item.lucky_share.short": "Gratis-Diamanten verschenken"
 }

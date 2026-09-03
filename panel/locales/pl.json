@@ -2707,13 +2707,9 @@
   "events.lucky.state.closed": "nie ma czym się dzielić",
   "events.lucky.state.unknown": "nikt jeszcze nie pytał",
   "events.lucky.left": "Pozostało minut",
-  "events.lucky.watch": "Nasłuch",
   "events.lucky.read": "Odśwież",
-  "events.lucky.arm": "Włącz nasłuch",
   "events.lucky.share": "Rozdaj",
   "events.lucky.confirm": "Opublikować paczkę darmowych diamentów na czacie sojuszu? Zobaczą ją wszyscy i nie da się tego cofnąć.",
-  "triggers.item.lucky_watch": "Utrzymywać nasłuch paczki wypadającej ze skrzyni niespodzianki",
-  "triggers.item.lucky_watch.short": "Nasłuch paczki",
-  "triggers.item.lucky_share": "Rozdać paczkę darmowych diamentów, póki trwa godzina",
-  "triggers.item.lucky_share.short": "Rozdaj paczkę"
+  "timers.item.lucky_share": "«Skrzynia niespodzianka»: rozdać darmowe diamenty",
+  "timers.item.lucky_share.short": "Darmowe diamenty: rozdaj"
 }

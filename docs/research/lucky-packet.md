@@ -112,13 +112,26 @@ PushPrePareRedPacket            = push.prepare.red.packet
 PushReceiveAssignRedPacketMessage = push.receive.assign.red.packet
 ```
 
-and a wire trigger built on a guess either never fires or fires on the wrong thing. So
-instead of guessing, `actions/watch_lucky_packet.md` parks an ear on the client's own
-`SFSNetwork.HandleMessage` that watches the SIZE of `notSharedLuckyPacketList` and records
-the command that grew it. The next drop names it, and the poll trigger `lucky_share`
-becomes a wire trigger at that moment. Until then the poll is what there is, and its cost
-is stated where it is written: one LOCAL round trip every five minutes on a profile that
-switched it on, against an hour-long window (`CLAUDE.md` — «read once, then LISTEN»).
+and a wire trigger built on a guess either never fires or fires on the wrong thing.
+
+**An ear was written and then removed, on the person's own decision** (#2397): «слушать
+сейчас бесполезно, редкое событие, ставь хук, чтобы после открытия загадочных ящиков с
+припасами проверял шаринг и раз в полчаса тоже проверял». The ear
+(`watch_lucky_packet.md`) wrapped `SFSNetwork.HandleMessage` and compared the size of the
+list before and after every message the client received — cheap per message, but on the
+hottest path there is, to learn one name for an event that happens rarely. It is in the
+history if it is ever wanted again (commit c1643c9f).
+
+So the two moments that look for a packet are the ones that cost nothing:
+
+* **the run that OPENED a box** — `use_item.md` when the item it spent was of a chest kind
+  (`USABLE_ITEM_TYPES` 5 / 59 / 109 / 150), and `open_explorer_chests.md` at the end of
+  its run;
+* **the `lucky_share` errand, every half hour** — a local reading of the list against the
+  client's own clock, one VM round trip, nothing on the wire.
+
+Half an hour against an hour-long window catches a packet with the window to spare, and
+neither moment is a background question to the SERVER, which is what `CLAUDE.md` forbids.
 
 ## 6. What the panel does with it
 
@@ -128,6 +141,6 @@ switched it on, against an hour-long window (`CLAUDE.md` — «read once, then L
   back. It picks the room by `group == 'alliance'` and closes the chooser untouched when
   there is none: a share posted to the world room is visible to the whole server and
   cannot be taken back.
-* `actions/watch_lucky_packet.md` — the ear of §5.
-* «События» → «Ящик с сюрпризом» on the phone: the state, the minutes left, what the ear
-  has heard, and the three presses. The give-away asks first.
+* «События» → «Ящик с сюрпризом» on the phone: the state, the minutes left, «Обновить»
+  and the give-away, which asks first.
+* The errand `lucky_share` (`panel/timers.py`), 30 minutes, and the two chest hooks above.

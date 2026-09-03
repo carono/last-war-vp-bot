@@ -2707,13 +2707,9 @@
   "events.lucky.state.closed": "tidak ada yang dibagikan",
   "events.lucky.state.unknown": "belum ada yang menanyakan",
   "events.lucky.left": "Sisa menit",
-  "events.lucky.watch": "Penjagaan",
   "events.lucky.read": "Perbarui",
-  "events.lucky.arm": "Nyalakan penjagaan",
   "events.lucky.share": "Bagikan",
   "events.lucky.confirm": "Kirim paket berlian gratis ke obrolan aliansi? Semua orang akan melihatnya dan tidak bisa ditarik kembali.",
-  "triggers.item.lucky_watch": "Menjaga paket yang jatuh dari peti kejutan",
-  "triggers.item.lucky_watch.short": "Penjagaan paket",
-  "triggers.item.lucky_share": "Membagikan paket berlian gratis selama satu jamnya berjalan",
-  "triggers.item.lucky_share.short": "Bagikan paket"
+  "timers.item.lucky_share": "«Peti kejutan»: bagikan berlian gratis",
+  "timers.item.lucky_share.short": "Berlian gratis: bagikan"
 }

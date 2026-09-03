@@ -2707,13 +2707,9 @@
   "events.lucky.state.closed": "niente da condividere",
   "events.lucky.state.unknown": "nessuno l'ha ancora chiesto",
   "events.lucky.left": "Minuti rimasti",
-  "events.lucky.watch": "L'ascolto",
   "events.lucky.read": "Aggiorna",
-  "events.lucky.arm": "Attiva l'ascolto",
   "events.lucky.share": "Condividi",
   "events.lucky.confirm": "Pubblicare il pacchetto di diamanti gratis nella chat dell'alleanza? Lo vedranno tutti e non si può annullare.",
-  "triggers.item.lucky_watch": "Tenere l'ascolto sul pacchetto che esce da una cassa a sorpresa",
-  "triggers.item.lucky_watch.short": "Ascolto del pacchetto",
-  "triggers.item.lucky_share": "Condividere il pacchetto di diamanti gratis finché dura l'ora",
-  "triggers.item.lucky_share.short": "Condividi il pacchetto"
+  "timers.item.lucky_share": "«Cassa a sorpresa»: distribuire i diamanti gratis",
+  "timers.item.lucky_share.short": "Diamanti gratis: distribuire"
 }

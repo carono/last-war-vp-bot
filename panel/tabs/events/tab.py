@@ -165,7 +165,6 @@ class EventsTab(PanelTab):
         #: ear answered with. Nothing is read to DRAW the card (`CLAUDE.md` — read once,
         #: then listen): the numbers appear when a person asks or when a press comes back.
         self._lucky_said = ""
-        self._lucky_watch_said = ""
         self._lucky_running = False
 
         # -- «Золотые зомби» ------------------------------------------------
@@ -2184,22 +2183,19 @@ class EventsTab(PanelTab):
         # an hour of the drop — it costs the account nothing and an hour later it is gone,
         # which is why the card leads with the minutes left rather than with a count.
         #
-        # THE CARD READS NOTHING BY ITSELF. There is no clock behind it and there must not
-        # be: the drop is announced by a command nobody has named yet, so the ear
-        # (`actions/watch_lucky_packet.md`) is what will make this card live, and until it
-        # has heard one drop the honest thing is a reading with a press beside it
-        # (`CLAUDE.md` — «read once, then LISTEN»).
+        # THE CARD READS NOTHING BY ITSELF, and nothing listens for a drop either — the
+        # person's own decision (#2397): «слушать сейчас бесполезно, редкое событие».
+        # What looks is the run that OPENED a box and the `lucky_share` errand every half
+        # hour, both against the client's own memory; the card shows what the last of them
+        # found, with «Обновить» beside it.
         lstate = modelmod.lucky_state(self._lucky_said)
         lcard = {"title": "events.group." + modelmod.LUCKY, "rows": [
             {"label": "events.state",
              "value": self.t("events.lucky.state." + lstate)},
             {"label": "events.lucky.left",
              "value": modelmod.lucky_left(self._lucky_said)},
-            {"label": "events.lucky.watch",
-             "value": self._lucky_watch_said or "—"},
         ],
-            "actions": [{"id": "lucky_read", "label": "events.lucky.read"},
-                        {"id": "lucky_watch", "label": "events.lucky.arm"}]}
+            "actions": [{"id": "lucky_read", "label": "events.lucky.read"}]}
         if lstate == modelmod.OPEN and not self._lucky_running:
             # It goes to the whole alliance and cannot be taken back, so it asks first —
             # the same rule the train's fare and the rally's join go by.
@@ -2261,8 +2257,7 @@ class EventsTab(PanelTab):
         retired. Giving the packet away is visible to the whole alliance and cannot be
         taken back, so the card asks first — the same rule the train's fare goes by.
         """
-        name = {"read": modelmod.LUCKY_READ, "share": modelmod.LUCKY_SHARE,
-                "watch": modelmod.LUCKY_WATCH}.get(what)
+        name = {"read": modelmod.LUCKY_READ, "share": modelmod.LUCKY_SHARE}.get(what)
         if name is None:
             return {"error": "unknown"}
         if what == "share":
@@ -2273,10 +2268,6 @@ class EventsTab(PanelTab):
             said = str(got.get(modelmod.LUCKY_VARIABLE) or "").strip()
             if said:
                 self._lucky_said = said
-            heard = str(got.get(modelmod.LUCKY_WATCH_VARIABLE)
-                        or got.get("state") or "").strip()
-            if heard:
-                self._lucky_watch_said = heard
             self._lucky_running = False
 
         return {"ok": self.rt.play_async(name, tag="events", human=True,
@@ -2288,7 +2279,7 @@ class EventsTab(PanelTab):
             return {"ok": self.refresh_both(human=True)}
         if action in ("ruins_play", "ruins_read"):
             return self.ruins(action == "ruins_play")
-        if action in ("lucky_read", "lucky_share", "lucky_watch"):
+        if action in ("lucky_read", "lucky_share"):
             return self.lucky(action.split("_", 1)[1])
         if action == "collect_fireworks":
             return {"ok": self.collect_fireworks()}

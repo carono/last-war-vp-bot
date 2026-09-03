@@ -1104,20 +1104,18 @@ def arms_phase_clock(start: int, end: int) -> str:
 #: an hour of the drop; the diamonds are the server's, so giving it away costs the account
 #: nothing and an hour later it is gone whether anybody pressed anything or not.
 #:
-#: There is no reading scenario on a clock behind this card and there must not be: the
-#: packet is announced by a command nobody has named yet (#2397), so what keeps the card
-#: fresh is the hook `actions/watch_lucky_packet.md` and a person's «Обновить».
+#: Nothing listens for a drop, and that is the person's own decision (#2397): «слушать
+#: сейчас бесполезно, редкое событие». What looks instead is the run that OPENED a box
+#: (`actions/use_item.md`, `actions/open_explorer_chests.md`) and the `lucky_share` errand
+#: every half hour — both readings local, neither one a question to the server.
 LUCKY = "lucky"
 
-#: The three scenarios behind it: what is there, give it away, and the ear that will name
-#: the announcement on the next drop.
+#: The two scenarios behind it: what is there, and give it away.
 LUCKY_READ = "read_lucky_packet"
 LUCKY_SHARE = "share_lucky_packet"
-LUCKY_WATCH = "watch_lucky_packet"
 
-#: The variable each of them lands in.
+#: The variable the reading lands in.
 LUCKY_VARIABLE = "lucky"
-LUCKY_WATCH_VARIABLE = "lucky_watch"
 
 
 def lucky_fields(said: str) -> dict:

@@ -2707,13 +2707,9 @@
   "events.lucky.state.closed": "nothing to give away",
   "events.lucky.state.unknown": "nobody has asked yet",
   "events.lucky.left": "Minutes left",
-  "events.lucky.watch": "The ear",
   "events.lucky.read": "Refresh",
-  "events.lucky.arm": "Arm the ear",
   "events.lucky.share": "Give it away",
   "events.lucky.confirm": "Post the packet of free diamonds in the alliance chat? Everyone there will see it and it cannot be taken back.",
-  "triggers.item.lucky_watch": "Keep the ear on for the packet a surprise box drops",
-  "triggers.item.lucky_watch.short": "Ear for the packet",
-  "triggers.item.lucky_share": "Give away the packet of free diamonds while the hour lasts",
-  "triggers.item.lucky_share.short": "Give the packet away"
+  "timers.item.lucky_share": "«Surprise box»: give away the free diamonds",
+  "timers.item.lucky_share.short": "Free diamonds: give away"
 }
