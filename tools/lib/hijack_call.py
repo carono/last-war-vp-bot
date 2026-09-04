@@ -98,6 +98,30 @@ PARK_POLL = 0.01
 START_POLL = 0.001
 CALL_POLL_FAST, CALL_POLL_SLOW, CALL_FAST_FOR = 0.001, 0.02, 0.1
 
+#: WHERE THE SECONDS OF A HIJACK GO (#2404). Cumulative, never reset; a reader takes two
+#: snapshots and subtracts.
+#:
+#: The chain is supposed to cost two frames — 2.06x the client's own `deltaTime`, measured
+#: in #1230 — which is about 34 ms at 60 fps, and three of those per chunk is a tenth of a
+#: second. Live it is 0.5–1.2 s (`docs/research/link-contention.md`), against a client
+#: reporting 60 fps and a 3 ms frame, and the whole panel is rationed by it: the injection
+#: lock is busy 72–100 % of every minute. Five to ten times the theory is not a thing to
+#: reason about, so each phase counts itself:
+#:
+#: * **park** — sampling the target thread until its RIP is at the safe park. Each sample
+#:   suspends and resumes the game's main thread, so this is the phase that can cost the
+#:   CLIENT something as well as us;
+#: * **start** — from redirecting RIP to the shellcode raising its `started` byte;
+#: * **call** — the managed call itself, in flight on the runtime;
+#: * **free** — waiting for RIP to leave the RWX region so it can be released.
+STATS = {"n": 0, "park_sec": 0.0, "park_tries": 0, "start_sec": 0.0,
+         "call_sec": 0.0, "free_sec": 0.0, "misses": 0}
+
+
+def stats() -> dict:
+    """A copy of :data:`STATS`, for whoever is drawing or logging it."""
+    return dict(STATS)
+
 
 def _aligned_context():
     """Return (buffer, base_addr) for a 16-aligned CONTEXT."""
@@ -340,6 +364,7 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
         ResumeThread(hthr)
 
         # phase 1: wait for the call to actually START (or finish outright)
+        phase_began = time.time()
         sdl = time.time() + start_timeout
         while time.time() < sdl:
             if _byte(flag_abs) == 1:
@@ -348,6 +373,8 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
                 break
             time.sleep(START_POLL)
 
+        STATS["start_sec"] += max(0.0, time.time() - phase_began)
+        phase_began = time.time()
         started, done = _byte(started_abs), _byte(flag_abs)
         if not started and not done:
             # thread never returned to user mode to run our code — restore & pass
@@ -383,10 +410,13 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
                     break
                 time.sleep(0.05)
 
+        STATS["call_sec"] += max(0.0, time.time() - phase_began)
         if done:
             result = struct.unpack("<Q", P.rpm(hproc, result_abs, 8))[0]
             print(f"[{label}] done, result=0x{result:x}")
+            freeing = time.time()
             _free_region_when_clear(hthr)
+            STATS["free_sec"] += max(0.0, time.time() - freeing)
             P.CloseHandle(hthr)
             return True, result
 
@@ -397,6 +427,7 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
         P.CloseHandle(hthr)
         return True, None
 
+    park_began = time.time()
     park_deadline = time.time() + park_timeout
     # the "any parked thread" sweep pays start_timeout for each non-responsive
     # thread, so give it a wider overall budget than the tight only_tid re-park.
@@ -407,6 +438,7 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
         for tid in ([only_tid] if only_tid else list_threads(pid)):
             if not only_tid and time.time() >= sweep_give_up:
                 break
+            STATS["park_tries"] += 1
             hthr = OpenThread(THREAD_ALL, False, tid)
             if not hthr:
                 continue
@@ -427,6 +459,8 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
                 P.CloseHandle(hthr)
                 continue
             tried_this_pass = True
+            STATS["n"] += 1
+            STATS["park_sec"] += max(0.0, time.time() - park_began)
             handled, result = _run_on(tid, hthr, raw, cbase, off, rip)
             if handled:
                 return result
@@ -443,6 +477,8 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
         break
 
     P.VirtualFreeEx(hproc, C.c_void_p(region), 0, 0x8000)
+    STATS["misses"] += 1
+    STATS["park_sec"] += max(0.0, time.time() - park_began)
     who = f"tid={only_tid}" if only_tid else "any parked thread"
     target = (f"SAFE_RIP 0x{safe_rip:x}+-{rip_tol}" if safe_rip is not None
               else "ntdll")

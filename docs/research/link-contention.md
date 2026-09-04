@@ -144,7 +144,32 @@ Telling the door's callers apart properly is its own task. What is settled is th
 scenario catalogue is a minority of the calls**, so tuning recipes alone cannot reach the
 ceiling.
 
-## 5. What was done, and what it moved
+## 5. What may NOT be cut — the atomic blocks
+
+Whenever the claim does move from the run to the call, these are the series that must
+still be held whole. **The list is the operator's, decided question by question**, and it
+is written down here so the next agent does not take one apart by accident.
+
+| series | why it may not be broken |
+| --- | --- |
+| a zombie march being re-aimed | the window is 0.08–3.4 s; a chunk in the middle of it and the march is already somewhere else |
+| picking a squad → sending the march | somebody else's run spends the squad between the two, and the march goes out empty or not at all |
+| raising the rally popup → `OnClickStartMarch` → picking the squad → `OnCheckTime` | the popup carries the whole banner; closing or losing it mid-way loses the rally |
+| parking arguments in `DataCenter.__lw_*` → the `TAP` that reads them | another run overwrites the parking, and the press acts on somebody else's targets (`join_rally`, `auto_treasure`, both robberies) |
+| refilling a squad → sending it again | the same shape as picking a squad: another run spends the army that was just fetched. The `WAIT 0.4` between them is a pause, not a guard |
+| ONE ROUND of `TAP <btn> xall` — «read the quota left → press» | the press would otherwise go out against a stale number |
+
+And two that deliberately are NOT atomic, for the reason each names:
+
+* **`TAP <btn> xall` as a whole.** Every round re-reads the quota from the game, so a run
+  that ate part of it in between cannot cause a wrong press — the next round simply sees
+  less. The round is atomic; the loop is not.
+* **`assist_secret_task` as a whole.** 150 calls under one claim is precisely what makes
+  the panel unresponsive, and a run interrupted between two helps spoils nothing: each
+  help is independent, the state is the game's, and a repeat is refused by the server
+  because the help has already happened.
+
+## 6. What was done, and what it moved
 
 Read the measurement in the order it puts them, largest first:
 

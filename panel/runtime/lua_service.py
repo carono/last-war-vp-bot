@@ -243,6 +243,8 @@ class LuaService:
         #: The last `CallTimes` snapshot written to the log, and when (#2404).
         self._timing_was: dict = {}
         self._timing_at = time.monotonic()
+        #: …and the same for the hijack's own phases (:meth:`_say_hijack`).
+        self._hijack_was: dict = {}
 
     # -- the connection ------------------------------------------------------
     @property
@@ -458,6 +460,7 @@ class LuaService:
                    n, now - at, total, total / n, wait, inject, harvest,
                    100.0 * (inject / total) if total else 0.0,
                    queued / n, unleased, state["busiest"])
+        self._say_hijack(now - at)
         self._note("callers: %s", ", ".join(
             f"{who}={n}" for who, n in sorted(
                 self._delta(state, was, "who").items(), key=lambda kv: -kv[1])[:12]))
@@ -466,6 +469,42 @@ class LuaService:
                 f"{who}={n}" for who, n in sorted(
                     self._delta(state, was, "by").items(),
                     key=lambda kv: -kv[1])[:8]))
+
+    def _say_hijack(self, secs: float) -> None:
+        """Where the seconds of the INJECTION went, phase by phase (#2404).
+
+        The injection is the only genuinely exclusive part of a call and it costs five to
+        ten times what the chain is supposed to — two frames per hijack, ~34 ms at the 60
+        fps this client reports. So the hijack counts its own phases
+        (`tools/lib/hijack_call.py::STATS`) and this prints the minute's delta beside the
+        call line: parking the target thread, waiting for the shellcode to start, the
+        managed call itself, and letting the RWX region go.
+
+        `tries` is the number of times the game's MAIN THREAD was suspended and resumed
+        to look at its RIP. It is the one number here that costs the CLIENT something as
+        well as us, and if the park is where the seconds are, it is also the count that
+        says why.
+        """
+        try:
+            import hijack_call                        # noqa: PLC0415
+            now = hijack_call.stats()
+        except Exception:                             # noqa: BLE001 — a reading
+            return
+        was, self._hijack_was = self._hijack_was, now
+        if not was:
+            return
+        n = now["n"] - was["n"]
+        if n <= 0:
+            return
+        def moved(key: str):
+            return now[key] - was[key]
+        park, start = moved("park_sec"), moved("start_sec")
+        call, free = moved("call_sec"), moved("free_sec")
+        total = park + start + call + free
+        self._note("hijacks %d in %.0fs: %.2fs (%.3f s/hijack) = park %.2f + start %.2f "
+                   "+ call %.2f + free %.2f; %.1f park tries each, %d gave up",
+                   n, secs, total, total / n, park, start, call, free,
+                   moved("park_tries") / n, moved("misses"))
 
     @staticmethod
     def _delta(state: dict, was: dict, key: str) -> dict:
