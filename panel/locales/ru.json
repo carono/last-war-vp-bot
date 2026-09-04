@@ -117,6 +117,8 @@
   "chat.picker.emoji": "Эмодзи",
   "chat.picker.sticker": "Стикеры (уходят отдельным сообщением)",
   "chat.picker.title": "Эмодзи и стикеры",
+  "chat.reply.gone": "сообщение, на которое это ответ, недоступно",
+  "chat.reply.someone": "сообщение",
   "chat.room.alliance_friend": "Союзники",
   "chat.room.crossbattle": "Межсервер",
   "chat.room.group": "Группа",

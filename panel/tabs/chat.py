@@ -678,7 +678,22 @@ class ChatTab(PanelTab):
                 "face": self._face_for(record.get("sender_uid")),
                 "alliance": str(record.get("alliance") or ""),
                 "mine": bool(record.get("is_mine")),
-                "room": room, "parts": parts, "photo": photo}
+                "room": room, "parts": parts, "photo": photo,
+                # WHAT IT ANSWERS (#2418). The quote the game shows above a reply, plus
+                # the ID OF THE MESSAGE IT NAMES — the same id this row is keyed by, so
+                # the front-end can walk to it without knowing how one is built.
+                "reply": self._web_reply(record, room)}
+
+    @staticmethod
+    def _web_reply(record: dict, room: str) -> "dict | None":
+        """The quote above a reply — who was answered, what they said, and which row."""
+        reply = record.get("reply")
+        if not isinstance(reply, dict) or not reply.get("seq_id"):
+            return None
+        return {"id": "%s|%s|%s" % (room, reply.get("seq_id") or "",
+                                    reply.get("uid") or ""),
+                "who": str(reply.get("name") or ""),
+                "text": str(reply.get("text") or "")}
 
     def _web_parts(self, record: dict) -> tuple:
         """Split one message into what the phone draws: text, sprites, and a photograph.

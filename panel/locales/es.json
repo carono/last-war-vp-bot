@@ -117,6 +117,8 @@
   "chat.picker.emoji": "Emojis",
   "chat.picker.sticker": "Pegatinas (se envían como mensaje aparte)",
   "chat.picker.title": "Emojis y pegatinas",
+  "chat.reply.gone": "el mensaje al que responde no está disponible",
+  "chat.reply.someone": "un mensaje",
   "chat.room.alliance_friend": "Aliados",
   "chat.room.crossbattle": "Entre servidores",
   "chat.room.group": "Grupo",

@@ -117,6 +117,8 @@
   "chat.picker.emoji": "Emoji",
   "chat.picker.sticker": "Çıkartmalar (ayrı bir ileti olarak gider)",
   "chat.picker.title": "Emoji ve çıkartma",
+  "chat.reply.gone": "yanıtlanan mesaja ulaşılamıyor",
+  "chat.reply.someone": "bir mesaj",
   "chat.room.alliance_friend": "Müttefikler",
   "chat.room.crossbattle": "Sunucular arası",
   "chat.room.group": "Grup",

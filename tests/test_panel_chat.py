@@ -901,6 +901,50 @@ def test_pinned_rooms_come_first_and_people_go_by_their_last_message():
 
 
 
+def test_a_reply_carries_the_message_it_answers():
+    """#2418: «нужно чтобы у меня в чате отображалось, что это ответ».
+
+    The client keeps the quote on the message as `replyMsg` —
+    `{seqId, uid, userName, msg, abbr, post}` — and it is the ONLY link there is:
+    nothing else on a message says it is a reply. Every value below is invented; what
+    is being pinned is the shape.
+    """
+    line = ("ACT R roomId=custom_group_00ff seqId=4058 st=1700000000000 post=0 type=0 "
+            "uid=1000000000000001 lang=ru gm=0 srv=1000 hp=0 hpv=1 ismy=true "
+            "rseq=4057 ruid=1000000000000001 rname=506c6179657231 rmsg=74657374 "
+            "alliance= sender=506c6179657231 msg=74657374 we=74657374")
+    import chat_records
+
+    rec = chat_records.parse_record_line(line)
+    assert rec["reply"] == {"seq_id": "4057", "uid": "1000000000000001",
+                            "name": "Player1", "text": "test"}, rec["reply"]
+    # An ordinary message has no quote at all — not an empty one.
+    plain = chat_records.parse_record_line(line.replace("rseq=4057", "rseq=")
+                                               .replace("ruid=1000000000000001 rname",
+                                                        "ruid= rname"))
+    assert plain["reply"] is None, plain["reply"]
+
+
+def test_the_quote_names_the_row_it_points_at():
+    """A tap on a quote has to reach a MESSAGE, so it travels as that row's own id."""
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_the_quote_names_the_row_it_points_at: {exc}")
+        return
+
+    room = "custom_group_00ff"
+    got = pm.ChatTab._web_reply({"reply": {"seq_id": "4057", "uid": "1000000000000001",
+                                           "name": "Player1", "text": "test"}}, room)
+    assert got["id"] == "custom_group_00ff|4057|1000000000000001", got
+    assert got["who"] == "Player1" and got["text"] == "test", got
+    # …and the id is built the same way the row itself is keyed, or the tap lands nowhere.
+    row_id = "%s|%s|%s" % (room, "4057", "1000000000000001")
+    assert got["id"] == row_id
+    assert pm.ChatTab._web_reply({}, room) is None
+
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

@@ -93,6 +93,17 @@ _G.__CR_REC = function(a, sink)
     rec.hp       = tostring(si.headPic)
     rec.hpv      = tostring(si.headPicVer)
   end
+  -- A REPLY QUOTES WHAT IT ANSWERS (#2418). The client keeps it on the message as
+  -- `replyMsg` — `{seqId, uid, userName, msg, abbr, post}` — and it is the only link
+  -- there is: nothing on the message itself says «this is a reply». Carried as its own
+  -- fields so the panel can draw the quote and walk to the message it names.
+  local rp = pg("replyMsg")
+  if type(rp) == "table" then
+    rec.rseq  = tostring(rp.seqId)
+    rec.ruid  = tostring(rp.uid)
+    rec.rname = hex(tostring(rp.userName or ""))
+    rec.rmsg  = hex(tostring(rp.msg or ""))
+  end
   sink[#sink + 1] = rec
   local cap = _G.__CR_CAP or __CAP__
   while #sink > cap do table.remove(sink, 1) end
@@ -120,6 +131,8 @@ for i, r in ipairs(cap) do
       .." type="..f(r.mtype).." uid="..f(r.uid).." lang="..f(r.lang)
       .." gm="..f(r.gm).." srv="..f(r.srv).." hp="..f(r.hp).." hpv="..f(r.hpv)
       .." ismy="..f(r.ismy).." alliance="..f(r.alliance)
+      .." rseq="..f(r.rseq).." ruid="..f(r.ruid).." rname="..f(r.rname)
+      .." rmsg="..f(r.rmsg)
       .." sender="..f(r.sender).." msg="..f(r.msg).." we="..f(r.we))
   end)
 end
@@ -287,7 +300,23 @@ def parse_record_line(line: str, marker: str = MARKER) -> "dict | None":
         "alliance": hexdec(fields.get("alliance", "")),
         "sender_name": hexdec(fields.get("sender", "")),
         "msg": render_text(display),
+        # WHAT THIS MESSAGE ANSWERS, when it answers something (#2418): the quoted
+        # message's own seq id and sender, and the words as the game shows them in the
+        # quote. `None` on an ordinary message — the panel draws a quote only when there
+        # is one to draw.
+        "reply": _reply_of(fields),
     }
+
+
+def _reply_of(fields: dict) -> "dict | None":
+    """The quote a reply carries, out of the drained fields — or ``None``."""
+    seq = str(fields.get("rseq", "") or "")
+    if not seq or seq in ("nil", "", "0"):
+        return None
+    return {"seq_id": seq,
+            "uid": str(fields.get("ruid", "") or ""),
+            "name": hexdec(fields.get("rname", "")),
+            "text": render_text(hexdec(fields.get("rmsg", "")))}
 
 
 def usable(record: "dict | None") -> bool:

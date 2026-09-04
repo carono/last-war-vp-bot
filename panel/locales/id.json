@@ -117,6 +117,8 @@
   "chat.picker.emoji": "Emoji",
   "chat.picker.sticker": "Stiker (dikirim sebagai pesan tersendiri)",
   "chat.picker.title": "Emoji & stiker",
+  "chat.reply.gone": "pesan yang dibalas tidak tersedia",
+  "chat.reply.someone": "sebuah pesan",
   "chat.room.alliance_friend": "Sekutu",
   "chat.room.crossbattle": "Lintas server",
   "chat.room.group": "Grup",

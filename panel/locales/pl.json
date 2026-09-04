@@ -117,6 +117,8 @@
   "chat.picker.emoji": "Emoji",
   "chat.picker.sticker": "Naklejki (wysyłane jako osobna wiadomość)",
   "chat.picker.title": "Emoji i naklejki",
+  "chat.reply.gone": "wiadomość, na którą to odpowiedź, jest niedostępna",
+  "chat.reply.someone": "wiadomość",
   "chat.room.alliance_friend": "Sojusznicy",
   "chat.room.crossbattle": "Międzyserwerowy",
   "chat.room.group": "Grupa",

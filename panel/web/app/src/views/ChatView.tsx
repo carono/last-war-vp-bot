@@ -66,6 +66,9 @@ export interface ChatRow {
   room: string
   parts: ChatPart[]
   photo?: { small: string; big: string } | null
+  /** What this message answers, when it answers something: the quote the game draws,
+   *  and the id of the row it names (#2418). */
+  reply?: { id: string; who: string; text: string } | null
 }
 
 interface Page {
@@ -177,6 +180,9 @@ export function ChatView({
   //: Which picker is open — the emoji to write with, or the stickers to send — and what
   //: came back for it. Fetched when it is opened: a chat nobody is decorating costs
   //: nothing, and two hundred sprites are not something to carry on every draw.
+  //: The message a quote was tapped to reach — highlighted for a moment when it is
+  //: found, so a jump into the middle of a conversation is visible.
+  const [lit, setLit] = useState('')
   const [picker, setPicker] = useState<'emoji' | 'sticker' | null>(null)
   const [sprites, setSprites] = useState<Sprites>({ emoji: [], stickers: [] })
   const [text, setText] = useState('')
@@ -494,6 +500,31 @@ export function ChatView({
     }
   }
 
+  /* A TAP ON A QUOTE GOES TO WHAT IT QUOTES (#2418). The row may not be on screen —
+     a reply to something said yesterday — so the history above is paged in until the
+     message turns up, and only when the store (and then the server) is spent does it
+     say the message cannot be reached. Bounded on purpose: a quote of something a
+     thousand messages back must not turn one tap into a minute of reading. */
+  const REACHES = 6
+
+  const goToQuoted = async (id: string) => {
+    for (let step = 0; step <= REACHES; step += 1) {
+      const found = document.getElementById('msg-' + id)
+      if (found) {
+        found.scrollIntoView({ block: 'center' })
+        setLit(id)
+        window.setTimeout(() => setLit(''), 1600)
+        return
+      }
+      if (step === REACHES) break
+      if (more) await older()
+      else if (server && !deep) await deeper()
+      else break
+      await new Promise((go) => window.setTimeout(go, 120))
+    }
+    toast(t('chat.reply.gone'))
+  }
+
   const openThread = (contact: Contact) => {
     setRoom(contact.room)
     setRows([])
@@ -665,7 +696,18 @@ export function ChatView({
                 {row.day && !sameDay(row, rows[i - 1]) ? (
                   <div className="chatday">{t(row.day)}</div>
                 ) : null}
-                <div className={'bubble' + (row.mine ? ' mine' : '')}>
+                <div
+                  id={'msg-' + row.id}
+                  className={
+                    'bubble' + (row.mine ? ' mine' : '') + (lit === row.id ? ' lit' : '')
+                  }
+                >
+                  {row.reply ? (
+                    <button className="quote" onClick={() => void goToQuoted(row.reply!.id)}>
+                      <span className="who">{row.reply.who || t('chat.reply.someone')}</span>
+                      <span className="said">{row.reply.text || t('chat.reply.gone')}</span>
+                    </button>
+                  ) : null}
                   {!row.mine ? (
                     <div className="who">
                       <Face label={row.who} face={row.face} />

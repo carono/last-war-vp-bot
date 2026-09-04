@@ -117,6 +117,8 @@
   "chat.picker.emoji": "Emoji",
   "chat.picker.sticker": "Adesivi (inviati come messaggio a parte)",
   "chat.picker.title": "Emoji e adesivi",
+  "chat.reply.gone": "il messaggio a cui risponde non è disponibile",
+  "chat.reply.someone": "un messaggio",
   "chat.room.alliance_friend": "Alleati",
   "chat.room.crossbattle": "Cross-server",
   "chat.room.group": "Gruppo",

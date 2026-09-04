@@ -2872,6 +2872,21 @@ def test_my_own_line_is_readable_in_both_palettes():
         "my own bubble does not take its colours from the palette"
 
 
+def test_a_reply_is_drawn_as_a_quote_and_the_quote_walks_to_it():
+    """#2418: «нужно чтобы отображалось, что это ответ, а клик по цитате переносило»."""
+    chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")
+    assert "row.reply ? (" in chat and 'className="quote"' in chat, \
+        "a reply is drawn as ordinary text"
+    assert "void goToQuoted(row.reply!.id)" in chat, "the quote does not walk anywhere"
+    assert "id={'msg-' + row.id}" in chat, "a message cannot be reached by its own id"
+    # NOT LOADED IS NOT SILENCE: the history above is paged in until it turns up.
+    assert "if (more) await older()" in chat and "t('chat.reply.gone')" in chat, \
+        "an unreachable quote says nothing"
+    css = _css()
+    assert ".bubble .quote" in css and ".bubble.lit" in css, \
+        "the quote has no bar and the message it reaches is not marked"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

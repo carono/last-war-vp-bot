@@ -1753,6 +1753,34 @@ body.modal-open {
 }
 .sprite img { width: 100%; height: 40px; object-fit: contain; }
 
+/* A REPLY QUOTES WHAT IT ANSWERS (#2418), the way the game does: a bar down the left,
+   the name, the words, and a tap that walks to the message itself. */
+.bubble .quote {
+  display: block;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  border: 0;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bubble .quote .who { display: block; font-size: 12px; font-weight: 600; color: var(--accent); }
+.bubble .quote .said {
+  display: block;
+  font-size: 12px;
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* …and the message a quote was tapped to reach says so for a moment. */
+.bubble.lit { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* An emoji or a sticker is the picture it is on both front-ends, never a `[e:E006]`. */
 .chat-sprite { height: 20px; vertical-align: -4px; }
 
