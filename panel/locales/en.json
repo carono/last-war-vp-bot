@@ -1021,6 +1021,8 @@
   "timers.reason.busy": "the panel is busy with something else",
   "timers.log.unfinished": "{name}: the previous run never came back — written off as failed, waiting out its retry",
   "timers.log.resumed": "{name}: that run outlives a restart and the switch is still on — starting it again",
+  "timers.log.torn_off": "{name}: the run was torn off, not finished ({tries} so far) — the wish stands, offering it again in {secs} s",
+  "timers.log.run_ended": "{name}: the run reached its own end ({reason}) — nothing to resume",
   "rally.skip.squads_out": "every squad it may send is out — not started",
   "timers.log.skip_busy": "{name}: the panel is busy — staying in the queue",
   "timers.log.squad_busy": "{name}: squads {squads} are away — skipping, back on the next tick",

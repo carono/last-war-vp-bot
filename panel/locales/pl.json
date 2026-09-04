@@ -1021,6 +1021,8 @@
   "timers.reason.busy": "panel jest zajęty czymś innym",
   "timers.log.unfinished": "{name}: poprzedni przebieg nigdy nie wrócił — uznany za nieudany, czeka na przerwę przed ponowieniem",
   "timers.log.resumed": "{name}: ten przebieg przeżywa restart, a przełącznik jest włączony — uruchamiam go ponownie",
+  "timers.log.torn_off": "{name}: przebieg został zerwany, a nie zakończony (zerwanie nr {tries}) — życzenie zostaje, ponowię za {secs} s",
+  "timers.log.run_ended": "{name}: przebieg doszedł do własnego końca ({reason}) — nie ma czego wznawiać",
   "rally.skip.squads_out": "wszystkie oddziały, które może wysłać, są w drodze — nie uruchamiam",
   "timers.log.skip_busy": "{name}: panel jest zajęty — zostaje w kolejce",
   "timers.log.squad_busy": "{name}: oddziały {squads} są w drodze — pomijam, wrócę w następnym cyklu",

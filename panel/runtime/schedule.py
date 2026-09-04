@@ -900,8 +900,8 @@ class Schedule:
         report = self._reports.get(name)
 
         def done(outcome) -> None:
-            self._mark_in_flight(name, False)
             ctx = getattr(outcome, "ctx", None)
+            self._end_of_a_long_run(name, outcome, ctx)
             self._note_presses(ctx)
             self._squads_moved(name)
             if ctx is None:
@@ -922,6 +922,56 @@ class Schedule:
         if not started:
             self._mark_in_flight(name, False)
         return started
+
+    def _end_of_a_long_run(self, name: str, outcome, ctx) -> None:
+        """Did the run REACH ITS OWN END, or was it torn off? (#2390)
+
+        The two endings must never be confused, because they want opposite things:
+
+        * **its own end** — the energy is gone, nothing is on the map, the limit is
+          spent, a person pressed «Прервать». The work is DONE and the wish goes; the
+          errand's own clock brings it back when there is something to do again.
+        * **torn off** — the client died, the link dropped, the account was kicked, the
+          lease was taken, the panel was restarted. Nothing was decided by the run: it
+          was interrupted, so the wish STANDS and the run is offered again once the game
+          answers.
+
+        The discriminator is not the text of the reason and never should be: a run that
+        RAISED has no context at all (`PanelRuntime.play_async` builds its outcome out of
+        the exception, `ctx=None`), while every run that reached a `FAIL`, a `STOP` or its
+        last line hands back the context it kept. So «no context» is «the floor gave way»,
+        in the panel's own terms, with nothing to parse.
+        """
+        if not self._wants_resume(name):
+            self._mark_in_flight(name, False)
+            return
+        if ctx is not None:
+            reason = str(getattr(outcome, "reason", "") or "").strip()
+            self._mark_in_flight(name, False)
+            self.rt.put("[timer] " + self.rt.t("timers.log.run_ended", name=name,
+                                               reason=reason or "—"))
+            return
+        tries = int(self._wish_book().get(name, 0)) + 1
+        steps = self.RESUME_BACKOFF_SEC
+        wait = int(steps[min(tries, len(steps)) - 1])
+        self._mark_in_flight(name, True, tries=tries)
+        # BOOKED ON THE ERRAND'S OWN CLOCK, so the ordinary gate does the waiting: the
+        # turn is offered when it comes round, and it is refused — parked and offered
+        # again — while the client is not answering. Nothing here polls anything.
+        try:
+            self.store.mark_due_at(name, time.time() + wait)
+        except Exception:                        # noqa: BLE001 — a booking, never the run
+            self.rt.dbg("timers").warning("could not book the resume of %s", name,
+                                          exc_info=True)
+        self.rt.put("[timer] " + self.rt.t("timers.log.torn_off", name=name,
+                                           secs=wait, tries=tries))
+
+    def _wants_resume(self, name: str) -> bool:
+        """Does this errand declare that its run outlives a panel, and is it still on?"""
+        timer = self.timer_catalogue.by_name(name)
+        if timer is None or not getattr(timer, "resume", False):
+            return False
+        return bool((self.timer_config().get(name) or {}).get("enabled", False))
 
     def _honour_next_run(self, name: str, ctx) -> None:
         """Book the errand's next turn off the GAME's clock, when the run read one (#1881).
@@ -1235,33 +1285,56 @@ class Schedule:
     #: down by the run itself, in the profile's own database beside its other state.
     IN_FLIGHT_BLOB = "errands_in_flight"
 
-    def _in_flight(self) -> list:
+    #: HOW LONG TO WAIT BEFORE OFFERING A TORN-OFF RUN AGAIN, and why it grows (#2390).
+    #: A client that crashed is put back by the watchdog in a median of 184 s, so the
+    #: first offer is worth making within the minute; a client that will NOT come back —
+    #: a kick being sat out, a machine whose session is gone — must not be asked every
+    #: minute for the rest of the night. Doubling from a minute to ten is four attempts
+    #: inside the first quarter of an hour and six an hour after that.
+    RESUME_BACKOFF_SEC = (60, 120, 240, 480, 600)
+
+    def _wish_book(self) -> dict:
+        """``{errand: tries}`` — what this profile was in the middle of, and how often
+        the resume of it has been torn off since."""
         store = getattr(self.rt, "store", None)
         if store is None:
-            return []
+            return {}
         try:
             rows = store.blob_get(self.IN_FLIGHT_BLOB)
         except Exception:                        # noqa: BLE001 — a wish, never the run
-            return []
-        return [str(x) for x in rows] if isinstance(rows, list) else []
+            return {}
+        if isinstance(rows, dict):
+            return {str(k): int(v or 0) for k, v in rows.items()}
+        # …the shape this book had when it was written (#2390's first half): a plain
+        # list of names, with no count. Read as «nought tries so far».
+        if isinstance(rows, list):
+            return {str(x): 0 for x in rows}
+        return {}
 
-    def _mark_in_flight(self, name: str, running: bool) -> None:
-        """Write down that a long run is under way, or that it is over."""
+    def _write_wish_book(self, book: dict) -> None:
         store = getattr(self.rt, "store", None)
-        if store is None or not name:
-            return
-        rows = self._in_flight()
-        if running and name not in rows:
-            rows.append(name)
-        elif not running and name in rows:
-            rows = [x for x in rows if x != name]
-        else:
+        if store is None:
             return
         try:
-            store.blob_set(self.IN_FLIGHT_BLOB, rows)
+            store.blob_set(self.IN_FLIGHT_BLOB, {k: int(v) for k, v in book.items()})
         except Exception:                        # noqa: BLE001
-            self.rt.dbg("timers").warning("in-flight note for %s failed", name,
-                                          exc_info=True)
+            self.rt.dbg("timers").warning("wish book write failed", exc_info=True)
+
+    def _in_flight(self) -> list:
+        return list(self._wish_book())
+
+    def _mark_in_flight(self, name: str, running: bool, tries: int | None = None) -> None:
+        """Write down that a long run is under way, or that it is over."""
+        if not name:
+            return
+        book = self._wish_book()
+        if running:
+            book[name] = int(book.get(name, 0) if tries is None else tries)
+        elif name in book:
+            book.pop(name, None)
+        else:
+            return
+        self._write_wish_book(book)
 
     def _resume_in_flight(self) -> None:
         """Start again every long run this profile was in the middle of (#2390).
@@ -1295,10 +1368,7 @@ class Schedule:
         out, nothing on the map) answer with their own line and the run ends.
         """
         timer = self.timer_catalogue.by_name(name)
-        if timer is None or not getattr(timer, "resume", False):
-            return False
-        config = self.timer_config().get(name) or {}
-        if not config.get("enabled", False):
+        if timer is None or not self._wants_resume(name):
             return False
         self.rt.put("[timer] " + self.rt.t("timers.log.resumed", name=name))
         # The gate, exactly as a trigger's fire asks it (:meth:`submit`): a client that is

@@ -1021,6 +1021,8 @@
   "timers.reason.busy": "bảng điều khiển đang bận việc khác",
   "timers.log.unfinished": "{name}: lần chạy trước không bao giờ quay lại — coi như thất bại, đang chờ hết thời gian trước khi thử lại",
   "timers.log.resumed": "{name}: lượt chạy này sống sót qua lần khởi động lại và công tắc vẫn bật — chạy lại",
+  "timers.log.torn_off": "{name}: lượt chạy bị đứt chứ không kết thúc (lần đứt thứ {tries}) — giữ nguyên mong muốn, mời lại sau {secs} giây",
+  "timers.log.run_ended": "{name}: lượt chạy tự đi đến hồi kết ({reason}) — không có gì để tiếp tục",
   "rally.skip.squads_out": "mọi đội có thể gửi đều đang đi — không chạy",
   "timers.log.skip_busy": "{name}: bảng đang bận — vẫn nằm trong hàng đợi",
   "timers.log.squad_busy": "{name}: các đội {squads} đang hành quân — bỏ qua, quay lại ở nhịp sau",

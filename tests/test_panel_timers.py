@@ -672,10 +672,15 @@ class _ResumeSchedule:
 
     from panel.runtime.schedule import Schedule as _S
     IN_FLIGHT_BLOB = _S.IN_FLIGHT_BLOB
+    RESUME_BACKOFF_SEC = _S.RESUME_BACKOFF_SEC
     _in_flight = _S._in_flight
+    _wish_book = _S._wish_book
+    _write_wish_book = _S._write_wish_book
     _mark_in_flight = _S._mark_in_flight
     _resume_in_flight = _S._resume_in_flight
     _resume_unfinished = _S._resume_unfinished
+    _wants_resume = _S._wants_resume
+    _end_of_a_long_run = _S._end_of_a_long_run
     del _S
 
     def __init__(self, catalogue, config, blobs=None) -> None:
@@ -689,6 +694,9 @@ class _ResumeSchedule:
             blob_set=lambda name, value: self.blobs.__setitem__(name, value))
         self.parked: list = []
         self.link_up = True
+        self.booked: list = []
+        self.store = types.SimpleNamespace(
+            mark_due_at=lambda name, when: self.booked.append((name, when)))
         self.rt = types.SimpleNamespace(
             put=self.said.append, t=lambda key, **fmt: key, store=store,
             gate=types.SimpleNamespace(alive=lambda: self.link_up),
@@ -752,18 +760,89 @@ def test_the_wish_is_written_down_because_a_detached_record_closes_at_once():
     sched = _ResumeSchedule(cat, cfg)
 
     schedmod.Schedule._mark_in_flight(sched, hunt, True)
-    assert sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB] == [hunt], sched.blobs
+    assert sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB] == {hunt: 0}, sched.blobs
     # …the panel dies here, and the next one reads that blob on the way up.
     schedmod.Schedule._resume_in_flight(sched)
     assert sched.requested == [hunt], "the run in flight was not started again"
-    assert sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB] == [hunt], \
+    assert list(sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB]) == [hunt], \
         "the wish was spent by the reading — a boot with no link yet would lose it"
 
     # …and a run that ENDED clears it, so a restart an hour later starts nothing.
-    over = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: [hunt]})
+    over = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: {hunt: 0}})
     schedmod.Schedule._mark_in_flight(over, hunt, False)
     schedmod.Schedule._resume_in_flight(over)
     assert over.requested == [], "an errand that finished is started again by a restart"
+
+
+class _Outcome:
+    """What `play_async` hands back: a torn-off run has no context at all."""
+
+    def __init__(self, ok=False, reason="", ctx=None) -> None:
+        self.ok, self.reason, self.ctx = ok, reason, ctx
+
+
+def _long_run_ended(outcome, *, enabled=True, tries=0):
+    hunt = "attack_golden_zombies"
+    cat = _catalogue()
+    cfg = cat.default_config()
+    cfg[hunt] = {"enabled": enabled, "interval_sec": 3600}
+    blob = {_ResumeSchedule.IN_FLIGHT_BLOB: {hunt: tries}}
+    sched = _ResumeSchedule(cat, cfg, blobs=blob)
+    sched._end_of_a_long_run(hunt, outcome, outcome.ctx)
+    return sched
+
+
+def test_a_client_that_died_leaves_the_wish_standing_and_books_the_next_try():
+    """The client crashed mid-hunt at 23:47:51 and nothing brought the run back (#2390).
+
+    A run that RAISED has no context — the outcome is built out of the exception — and
+    that is the panel's own way of saying «the floor gave way»: the link dropped, the
+    client died, the account was kicked, the lease was taken. Nothing was decided by the
+    run, so the wish stands and the turn is booked a little way ahead.
+    """
+    sched = _long_run_ended(_Outcome(False, "ConnectionError: LastWar.exe not running"))
+    hunt = "attack_golden_zombies"
+    assert sched.blobs[_ResumeSchedule.IN_FLIGHT_BLOB] == {hunt: 1}, \
+        "a torn-off run struck its own wish off the book"
+    assert [n for n, _w in sched.booked] == [hunt], "no next turn was booked"
+    assert "timers.log.torn_off" in " ".join(sched.said), \
+        "the log does not tell a run that was cut off from one that finished"
+
+
+def test_a_run_that_reached_its_own_end_is_not_resumed():
+    """No energy, nothing on the map, the limit spent, a person pressing «Прервать» —
+    all of them are the run DECIDING, and none of them wants to be started again."""
+    hunt = "attack_golden_zombies"
+    ctx = types.SimpleNamespace(vars={})
+    sched = _long_run_ended(_Outcome(False, "no energy left — one attack costs 10", ctx))
+    assert sched.blobs[_ResumeSchedule.IN_FLIGHT_BLOB] == {}, \
+        "an errand that ran out of energy will be started again by the next restart"
+    assert sched.booked == [], "a finished run booked itself another turn"
+    assert "timers.log.run_ended" in " ".join(sched.said), \
+        "the two endings say the same thing in the log"
+
+
+def test_the_wait_between_tries_grows_instead_of_hammering():
+    """A client that will not come back must not be asked every minute all night (#2390)."""
+    hunt = "attack_golden_zombies"
+    waits = []
+    for tries in range(0, 7):
+        sched = _long_run_ended(_Outcome(False, "link lost"), tries=tries)
+        waits.append(sched.booked[0][1])
+    gaps = [round(b - a) for a, b in zip([0.0] * len(waits), waits)]
+    steps = list(_ResumeSchedule.RESUME_BACKOFF_SEC)
+    assert steps == sorted(steps) and steps[0] >= 30 and steps[-1] <= 900, \
+        "the backoff either hammers or gives up for the night"
+    assert len(set(gaps[:len(steps)])) == len(steps), "the wait does not grow at all"
+    assert gaps[-1] == gaps[len(steps) - 1], "the wait grows without a ceiling"
+
+
+def test_a_torn_off_run_of_a_switched_off_errand_is_forgotten():
+    """Requirement four, unchanged: the person's switch outranks every wish (#2390)."""
+    sched = _long_run_ended(_Outcome(False, "link lost"), enabled=False)
+    assert sched.blobs[_ResumeSchedule.IN_FLIGHT_BLOB] == {}, \
+        "a switched-off errand keeps a wish that would fire on the next restart"
+    assert sched.booked == [], "a switched-off errand booked itself a turn"
 
 
 def test_a_panel_with_no_link_yet_holds_the_resume_instead_of_dropping_it():
@@ -781,12 +860,12 @@ def test_a_panel_with_no_link_yet_holds_the_resume_instead_of_dropping_it():
     cat = _catalogue()
     cfg = cat.default_config()
     cfg[hunt] = {"enabled": True, "interval_sec": 3600}
-    sched = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: [hunt]})
+    sched = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: {hunt: 0}})
     sched.link_up = False
     schedmod.Schedule._resume_in_flight(sched)
     assert sched.parked == [hunt] and sched.requested == [], \
         "a resume that arrived before the client did was thrown away"
-    assert sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB] == [hunt], \
+    assert list(sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB]) == [hunt], \
         "the wish was spent by being read — a second restart would resume nothing"
 
 
@@ -798,7 +877,7 @@ def test_a_run_in_flight_that_the_person_switched_off_stays_off():
     cat = _catalogue()
     cfg = cat.default_config()
     cfg[hunt] = {"enabled": False, "interval_sec": 3600}
-    sched = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: [hunt]})
+    sched = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: {hunt: 0}})
     schedmod.Schedule._resume_in_flight(sched)
     assert sched.requested == [], "a switched-off errand came back after a restart"
 
