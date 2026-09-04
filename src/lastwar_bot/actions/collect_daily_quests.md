@@ -45,8 +45,13 @@
 #    costs exactly this one read and the run is over four lines later: `push.daily.quest`
 #    fires whenever the day's progress MOVES, which is most of the time somebody is
 #    playing, so the no-op path must be cheap enough to be run for nothing.
-READ_LUA (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq = 'no DailyTaskManager — is the client logged in?' return 0 end local ready, sent, failed, err, ids = 0, 0, 0, '', {} for _, r in pairs(M.dailyQuestTasks or {}) do if type(r) == 'table' and r.state == 1 then ready = ready + 1 local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyTaskReward, tostring(r.id)) end) if ok then sent = sent + 1 ids[#ids+1] = tostring(r.id) else failed = failed + 1 if err == '' then err = tostring(why) end end end end DataCenter.__lw_dq = 'finished ' .. ready .. ', claim sent ' .. sent .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. (sent > 0 and (' [' .. table.concat(ids, ' ') .. ']') or '') return sent end)() INTO quests_sent
-READ_LUA tostring(DataCenter.__lw_dq or '') INTO quests_said
+# ONE CALL, NOT ONE PER QUESTION (#2404). A read is a thread hijack into the
+# client at half a second a time whatever it asks, and the machine can make about
+# 1.4 of them a second in total (`docs/research/link-contention.md`), so a run of
+# readings one statement at a time is that many seconds of everybody's budget for
+# answers the game could hand over together. What each one is, and why it is asked,
+# is on the comments and LOG lines that follow.
+READ_LUA (function() local __v0 = (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq = 'no DailyTaskManager — is the client logged in?' return 0 end local ready, sent, failed, err, ids = 0, 0, 0, '', {} for _, r in pairs(M.dailyQuestTasks or {}) do if type(r) == 'table' and r.state == 1 then ready = ready + 1 local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyTaskReward, tostring(r.id)) end) if ok then sent = sent + 1 ids[#ids+1] = tostring(r.id) else failed = failed + 1 if err == '' then err = tostring(why) end end end end DataCenter.__lw_dq = 'finished ' .. ready .. ', claim sent ' .. sent .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. (sent > 0 and (' [' .. table.concat(ids, ' ') .. ']') or '') return sent end)() local __v1 = tostring(DataCenter.__lw_dq or '') return __v0, __v1 end)() INTO quests_sent, quests_said
 LOG "Daily quests: {quests_said}"
 
 # 2. Only a run that actually claimed something waits for the answers — and then says
@@ -63,8 +68,13 @@ IF quests_sent > 0
 #    recipe has never met still ends up in the log instead of inside a guess. Read after
 #    the claims above on purpose — the points those rows are worth are what opens the
 #    next box.
-READ_LUA (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq_box = 'no manager' return 0 end local cur = -1 pcall(function() cur = M:GetCurValue() + 0 end) local steps = M.dailyBoxActive or {} local sent, taken, held, failed, err, seen = 0, 0, 0, 0, '', {} for i = 1, 20 do local need = steps[i] if need == nil then break end local want = -1 pcall(function() want = need + 0 end) local st = nil pcall(function() st = M:GetBoxState(i) end) seen[#seen+1] = i .. '@' .. want .. ':' .. tostring(st) if st == 2 then taken = taken + 1 elseif want >= 0 and cur >= want then local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyQuestReward, i) end) if ok then sent = sent + 1 else failed = failed + 1 if err == '' then err = tostring(why) end end else held = held + 1 end end DataCenter.__lw_dq_box = 'points ' .. cur .. ', already taken ' .. taken .. ', claim sent ' .. sent .. ', not reached ' .. held .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. ' [' .. table.concat(seen, ' ') .. ']' return sent end)() INTO boxes_sent
-READ_LUA tostring(DataCenter.__lw_dq_box or '') INTO boxes_said
+# ONE CALL, NOT ONE PER QUESTION (#2404). A read is a thread hijack into the
+# client at half a second a time whatever it asks, and the machine can make about
+# 1.4 of them a second in total (`docs/research/link-contention.md`), so a run of
+# readings one statement at a time is that many seconds of everybody's budget for
+# answers the game could hand over together. What each one is, and why it is asked,
+# is on the comments and LOG lines that follow.
+READ_LUA (function() local __v0 = (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq_box = 'no manager' return 0 end local cur = -1 pcall(function() cur = M:GetCurValue() + 0 end) local steps = M.dailyBoxActive or {} local sent, taken, held, failed, err, seen = 0, 0, 0, 0, '', {} for i = 1, 20 do local need = steps[i] if need == nil then break end local want = -1 pcall(function() want = need + 0 end) local st = nil pcall(function() st = M:GetBoxState(i) end) seen[#seen+1] = i .. '@' .. want .. ':' .. tostring(st) if st == 2 then taken = taken + 1 elseif want >= 0 and cur >= want then local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyQuestReward, i) end) if ok then sent = sent + 1 else failed = failed + 1 if err == '' then err = tostring(why) end end else held = held + 1 end end DataCenter.__lw_dq_box = 'points ' .. cur .. ', already taken ' .. taken .. ', claim sent ' .. sent .. ', not reached ' .. held .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. ' [' .. table.concat(seen, ' ') .. ']' return sent end)() local __v1 = tostring(DataCenter.__lw_dq_box or '') return __v0, __v1 end)() INTO boxes_sent, boxes_said
 LOG "Daily ladder: {boxes_said}"
 
 # 4. …and the ladder's own verdict, read back the same way, for the same reason: a box

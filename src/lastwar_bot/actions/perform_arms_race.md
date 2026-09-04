@@ -87,12 +87,16 @@ CALL read_arms_race
 
 CALL claim_arms_chests
 
-READ_LUA (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end return math.floor((d.event_id or 0) + 0) end)() INTO arms_event
-
+# ONE CALL, NOT ONE PER QUESTION (#2404). A read is a thread hijack into the
+# client at half a second a time whatever it asks, and the machine can make about
+# 1.4 of them a second in total (`docs/research/link-contention.md`), so a run of
+# readings one statement at a time is that many seconds of everybody's budget for
+# answers the game could hand over together. What each one is, and why it is asked,
+# is on the comments and LOG lines that follow.
 # When the phase ends, in seconds from now — the border the next turn is booked on. The
 # `+30` is slack: a turn that lands ON the border reads whichever of the two phases the
 # server happens to have switched to, and half a minute late reads the new one for sure.
-READ_LUA (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) if now <= 0 then return 0 end local ends = math.floor((d.stage_end_time or 0) + 0) if ends <= now then return 0 end return (ends - now) + 30 end)() INTO next_run_in
+READ_LUA (function() local __v0 = (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end return math.floor((d.event_id or 0) + 0) end)() local __v1 = (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) if now <= 0 then return 0 end local ends = math.floor((d.stage_end_time or 0) + 0) if ends <= now then return 0 end return (ends - now) + 30 end)() return __v0, __v1 end)() INTO arms_event, next_run_in
 
 IF arms_event == 0
     LOG "arms race: the game would not say which phase is running — nothing done, and no border to book"

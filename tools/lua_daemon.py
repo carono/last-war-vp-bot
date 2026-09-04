@@ -161,7 +161,7 @@ class CallTimes:
     """
 
     __slots__ = ("n", "wait", "inject", "harvest", "worst", "inflight", "busiest",
-                 "queued", "unleased", "by")
+                 "queued", "unleased", "by", "who")
 
     def __init__(self) -> None:
         self.n = 0
@@ -177,6 +177,11 @@ class CallTimes:
         self.queued = 0
         #: …and how many calls carried no lease. See :meth:`LuaService.run`.
         self.unleased = 0
+        #: `caller -> how many calls it made`, and `by` below for the unleased half of
+        #: them. Three quarters of the traffic measured in #2404 came from no scenario at
+        #: all — trigger polls, tab readings, the status probe — and none of it is in
+        #: `panel.log`'s account of runs, so it could not be seen at all.
+        self.who: dict = {}
         #: `caller -> how many of ITS calls carried no lease`. The caller is a thread
         #: name, which the panel already sets to say whose run it is
         #: (`lw:<profile>:<tag>:<scenario>`, `panel-timers:<profile>`) — so «кто ломится
@@ -208,7 +213,7 @@ class CallTimes:
                 "worst": [round(v, 3) for v in self.worst],
                 "inflight": self.inflight, "busiest": self.busiest,
                 "queued": self.queued, "unleased": self.unleased,
-                "by": dict(self.by)}
+                "by": dict(self.by), "who": dict(self.who)}
 
 
 def _to_stdout(msg: str) -> None:

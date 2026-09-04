@@ -71,8 +71,13 @@ IF queued == 0
 # 5. The fare. Once per train, and only if nobody has paid it yet — by this panel or by
 #    the person playing. What the fare WOULD be is worked out first — it only reads the
 #    bag and parks the number, so the line below can name it either way.
-READ_LUA (function() local M = DataCenter.LWAllyStationDataManager local want = M.__lw_train_want or 0 local have = 0 pcall(function() for _, s in pairs(DataCenter.ItemData.ItemInfos or {}) do if type(s) == 'table' and tostring(s.itemId) == '1520001' then local c = 0 pcall(function() c = s.count + 0 end) have = have + c end end end) local pay = want if pay > have then pay = have end if pay < 0 then pay = 0 end local short = want - pay if short < 0 then short = 0 end M.__lw_train_pay = pay M.__lw_train_have = have M.__lw_train_short = short return pay end)() INTO pay
-READ_LUA (function() return (DataCenter.LWAllyStationDataManager.__lw_train_short or 0) end)() INTO short
+# ONE CALL, NOT ONE PER QUESTION (#2404). A read is a thread hijack into the
+# client at half a second a time whatever it asks, and the machine can make about
+# 1.4 of them a second in total (`docs/research/link-contention.md`), so a run of
+# readings one statement at a time is that many seconds of everybody's budget for
+# answers the game could hand over together. What each one is, and why it is asked,
+# is on the comments and LOG lines that follow.
+READ_LUA (function() local __v0 = (function() local M = DataCenter.LWAllyStationDataManager local want = M.__lw_train_want or 0 local have = 0 pcall(function() for _, s in pairs(DataCenter.ItemData.ItemInfos or {}) do if type(s) == 'table' and tostring(s.itemId) == '1520001' then local c = 0 pcall(function() c = s.count + 0 end) have = have + c end end end) local pay = want if pay > have then pay = have end if pay < 0 then pay = 0 end local short = want - pay if short < 0 then short = 0 end M.__lw_train_pay = pay M.__lw_train_have = have M.__lw_train_short = short return pay end)() local __v1 = (function() return (DataCenter.LWAllyStationDataManager.__lw_train_short or 0) end)() return __v0, __v1 end)() INTO pay, short
 IF short > 0
     LOG "alliance train: the bag is {short} trade contract(s) short of the fare of {tickets} — paying what it holds. Buying them for diamonds is not done: «докупать» is on={buy}, and the purchase command is not confirmed live yet (docs/research/alliance-train.md)."
 READ_LUA (function() local M = DataCenter.LWAllyStationDataManager local ok, v = pcall(function() return (M:AlreadyThumbsUp()) end) if not ok then return -1 end return v and 1 or 0 end)() INTO thanked
@@ -82,6 +87,11 @@ IF thanked == 0
     READ_LUA (function() local M = DataCenter.LWAllyStationDataManager local ok, v = pcall(function() return (M:AlreadyThumbsUp()) end) if not ok then return -1 end return v and 1 or 0 end)() INTO thanked
 
 # 6. Say what was done, in numbers a person can check against the game.
-READ_LUA (function() return (DataCenter.LWAllyStationDataManager.__lw_train_car or 0) end)() INTO car
-READ_LUA (function() return (DataCenter.LWAllyStationDataManager.__lw_train_have or 0) end)() INTO have
+# ONE CALL, NOT ONE PER QUESTION (#2404). A read is a thread hijack into the
+# client at half a second a time whatever it asks, and the machine can make about
+# 1.4 of them a second in total (`docs/research/link-contention.md`), so a run of
+# readings one statement at a time is that many seconds of everybody's budget for
+# answers the game could hand over together. What each one is, and why it is asked,
+# is on the comments and LOG lines that follow.
+READ_LUA (function() local __v0 = (function() return (DataCenter.LWAllyStationDataManager.__lw_train_car or 0) end)() local __v1 = (function() return (DataCenter.LWAllyStationDataManager.__lw_train_have or 0) end)() return __v0, __v1 end)() INTO car, have
 LOG "alliance train: carriage {car}, fare {pay} of {tickets} (bag holds {have}), thanked={thanked}"

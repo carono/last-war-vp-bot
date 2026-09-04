@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import sys
 import threading
@@ -69,6 +70,42 @@ CATCH_SEC = 1.5
 #: How long a bind is retried before the service gives up on the port. A panel that has
 #: just been restarted may find its own previous listener still letting go.
 BIND_TRIES, BIND_WAIT = 20, 0.25
+
+def _caller(name: str) -> str:
+    """A caller's name, grouped so a minute's calls do not scatter across 30 rows (#2404).
+
+    Every scenario run gets a worker of its own — `lw:<profile>:<tag>:<scenario>`, made
+    fresh each time — and Python's own pools name theirs `Thread-38 (work)`. Counted raw,
+    sixty calls from one errand read as sixty different callers and the histogram says
+    nothing. So a worker is grouped by what it is FOR: the scenario for a run, the target
+    function for a pool thread, and the name itself for the panel's own named threads,
+    which are already one per job.
+    """
+    if name.startswith("lw:"):
+        parts = name.split(":")
+        return "run:" + ":".join(parts[2:]) if len(parts) > 2 else name
+    if name.startswith("Thread-") and "(" in name:
+        return "thread:" + name.split("(", 1)[1].rstrip(")")
+    return name
+
+
+#: The first thing a chunk names, for telling one CHILD's traffic from another's.
+_FIRST_NAME = re.compile(r"[A-Za-z_][\w.]{4,}")
+
+
+def _child_of(chunk: str) -> str:
+    """Which child tool a socket call came from, as far as the chunk can say (#2404).
+
+    Two thirds of the calls measured came through the door the spawned tools use
+    (`_serve`), and a thread name cannot tell them apart — the pool names its workers by
+    number. The chunk can: every one of these starts by naming the manager or the field
+    it is after, so the first identifier in it groups a tool's traffic under something a
+    person can act on. Cut short deliberately: a whole chunk carries uuids and names, and
+    this is a histogram key, not a record of what was asked.
+    """
+    found = _FIRST_NAME.search(chunk or "")
+    return "child:" + (found.group(0)[:32] if found else "?")
+
 
 #: How often the three-way split of a chunk's cost is written to `debug.log` (#2404).
 #: A minute, and only when calls have been made since the last line: it is the evidence
@@ -298,14 +335,17 @@ class LuaService:
         refused = self.lease.check_run(token)
         if refused:
             raise lua_client.LeaseLost(refused)
+        times = self._daemon.times
+        who = _caller(threading.current_thread().name)
+        if who == "thread:_serve":
+            who = _child_of(chunk)
+        times.who[who] = times.who.get(who, 0) + 1
         if not (token or "").strip():
             # AN UNLEASED CALL IS LET THROUGH — that is the gate's own rule, and it is
             # the one way a chunk reaches the client beside whoever holds the claim
             # (`tools/lib/game_lease.py::check_run`). Counted rather than stopped: this
             # is a measurement of who is in the queue, not a new refusal (#2404).
-            times = self._daemon.times
             times.unleased += 1
-            who = threading.current_thread().name
             times.by[who] = times.by.get(who, 0) + 1
         try:
             lines = self._daemon.run(chunk, marker, float(settle), early=early,
@@ -408,17 +448,20 @@ class LuaService:
                    n, now - at, total, total / n, wait, inject, harvest,
                    100.0 * (inject / total) if total else 0.0,
                    queued / n, unleased, state["busiest"])
+        self._note("callers: %s", ", ".join(
+            f"{who}={n}" for who, n in sorted(
+                self._delta(state, was, "who").items(), key=lambda kv: -kv[1])[:12]))
         if unleased:
-            self._note("unleased callers: %s", ", ".join(
+            self._note("…of which unleased: %s", ", ".join(
                 f"{who}={n}" for who, n in sorted(
-                    self._unleased_delta(state, was).items(),
+                    self._delta(state, was, "by").items(),
                     key=lambda kv: -kv[1])[:8]))
 
     @staticmethod
-    def _unleased_delta(state: dict, was: dict) -> dict:
-        """Which callers went past the claim SINCE the last line, and how often."""
-        before = (was or {}).get("by") or {}
-        now = state.get("by") or {}
+    def _delta(state: dict, was: dict, key: str) -> dict:
+        """Which callers appear in ``key`` SINCE the last line, and how often."""
+        before = (was or {}).get(key) or {}
+        now = state.get(key) or {}
         return {who: n - before.get(who, 0) for who, n in now.items()
                 if n - before.get(who, 0) > 0}
 

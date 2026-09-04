@@ -85,9 +85,13 @@ IF arena_open != 1
 # --- how many battles are owed -------------------------------------------------
 # The server's own `winTimes` when the client has been told it; otherwise the log's
 # ceiling decides between «owed for certain» and «one battle to find out».
-READ_LUA (function() local B = DataCenter.__lw_a3v3 local target = {wins} local left = math.floor((B.left or 0) + 0) local want = 0 if left > 0 then local won = math.floor((B.won or -1) + 0) if won >= 0 then want = target - won if want < 0 then want = 0 end elseif math.floor((B.ceiling or 0) + 0) < target then want = target - math.floor((B.ceiling or 0) + 0) else want = 1 end if want > left then want = left end local cap = {cap} if want > cap then want = cap end end B.todo = want return want end)() INTO arena_todo
-
-READ_LUA (function() local B = DataCenter.__lw_a3v3 local won = math.floor((B.won or -1) + 0) local w = 'not said yet' if won >= 0 then w = tostring(won) end return 'wins today ' .. w .. ' of {wins}, challenges left ' .. math.floor((B.left or 0) + 0) .. ', battle log today ' .. math.floor((B.logged or 0) + 0) .. ' row(s) with ' .. math.floor((B.ceiling or 0) + 0) .. ' won' end)() INTO arena_state
+# ONE CALL, NOT ONE PER QUESTION (#2404). A read is a thread hijack into the
+# client at half a second a time whatever it asks, and the machine can make about
+# 1.4 of them a second in total (`docs/research/link-contention.md`), so a run of
+# readings one statement at a time is that many seconds of everybody's budget for
+# answers the game could hand over together. What each one is, and why it is asked,
+# is on the comments and LOG lines that follow.
+READ_LUA (function() local __v0 = (function() local B = DataCenter.__lw_a3v3 local target = {wins} local left = math.floor((B.left or 0) + 0) local want = 0 if left > 0 then local won = math.floor((B.won or -1) + 0) if won >= 0 then want = target - won if want < 0 then want = 0 end elseif math.floor((B.ceiling or 0) + 0) < target then want = target - math.floor((B.ceiling or 0) + 0) else want = 1 end if want > left then want = left end local cap = {cap} if want > cap then want = cap end end B.todo = want return want end)() local __v1 = (function() local B = DataCenter.__lw_a3v3 local won = math.floor((B.won or -1) + 0) local w = 'not said yet' if won >= 0 then w = tostring(won) end return 'wins today ' .. w .. ' of {wins}, challenges left ' .. math.floor((B.left or 0) + 0) .. ', battle log today ' .. math.floor((B.logged or 0) + 0) .. ' row(s) with ' .. math.floor((B.ceiling or 0) + 0) .. ' won' end)() return __v0, __v1 end)() INTO arena_todo, arena_state
 
 LOG "3v3 arena: {arena_state} — {arena_todo} battle(s) to fight"
 

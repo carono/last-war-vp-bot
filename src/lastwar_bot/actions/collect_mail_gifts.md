@@ -38,8 +38,13 @@
 # One round trip for the whole sweep: a trip costs ~0.15 s and the loop inside it is
 # free (docs/research/alliance-tech-donate.md). Returns HOW MANY tabs were pressed so
 # the recipe can branch; the sentence for the log is parked and read back below.
-READ_LUA (function() local t0 = os.clock() local M = DataCenter.MailDataManager if not M then DataCenter.__lw_mail = 'no manager' return 0 end local tabs, gifts, pressed, failed = 0, 0, 0, 0 local err, hit = '', '' for gid, g in pairs(M.group or {}) do if type(g) == 'table' then tabs = tabs + 1 local n = tonumber(g.unrewardCount) or 0 if n <= 0 then local ok, m = pcall(function() return M:GetMailUnRewardCountByGroup(gid) end) if ok then n = tonumber(m) or 0 end end if n > 0 then gifts = gifts + n local ok, why = pcall(function() M:ReadAndRewardGroupMail(gid) end) if ok then pressed = pressed + 1 hit = hit .. (hit ~= '' and ',' or '') .. tostring(gid) .. ':' .. n else failed = failed + 1 if err == '' then err = tostring(why) end end end end end DataCenter.__lw_mail = 'tabs=' .. tabs .. ' gifts=' .. gifts .. ' pressed=' .. pressed .. ' failed=' .. failed .. (hit ~= '' and (' [' .. hit .. ']') or '') .. ' ms=' .. math.floor((os.clock() - t0) * 1000) .. (err ~= '' and (' err=' .. err) or '') return pressed end)() INTO pressed
-READ_LUA tostring(DataCenter.__lw_mail or '') INTO summary
+# ONE CALL, NOT ONE PER QUESTION (#2404). A read is a thread hijack into the
+# client at half a second a time whatever it asks, and the machine can make about
+# 1.4 of them a second in total (`docs/research/link-contention.md`), so a run of
+# readings one statement at a time is that many seconds of everybody's budget for
+# answers the game could hand over together. What each one is, and why it is asked,
+# is on the comments and LOG lines that follow.
+READ_LUA (function() local __v0 = (function() local t0 = os.clock() local M = DataCenter.MailDataManager if not M then DataCenter.__lw_mail = 'no manager' return 0 end local tabs, gifts, pressed, failed = 0, 0, 0, 0 local err, hit = '', '' for gid, g in pairs(M.group or {}) do if type(g) == 'table' then tabs = tabs + 1 local n = tonumber(g.unrewardCount) or 0 if n <= 0 then local ok, m = pcall(function() return M:GetMailUnRewardCountByGroup(gid) end) if ok then n = tonumber(m) or 0 end end if n > 0 then gifts = gifts + n local ok, why = pcall(function() M:ReadAndRewardGroupMail(gid) end) if ok then pressed = pressed + 1 hit = hit .. (hit ~= '' and ',' or '') .. tostring(gid) .. ':' .. n else failed = failed + 1 if err == '' then err = tostring(why) end end end end end DataCenter.__lw_mail = 'tabs=' .. tabs .. ' gifts=' .. gifts .. ' pressed=' .. pressed .. ' failed=' .. failed .. (hit ~= '' and (' [' .. hit .. ']') or '') .. ' ms=' .. math.floor((os.clock() - t0) * 1000) .. (err ~= '' and (' err=' .. err) or '') return pressed end)() local __v1 = tostring(DataCenter.__lw_mail or '') return __v0, __v1 end)() INTO pressed, summary
 LOG "Mail gifts: {summary}"
 
 # What the SERVER made of it, and never the press itself: `unrewardCount` moves when the
