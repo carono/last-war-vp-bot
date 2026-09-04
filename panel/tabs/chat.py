@@ -1020,13 +1020,20 @@ class ChatTab(PanelTab):
                     name = bytes.fromhex(bits[1].strip()).decode("utf-8", "replace")
                 except ValueError:              # noqa: PERF203 — a mangled name, not a lost room
                     name = ""
-            held = 0
-            if len(bits) > 2:
+            def _num(at: int) -> float:
+                if len(bits) <= at:
+                    return 0.0
                 try:
-                    held = int(float(bits[2].strip() or 0))
+                    return float(bits[at].strip() or 0)
                 except ValueError:
-                    held = 0
-            out[room] = {"name": name, "msgs": held}
+                    return 0.0
+            # `isPin` is the client's own flag and the ONLY one there is: measured, not
+            # guessed — it is on all 69 rooms, and `pinTime` / `isTop` / `topTime` /
+            # `stick` / `sortWeight` are on none of them. So there is no order BETWEEN
+            # pinned rooms to read, and they are sorted by their last message like the
+            # rest of the list.
+            out[room] = {"name": name, "msgs": int(_num(2)),
+                         "pin": bool(_num(3)), "last": _num(4) / 1000.0}
         return out
 
     def _absorb_rooms(self, found: dict) -> None:
@@ -1063,12 +1070,15 @@ class ChatTab(PanelTab):
     #: The order the list is drawn in, and it is the person's own (#2418): «сначала
     #: общие группы, мир, альянс, национальный и т.д., потом кастомные группы, потом
     #: лички с игроками». A section is data — the front-end draws whatever comes.
-    ROOM_SECTIONS = ("channel", "group", "people")
+    ROOM_SECTIONS = ("pin", "channel", "group", "people")
 
     #: Which section a room belongs to. A custom group is the player's own; a private
     #: thread is a person; everything else is a channel the game gave everybody.
-    @staticmethod
-    def _room_section(room: str) -> str:
+    def _room_section(self, room: str) -> str:
+        # PINNED IS A SECTION, NOT A KIND. The person pinned it in the game and the
+        # client says so (`isPin`), so it goes to the top whatever sort of room it is.
+        if (self._rooms.get(room) or {}).get("pin"):
+            return "pin"
         if room.endswith("_v2"):
             return "people"
         if room.startswith("custom_group_"):
@@ -1116,6 +1126,7 @@ class ChatTab(PanelTab):
             key, label = self._room_label(room)
             rows.append({"type": kind, "room": room, "key": key, "label": label,
                          "section": self._room_section(room), "face": "",
+                         "ts": float((self._rooms.get(room) or {}).get("last") or 0.0),
                          "unread": int(self._room_unread.get(room, 0))})
         if not rows:
             # NOTHING READ YET — a panel whose client is down still draws the channels
@@ -1131,6 +1142,15 @@ class ChatTab(PanelTab):
                      "section": "channel", "face": "",
                      "unread": int(self._chat_unread.get("system", 0))})
         rows.extend(self._web_people())
+        # THE ORDER THE PERSON ASKED FOR (#2418): pinned, channels, groups, people —
+        # and inside a section, whatever that section sorts by. Pinned rooms and private
+        # conversations go by their last message («чаты игроков сортируем по последнему
+        # сообщению»); a channel keeps the steady order it is read in, because a strip
+        # of channels that reshuffles itself under a thumb is worse than a stale one.
+        order = self.ROOM_SECTIONS
+        rows.sort(key=lambda r: (order.index(r.get("section") or "channel"),
+                                 -float(r.get("ts") or 0.0)
+                                 if r.get("section") in ("pin", "people") else 0))
         return rows
 
     #: How many private conversations the phone is handed. Sixty of them is a list
@@ -1153,7 +1173,8 @@ class ChatTab(PanelTab):
             uid = str(c.get("peer_uid") or "")
             if not room:
                 continue
-            out.append({"type": "dm", "room": room, "key": "", "section": "people",
+            out.append({"type": "dm", "room": room, "key": "",
+                        "section": self._room_section(room),
                         "label": str(c.get("name") or uid or "?"),
                         "face": self._face_for(uid),
                         "text": str(c.get("last_text") or ""),

@@ -844,6 +844,59 @@ def test_a_room_read_that_answered_nothing_can_be_asked_again():
 
 
 
+def test_pinned_rooms_come_first_and_people_go_by_their_last_message():
+    """#2418: «в клиенте некоторые чаты помечены как закреплённые… сортировать сверху»
+    and «чаты игроков сортируем по последнему сообщению».
+
+    The flag is the client's own `isPin` — measured, not guessed: it is on every room and
+    none of `pinTime` / `isTop` / `topTime` / `stick` / `sortWeight` exists at all, so
+    there is no order BETWEEN pinned rooms to read and they go by their last message like
+    the rest of the list.
+    """
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_pinned_rooms_come_first...: {exc}")
+        return
+
+    rooms = {
+        "country_1000_11": {"name": "", "msgs": 24, "pin": False, "last": 100.0},
+        "custom_group_0123456789abcdef": {"name": "Group One", "msgs": 40,
+                                          "pin": True, "last": 300.0},
+        "alliance_1000_aaaabbbbcccc": {"name": "", "msgs": 40, "pin": True,
+                                       "last": 900.0},
+    }
+    P = _rooms_stand_in(pm, rooms)
+    rows = P._web_rooms()
+    assert [r["section"] for r in rows[:2]] == ["pin", "pin"], rows
+    # …and inside the pinned section, the freshest first.
+    assert rows[0]["room"] == "alliance_1000_aaaabbbbcccc", rows[0]
+    assert rows[1]["room"] == "custom_group_0123456789abcdef", rows[1]
+    # A pinned room is not ALSO in its own section.
+    assert not any(r["room"] == "alliance_1000_aaaabbbbcccc" and r["section"] != "pin"
+                   for r in rows)
+    # The pin and the last message are read off the client's own line.
+    got = pm.ChatTab._parse_rooms("country_1000_11\t\t24\t1\t1700000000000")
+    assert got["country_1000_11"]["pin"] is True
+    assert abs(got["country_1000_11"]["last"] - 1700000000.0) < 1.0
+
+    # The private conversations keep the store's own order — newest first.
+    P._chat_uid = "1000000000000009"
+
+    class _Store:
+        @staticmethod
+        def dm_contacts(_uid):
+            return [{"room": "custom_a_b_v2", "peer_uid": "1000000000000001",
+                     "name": "Player1", "last_ts": 500.0, "last_text": "…"},
+                    {"room": "custom_c_d_v2", "peer_uid": "1000000000000002",
+                     "name": "Player2", "last_ts": 400.0, "last_text": "…"}]
+
+    P._chat_store = _Store()
+    people = [r for r in P._web_rooms() if r["section"] == "people"]
+    assert [r["room"] for r in people] == ["custom_a_b_v2", "custom_c_d_v2"], people
+
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

@@ -97,6 +97,7 @@
   "chat.list.more": "Mostrar {n} más",
   "chat.list.open": "☰ Chats",
   "chat.list.people": "Jugadores",
+  "chat.list.pinned": "Fijados",
   "chat.load_more": "↑ mostrar mensajes anteriores",
   "chat.older_from_game": "↑ pedir al juego los mensajes anteriores",
   "chat.history_end": "este es todo el historial — el servidor no tiene nada anterior",

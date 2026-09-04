@@ -458,8 +458,9 @@ export function ChatView({
      that opens it carries the room being read, so the first screen is the chat.
 
      SIXTY PRIVATE CONVERSATIONS ARE NOT A FIRST SCREEN either, so the people fold: the
-     newest few are shown — they are the ones somebody is talking in — and the rest are
-     one press away, with every row carrying its own unread count. */
+     newest few are shown — they are the ones somebody is talking in, «чаты игроков
+     сортируем по последнему сообщению» — and the rest are one press away, with every row
+     carrying its own unread count. The sorting is the PANEL's, in every section. */
   const named = (tab: ChatRoomTab) => tab.label || t(tab.key || tabKey(tab.type))
 
   const line = (tab: ChatRoomTab) => (
@@ -491,6 +492,9 @@ export function ChatView({
 
   const sidebar = (
     <aside className={'chatlist' + (open ? ' open' : '')}>
+      {/* PINNED FIRST — the client's own `isPin`, so what the person pinned in the game
+          is what is at the top here (#2418). */}
+      {section('pin', 'chat.list.pinned', rooms.filter((r) => r.section === 'pin'))}
       {section('channel', 'chat.list.channels', rooms.filter((r) => r.section === 'channel'))}
       {section('group', 'chat.list.groups', rooms.filter((r) => r.section === 'group'))}
       {section('people', 'chat.list.people', shown)}

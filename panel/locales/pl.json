@@ -97,6 +97,7 @@
   "chat.list.more": "Pokaż jeszcze {n}",
   "chat.list.open": "☰ Czaty",
   "chat.list.people": "Gracze",
+  "chat.list.pinned": "Przypięte",
   "chat.load_more": "↑ pokaż wcześniejsze wiadomości",
   "chat.older_from_game": "↑ poproś grę o wcześniejsze wiadomości",
   "chat.history_end": "to cała historia — serwer nie ma nic wcześniejszego",

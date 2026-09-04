@@ -2815,7 +2815,8 @@ def test_the_chat_list_is_on_the_left_in_the_order_the_person_asked_for():
     an initial where there is not, never somebody else's art.
     """
     chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")
-    for key in ("chat.list.channels", "chat.list.groups", "chat.list.people"):
+    for key in ("chat.list.pinned", "chat.list.channels", "chat.list.groups",
+                "chat.list.people"):
         assert "'%s'" % key in chat, "the list has no %s section" % key
     assert "className={'chatrow'" in chat, "the rooms are still drawn as chips"
     assert "<Face label={named(tab)} face={tab.face} />" in chat, "a row has no face"

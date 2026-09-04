@@ -97,6 +97,7 @@
   "chat.list.more": "Показать ещё {n}",
   "chat.list.open": "☰ Чаты",
   "chat.list.people": "Игроки",
+  "chat.list.pinned": "Закреплённые",
   "chat.load_more": "↑ показать более ранние сообщения",
   "chat.older_from_game": "↑ запросить более ранние у игры",
   "chat.history_end": "это вся история — раньше у сервера ничего нет",

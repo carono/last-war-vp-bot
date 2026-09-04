@@ -97,6 +97,7 @@
   "chat.list.more": "Tampilkan {n} lagi",
   "chat.list.open": "☰ Obrolan",
   "chat.list.people": "Pemain",
+  "chat.list.pinned": "Disematkan",
   "chat.load_more": "↑ tampilkan pesan sebelumnya",
   "chat.older_from_game": "↑ minta pesan lebih lama dari game",
   "chat.history_end": "ini seluruh riwayatnya — server tidak punya yang lebih lama",
