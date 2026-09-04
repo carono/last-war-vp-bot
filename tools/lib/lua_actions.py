@@ -11287,6 +11287,105 @@ def free_stamina_report() -> str:
     )
 
 
+def stamina_refill_bought_today() -> str:
+    """Lua *expression* -> how many diamond refills of energy were bought today.
+
+    `-1` when the client cannot say. The player carries two fields — `playerStaminaGoldNum`
+    (the count) and `playerStaminaGoldTime` (the stamp of the last one) — and the stamp is
+    what makes the count trustworthy: a count called «today» is only as good as whoever
+    resets it, so a stamp older than the SERVER's own midnight is read as zero however the
+    count reads. The same rule `free_stamina_ready` keeps, and for the same reason.
+    """
+    return ("(function() local p = nil "
+            "pcall(function() p = LuaEntry.Player end) "
+            "if p == nil then return -1 end "
+            "local n = tonumber(rawget(p, 'playerStaminaGoldNum')) "
+            "if n == nil then return -1 end "
+            "local at = tonumber(rawget(p, 'playerStaminaGoldTime')) or 0 "
+            "local zero = 0 "
+            "pcall(function() zero = math.floor(tonumber("
+            "UITimeManager:GetInstance():GetTomorrowZero()) or 0) end) "
+            "if zero <= 0 then return -1 end "
+            "if at < (zero - 86400000) then return 0 end "
+            "return math.floor(n) end)()")
+
+
+def player_gems() -> str:
+    """Lua *expression* -> the diamond purse (`LuaEntry.Player.gold`), or `-1`.
+
+    Diamonds are what the game calls `gold` on the player; the yellow bricks are
+    `goldBrickInfos` and are a different currency entirely. Read out of the client's own
+    copy — no request, no window.
+    """
+    return ("(function() local v = nil "
+            "pcall(function() v = tonumber(LuaEntry.Player.gold) end) "
+            "if v == nil then return -1 end "
+            "return math.floor(v) end)()")
+
+
+def buy_stamina_refill() -> str:
+    """Buy the day's refill of march energy for diamonds — one send, no window.
+
+    SECOND OF THE THREE (#2390): after the day's free claim and before the bag. **The
+    price cannot be read anywhere in the client** — not a config table, not a Lua
+    function, and not the board's own reply, which carries the purse and the stamps and
+    nothing about a cost (`docs/research/march-energy.md`). So the caller gates on the
+    COUNT of refills already bought today, which by the operator's description of the
+    ladder identifies the cheap one, and prices the purchase AFTERWARDS out of the
+    diamond purse.
+
+    Both purses are parked before the send so the report can say what it cost.
+    """
+    return (
+        "DataCenter.__lw_stambuy = {gems = %(gems)s, energy = %(energy)s, sent = false} "
+        "local ok = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.UserRecoverPlayerStamina, {}) end) "
+        "DataCenter.__lw_stambuy.sent = ok "
+        'CS.UnityEngine.Debug.LogError("ACT buy_stamina_refill sent="..tostring(ok)'
+        '.." gems="..tostring(DataCenter.__lw_stambuy.gems))'
+        % {"gems": player_gems(), "energy": golden_energy()}
+    )
+
+
+def stamina_refill_report() -> str:
+    """Lua *expression* -> what the refill cost and what it gave, for the log.
+
+    `paid` is the diamond purse before less the purse now — the only way this bot has of
+    learning a price it cannot ask for. A negative one means something else credited
+    diamonds in the same second and the number is worthless; the recipe treats that as
+    «unknown» rather than as «free».
+    """
+    return (
+        "(function() local b = DataCenter.__lw_stambuy or {} "
+        "local gems0 = math.floor(tonumber(b.gems) or -1) "
+        "local gems1 = math.floor(tonumber(%(gems)s) or -1) "
+        "local e0 = math.floor(tonumber(b.energy) or 0) "
+        "local e1 = math.floor(tonumber(%(energy)s) or 0) "
+        "local paid = -1 "
+        "if gems0 >= 0 and gems1 >= 0 then paid = gems0 - gems1 end "
+        "return 'sent=' .. tostring(b.sent == true) .. "
+        "' gems_before=' .. tostring(gems0) .. ' gems_now=' .. tostring(gems1) .. "
+        "' paid=' .. tostring(paid) .. "
+        "' energy_before=' .. tostring(e0) .. ' energy_now=' .. tostring(e1) .. "
+        "' gained=' .. tostring(e1 - e0) end)()"
+        % {"gems": player_gems(), "energy": golden_energy()}
+    )
+
+
+def stamina_refill_paid() -> str:
+    """Lua *expression* -> the diamonds the last refill cost, or `-1` when unknowable."""
+    return (
+        "(function() local b = DataCenter.__lw_stambuy or {} "
+        "local gems0 = math.floor(tonumber(b.gems) or -1) "
+        "local gems1 = math.floor(tonumber(%(gems)s) or -1) "
+        "if gems0 < 0 or gems1 < 0 then return -1 end "
+        "local paid = gems0 - gems1 "
+        "if paid < 0 then return -1 end "
+        "return paid end)()"
+        % {"gems": player_gems()}
+    )
+
+
 def stamina_report() -> str:
     """Lua *expression* -> one line about the last stamina purchase, for the log."""
     return (

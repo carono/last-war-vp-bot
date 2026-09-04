@@ -244,6 +244,13 @@ IF squad_is_rallying == 1
 # itself on that reading rather than sending anything.
 CALL claim_free_stamina
 
+# …AND THEN THE REFILL FOR DIAMONDS, which is the second of the three (#2390). The price
+# is not readable anywhere in the client, so the recipe buys only while the game says no
+# refill has been bought today — the cheap one by the operator's ladder — prices it off
+# the diamond purse afterwards, and refuses to buy again if that came out over its
+# ceiling. On a day already bought it is one reading and sends nothing.
+CALL buy_stamina_refill
+
 READ_LUA (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() INTO energy
 READ_LUA (function() local v = nil pcall(function() v = tonumber(MarchUtil.GetCostStaminaByTargetType(MarchTargetType.ATTACK_MONSTER)) end) if v == nil or v <= 0 then return 10 end return math.floor(v) end)() INTO cost
 

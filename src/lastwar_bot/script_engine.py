@@ -239,6 +239,21 @@ _PICK_STARS_RE = re.compile(r"^PICK_STAR_SERVERS\b(.*)$", re.IGNORECASE)
 _PICK_STARS_COUNT_RE = re.compile(r"\bCOUNT\s+(\d+)\b", re.IGNORECASE)
 _NEXT_STAR_RE = re.compile(r"^NEXT_STAR_SERVER\s*$", re.IGNORECASE)
 
+# REMEMBER <key> = <value> / RECALL <key> INTO <var>
+# One small fact a recipe has to carry from one run to the next — «the last refill cost
+# more than the ceiling, so stop buying». It is a row of this profile's own database
+# (`meta`, under `recipe:<key>`), because that is where a profile's data lives
+# (`CLAUDE.md`) and because the gate belongs to the ability rather than to the panel: a
+# recipe that cannot remember its own refusal has to ask a person to hold it instead.
+_REMEMBER_RE = re.compile(r"^REMEMBER\s+([A-Za-z_][\w.\-]*)\s*=\s*(.*)$", re.IGNORECASE)
+# …and the same, taking what a script VARIABLE holds right now. `= <text>` cannot: a
+# `{name}` is substituted when the file is PARSED (docs/dsl.md), so a value a run has
+# only just read cannot travel that way — which is every value worth remembering.
+_REMEMBER_FROM_RE = re.compile(
+    r"^REMEMBER\s+([A-Za-z_][\w.\-]*)\s+FROM\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE)
+_RECALL_RE = re.compile(
+    r"^RECALL\s+([A-Za-z_][\w.\-]*)\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE)
+
 # ---- Game-VM primitives (Lua daemon bridge) --------------------------------
 # These drive the game through its own Lua VM (the warm daemon, tools/lua_daemon.py),
 # not through pixels — so they need no hwnd. See docs/dsl.md "Game primitives".
@@ -610,6 +625,21 @@ class PickStarServersStmt(_Stmt):
 @dataclass(slots=True)
 class NextStarServerStmt(_Stmt):
     """Take the next warzone off the round's queue and write down that it was walked."""
+
+
+@dataclass(slots=True)
+class RememberStmt(_Stmt):
+    """Write one fact into this profile's own database, to be read by a later run."""
+    key: str = ""
+    value: str = ""
+    var: str = ""
+
+
+@dataclass(slots=True)
+class RecallStmt(_Stmt):
+    """Read back what a `REMEMBER` of the same key wrote — empty when nothing did."""
+    key: str = ""
+    var: str = ""
 
 
 @dataclass(slots=True)
@@ -1000,6 +1030,25 @@ def _parse_one(lines, i, indent):
 
     if _NEXT_STAR_RE.match(text):
         return NextStarServerStmt(text=text, line_no=ln), i + 1
+
+    m = _REMEMBER_FROM_RE.match(text)
+    if m:
+        return RememberStmt(
+            text=text, line_no=ln, key=m.group(1), var=m.group(2),
+        ), i + 1
+
+    m = _REMEMBER_RE.match(text)
+    if m:
+        return RememberStmt(
+            text=text, line_no=ln,
+            key=m.group(1), value=m.group(2).strip().strip("\"'"),
+        ), i + 1
+
+    m = _RECALL_RE.match(text)
+    if m:
+        return RecallStmt(
+            text=text, line_no=ln, key=m.group(1), var=m.group(2),
+        ), i + 1
 
     m = _GAME_SCENE_RE.match(text)
     if m:
@@ -1662,6 +1711,10 @@ class Interpreter:
                 self._do_pick_star_servers(stmt)
             case NextStarServerStmt():
                 self._do_next_star_server(stmt)
+            case RememberStmt():
+                self._do_remember(stmt)
+            case RecallStmt():
+                self._do_recall(stmt)
             case ReadLuaStmt():
                 self._do_read_lua(stmt)
             case ScanMonstersStmt():
@@ -3348,6 +3401,53 @@ class Interpreter:
         self.ctx.vars["STAR_LEFT"] = len(rest)
         star_round.mark(self.ctx.store, int(self.ctx.vars.get("STAR_DAY") or 0), server)
         self._log(f"NEXT_STAR_SERVER -> {server} ({len(rest)} left)")
+
+    # -- one fact carried from one run to the next (#2390) ------------------------------
+    #
+    # ONE named row, holding a small map of key -> text, rather than a row per key: the
+    # store is duck-typed here on `blob_get`/`blob_set` and nothing else (see `Context`),
+    # so a recipe's memory has to live inside that surface instead of teaching this file
+    # what a panel's `meta` table is. It is read and written WHOLE and never queried by a
+    # `WHERE`, which is exactly what `CLAUDE.md` says a blob is for.
+    _MEMORY_BLOB = "recipe_memory"
+
+    def _memory(self) -> dict:
+        """Everything this profile's recipes have remembered — `{}` when nothing has."""
+        store = getattr(self.ctx, "store", None)
+        if store is None:
+            return {}
+        held = store.blob_get(self._MEMORY_BLOB)
+        return held if isinstance(held, dict) else {}
+
+    def _do_remember(self, stmt: RememberStmt) -> None:
+        """Write `stmt.value` under `stmt.key` in this profile's database.
+
+        Touches no client at all. A run with no profile behind it — from a shell — has
+        nothing to write to, and says so rather than pretending the fact was kept: a
+        forgotten refusal is exactly the failure this statement exists to prevent.
+        """
+        value = stmt.value
+        if stmt.var:
+            value = str(self.ctx.vars.get(stmt.var, ""))
+        store = getattr(self.ctx, "store", None)
+        if store is None:
+            self._log(f"REMEMBER {stmt.key} — no profile behind this run, nothing kept")
+            return
+        held = self._memory()
+        held[stmt.key] = value
+        store.blob_set(self._MEMORY_BLOB, held)
+        self._log(f"REMEMBER {stmt.key} = {value}")
+
+    def _do_recall(self, stmt: RecallStmt) -> None:
+        """Read what a `REMEMBER` of the same key left, into a script variable.
+
+        Nothing written yet — and a run with no profile — both read as the empty string,
+        which every numeric condition treats as `0`. So a recipe's first ever run and a
+        recipe run from a shell take the same branch, and neither has to be special-cased.
+        """
+        value = str(self._memory().get(stmt.key, ""))
+        self.ctx.vars[stmt.var] = value
+        self._log(f"RECALL {stmt.key} -> {stmt.var} = {value or '—'}")
 
     def _do_call(self, stmt: CallStmt) -> None:
         self._log(f"CALL {stmt.action_name}")

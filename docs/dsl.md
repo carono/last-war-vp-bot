@@ -1130,6 +1130,43 @@ the circle starts again — the tiles seen three hours ago have ripened since.
 - Only the pick touches the client, and only to ask which warzone is home. The model is
   `tools/lib/star_round.py`; the recipe that uses both is `actions/sweep_star_servers.md`.
 
+### `REMEMBER <key> = <text>` / `REMEMBER <key> FROM <var>` / `RECALL <key> INTO <var>`
+
+One small fact carried from one run of a recipe to the next, in this profile's own
+database. Touches no client at all.
+
+```
+RECALL stamina_refill_block INTO refill_block
+IF refill_block > 0
+    LOG "switched off until a person clears it"
+...
+REMEMBER stamina_refill_block FROM refill_paid
+```
+
+| form | what it does |
+|---|---|
+| `REMEMBER <key> = <text>` | writes the literal text. A `{name}` in it is substituted when the FILE IS PARSED, like everywhere else |
+| `REMEMBER <key> FROM <var>` | writes what the script variable holds RIGHT NOW — which is the form nearly every real use wants, because a value a run has only just read cannot travel through `{name}` |
+| `RECALL <key> INTO <var>` | reads it back. Nothing written yet reads as the empty string, which every numeric condition treats as `0` |
+
+- **It is a whole-run memory, not a log.** Everything remembered lives in one named row
+  (`recipe_memory`), read and written whole — a blob rather than a table, by the rule in
+  `CLAUDE.md`: no `WHERE`, no growth without bound, a handful of keys.
+- **A run with no profile behind it — from a shell — remembers nothing and says so**, and
+  a `RECALL` there reads empty. So a recipe's very first run and a recipe run from a
+  shell take the same branch, and neither needs special-casing.
+- **What it is FOR is a refusal a person has to lift.** The first user is
+  `actions/buy_stamina_refill.md`: the price of a diamond refill of march energy is
+  readable nowhere in the client, so the recipe prices its purchase afterwards, and if
+  that came out over its ceiling it remembers the number and never buys again. Clearing
+  it is deliberate and happens at the machine:
+
+      python -m panel.forget                        # what is remembered
+      python -m panel.forget stamina_refill_block   # clear that one
+
+  Nothing in the game and no press may clear a remembered refusal: lifting it is a person
+  saying «the new price is fine», which is the whole reason the ceiling exists.
+
 ### `COLLECT_VS_DUEL [STORE "<path>"] [NO_FETCH]`
 
 Write the alliance duel («VS») into a ranking history: **both sides, every day**.

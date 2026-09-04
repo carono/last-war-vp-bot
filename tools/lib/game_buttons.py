@@ -1486,6 +1486,14 @@ BUTTONS["claim_free_stamina"] = Button(
     lua=_lua_actions.claim_free_stamina(),
     wait=0.6, label="take the day's free march energy",
 )
+BUTTONS["buy_stamina_refill"] = Button(
+    # The day's refill of march energy for diamonds (#2390) — SECOND of the three, after
+    # the free claim and before the bag. The price is nowhere in the client, so the gate
+    # is «how many were bought today» and the cost is read off the diamond purse after
+    # the fact; the recipe refuses to buy again once one has cost more than its ceiling.
+    lua=_lua_actions.buy_stamina_refill(),
+    wait=0.8, label="buy the day's march energy refill for diamonds",
+)
 BUTTONS["golden_arm"] = Button(
     # Not a press: the run's setup. Which squad, what the game charges for one attack,
     # and how much energy there is to charge it against.
