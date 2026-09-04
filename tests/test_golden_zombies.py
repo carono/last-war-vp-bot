@@ -83,7 +83,7 @@ def _chain():
 def test_both_recipes_parse_and_declare_what_they_take():
     body, args = _source(RECIPE)
     assert engine.parse_text(body), "the chain parsed to nothing"
-    for name in ("squad", "radius", "scan", "limit", "march_wait"):
+    for name in ("squad", "radius", "limit", "march_wait"):
         assert name in args, f"the chain does not declare {name}"
     assert args["squad"] == 1, "the default squad must be the first slot"
     reading, _ = _source(READING)
@@ -663,24 +663,21 @@ def test_the_ride_is_still_wired_and_waits_on_its_own_march():
     assert "p.why = 'short'" in arm and "p.why = 'no-mine'" in arm
 
 
-def test_the_lap_of_the_map_is_harvested_where_it_ENDS():
+def test_a_camera_move_never_throws_away_what_the_client_holds():
     """#1702 regression: «not one golden zombie» over a warzone full of them.
 
-    The map lap loads district after district and the client keeps what it has LOADED. The
-    camera-onto-the-origin rule went in front of the first scan, so the run flew home
-    BEFORE asking — and the entire catch of the lap had been evicted by the time it did.
-    Live, from the panel's own button: a full lap, then `queued = 0`, then a FAIL, while
-    the panel's own monster registry was holding four hundred.
+    The client keeps what it has LOADED and evicts the rest, so a camera move is a
+    forgetting. The rule the run broke was moving BEFORE asking: it flew to the origin and
+    the whole catch of the ground it was standing on had been evicted by the time it
+    scanned. Live, from the panel's own button: `queued = 0` and a FAIL, while the panel's
+    own monster registry was holding four hundred.
 
-    So the lap is harvested where it ends, and the queue — which only ever grows — is
-    topped up again once the camera is on the origin.
+    **The lap of the map that this test used to open on is gone** (#2390, `3bafa87e`) —
+    the operator asked for the sector-hopping to go, and what fills the queue is dwell.
+    The rule it was protecting did not go with it, and it is what is pinned here: every
+    camera move takes the ground it is leaving first.
     """
     body, lines = _chain()
-    lap = lines.index("CALL scan_map")
-    nxt = [i for i, w in enumerate(lines[lap:], lap)
-           if w in ("TAP golden_scan", "TAP golden_look_from")]
-    assert nxt and lines[nxt[0]] == "TAP golden_scan", \
-        "the camera leaves before the lap's catch is taken — the queue comes back empty"
     look = lines.index("TAP golden_look_from")
     assert any(w == "TAP golden_scan" for w in lines[look:look + 8]), \
         "the queue is never topped up around the origin"
@@ -1163,24 +1160,27 @@ def test_the_map_is_walked_ONCE_and_never_again():
     — is gone, and the reaping is what replaced both.
     """
     body, lines = _chain()
-    # TWICE, AND THE SECOND ONE IS THE DROUGHT'S (#1702). The rule this test exists for
-    # is «not once per kill»: what it forbade was the ring of eighteen camera stops and
-    # the flight before every attack. A sweep goes stale, though — live, after three
-    # empty pauses the queue's 139 far rows were every one of them a ghost — so a pause
-    # that has already waited four and a half minutes may walk the map again.
-    assert lines.count("CALL scan_map") <= 2, \
-        "the recipe walks the whole map more than the run and its droughts need"
-    assert "INTO drought" in body, \
-        "the second sweep is not gated on the ground having stayed empty"
+    # NOT ONCE, EITHER — ZERO (#2390, `3bafa87e`). The rule this test exists for was «not
+    # once per kill», and the operator then took the lap away altogether: «сейчас там
+    # есть режим, который по секторам прыгает, это убираем полностью, мешает». What
+    # replaced it is dwell, which is what always actually filled the queue — a lap moves
+    # the camera every 0.05 s, faster than the client's region loader, so it left the
+    # near ground blank: 0 zombies within 300 tiles after a lap, 17 after thirteen stops
+    # of standing still. So the chain must not walk the map at all, by either door.
+    assert "CALL scan_map" not in lines, \
+        "the sector-hopping lap is back — the operator asked for it to go, whole"
     assert not any(w.startswith("SWEEP_MAP") for w in lines), \
-        "the recipe laps the map itself, on top of the one lap it calls for"
-    lap = lines.index("CALL scan_map")
-    loop = next(i for i, w in enumerate(lines) if w.startswith("WHILE go == 1"))
-    assert lap < loop, "the lap is inside the chain — it would run once per kill"
+        "the recipe laps the map itself instead of dwelling"
+    # …and the drought still has an answer: the ring around the SQUAD is doubled, which
+    # is camera work in the one place the squad can actually reach.
+    assert "INTO drought" in body, "a drought is not noticed at all"
+    assert "TAP golden_widen_ring" in lines, \
+        "nothing replaced the lap when the ground the squad stands on comes up dry"
     assert "TAP golden_ring" not in lines and "TAP golden_refresh" in lines, \
         "the ring is still there, or nothing replaced it"
     # The chain's own camera work: the origin of the next pick, and the ride's district.
     # Not the candidate, and not on every lap.
+    loop = next(i for i, w in enumerate(lines) if w.startswith("WHILE go == 1"))
     body_after = lines[loop:]
     assert body_after.count("TAP golden_look") <= 1, \
         "the chain still flies to its candidate on every kill"

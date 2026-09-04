@@ -309,4 +309,18 @@ IF stalled == 1
         IF drought == 1
             TAP golden2_widen_ring
             TAP golden2_refresh
+            # AND THE RING IS WAITED FOR, like every other one (#2390). The refresh is a walk
+            # the game makes on its own timer, so a scan fired the same second reads a district
+            # the camera has not reached yet — the drought would answer «still nothing» and the
+            # run would give up on ground that was about to be full.
+            READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+            # A THIRD OF A SECOND, NOT A WHOLE ONE (#2390). The refresh is the game answering a
+            # question it was just asked, and it lands in well under a second — but the beat waiting
+            # for it was one, so the opening of every run paid half a second per beat for nothing.
+            # Measured live: five beats, thirteen seconds, and the answer had been sitting there.
+            # The ceiling is unchanged — the LIMIT is raised in the same proportion as the beat.
+            WHILE refreshed == 0 LIMIT 36
+                WAIT 0.3
+                READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+            TAP golden2_scan
             TAP golden2_scan
