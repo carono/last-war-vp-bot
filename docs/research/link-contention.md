@@ -170,15 +170,35 @@ profile ran — and `panel.log`, which is where every «панель занят�
 cannot see a single one of those calls. They are not all capture tools either: the chunks
 coming through it include scenario reads (`DataCenter.LWAllyStationDataManager…`, the
 alliance-train recipe, and the `__v0` locals of a merged read), so something on the panel
-side is reaching this VM by socket rather than in process. **And the machine it was measured on had ONE client and TWO profiles open on it**, with
-thirteen child tools between them (`Get-CimInstance Win32_Process -Filter
-"Name='LastWar.exe'"` answered a single pid, in one session, while the panel was running
-`--profile default --profile sooperj`). That is the accident `panel/runtime/claims.py`
-opens by describing — two profiles are two views of one client — and it doubles
-everything above: two schedules, two sets of listeners, two fleets of captures, against
-one VM that can take about 1.4 calls a second. Whether it is deliberate here is the
-operator's to say; it is written down because a measurement of contention taken on such a
-machine reads high for a reason that is not in any code.
+side is reaching this VM by socket rather than in process. **The machine it was measured on had ONE client with TWO profiles open on it, and the
+first reading of that was WRONG — the correction is worth more than the observation.**
+`Get-CimInstance Win32_Process -Filter "Name='LastWar.exe'"` answers a single pid, in one
+session, while the panel runs `--profile <a> --profile <b>`; from that it was written here
+that two schedules were doubling every load in this file. They were not, and the way to
+tell is to measure the second profile rather than to reason about it:
+
+```
+python3 tools/dev/link_holding.py --profile <a> --hours 2   held 3273 s = 45.5 %, 252 runs
+python3 tools/dev/link_holding.py --profile <b> --hours 2   held    0 s =  0.0 %,  31 runs
+```
+
+The second profile held the client for **zero seconds and made zero calls** across two
+hours. Its 31 runs are all `launch_game`, each failing at once with the game's own
+instruction — nobody is logged on as that account, so it has no Windows session, no
+client and no daemon on its port. Its config is CORRECT and always was: its own
+`daemon_port`, its own Windows login, `rdp_session` on. Nothing sits on a foreign client
+here; one account is simply not playing.
+
+**So every percentage in this file is ONE profile's, not two profiles' halves.** The
+lesson for the next reading of the same shape: «one client, two panels» is a hypothesis
+about a CONFIG, and the config is not where it is settled — the second profile's own
+`panel.log` settles it in one command, and a profile that is holding nothing says so by
+holding nothing.
+
+What a profile needs before it can have a client of its own is a Windows session that
+only a person can create (`tools/rdp_instance.py --bring-up`), and a credential slot of
+its own: Windows keys an RDP password by `TERMSRV/<address>` and by nothing else, so two
+accounts brought up over one address cannot both have one (#1263).
 
 Telling the door's callers apart properly is its own task. What is settled is that **the
 scenario catalogue is a minority of the calls**, so tuning recipes alone cannot reach the
