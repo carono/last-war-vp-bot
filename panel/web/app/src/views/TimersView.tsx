@@ -78,7 +78,6 @@ function useGear(errand: string, title: string, options: Field[] | undefined, re
  */
 function ErrandBlock({
   icon,
-  cover,
   focus,
   title,
   about,
@@ -93,7 +92,6 @@ function ErrandBlock({
   run,
 }: {
   icon?: string
-  cover?: boolean
   focus?: string
   title: string
   about?: string
@@ -111,7 +109,12 @@ function ErrandBlock({
   return (
     <ErrandCard
       icon={icon}
-      cover={cover}
+      /* EVERY CARD ON THIS PAGE IS THE SAME CARD (#2407) — the person's words: «все
+         карточки в таймерах и триггерах должны быть по новому формату… больше старый
+         формат не добавляем». It is not asked whether this machine HAS a picture: the
+         shape is the format, and a row with no picture wears the placeholder rather
+         than a second drawing of its own. */
+      cover
       focus={focus}
       title={title}
       about={about}
@@ -168,7 +171,6 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
   return (
     <ErrandBlock
       icon={row.icon}
-      cover={row.cover}
       focus={row.focus}
       title={row.title}
       about={row.about}
@@ -223,8 +225,8 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
   return (
     <ErrandBlock
       icon={row.icon}
-      /* A listener's picture is a cover too since #2370 — same card, same rules. */
-      cover={row.cover}
+      /* A listener's picture is a cover too since #2370 — same card, same rules, and
+         since #2407 the same card whether or not there is a picture at all. */
       focus={row.focus}
       title={row.title}
       about={row.about}
@@ -254,7 +256,6 @@ function OrderItem({ row, refresh }: { row: OrderRow; refresh: () => Promise<voi
   return (
     <ErrandBlock
       icon={row.icon}
-      cover={row.cover}
       focus={row.focus}
       title={row.title}
       about={row.about}

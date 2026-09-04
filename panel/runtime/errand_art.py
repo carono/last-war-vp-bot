@@ -1,4 +1,10 @@
-"""The game's own picture for an errand, as a name the phone can ask for (#2019).
+"""The picture drawn for an errand's card, as a name the phone can ask for (#2019).
+
+THERE IS ONE KIND OF PICTURE HERE, AND THERE USED TO BE TWO (#2407). A card fell back on
+the game's own SPRITE when this machine had no cover for the errand, and drew that under
+a darkening wash — so which of two drawings a card got was decided by which files a disk
+happened to hold. `name_for()` is gone with that fallback: a card with no cover draws the
+one placeholder, and no page of this front-end has a second format to add to.
 
 A three-line door onto `tools/lib/errand_icons.py`, and it exists for the reason every
 other such door in `panel/runtime/` does: the panel must not import a tool by reaching
@@ -9,25 +15,6 @@ that has not run `tools/extract_errand_icons.py` has no pictures, every lookup a
 from __future__ import annotations
 
 import urllib.parse as _url
-
-
-def name_for(errand: str) -> str:
-    """The LINK the phone draws, or `""` when this machine has no such picture.
-
-    A link and not a blob: a sprite is tens of kilobytes and the timers page is polled,
-    so the picture is fetched once by the browser and cached, exactly as a player's face
-    and an inventory cell already are (`panel/tabs/rally/roster.py`,
-    `panel/tabs/inventory.py`).
-    """
-    try:
-        import errand_icons
-
-        name = errand_icons.name_for(errand)
-    except Exception:                    # noqa: BLE001 — a picture, never the page
-        return ""
-    if not name:
-        return ""
-    return "/api/errandicon?icon=" + _url.quote(name)
 
 
 def cover_for(errand: str) -> str:

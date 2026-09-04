@@ -342,13 +342,15 @@ def test_with_nothing_extracted_there_are_no_pictures_and_no_broken_links():
     """An installation that never ran the extractor draws blocks, not 404s."""
     from panel.runtime import errand_art
 
-    root = errand_icons.ICON_ROOT
+    root = errand_icons.ART_ROOT
     try:
-        errand_icons.ICON_ROOT = str(Path(tempfile.mkdtemp(prefix="lw-noicons-")))
-        assert errand_icons.name_for("collect_base_resources") == ""
-        assert errand_art.name_for("collect_base_resources") == ""
+        errand_icons.ART_ROOT = str(Path(tempfile.mkdtemp(prefix="lw-noicons-")))
+        assert errand_icons.cover_name_for("collect_base_resources") == ""
+        # …and the panel's door answers the same, so the card wears its placeholder
+        # instead of asking for a picture that would 404 on every poll (#2407).
+        assert errand_art.cover_for("collect_base_resources") == ""
     finally:
-        errand_icons.ICON_ROOT = root
+        errand_icons.ART_ROOT = root
 
 
 def test_an_errand_with_no_picture_asks_for_none():
@@ -370,7 +372,10 @@ def test_an_errand_with_no_picture_asks_for_none():
 def test_every_row_the_phone_draws_carries_its_picture_and_its_line():
     api = (_REPO / "panel" / "web" / "api.py").read_text(encoding="utf-8")
     assert api.count('"stat": statsmod.of(') == 3, "timers, triggers and the orders"
-    assert api.count('artmod.name_for(') == 3, "timers, triggers and the orders"
+    # ONE KIND OF PICTURE (#2407): the cover, and no fallback on the game's sprite —
+    # what a row with none draws is `tests/test_panel_web_cards.py`'s business.
+    assert api.count('artmod.cover_for(') == 3, "timers, triggers and the orders"
+    assert 'artmod.name_for(' not in api
 
     server = (_REPO / "panel" / "web" / "server.py").read_text(encoding="utf-8")
     assert '/api/errandicon' in server and "def _errandicon" in server
@@ -384,15 +389,23 @@ def test_every_row_the_phone_draws_carries_its_picture_and_its_line():
     # фоном»), so what is checked is that the card still CARRIES it — the class the
     # stylesheet paints through and the custom property holding the link — rather than
     # the name of the 28 px stamp it used to be.
-    assert "artStyle(icon)" in view and "'--art'" in view, "the card carries no picture"
-    assert "function Stat(" in view
+    # …and it carries it into the ONE card every list on this front-end is drawn as
+    # (#2119): the picture, its crop and the `--art` property it rides on live in
+    # `ui/ErrandCard.tsx`, so what this page must still do is hand them over.
+    assert "icon={row.icon}" in view and "focus={row.focus}" in view, (
+        "the card carries no picture")
+    card = (_REPO / "panel" / "web" / "app" / "src" / "ui"
+            / "ErrandCard.tsx").read_text(encoding="utf-8")
+    assert "artStyle(icon, focus)" in card and "'--art'" in card
+    assert "function Stat(" in card
     # ONE BLOCK DRAWS ALL THREE (#2050): the timer, the listener and the order are the
     # same card, so the reading is rendered once and handed in three times. It used to
     # be three renderings, and the count that checked for them went on passing at 1 for
     # two releases — so the thing counted is what actually differs now.
-    assert view.count("<Stat stat=") == 1, "the card draws the reading in one place"
+    assert card.count("<Stat stat=") == 2, (
+        "the reading is drawn once per shape — in the body, or in the foot of a cover")
     assert view.count("stat={row.stat}") == 3, "a timer, a listener and an order each"
-    assert "timers.stat.age" in view, "the age is drawn beside the number"
+    assert "timers.stat.age" in card, "the age is drawn beside the number"
 
 
 def _run_standalone() -> int:

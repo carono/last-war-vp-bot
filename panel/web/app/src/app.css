@@ -32,6 +32,13 @@
      the 1 px line on top of it — measured 65 — and the home indicator under all of it.
      The old spelling said 64 and was exactly that one pixel short. */
   --navh: calc(65px + env(safe-area-inset-bottom));
+  /* THE PLACEHOLDER AN ERRAND CARD WEARS WHEN IT HAS NO PICTURE (#2407) — the person's
+     words: «если нет картинки, вставляем заглушку». One mark for all of them, drawn
+     here rather than fetched: a machine that has never run the art generator has no
+     file to serve, and a card that asks for one would draw a broken frame on every poll
+     of the page. It is a PICTURE FRAME and deliberately nothing more specific — an
+     errand wearing an icon borrowed from another ability reads as that ability. */
+  --errand-blank: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2048%2048'%20fill='none'%20stroke='%23ffffff'%20stroke-width='2.2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Crect%20x='6.5'%20y='10.5'%20width='35'%20height='27'%20rx='4'/%3E%3Ccircle%20cx='16.5'%20cy='19.5'%20r='3'/%3E%3Cpath%20d='M9%2032.5l9.5-9%206.5%206.5%205-4.2%208%206.7'/%3E%3C/svg%3E");
   color-scheme: dark;
 }
 
@@ -65,6 +72,8 @@
   --ok: #17864a;
   --warn: #9a6400;
   --bad: #c62a30;
+  /* …in ink rather than in paper: white strokes on a white card are no mark at all. */
+  --errand-blank: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2048%2048'%20fill='none'%20stroke='%23161d29'%20stroke-width='2.2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Crect%20x='6.5'%20y='10.5'%20width='35'%20height='27'%20rx='4'/%3E%3Ccircle%20cx='16.5'%20cy='19.5'%20r='3'/%3E%3Cpath%20d='M9%2032.5l9.5-9%206.5%206.5%205-4.2%208%206.7'/%3E%3C/svg%3E");
   color-scheme: light;
 }
 :root[data-theme='light'] .go,
@@ -1230,6 +1239,23 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
 .item.errand.cover.art::before { background-position: center var(--art-pos, 60%); }
 /* A picture worth showing gets room to be one — a band 144 px tall is a strip. */
 .item.errand.cover { min-height: 168px; }
+/* NO PICTURE IS STILL THIS CARD (#2407). The shape, the floor, the pills and the «i» are
+   the format; what changes is what is behind them. A ground mixed out of the card's own
+   two colours — so it belongs to whichever palette is on without a second rule — and the
+   one mark in the middle of it, at its own size rather than blown up to `cover`: a 48 px
+   frame stretched over a card is a smear, and the point of the mark is that it is read as
+   «there is no picture for this one» in a glance across thirty cards.
+
+   IT IS THE LAST WORD ON THE PICTURE, so it is stated after the two rules above that set
+   the crop and the size for a real cover. */
+.item.errand.cover.blank::before {
+  background-color: color-mix(in srgb, var(--ink) 9%, var(--card));
+  background-image: var(--errand-blank);
+  background-repeat: no-repeat;
+  background-position: center 38%;
+  background-size: 54px 54px;
+  opacity: 0.9;
+}
 /* LOCAL, UNDER THE TEXT, NEVER OVER THE PICTURE. Same pill as the title's, so the card
    reads as one thing; `align-self` keeps it the width of its words. */
 .item.errand.cover .facts,

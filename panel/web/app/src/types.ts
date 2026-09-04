@@ -144,13 +144,12 @@ export interface TimerRow {
   /* WHAT THIS ERRAND CARRIES (#2017) — the fields behind the gear on its row. Absent
      or empty for a row with no knobs, which is most of them. */
   options?: Field[]
-  /* The game's own picture for it, and one live line under it (#2019). */
+  /* The picture drawn for this card, and one live line under it (#2019, #2340): a
+     cover at card size, shown in full colour with the card's own signs moved out of its
+     way. ABSENT IS NOT A SECOND FORMAT (#2407) — a row this machine has no cover for
+     sends nothing and the card wears the one placeholder; the sprite fallback that used
+     to make it a differently-drawn card is gone. */
   icon?: string
-  /* THE PICTURE IS A COVER, not a sprite (#2340): drawn for this card at card size, so
-     it is shown in full colour with nothing washed over it and the card's own signs move
-     out of the picture's way. Absent on every row this machine has no cover for, and
-     then the card draws exactly as it did. */
-  cover?: boolean
   /** Where the card crops that cover — a CSS vertical position, e.g. `"45%"` (#2340). */
   focus?: string
   stat?: ErrandStat | null
@@ -169,10 +168,9 @@ export interface TriggerRow {
   status?: string
   /* The knobs behind this listener's gear (#2017) — what the auto-join may spend. */
   options?: Field[]
+  /* …and a listener's picture is a cover too since #2370, on the same terms a timer's
+     is — and absent, the same placeholder (#2407). */
   icon?: string
-  /* …and a listener's picture may be a COVER too since #2370, on the same terms a
-     timer's is: drawn for the card, shown in full colour, cropped where it says. */
-  cover?: boolean
   focus?: string
   stat?: ErrandStat | null
 }
@@ -191,9 +189,9 @@ export interface OrderRow {
   state?: string
   hint?: string
   options?: Field[]
+  /* …and the same cover a timer and a listener may carry (#2370), or the same
+     placeholder when there is none (#2407). */
   icon?: string
-  /* …and the same cover a timer and a listener may carry (#2370). */
-  cover?: boolean
   focus?: string
   stat?: ErrandStat | null
 }

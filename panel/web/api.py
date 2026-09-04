@@ -798,14 +798,16 @@ class WebApi:
                 # bought with a question to the game; an errand nobody can answer for
                 # free simply has no line (`panel/runtime/errand_stats.py`).
                 "stat": statsmod.of(rt, timer.name),
-                # …and the game's own picture for it (#2019), as a NAME the phone
-                # fetches once off `/api/errandicon` — a sprite inside the view
+                # …and the picture drawn for its card (#2019, #2340), as a NAME the
+                # phone fetches once off `/api/errandicon` — a picture inside the view
                 # would be tens of kilobytes on every poll of the page.
-                # A COVER WINS OVER THE SPRITE (#2340): a picture drawn for the card
-                # is the card, so the row says which of the two it sent and the page
-                # draws a cover at full colour with nothing washed over it.
-                "icon": artmod.cover_for(timer.name) or artmod.name_for(timer.name),
-                "cover": bool(artmod.cover_for(timer.name)),
+                # ONE KIND OF PICTURE, AND NO SECOND ONE (#2407). The row used to fall
+                # back on the game's own SPRITE when this machine had no cover, and the
+                # page drew that under a wash: two drawings of one card, told apart by
+                # which files happened to be on the disk. A row with no cover now sends
+                # nothing at all and the card draws the one placeholder every front-end
+                # card without a picture draws.
+                "icon": artmod.cover_for(timer.name),
                 # …and WHERE the card crops it, which belongs to the picture rather than
                 # to the stylesheet: crates sit low in one, a loaded bed high in another.
                 "focus": artmod.cover_focus(timer.name),
@@ -1095,13 +1097,10 @@ class WebApi:
                 "options": schedule.options.fields(trig.name),
                 # …and its own live line, where one is free (#2019).
                 "stat": statsmod.of(rt, trig.name),
-                # A LISTENER GETS A COVER TOO, on the same terms as a timer (#2370).
-                # It was the timers alone until every errand had a picture drawn for it,
-                # and the difference showed: two cards in full colour at the top of the
-                # page and thirty sprites under a wash below them, which is the «все
-                # остальное старое» this pass answers.
-                "icon": artmod.cover_for(trig.name) or artmod.name_for(trig.name),
-                "cover": bool(artmod.cover_for(trig.name)),
+                # A LISTENER GETS A COVER TOO, on the same terms as a timer (#2370),
+                # and since #2407 that is the ONLY picture a card of this page draws:
+                # no cover, no sprite under a wash — a placeholder.
+                "icon": artmod.cover_for(trig.name),
                 "focus": artmod.cover_focus(trig.name),
             })
         # THE STANDING ORDERS THAT ARE IN NO CATALOGUE (#2017): «Автолут ★»,
@@ -1117,9 +1116,7 @@ class WebApi:
                    "hint": order.hint_key,
                    "options": schedule.options.fields(order.name),
                    "stat": statsmod.of(rt, order.name),
-                   "icon": (artmod.cover_for(order.name)
-                            or artmod.name_for(order.name)),
-                   "cover": bool(artmod.cover_for(order.name)),
+                   "icon": artmod.cover_for(order.name),
                    "focus": artmod.cover_focus(order.name)}
                   for order in schedule.options.orders()]
         return {"triggers": rows, "orders": orders,

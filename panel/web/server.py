@@ -522,7 +522,7 @@ def _make_handler(server: WebServer):
             self._picture(query, resolve)
 
         def _errandicon(self, query: dict) -> None:
-            """Serve the sprite that stands for one errand, out of `results/errand_icons`.
+            """Serve the picture drawn for one errand's card, out of `results/errand_art`.
 
             The fourth of the same shape and for the same reasons (#2019): the pictures
             are the game's own art extracted onto THIS machine, they are identical for
@@ -531,18 +531,15 @@ def _make_handler(server: WebServer):
             one of them and the phone draws blocks with no picture — which is what the
             page looked like before, not a fault.
 
-            THE SAME ROUTE SERVES THE CARD-SIZED COVERS (#2340, `art=`), and it is
-            deliberately not a seventh door: they are pictures for the same cards, asked
-            for by the same page, and a route per folder is how a front-end ends up with
-            six ways of fetching one thing. Both names are checked by `errand_icons`
-            against their own folder rather than trusted.
+            IT SERVED THE GAME'S OWN SPRITES TOO (`icon=`) until #2407, and that was
+            the second drawing an errand card could get: a small stamp spread over a
+            whole card under a darkening wash. One format, one folder — a card with no
+            cover draws the placeholder instead of a picture composed for something else.
             """
             def resolve():
                 import errand_icons
-                art = _one(query.get("art"))
-                if art:
-                    return errand_icons.cover_named(art)
-                return errand_icons.file_named(_one(query.get("icon")))
+
+                return errand_icons.cover_named(_one(query.get("art")))
 
             self._picture(query, resolve)
 

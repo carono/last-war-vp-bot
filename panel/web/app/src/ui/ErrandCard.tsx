@@ -62,17 +62,16 @@ export function useAbout(title: string, about?: string, extra?: ReactNode) {
  * BACKGROUND rather than a stamp beside the name — the person's words: «картинка должна
  * быть большая и фоном, чтобы аккуратно была на карточке».
  *
- * A link and not a blob: the panel sends `/api/errandicon?icon=…` and the browser fetches
+ * A link and not a blob: the panel sends `/api/errandicon?art=…` and the browser fetches
  * each sprite once, exactly as it already does for a player's face. The URL rides a
  * custom property because the SIZE, the position, the fade and the scrim over it are
  * decisions of the stylesheet, not of this component — it hands over one string and
  * nothing else.
  *
- * A machine that has not extracted the art (or an errand the client has no sprite for —
- * three of thirty-six, `tools/data/errand_icons.json`) sends nothing, the card gets no
- * `art` class, and it draws exactly as a card drew before this existed. That is the
- * honest answer: a plain card, never a broken frame or a grey block where a picture
- * failed.
+ * A machine that has not generated the art sends nothing, and since #2407 that is not a
+ * plain card either: the card keeps its shape and wears the one placeholder (`.blank`).
+ * That is the honest answer — never a broken frame, and never somebody else's sprite
+ * standing in for a picture that was not drawn.
  *
  * IT COSTS NO HEIGHT. The picture is painted by two pseudo-elements taken out of the
  * flow, so a card is the size its text makes it, which is the size it was (#1999,
@@ -186,7 +185,13 @@ export function ErrandCard({
   factsInSheet,
 }: {
   icon?: string
-  /** THE PICTURE WAS DRAWN FOR THE CARD (#2340) — full colour, no wash, «i» at the name. */
+  /** THE CARD IS A PICTURE (#2340) — full colour, no wash, «i» at the name.
+   *
+   *  SET BY EVERY ERRAND AND BY NOTHING ELSE (#2407), and it no longer asks whether the
+   *  machine HAS a picture: a card of «Таймеры» is drawn this way whether the cover was
+   *  generated or not, and one that has none draws the placeholder. What used to happen
+   *  when it was false — the game's own sprite spread over the card under a wash — is
+   *  the format that is not added any more. */
   cover?: boolean
   /** Where the card crops that picture — a CSS vertical position (#2340). */
   focus?: string
@@ -223,9 +228,19 @@ export function ErrandCard({
      under a card that has no cover yet. */
   const lead = cover ? info.button : null
   const row = (cover ? (acts || []) : [info.button, ...(acts || [])]).filter(Boolean)
+  /* THE PLACEHOLDER (#2407) — the person's words: «если нет картинки, вставляем
+     заглушку». A card of this shape is a picture with words on it, so a card with no
+     picture used to be the odd one out on a page of thirty: no ground behind the pills,
+     no floor under the foot row, a different height. It draws a mark of its own now —
+     ONE mark, painted by the stylesheet out of the card's own colours, so it needs no
+     file on disk and is the same on a machine that has never run the generator as on
+     one that has. It is deliberately not «a picture that looks close enough»: an errand
+     wearing another ability's sprite is worse than an errand wearing none. */
+  const blank = Boolean(cover) && !icon
   return (
     <div
-      className={'item errand' + (icon ? ' art' : '') + (cover ? ' cover' : '') +
+      className={'item errand' + (icon || blank ? ' art' : '') +
+                 (cover ? ' cover' : '') + (blank ? ' blank' : '') +
                  (on ? '' : ' off')}
       style={artStyle(icon, focus)}
     >
@@ -269,7 +284,11 @@ export function ErrandCard({
             their own width (`flex: 0 0 auto`), so a long reading is cut rather than
             pushed under «▶». */}
         {cover ? null : <Stat stat={stat} />}
-        {row.length || (cover && stat && stat.key) ? (
+        {/* AND THE FOOT IS DRAWN ON EVERY CARD OF THIS SHAPE (#2407), even an empty
+            one: it is what holds the reading and the signs on the floor of the card, so
+            a listener with no knobs and no «▶» must still have the same floor as the
+            timer beside it. Empty, it costs no height. */}
+        {row.length || cover ? (
           <div className="errand-acts">
             {cover ? <Stat stat={stat} /> : null}
             {row}
