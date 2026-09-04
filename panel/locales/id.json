@@ -2813,5 +2813,6 @@
   "chat.stickers": "Stiker",
   "chat.tools": "Tindakan obrolan",
   "chat.autotr.on": "Terjemahkan pesan baru",
-  "chat.autotr.off": "Berhenti menerjemahkan pesan baru"
+  "chat.autotr.off": "Berhenti menerjemahkan pesan baru",
+  "chat.picker.open": "Emoji dan stiker"
 }

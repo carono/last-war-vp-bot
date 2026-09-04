@@ -2813,5 +2813,6 @@
   "chat.stickers": "Sticker",
   "chat.tools": "Chat-Aktionen",
   "chat.autotr.on": "Neue Nachrichten übersetzen",
-  "chat.autotr.off": "Neue Nachrichten nicht mehr übersetzen"
+  "chat.autotr.off": "Neue Nachrichten nicht mehr übersetzen",
+  "chat.picker.open": "Emojis und Sticker"
 }

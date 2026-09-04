@@ -958,40 +958,25 @@ export function ChatView({
             its word as the label a screen-reader and a long press get. Nothing here
             carries text that a locale can widen, so no translation can push the send
             off the screen. */}
-        {/* THE PICKERS ARE THEIR OWN ROW, ABOVE THE BOX (#2418): «кнопки смайлов и
-            локации вынеси на другую строку, над сообщением». What is left beside the
-            field is the one control that acts on what is typed — the send — so the box
-            is as wide as the screen allows however long a locale's words are. */}
-        <div className="chattools">
+        {/* THE PICKERS ARE NO LONGER A ROW OF THEIR OWN (#2418): «кнопки смайлов
+            сделай так же, как на скрине, одна кнопка прямо в поле сообщения, при клике
+            модальное окно с табами выбором смайлов или стикеров». Three square buttons
+            on a line above the box cost 65 px of a 844 px phone to offer what one button
+            in the field offers. «Поделиться координатами» went with them, into the ⚙
+            beside «Загрузить историю» — it is not a sprite to pick but a thing done to
+            what is typed, which is exactly what that menu holds.
+            The modal is THE modal (`ui/Modal.tsx`) with the two sets behind tabs, never
+            a second sheet: `CLAUDE.md`, «The knobs open in ONE modal». */}
+        <div className="chatbox">
           <button
-            className="go icon"
+            className="go icon sprites-open"
             disabled={busy}
-            title={t('chat.emoji')}
-            aria-label={t('chat.emoji')}
+            title={t('chat.picker.open')}
+            aria-label={t('chat.picker.open')}
             onClick={() => void openPicker('emoji')}
           >
             {'🙂'}
           </button>
-          <button
-            className="go icon"
-            disabled={busy}
-            title={t('chat.stickers')}
-            aria-label={t('chat.stickers')}
-            onClick={() => void openPicker('sticker')}
-          >
-            {'🏷'}
-          </button>
-          <button
-            className="go icon"
-            disabled={busy}
-            title={t('chat.send_coords')}
-            aria-label={t('chat.send_coords')}
-            onClick={() => void send('coords')}
-          >
-            {'📍'}
-          </button>
-        </div>
-        <div className="chatbox">
           <textarea
             className="grow"
             ref={box}
@@ -1032,10 +1017,23 @@ export function ChatView({
         </div>
       </div>
       {picker ? (
-        <Modal
-          title={t(picker === 'emoji' ? 'chat.picker.emoji' : 'chat.picker.sticker')}
-          onClose={() => setPicker(null)}
-        >
+        <Modal title={t('chat.picker.open')} onClose={() => setPicker(null)}>
+          {/* TABS, INSIDE THE ONE MODAL. The same chip strip every other list on this
+              panel is cut with, so a thumb learns the gesture once. */}
+          <div className="chips">
+            <button
+              className={'chip' + (picker === 'emoji' ? ' on' : '')}
+              onClick={() => setPicker('emoji')}
+            >
+              {t('chat.emoji')}
+            </button>
+            <button
+              className={'chip' + (picker === 'sticker' ? ' on' : '')}
+              onClick={() => setPicker('sticker')}
+            >
+              {t('chat.stickers')}
+            </button>
+          </div>
           <div className="sprites">
             {(picker === 'emoji' ? sprites.emoji : sprites.stickers).map((one) => (
               <button
@@ -1062,6 +1060,20 @@ export function ChatView({
       {toolsOpen ? (
         <Modal title={t('chat.tools')} onClose={() => setToolsOpen(false)}>
           <div className="menu">
+            {/* «ПОДЕЛИТЬСЯ КООРДИНАТАМИ» LIVES HERE NOW (#2418), and it is drawn by the
+                view rather than sent by the panel with the others on purpose: the press
+                has to name the room being read, and only this side knows which that is.
+                That rule cost a private message posted to the world once already. */}
+            <button
+              className="go wide"
+              disabled={busy || !room}
+              onClick={() => {
+                setToolsOpen(false)
+                void send('coords')
+              }}
+            >
+              {t('chat.send_coords')}
+            </button>
             {tools.map((action) => (
               <button
                 key={action.id}

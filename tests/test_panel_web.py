@@ -2229,6 +2229,50 @@ def test_a_tile_is_the_place_it_draws_and_its_own_buttons_are_not():
         "a button on a tile would also press the tile it sits on"
 
 
+def test_the_picker_is_one_button_in_the_field_and_one_modal_with_tabs():
+    """#2418: «одна кнопка прямо в поле сообщения, при клике модальное окно с табами».
+
+    Three square buttons stood on a row of their own above the box — 65 px of a 844 px
+    phone. One button in the field replaces them, and the two sets are TABS inside the
+    one modal this panel has, never a second sheet (`CLAUDE.md`).
+
+    «Поделиться координатами» went into the ⚙ with «Загрузить историю»: it is not a
+    sprite to pick but a thing done to what is typed. It is drawn by the view rather
+    than sent by the panel because the press must name the room being read — the rule a
+    private message posted to the world once paid for.
+    """
+    script = _front_end_source()
+    chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")
+    assert 'className="chattools"' not in chat, "the row of pickers is back"
+    assert 'className="go icon sprites-open"' in chat, "no picker button in the field"
+    assert chat.count("<Modal") == 3, "the chat grew or lost a sheet"
+    assert "setPicker('emoji')" in chat and "setPicker('sticker')" in chat, \
+        "the two sets are not tabs of one modal"
+    assert "void send('coords')" in chat, "sharing coordinates is unreachable"
+    assert "className={'chip' + (picker === 'emoji' ? ' on' : '')}" in chat, \
+        "the tabs are not the panel's own chip strip"
+    del script
+
+
+def test_nothing_in_a_bubble_is_wider_than_the_bubble():
+    """#2418: «текст в контейнере чата немного плавает, на мобильном есть скрол».
+
+    Measured on a 390 px phone: the page did not overflow and the pane did not either —
+    it was INSIDE, where a flex child defaults to `min-width: auto` and refuses to
+    shrink below an unbroken run (a link, a base64 blob in a system post, a long name).
+    A 300-character token with no space in it now measures 217 px in a 217 px box.
+    """
+    css = _css()
+    bubble = css.split("\n.bubble {")[1].split("}")[0]
+    assert "min-width: 0" in bubble and "overflow: hidden" in bubble, \
+        "a bubble can be pushed wider than its column again"
+    said = css.split(".bubble .said {")[1].split("}")[0]
+    assert "overflow-wrap: anywhere" in said, \
+        "an unbroken run has nothing to break at again"
+    assert ".msg .line > .bubble { min-width: 0; }" in css, \
+        "the bubble refuses to shrink inside its row again"
+
+
 def test_the_pane_is_the_grey_and_the_bubbles_are_the_paper():
     """#2418: «на пузыри сообщений обрати внимание, сделай по аналогии».
 
@@ -2884,17 +2928,21 @@ def test_the_chat_list_is_on_the_left_in_the_order_the_person_asked_for():
         "the wide screen does not put the list beside the conversation"
 
 
-def test_the_sprites_are_behind_two_buttons_in_the_one_modal():
-    """#2418: «огромные таблицы под чатом» became two buttons and the shared modal.
+def test_the_sprites_are_behind_one_button_in_the_one_modal():
+    """#2418: «огромные таблицы под чатом» became ONE button and the shared modal.
 
     An emoji goes INTO the message, a sticker is sent on the tap — the game allows no
     text beside one — and the sheet is `ui/Modal.tsx`, never a second one: the grids
     also made the chat a many-card screen, which is what put a pager over the
     conversation («убери пагинацию чатов»).
+
+    It was two buttons on a row of their own until «одна кнопка прямо в поле сообщения,
+    при клике модальное окно с табами»; the two sets are tabs of that one modal now, and
+    which set is open is still `picker`.
     """
     chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")
-    assert "openPicker('emoji')" in chat and "openPicker('sticker')" in chat, \
-        "the send box has no picker buttons"
+    assert "openPicker('emoji')" in chat, "the send box has no picker button"
+    assert "setPicker('sticker')" in chat, "the stickers have no tab"
     assert "kind=picker" in chat, "the sprites are still carried on the screen itself"
     assert "setText(text + ('token' in one ? one.token : ''))" in chat, \
         "an emoji no longer goes into the message"

@@ -2813,5 +2813,6 @@
   "chat.stickers": "Naklejki",
   "chat.tools": "Działania czatu",
   "chat.autotr.on": "Tłumacz nowe wiadomości",
-  "chat.autotr.off": "Przestań tłumaczyć nowe wiadomości"
+  "chat.autotr.off": "Przestań tłumaczyć nowe wiadomości",
+  "chat.picker.open": "Emotki i naklejki"
 }

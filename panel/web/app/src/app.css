@@ -1660,8 +1660,10 @@ body.modal-open {
    never a second sheet of its own (#2061). */
 .menu { display: flex; flex-direction: column; gap: 8px; }
 
-/* THE PICKERS, ON THE ROW ABOVE THE BOX (#2418). Square icons, left-aligned, one tap
-   each: they act on the message being written, so they stand directly over it. */
+/* THE PICKER IS ONE BUTTON INSIDE THE FIELD (#2418) — «одна кнопка прямо в поле
+   сообщения». The row of three that used to stand above the box is gone and its 65 px
+   went to the conversation. `.chattools` is kept as the shape of an icon in a bar; the
+   send uses it too. */
 .chattools { display: flex; gap: 6px; align-items: center; }
 .chattools .icon {
   flex: 0 0 auto;
@@ -1739,7 +1741,9 @@ body.chatting .head-row .status { padding-top: 0; }
      so the conversation is given the height those two were holding — measured on a
      390×844 phone: 473 px before, and the box still stands clear of the keyboard
      because this is `dvh` and shrinks with the visual viewport. */
-  height: min(66dvh, 700px);
+  /* THE 65 px THE PICKER ROW USED TO TAKE GO TO THE CONVERSATION (#2418) — the same
+     way the bottom bar's did. Still `dvh`, so the box stays clear of the keyboard. */
+  height: min(74dvh, 760px);
   min-height: 180px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1807,6 +1811,16 @@ body.chatting .head-row .status { padding-top: 0; }
 
 .bubble {
   max-width: 100%;
+  /* NOTHING IN A BUBBLE IS WIDER THAN THE BUBBLE (#2418): «текст в контейнере чата
+     немного плавает, на мобильном устройстве есть скрол». Measured on a 390 px phone:
+     the page itself did not overflow (390 = 390) and neither did the pane (360 = 360) —
+     it was INSIDE, where a `.said` of 230 px held content 941 px wide. A flex child
+     defaults to `min-width: auto` and refuses to shrink below its content, and an
+     unbroken run — a link, a base64 blob in a system post, a long name — has nothing to
+     break at, so the words drifted sideways out of their own bubble. Three lines fix
+     all of it and none of them touch the layout of an ordinary message. */
+  min-width: 0;
+  overflow: hidden;
   margin-right: auto;
   /* Measured off the sample and matched: 10 px of radius, 5/10 of padding, which puts a
      one-line bubble at 34 px against the sample's 36. The border stays — it is what
@@ -1831,7 +1845,15 @@ body.chatting .head-row .status { padding-top: 0; }
   background: color-mix(in srgb, var(--accent) 18%, var(--card));
   color: var(--ink);
 }
-.bubble .said { white-space: pre-wrap; }
+.bubble .said {
+  white-space: pre-wrap;
+  min-width: 0;
+  /* `anywhere`, not `break-word`: a 200-character token with no space in it must break
+     mid-token or it cannot fit at all. */
+  overflow-wrap: anywhere;
+}
+/* A coordinate link is one of those unbroken runs, and it is drawn as a link. */
+.bubble a { overflow-wrap: anywhere; }
 /* THE OFFER TO TRANSLATE IS A GLYPH BESIDE THE BUBBLE, not a line under the words
    (#2418), which is where the game draws its own corner mark. A message that can be
    translated is exactly as tall as one that cannot, and the words are not cut in half by
@@ -1839,6 +1861,7 @@ body.chatting .head-row .status { padding-top: 0; }
    two lines. The exact minute a message arrived is on the bubble's `title`; the clock
    between messages says the rest. */
 .msg .line { display: flex; align-items: flex-end; gap: 2px; min-width: 0; max-width: 100%; }
+.msg .line > .bubble { min-width: 0; }
 .msg.mine .line { flex-direction: row-reverse; }
 .msg .trbtn {
   flex: 0 0 auto;
@@ -1929,6 +1952,8 @@ body.chatting .head-row .status { padding-top: 0; }
    took half the row and the send was clipped. An icon is one tap wide whatever the
    locale says, so nothing here can widen with a translation, and the field gets every
    pixel that is left. */
+/* The one picker button, inside the field and the same size as the send beside it. */
+.chatbox .icon.sprites-open { font-size: 18px; }
 .chatbox .icon {
   flex: 0 0 auto;
   width: var(--tap);

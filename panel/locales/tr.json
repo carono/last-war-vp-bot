@@ -2813,5 +2813,6 @@
   "chat.stickers": "Çıkartmalar",
   "chat.tools": "Sohbet işlemleri",
   "chat.autotr.on": "Yeni mesajları çevir",
-  "chat.autotr.off": "Yeni mesajları çevirmeyi bırak"
+  "chat.autotr.off": "Yeni mesajları çevirmeyi bırak",
+  "chat.picker.open": "İfadeler ve çıkartmalar"
 }
