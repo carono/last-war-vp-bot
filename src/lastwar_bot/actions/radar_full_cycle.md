@@ -119,6 +119,15 @@ IF idle == 1
 GAME WORLD
 WAIT 1.5
 CALL fill_empty_squads
+
+# The day's FREE march energy, before anything is sent (#2390). The radar's own errands
+# spend it — an errand on a fake player is an ordinary attack march — and the operator's
+# order for the three sources is «сначала бесплатные, потом за 300 алмазов и только в конце
+# из запасов». It is one reading on a day the claim has already been taken, and it is here
+# rather than at the top of the file on purpose: everything above this line can end the run
+# without touching the game, so a cycle that has nothing to do still asks the game nothing.
+CALL claim_free_stamina
+
 TAP radar_read_board
 
 # --- the errands that need a squad ------------------------------------------
