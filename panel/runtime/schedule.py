@@ -1264,9 +1264,17 @@ class Schedule:
                                           exc_info=True)
 
     def _resume_in_flight(self) -> None:
-        """Start again every long run this profile was in the middle of (#2390)."""
+        """Start again every long run this profile was in the middle of (#2390).
+
+        THE WISH IS NOT SPENT BY READING IT. A panel that has just come up has no link to
+        the game yet — measured on the very first live restart of this feature: the resume
+        fired 34 s after the boot and was answered «пропуск — нет связи с игрой», and
+        that was the end of it. So the name stays in the book until a run of it actually
+        STARTS (`_run_detached` is what clears it, by writing the fresh one in), and the
+        offer is parked behind the gate so the scheduler's own beat makes it again as
+        soon as the client answers.
+        """
         for name in self._in_flight():
-            self._mark_in_flight(name, False)
             self._resume_unfinished(name)
 
     def _resume_unfinished(self, name: str) -> bool:
@@ -1292,10 +1300,13 @@ class Schedule:
         config = self.timer_config().get(name) or {}
         if not config.get("enabled", False):
             return False
-        if not self.timers.request(timer):
-            return False
         self.rt.put("[timer] " + self.rt.t("timers.log.resumed", name=name))
-        return True
+        # The gate, exactly as a trigger's fire asks it (:meth:`submit`): a client that is
+        # not up yet HOLDS the offer instead of dropping it, and the tick makes it again.
+        if not self.rt.gate.alive():
+            self.timers.park_gated(timer, "timers.log.skip_link")
+            return True
+        return bool(self.timers.request(timer))
 
     def stop(self) -> None:
         self.triggers.stop()

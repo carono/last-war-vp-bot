@@ -687,11 +687,15 @@ class _ResumeSchedule:
         store = types.SimpleNamespace(
             blob_get=lambda name: self.blobs.get(name),
             blob_set=lambda name, value: self.blobs.__setitem__(name, value))
+        self.parked: list = []
+        self.link_up = True
         self.rt = types.SimpleNamespace(
             put=self.said.append, t=lambda key, **fmt: key, store=store,
+            gate=types.SimpleNamespace(alive=lambda: self.link_up),
             dbg=lambda tag: types.SimpleNamespace(warning=lambda *a, **k: None))
         self.timers = types.SimpleNamespace(
-            request=lambda timer: (self.requested.append(timer.name), True)[1])
+            request=lambda timer: (self.requested.append(timer.name), True)[1],
+            park_gated=lambda timer, reason=None: self.parked.append(timer.name))
 
     def timer_config(self) -> dict:
         return self._config
@@ -752,14 +756,38 @@ def test_the_wish_is_written_down_because_a_detached_record_closes_at_once():
     # …the panel dies here, and the next one reads that blob on the way up.
     schedmod.Schedule._resume_in_flight(sched)
     assert sched.requested == [hunt], "the run in flight was not started again"
-    assert sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB] == [], \
-        "the wish is still standing — the next restart would start it twice"
+    assert sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB] == [hunt], \
+        "the wish was spent by the reading — a boot with no link yet would lose it"
 
     # …and a run that ENDED clears it, so a restart an hour later starts nothing.
     over = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: [hunt]})
     schedmod.Schedule._mark_in_flight(over, hunt, False)
     schedmod.Schedule._resume_in_flight(over)
     assert over.requested == [], "an errand that finished is started again by a restart"
+
+
+def test_a_panel_with_no_link_yet_holds_the_resume_instead_of_dropping_it():
+    """The first live restart of this feature, measured (#2390).
+
+    The resume fired 34 seconds after the boot and was answered «пропуск — нет связи с
+    игрой» — the client had not finished coming up — and that was the end of it: the row
+    was left with a wish nobody would read again for an hour. So a fire that finds no link
+    is PARKED, the way a trigger's is, and the scheduler's own beat offers it again; and
+    the name stays in the book until a run of it actually starts.
+    """
+    from panel.runtime import schedule as schedmod
+
+    hunt = "attack_golden_zombies"
+    cat = _catalogue()
+    cfg = cat.default_config()
+    cfg[hunt] = {"enabled": True, "interval_sec": 3600}
+    sched = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: [hunt]})
+    sched.link_up = False
+    schedmod.Schedule._resume_in_flight(sched)
+    assert sched.parked == [hunt] and sched.requested == [], \
+        "a resume that arrived before the client did was thrown away"
+    assert sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB] == [hunt], \
+        "the wish was spent by being read — a second restart would resume nothing"
 
 
 def test_a_run_in_flight_that_the_person_switched_off_stays_off():
