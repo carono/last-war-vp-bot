@@ -900,6 +900,7 @@ class Schedule:
         report = self._reports.get(name)
 
         def done(outcome) -> None:
+            self._mark_in_flight(name, False)
             ctx = getattr(outcome, "ctx", None)
             self._note_presses(ctx)
             self._squads_moved(name)
@@ -915,8 +916,12 @@ class Schedule:
             if spent and record is not None:
                 record(ctx)
 
-        return bool(self.rt.play_async(step, self.args(errand), tag="timer",
-                                       on_result=done))
+        self._mark_in_flight(name, True)
+        started = bool(self.rt.play_async(step, self.args(errand), tag="timer",
+                                          on_result=done))
+        if not started:
+            self._mark_in_flight(name, False)
+        return started
 
     def _honour_next_run(self, name: str, ctx) -> None:
         """Book the errand's next turn off the GAME's clock, when the run read one (#1881).
@@ -1204,6 +1209,7 @@ class Schedule:
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> None:
         self._say_unfinished()
+        self._resume_in_flight()
         self.timers.start()
         self.triggers.start()
 
@@ -1219,6 +1225,48 @@ class Schedule:
         """
         for name in self.store.take_unfinished():
             self.rt.put("[timer] " + self.rt.t("timers.log.unfinished", name=name))
+            self._resume_unfinished(name)
+
+    #: THE WISH, AND WHY IT IS NOT `take_unfinished` (#2390). A DETACHed errand's record
+    #: is CLOSED the moment the run is accepted — `_run_detached` hands it to a worker and
+    #: returns `True`, so the scheduler stamps «done» while the chain is still marching.
+    #: The open-attempt sweep therefore knows nothing about it, and a run killed by a
+    #: restart leaves no trace at all. So the fact «this errand is in flight» is written
+    #: down by the run itself, in the profile's own database beside its other state.
+    IN_FLIGHT_BLOB = "errands_in_flight"
+
+    def _in_flight(self) -> list:
+        store = getattr(self.rt, "store", None)
+        if store is None:
+            return []
+        try:
+            rows = store.blob_get(self.IN_FLIGHT_BLOB)
+        except Exception:                        # noqa: BLE001 — a wish, never the run
+            return []
+        return [str(x) for x in rows] if isinstance(rows, list) else []
+
+    def _mark_in_flight(self, name: str, running: bool) -> None:
+        """Write down that a long run is under way, or that it is over."""
+        store = getattr(self.rt, "store", None)
+        if store is None or not name:
+            return
+        rows = self._in_flight()
+        if running and name not in rows:
+            rows.append(name)
+        elif not running and name in rows:
+            rows = [x for x in rows if x != name]
+        else:
+            return
+        try:
+            store.blob_set(self.IN_FLIGHT_BLOB, rows)
+        except Exception:                        # noqa: BLE001
+            self.rt.dbg("timers").warning("in-flight note for %s failed", name,
+                                          exc_info=True)
+
+    def _resume_in_flight(self) -> None:
+        """Start again every long run this profile was in the middle of (#2390)."""
+        for name in self._in_flight():
+            self._mark_in_flight(name, False)
             self._resume_unfinished(name)
 
     def _resume_unfinished(self, name: str) -> bool:

@@ -663,14 +663,33 @@ def test_a_run_killed_mid_flight_is_written_off_and_not_inherited_as_due():
 
 
 class _ResumeSchedule:
-    """The three collaborators `Schedule._resume_unfinished` touches, and nothing else."""
+    """The collaborators the resume half touches, and nothing else.
 
-    def __init__(self, catalogue, config) -> None:
+    The methods under test are borrowed from `Schedule` unbound, so the ones they call on
+    `self` are borrowed too — that is what keeps this stand-in from growing a second
+    implementation of the thing it is checking.
+    """
+
+    from panel.runtime.schedule import Schedule as _S
+    IN_FLIGHT_BLOB = _S.IN_FLIGHT_BLOB
+    _in_flight = _S._in_flight
+    _mark_in_flight = _S._mark_in_flight
+    _resume_in_flight = _S._resume_in_flight
+    _resume_unfinished = _S._resume_unfinished
+    del _S
+
+    def __init__(self, catalogue, config, blobs=None) -> None:
         self.timer_catalogue = catalogue
         self._config = config
         self.requested: list = []
         self.said: list = []
-        self.rt = types.SimpleNamespace(put=self.said.append, t=lambda key, **fmt: key)
+        self.blobs = dict(blobs or {})
+        store = types.SimpleNamespace(
+            blob_get=lambda name: self.blobs.get(name),
+            blob_set=lambda name, value: self.blobs.__setitem__(name, value))
+        self.rt = types.SimpleNamespace(
+            put=self.said.append, t=lambda key, **fmt: key, store=store,
+            dbg=lambda tag: types.SimpleNamespace(warning=lambda *a, **k: None))
         self.timers = types.SimpleNamespace(
             request=lambda timer: (self.requested.append(timer.name), True)[1])
 
@@ -710,6 +729,50 @@ def test_a_run_that_outlives_a_restart_is_started_again_by_the_panel_that_comes_
         "a killed hunt was named and left lying there"
     assert "timers.log.resumed" in " ".join(sched.said), \
         "the panel starts it again and says nothing about why"
+
+
+def test_the_wish_is_written_down_because_a_detached_record_closes_at_once():
+    """The open-attempt sweep cannot see a DETACHed run, so the run says so itself (#2390).
+
+    `_run_detached` hands the chain to a worker and returns `True` — the scheduler stamps
+    «done» while the squad is still marching, which is why a killed hunt left no open
+    attempt anywhere. The fact «this errand is in flight» is therefore written into the
+    profile's own database, and the panel that comes up reads it.
+    """
+    from panel.runtime import schedule as schedmod
+
+    hunt = "attack_golden_zombies"
+    cat = _catalogue()
+    cfg = cat.default_config()
+    cfg[hunt] = {"enabled": True, "interval_sec": 3600}
+    sched = _ResumeSchedule(cat, cfg)
+
+    schedmod.Schedule._mark_in_flight(sched, hunt, True)
+    assert sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB] == [hunt], sched.blobs
+    # …the panel dies here, and the next one reads that blob on the way up.
+    schedmod.Schedule._resume_in_flight(sched)
+    assert sched.requested == [hunt], "the run in flight was not started again"
+    assert sched.blobs[schedmod.Schedule.IN_FLIGHT_BLOB] == [], \
+        "the wish is still standing — the next restart would start it twice"
+
+    # …and a run that ENDED clears it, so a restart an hour later starts nothing.
+    over = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: [hunt]})
+    schedmod.Schedule._mark_in_flight(over, hunt, False)
+    schedmod.Schedule._resume_in_flight(over)
+    assert over.requested == [], "an errand that finished is started again by a restart"
+
+
+def test_a_run_in_flight_that_the_person_switched_off_stays_off():
+    """Requirement three, from the other side: the switch outranks the wish (#2390)."""
+    from panel.runtime import schedule as schedmod
+
+    hunt = "attack_golden_zombies"
+    cat = _catalogue()
+    cfg = cat.default_config()
+    cfg[hunt] = {"enabled": False, "interval_sec": 3600}
+    sched = _ResumeSchedule(cat, cfg, blobs={schedmod.Schedule.IN_FLIGHT_BLOB: [hunt]})
+    schedmod.Schedule._resume_in_flight(sched)
+    assert sched.requested == [], "a switched-off errand came back after a restart"
 
 
 def test_a_run_the_person_switched_off_is_never_resurrected():
