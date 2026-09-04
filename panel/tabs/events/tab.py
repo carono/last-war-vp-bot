@@ -1103,8 +1103,12 @@ class EventsTab(PanelTab):
              ("recall_golden", "golden_recall_squad", "events.golden.step.recall"),
              ("state_golden", "golden_squad_report", "events.golden.step.state"),
              ("goto_golden", "golden_goto_target", "events.golden.step.goto"),
-             ("forget_golden", "golden_forget_target", "events.golden.step.forget"),
-             ("rescan_golden", "scan_map", "events.golden.step.rescan"))
+             ("forget_golden", "golden_forget_target", "events.golden.step.forget"))
+    # «Обновить карту» IS GONE (#2390) — it played `scan_map`, the lap that hops the
+    # camera from sector to sector, and the operator had it taken out of the hunt whole:
+    # «этот режим, который по секторам прыгает, это убираем полностью, мешает». Its locale
+    # key is left in place rather than deleted from eleven files somebody else is editing;
+    # an unused key costs nothing and a missing one breaks a build.
 
     def _step_back(self, outcome) -> None:
         """Keep what a step FOUND, when it found anything.

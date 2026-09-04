@@ -82,9 +82,10 @@
 #
 # ## The scan
 #
-# `scan = 1` walks the camera over the whole server first (`scan_map.md`), which is what
-# fills the client's own invasion list; the queue is then read from it in one call, and
-# from two sources in order:
+# THERE IS NO LAP OF THE SERVER ANY MORE (#2390) — the sector-hopping scan was taken out
+# whole on the operator's instruction, and `scan` is not an argument of this recipe. The
+# queue is filled by DWELLING where the squad is: the opening ring, and then the ground
+# each march lands on. It is read in one call, from two sources in order:
 #
 #   * the invasion enumerator — `WorldScene:GetMonsterListInArea` with the config id as
 #     its whitelist and a radius wide enough to mean «everything the client knows». It
@@ -149,7 +150,6 @@ ARGS reach = 600
 ARGS reach_far = 700
 ARGS breather = 90
 ARGS breathers = 30
-ARGS scan = 1
 ARGS limit = 0
 ARGS march_wait = 200
 ARGS approach = 0
@@ -265,15 +265,18 @@ IF squad_out == 1
     LOG "the chosen squad is still out — waiting for it to land before the first send"
     TAP golden_eta
 
-# One lap of the whole server, so the client's own invasion list is filled. Skippable: a
-# second run a minute later is working with the same map.
-IF scan == 1
-    CALL scan_map
-    # TAKE WHAT THE LAP LOADED, WHERE IT ENDED — before the camera goes anywhere (#1702).
-    # The queue only ever grows, and the client answers about the districts it HOLDS:
-    # flying home first and asking there threw the whole lap's catch away, and a press
-    # over a warzone with hundreds of them answered «not one golden zombie on the map».
-    TAP golden_scan
+# THE LAP OF THE WHOLE SERVER IS GONE (#2390). The operator's instruction, in their
+# words: «сканирование карты, в сценарии про золотых зомби нужно переделать, сейчас там
+# есть режим, который по секторам прыгает, это убираем полностью, мешает».
+#
+# It used to open here — one tour of the warzone so the client's own invasion list was
+# filled — and what it looks like from the outside is a camera flying about the map with
+# nothing being killed. The ring below is what actually finds the targets this chain
+# spends: a lap moves the camera every 0.05 s, far faster than the client's region
+# loader, so it left the near ground blank anyway (measured: 0 within 300 tiles after a
+# lap; 17, the nearest 14 tiles out, after thirteen stops of dwell). The `crowd` /
+# `cluster` 50x50 grouping is a different thing entirely — it groups targets already
+# known and moves no camera — and is untouched.
 
 # THE SECOND LAP IS GONE, AND SO IS THE RE-PICK AFTER EVERY KILL (#1702). The operator's
 # model — «беглого просмотра карты достаточно… не нужно потом второй раз ходить» — with

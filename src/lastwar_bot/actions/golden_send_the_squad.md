@@ -294,13 +294,19 @@ IF stalled == 1
         IF seen_now > 0
             WAIT {breather}
             TAP golden_scan
-        # …AND IF THE DROUGHT HAS GONE ON, WALK THE MAP AGAIN (#1702). The queue is what
-        # one sweep saw, and a sweep goes stale: live, after three empty pauses the leash
-        # went out to 700 tiles, found 139 rows in the invasion's own corner and dropped
-        # every one of them as a ghost — they had been killed while the chain was hunting
-        # beside the base. A lap of the map is eight seconds and it is the only thing that
-        # can refill a corner nobody is standing in. Not per kill, and not per pause: only
-        # while the ground the squad can reach has stayed empty.
+        # …AND IF THE DROUGHT HAS GONE ON, THE RING ROUND THE SQUAD IS WIDENED — THE MAP
+        # IS NEVER WALKED AGAIN (#2390). The operator's instruction, in their words:
+        # «сканирование карты… режим, который по секторам прыгает, это убираем полностью,
+        # мешает». What used to happen here was a lap of the whole warzone, and from the
+        # outside it is a camera flying about with nothing being killed.
+        #
+        # What refills the queue instead is the HUNT itself: every march lands the squad
+        # somewhere new, the client loads the district it is standing in, and the ring
+        # reaps whatever that district holds. When even that comes up dry the ring is
+        # doubled around the squad rather than the map being toured — same camera work as
+        # the opening look, in the one place the squad can actually reach.
         READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.dry) or 0) >= 3) and 1 or 0 end)() INTO drought
         IF drought == 1
-            CALL scan_map
+            TAP golden_widen_ring
+            TAP golden_refresh
+            TAP golden_scan
