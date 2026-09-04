@@ -145,6 +145,18 @@ Three things about it are deliberate:
 The hunt and the radar both call it, immediately after the free claim (§1) and long
 before the bag (§3), which is the operator's order of the three.
 
+**Live, 2026-09-04, and it settles the ladder as well as the ability.** First run:
+
+    refills_today = 0
+    sent=true gems_before=38695 gems_now=38395 paid=300
+              energy_before=3860 energy_now=3960 gained=100
+
+and a second run the same minute read `refills_today = 1` and sent nothing. So the
+operator's «300» is exactly right for the first refill of a day, the ceiling is not
+tripped by it, and 100 energy — ten monster attacks — is what it buys. The price still
+cannot be READ before the purchase; it is now known to be readable AFTER one, to the
+diamond, which is what the ceiling is built on.
+
 ### A warning paid for live
 
 Opening `UIAddStamina` and walking the window's own instance recursively — Unity objects
