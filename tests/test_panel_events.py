@@ -473,6 +473,13 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN,
     tab._arms_stamina = modelmod.ARMS_STAMINA_DEFAULT
     tab._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
     tab._arms_args_registered = True
+    # «Ящик с сюрпризом» and «Чужие пакеты в чате» — neither has a reading of its own:
+    # each card carries the last line a run said about it, and an empty one is «никто не
+    # спрашивал» rather than a zero.
+    tab._lucky_said = ""
+    tab._lucky_running = False
+    tab._red_said = ""
+    tab._red_running = False
     return tab
 
 
@@ -1299,3 +1306,46 @@ def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
+
+
+def test_the_chat_red_packet_card_says_what_the_ear_heard():
+    """The ear's card is keys and numbers, and every press it offers is answered.
+
+    The card carries no reading of its own on purpose (#2405): the announcement is a chat
+    message and the press is made inside the client's own chat ingress, so what the phone
+    shows is what the ear last said about itself — «никто не спрашивал» until somebody
+    asks, and the CLIENT's own daily count once they do.
+    """
+    tab = _tab()
+    card = _card(tab, "events.group." + modelmod.RED)
+    rows = {r["label"]: r["value"] for r in card["rows"]}
+    assert rows["events.state"] == "events.red.state.unknown"
+    assert rows["events.red.today"] == "—"
+    assert rows["events.red.caught"] == "—"
+    # Nothing here asks first: a share of somebody else's packet is free and takes
+    # nothing from anybody, and a repeat press is skipped by uuid inside the recipe.
+    assert [a["id"] for a in card["actions"]] == ["red_collect", "red_read", "red_watch"]
+    assert not any(a.get("confirm") for a in card["actions"])
+
+    # …and once the ear has answered, the card is the client's own numbers.
+    tab._red_said = "on=1 heard=3 taken=2 skipped=1 failed=0 lastMs=4 today=2 max=10"
+    card = _card(tab, "events.group." + modelmod.RED)
+    rows = {r["label"]: r["value"] for r in card["rows"]}
+    assert rows["events.state"] == "events.red.state.open"
+    assert rows["events.red.today"] == "2 / 10"
+    assert rows["events.red.caught"] == "3 → 2"
+    # The ear is standing, so it is not offered a second time.
+    assert [a["id"] for a in card["actions"]] == ["red_collect", "red_read"]
+
+
+def test_every_red_packet_press_reaches_a_scenario_and_nothing_else_does():
+    """Three presses, three recipes — and an unknown one is refused rather than guessed."""
+    tab = _tab()
+    for press, name in (("red_read", modelmod.RED_READ),
+                        ("red_collect", modelmod.RED_COLLECT),
+                        ("red_watch", modelmod.RED_WATCH)):
+        tab._red_running = False
+        tab.rt.played = []
+        assert tab.web_press(press, {}) == {"ok": True}
+        assert [p[0] for p in tab.rt.played] == [name]
+    assert tab.red("nonsense") == {"error": "unknown"}

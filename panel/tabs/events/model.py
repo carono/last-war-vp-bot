@@ -1155,3 +1155,72 @@ def lucky_left(said: str) -> str:
     if not got or minutes < 0 or int(got.get("live", 0)) <= 0:
         return "—"
     return str(minutes)
+
+
+#: «Чужие пакеты в чате» — the other side of the surprise box (#2405).
+#:
+#: Somebody else's lucky packet is announced in chat as `post = 611`, and everybody who
+#: presses in time gets a share of it. The share is free — the diamonds are the server's
+#: — and the packet is emptied by whoever presses first, so the ability is an EAR rather
+#: than a clock: `watch_red_packets` hooks the client's own chat ingress and presses
+#: inside the call that delivered the announcement (`CLAUDE.md`, «Read once, then LISTEN»).
+RED = "redpacket"
+
+#: The three scenarios behind it: arm the ear, say what it heard, sweep by hand.
+RED_WATCH = "watch_red_packets"
+RED_READ = "read_red_packet_watch"
+RED_COLLECT = "collect_red_packets"
+
+#: The variable the reading lands in — and the one ARMING lands in, which is a shorter
+#: sentence about the same ear.
+RED_VARIABLE = "watch"
+RED_ARMED = "armed"
+
+
+def red_fields(said: str) -> dict:
+    """`on=1 heard=3 taken=2 today=2 max=10` → a dict of whole numbers.
+
+    The same shape as :func:`lucky_fields`, and the same rule: a field the reading did
+    not say is absent rather than zero, because «караул не стоит» and «караул стоит и
+    ничего не слышал» are different answers.
+    """
+    out: dict = {}
+    for chunk in str(said or "").split():
+        name, _, value = chunk.partition("=")
+        try:
+            out[name] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def red_state(said: str) -> str:
+    """Is the ear standing? `open` when it is, `closed` when it is not, else `unknown`."""
+    got = red_fields(said)
+    if not got:
+        return UNKNOWN
+    return OPEN if int(got.get("on", 0)) > 0 else CLOSED
+
+
+def red_today(said: str) -> str:
+    """`2 / 10` — packets taken today against the day's ceiling, as the CLIENT counts.
+
+    Never a tally the panel keeps: the client's own `GetRedPacketGetNum` is the one
+    authority, exactly as the fireworks card uses `giftUuid2TimeTable` (#1899).
+    """
+    got = red_fields(said)
+    today = int(got.get("today", -1))
+    ceiling = int(got.get("max", -1))
+    if today < 0:
+        return "—"
+    if ceiling <= 0:
+        return str(today)
+    return f"{today} / {ceiling}"
+
+
+def red_caught(said: str) -> str:
+    """`3 → 2` — announcements heard by the ear and presses that left it."""
+    got = red_fields(said)
+    if not got:
+        return "—"
+    return f"{int(got.get('heard', 0))} → {int(got.get('taken', 0))}"

@@ -144,3 +144,99 @@ neither moment is a background question to the SERVER, which is what `CLAUDE.md`
 * «События» → «Ящик с сюрпризом» on the phone: the state, the minutes left, «Обновить»
   and the give-away, which asks first.
 * The errand `lucky_share` (`panel/timers.py`), 30 minutes, and the two chest hooks above.
+
+## 7. The other side: somebody ELSE's packet, and taking a share of it (#2405)
+
+Read live on 2026-09-04, on a client that had none in flight — everything below was got by
+INSPECTING the client (managers, message classes built in memory with sentinels and read
+back), and nothing was sent while it was found.
+
+### 7.1 What the announcement is
+
+A shared packet arrives as one ordinary chat message, `post = 611`, and the payload is the
+message's own `extra.customJsonParam` (JSON). Its keys, with invented values of the same
+shape:
+
+```json
+{"uuid": "<33 chars>", "packetId": 502, "goodsId": 995002, "luckSiphonId": 102,
+ "expiredTime": 1700000000000, "serverId": 8000, "redPacketServerId": 8000,
+ "hasRob": true}
+```
+
+`packetId` is the red-packet template (`lw_conveyluck.red_packet` — 502 on row 102, §2),
+`goodsId` the reward goods the sharer named (`redPocketId` in the share payload, §3), and
+`luckSiphonId` the `lw_conveyluck` row itself. So the two sides line up field for field:
+what §3 sends is what this reads.
+
+The client can be asked about it in its own words too: `ChatMessage:isRedPack()`,
+`isSystemOrFestivalRedPack()`, and `RedPacketManager` has `GetIsOverdue` / `GetIsReceive`
+/ `GetIsNone` / `GetReceiveCountByChatData` — but every one of those wants the manager's
+own parsed data object rather than the raw message (`GetIsOverdue(msg)` raises
+`attempt to perform arithmetic on a nil value (local 'expiredTime')`), so the recipe reads
+the JSON itself and judges `expiredTime` against `UITimeManager:GetServerTime()`.
+
+### 7.2 The press
+
+```
+MsgDefines.OpenRedPacket = open.red.packet     →  {uuid, cfgId, chatType, serverId}
+```
+
+The shape was read by building the message and reading its own SFS object back, never by
+sending one:
+
+```lua
+local cls = SFSNetwork.GetMsgType('open.red.packet')
+local msg = cls:NewMessage('ARG1', 2222, 3333, 4444)   -- in memory; nothing leaves
+-- msg.sfsObj  ->  uuid=ARG1  cfgId=2222  chatType=3333  serverId=4444
+```
+
+**The fourth field is not optional.** The first live run of the recipe sent three and the
+client's own serialiser refused it before a byte left the machine —
+`SFSDataSerializer.lua:39: bad argument #2 to 'pack' (number expected, got nil)`. It is the
+packet's own `redPacketServerId`.
+
+`chatType` is `RedPacketManager.ChannelType`: World 1, **Alliance 2**, Season 3,
+AliFriend 4 — taken from the room the message arrived in.
+
+**`cfgId` is sent as `packetId`, and it is the one guess in the ability.** The attachment
+holds two ids that could be it and there was no live packet to settle it; the ear records
+which one it sent (`cfg=` in its own rows) so the first live packet answers the question.
+
+The neighbouring commands, for whoever needs them next:
+
+| define | command | args | what it is |
+|---|---|---|---|
+| `GetAllianceRedPacket` | `get.alliance.red.packet` | none | the alliance's packet list — a REQUEST, deliberately not made on a clock |
+| `RedPacketDetail` | `red.packet.detail` | `uuid, cfgId, chatType, serverId` | who took what out of one |
+| `RedPacketsRvdId` | `redPackets.rvd.id` | — | ids already received |
+| `GetRedPack` / `SendRedPack` | `get.red.pack` / `send.red.pack` | one param each | the ordinary (non-lucky) red packets |
+| `PushNewSysRedPacket`, `PushPrePareRedPacket`, `PushReceiveAssignRedPacketMessage` | pushes | — | announcements the client knows how to receive; none of them carries the chat share |
+
+### 7.3 The daily ceiling, and who counts it
+
+`RedPacketManager:GetRedPacketGetNum()` / `GetRedPacketGetMaxNum()` — measured `0 / 10`.
+That is the CLIENT's own count of packets taken today and it is the only authority the
+panel uses; nothing keeps a tally of its own (the rule the fireworks card already goes by).
+`GetIsOpen()` = 1, `GetOpenLevel()` = 4 and `entrySwitch` = true say the mechanic is on for
+this account.
+
+### 7.4 Why it is an ear and not a clock
+
+The announcement rides the chat leg, which is TLS and cannot be sniffed
+(`docs/research/chat.md`), so there is no wire event to trigger on; and
+`get.alliance.red.packet` on a clock is precisely the background question `CLAUDE.md`
+forbids. What the client does give is the ingress the chat reader already uses —
+`Chat.Model.ChatMessage:onParseServerData`, which runs for every parsed message with the
+chat window shut. `actions/watch_red_packets.md` wraps it and presses inside the call that
+delivered the announcement; `read_red_packet_watch.md` says what it heard;
+`collect_red_packets.md` offers the same gate to the messages the client is ALREADY
+holding (`roomDatas[<room>].msgs`), which asks the server nothing either.
+
+The gates, all local: the day's count against its ceiling, `expiredTime` against the game's
+clock, `redPacketServerId` against our own server, a room whose channel the client does not
+name, and a uuid the ear has already pressed at — a second open at an emptied packet is
+refused WITH A POPUP, which is the mistake #2365 paid for on the fireworks.
+
+**Still open:** how many diamonds a share was worth. The reply was not read (no live
+packet), so the card counts PACKETS and says nothing about diamonds rather than inventing
+a number.

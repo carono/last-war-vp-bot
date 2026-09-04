@@ -688,6 +688,28 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.firework_watch",
     ),
     Trigger(
+        name="red_packet_watch",
+        # SOMEBODY ELSE'S PACKET OF FREE DIAMONDS, and the ear that takes a share of it
+        # (#2405). The announcement is a CHAT message (`post = 611`) and the chat leg is
+        # TLS — there is nothing on the wire to fire a trigger on, and asking the server
+        # on a clock is what `CLAUDE.md` forbids. So the press is made inside the client's
+        # own chat ingress by `watch_red_packets`, and this poll exists for one thing:
+        # KEEPING THAT HOOK ALIVE. A client restart takes the VM and everything parked in
+        # it, and an ear nobody re-armed hears nothing for ever while looking healthy.
+        #
+        # The check is the hook's own flag, so the ordinary answer is «no» and the recipe
+        # is played only when the ear is genuinely gone — the same shape as
+        # `firework_watch` above, and for the same reason.
+        kind=KIND_POLL,
+        check=("(function() local B = DataCenter.__lw_rpw "
+               "return (B == nil) or (not B.on) end)()"),
+        interval_sec=180,
+        cooldown_sec=170,
+        scenario=("watch_red_packets",),
+        enabled=False,
+        label_key="triggers.item.red_packet_watch",
+    ),
+    Trigger(
         name="piece_exchange",
         # SOMEBODY TOOK OUR OFFER — measured, not assumed (#1975). Twice over, the wire
         # shows `push.treasure.fragment.exchange {DIG_GAME_TREASURE_FRAGMENT = 1}`

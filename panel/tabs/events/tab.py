@@ -167,6 +167,13 @@ class EventsTab(PanelTab):
         self._lucky_said = ""
         self._lucky_running = False
 
+        # -- «Чужие пакеты в чате»: the ear that takes a share of somebody else's -----
+        #: The last line `read_red_packet_watch` brought back, verbatim. Nothing is read
+        #: to DRAW the card either: the ear presses by itself inside the chat ingress and
+        #: this is only what it says about itself when a person asks (#2405).
+        self._red_said = ""
+        self._red_running = False
+
         # -- «Золотые зомби» ------------------------------------------------
         #: Its own reading, on its own clock: the two events answer different questions
         #: and one being unreadable must not blank the other.
@@ -2207,6 +2214,33 @@ class EventsTab(PanelTab):
                                         "label": "events.lucky.share",
                                         "confirm": "events.lucky.confirm"})
 
+        # …and «Чужие пакеты в чате» (#2405), the other side of the box: somebody else's
+        # packet, announced in chat, that anybody may take a share of while it lasts. The
+        # share is free and the packet is emptied by whoever presses first, so what draws
+        # here is an EAR rather than a reading on a clock — `watch_red_packets` presses
+        # inside the call that delivered the announcement, and the card says whether it is
+        # standing, what it has heard and what the CLIENT counts as taken today.
+        rstate = modelmod.red_state(self._red_said)
+        rpcard = {"title": "events.group." + modelmod.RED, "rows": [
+            {"label": "events.state",
+             "value": self.t("events.red.state." + rstate)},
+            {"label": "events.red.today",
+             "value": modelmod.red_today(self._red_said)},
+            {"label": "events.red.caught",
+             "value": modelmod.red_caught(self._red_said)},
+        ],
+            "actions": [{"id": "red_read", "label": "events.red.read"}]}
+        if not self._red_running:
+            # Taking a share costs nothing and takes nothing from anybody — the diamonds
+            # are the server's — so neither press asks first. What they do is bounded by
+            # the recipe: a packet already pressed at is skipped by uuid, so a second
+            # press in a row sends nothing.
+            rpcard["actions"].insert(0, {"id": "red_collect",
+                                         "label": "events.red.collect"})
+            if rstate != modelmod.OPEN:
+                rpcard["actions"].append({"id": "red_watch",
+                                          "label": "events.red.watch"})
+
         return {"cards": [
             {"title": None, "rows": [
                 {"label": "events.web.read",
@@ -2218,6 +2252,7 @@ class EventsTab(PanelTab):
             tcard,
             fcard,
             lcard,
+            rpcard,
             rcard,
             acard,
         ], "now": time.time(),
@@ -2277,6 +2312,36 @@ class EventsTab(PanelTab):
         return {"ok": self.rt.play_async(name, tag="events", human=True,
                                          on_result=came)}
 
+    def red(self, what: str) -> dict:
+        """Say what the ear heard, sweep the chat by hand, or stand the ear back up.
+
+        Three scenarios, one press each, exactly as the neighbouring card does. THE
+        PRESSES ARE THE PHONE'S AND THE WINDOW HAS NONE — the migration's rule, not an
+        omission (`CLAUDE.md`, #1976): new work goes into the web while Tk is retired.
+
+        None of them asks first. A share of somebody else's packet is free and takes
+        nothing from anybody, and the recipe skips a packet it has already pressed at, so
+        the worst a double press can do is nothing at all.
+        """
+        name = {"read": modelmod.RED_READ, "collect": modelmod.RED_COLLECT,
+                "watch": modelmod.RED_WATCH}.get(what)
+        if name is None:
+            return {"error": "unknown"}
+        self._red_running = True
+
+        def came(outcome) -> None:
+            got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+            # `read_red_packet_watch` answers in `watch`; arming answers in `armed` and
+            # says the same numbers in fewer words, so either is taken.
+            said = str(got.get(modelmod.RED_VARIABLE)
+                       or got.get(modelmod.RED_ARMED) or "").strip()
+            if said:
+                self._red_said = said
+            self._red_running = False
+
+        return {"ok": self.rt.play_async(name, tag="events", human=True,
+                                         on_result=came)}
+
     def web_press(self, action: str, args: dict) -> dict:
         """The same three presses the window has, and nothing the window has not."""
         if action == "refresh":
@@ -2285,6 +2350,8 @@ class EventsTab(PanelTab):
             return self.ruins(action == "ruins_play")
         if action in ("lucky_read", "lucky_share"):
             return self.lucky(action.split("_", 1)[1])
+        if action in ("red_read", "red_collect", "red_watch"):
+            return self.red(action.split("_", 1)[1])
         if action == "collect_fireworks":
             return {"ok": self.collect_fireworks()}
         if action == "play_arms":
