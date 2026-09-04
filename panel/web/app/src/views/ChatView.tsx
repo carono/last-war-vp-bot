@@ -36,7 +36,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { get, post } from '../api'
-import { t } from '../i18n'
+import { span, t } from '../i18n'
 import { Marked } from '../ui/Coord'
 import { Modal } from '../ui/Modal'
 import { pressWord } from '../ui/press'
@@ -116,11 +116,17 @@ export function ChatView({
   screen,
   rooms,
   listening,
+  silent,
+  waiting,
   pollKey,
 }: {
   screen: string
   rooms: ChatRoomTab[]
   listening: boolean
+  /** Seconds since the newest message the panel has filed, or null for none at all. */
+  silent: number | null
+  /** The monitor is on but its reader is down and being brought back. */
+  waiting: boolean
   pollKey: number
 }) {
   const toast = useToast()
@@ -442,6 +448,22 @@ export function ChatView({
     </div>
   )
 
+  /* HOW OLD WHAT IS ON SCREEN IS (#2418). A conversation whose newest message is an hour
+     old and one whose ear has been down since Tuesday are drawn identically, and the
+     second is the one somebody reports as «чат не обновляется». So the age is said, and
+     with it the one thing that explains it: whether anything is listening at all. */
+  const state = (
+    <p className="muted small chatstate">
+      {!ear
+        ? t('chat.ear.off')
+        : waiting
+          ? t('chat.ear.waiting')
+          : silent !== null
+            ? t('chat.silent', { span: span(silent) })
+            : ''}
+    </p>
+  )
+
   /* «ЛС» WITH NO THREAD OPEN IS A LIST OF PEOPLE, not a channel. A private message is
      answered to WHOEVER SENT IT — outgoing chat cannot be unsent, so the phone never
      writes into «whatever thread was last looked at». */
@@ -449,6 +471,7 @@ export function ChatView({
     return (
       <>
         {chips}
+        {state}
         <div className="chat">
           <div className="chatpane" ref={pane}>
             {contacts.length ? (
@@ -475,6 +498,7 @@ export function ChatView({
   return (
     <>
       {chips}
+      {state}
       <div className="chat">
         {room ? (
           <button className="back thread" onClick={() => setRoom('')}>

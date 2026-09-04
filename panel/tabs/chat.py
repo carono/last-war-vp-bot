@@ -128,6 +128,16 @@ class ChatTab(PanelTab):
         self._chat_var = statevar.boolean(rt.root, False)
         self._chat_q: "queue.Queue[dict]" = queue.Queue()
         self._chat_proc = None
+        # THE EAR IS KEPT UP (#2418). The reader is a child process that dies with the
+        # game it listens to — a client restart, a failed hook, a machine asleep — and a
+        # dead ear used to switch the monitor OFF and file nothing until somebody
+        # noticed. Nobody does: a chat that stopped growing looks exactly like a quiet
+        # one. So the switch says what the PERSON wants and the child is brought back
+        # while that is «on», with a widening gap so a client that is down is not
+        # hammered.
+        self._chat_wanted = False
+        self._chat_retry = 0.0
+        self._chat_retry_timer = None
         # In-memory chat messages keyed by chat_type. `system` has a tab of its own
         # now — it used to be counted here and shown nowhere.
         self._chat_msgs: dict = {t: [] for t in CHAT_TABS}
@@ -307,10 +317,40 @@ class ChatTab(PanelTab):
         # switch was the window's tick.
         return {"cards": cards, "now": _time.time(), "map": {"kind": "chat"},
                 "listening": bool(self._chat_var.get()),
+                # HOW OLD THE READING IS (#2418). A chat nobody has written into for an
+                # hour and a chat whose ear has been down since Tuesday look identical —
+                # the newest message is old in both. So the age travels and the phone
+                # says it; stale is visibly stale rather than quietly wrong.
+                "silent": self._chat_silence(),
+                "waiting": bool(self._chat_wanted and self._chat_proc is None),
                 "rooms": [{"type": t, "room": self._chat_room(t),
                            "unread": int(self._chat_unread.get(t, 0))}
                           for t in CHAT_TABS],
                 "actions": [{"id": "history", "label": "chat.history.load"}]}
+
+    def _chat_silence(self) -> "float | None":
+        """Seconds since the newest message this profile has filed, or ``None``.
+
+        Judged on the GAME's clock, because the messages are stamped with the server's
+        own time and the machine's is the one that lies (`tools/lib/game_clock.py`).
+        """
+        import game_clock
+
+        newest = 0.0
+        for chat_type in CHAT_TABS:
+            rows = self._chat_msgs.get(chat_type) or ()
+            if rows:
+                try:
+                    newest = max(newest, float(rows[-1].get("ts") or 0.0))
+                except Exception:              # noqa: BLE001 — a bad stamp is no stamp
+                    pass
+        if not newest:
+            return None
+        try:
+            now = game_clock.now_ms() / 1000.0
+        except Exception:                      # noqa: BLE001 — no game, no judgement
+            return None
+        return max(0.0, now - newest)
 
     #: Which channel the phone's picker sends into. Not a per-profile setting — it is
     #: «which card am I answering» and it is answered again every time the screen is
@@ -2039,7 +2079,15 @@ class ChatTab(PanelTab):
         else:
             self._stop_chat()
 
+    #: How long the panel waits before bringing a dead reader back, and the ceiling
+    #: that wait grows to. Seconds. The first gap is short because the ordinary death
+    #: is a client that is restarting; the ceiling is what a client that is OFF costs.
+    CHAT_RETRY_FIRST = 15.0
+    CHAT_RETRY_MAX = 300.0
+
     def _start_chat(self) -> None:
+        self._chat_wanted = True
+        self._cancel_chat_retry()
         if self._chat_proc is not None:
             return
         out = self.rt.profiles.chat_log()
@@ -2058,7 +2106,10 @@ class ChatTab(PanelTab):
                           on_line=self._on_chat_line, on_exit=self._on_chat_exit,
                           capture_stderr=False)
         if not mon.start():
-            self._chat_var.set(False)
+            # A child that will not start is the same case as one that died: at the
+            # boot it usually means the client is not up yet, and switching the monitor
+            # off for that reason is how the ear stayed down for three days (#2418).
+            self._schedule_chat_retry()
             return
         self._chat_proc = mon
         # The monitor means the game is alive: read the current character's uid now
@@ -2079,6 +2130,9 @@ class ChatTab(PanelTab):
                     # is «the reader is talking to us» and the pump is «we did something
                     # with it», and the gap between them is what a flow strip is for.
                     self.take(INTAKE_CHAT).seen()
+                    # A message proves the ear is working, so the next death starts
+                    # from the short gap again rather than from the ceiling.
+                    self._chat_retry = 0.0
                     self._chat_q.put(record)
             except json.JSONDecodeError:
                 pass
@@ -2087,13 +2141,43 @@ class ChatTab(PanelTab):
     def _on_chat_exit(self) -> None:
         self.say("chat", "log.chat.ended")
         self._chat_proc = None
+        if self._chat_wanted and bool(self._chat_var.get()):
+            self._schedule_chat_retry()
+            return
         self._chat_var.set(False)
+
+    def _schedule_chat_retry(self) -> None:
+        """Bring the reader back after a widening gap, while the switch says «on»."""
+        self._cancel_chat_retry()
+        gap = self._chat_retry or self.CHAT_RETRY_FIRST
+        self._chat_retry = min(gap * 2.0, self.CHAT_RETRY_MAX)
+        self.say("chat", "log.chat.retry", sec=int(gap))
+        timer = threading.Timer(gap, lambda: self.post(self._chat_retry_now))
+        timer.daemon = True
+        self._chat_retry_timer = timer
+        timer.start()
+
+    def _cancel_chat_retry(self) -> None:
+        timer, self._chat_retry_timer = self._chat_retry_timer, None
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:               # noqa: BLE001 — a timer, never the panel
+                pass
+
+    def _chat_retry_now(self) -> None:
+        """The gap has passed: start again if the switch is still on."""
+        self._chat_retry_timer = None
+        if self._chat_wanted and bool(self._chat_var.get()) and self._chat_proc is None:
+            self._start_chat()
 
     # chat_log.jsonl is written by chat_reader.py itself (`--out`), so the panel
     # does NOT append here: two processes appending to one file interleaved
     # their buffers, duplicating every record and corrupting utf-8 mid-line.
 
     def _stop_chat(self) -> None:
+        self._chat_wanted = False
+        self._cancel_chat_retry()
         mon, self._chat_proc = self._chat_proc, None
         if mon is not None:
             self.say("chat", "log.chat.stopped")

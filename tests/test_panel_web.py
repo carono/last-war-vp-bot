@@ -2776,6 +2776,35 @@ def test_no_reading_can_push_the_page_sideways():
             f"a rule may run off the screen: {block.strip()[:90]}"
 
 
+def test_the_poll_survives_a_phone_being_locked():
+    """#2418: the beat used to die on the FIRST `visibilitychange` and never come back.
+
+    `clearInterval` in the listener, and the effect that made the interval only re-runs
+    when `tick` changes — which it does not. So a phone locked once, or another app
+    opened once, left the page open and asking for nothing ever again: no state, no log,
+    and a chat frozen on whatever was drawn. Reported as «чат не обновляется», and it
+    was every screen.
+    """
+    app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
+    assert "const [hidden, setHidden] = useState(document.hidden)" in app, \
+        "whether the page is hidden is not state, so the interval cannot be re-armed"
+    assert "}, [tick, hidden])" in app, \
+        "the poll's effect does not re-run when the page comes back"
+    assert "setHidden(document.hidden)" in app, \
+        "the visibility listener no longer moves the state the poll hangs off"
+
+
+def test_the_chat_screen_says_how_old_it_is():
+    """A conversation with no age on it reads as fresh (#2418)."""
+    chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")
+    assert "t('chat.silent', { span: span(silent) })" in chat, \
+        "the chat draws no age for its newest message"
+    assert "t('chat.ear.off')" in chat, \
+        "a stopped monitor is not said on the phone"
+    screen = (_APP_SRC / "views" / "ScreenView.tsx").read_text(encoding="utf-8")
+    assert "silent={view.silent ?? null}" in screen, "the age never reaches the chat"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

@@ -910,6 +910,8 @@ export function ScreenPage({
           screen={id}
           rooms={view.rooms || []}
           listening={!!view.listening}
+          silent={view.silent ?? null}
+          waiting={!!view.waiting}
           pollKey={pollKey}
         />
       ) : view?.map?.kind === 'world' ? (

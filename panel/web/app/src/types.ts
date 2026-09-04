@@ -402,6 +402,12 @@ export interface ScreenView {
      them (#2064)? With it off the history simply stops growing, and the phone must be
      able to see that and to start it, not only the window. */
   listening?: boolean
+  /* HOW OLD THE CHAT'S NEWEST MESSAGE IS, in seconds (#2418). A reading with no age on
+     it is read as fresh, and an ear that died three days ago looks exactly like a quiet
+     evening. */
+  silent?: number | null
+  /* The monitor is wanted but the reader is not up — it died and is being brought back. */
+  waiting?: boolean
 }
 
 /** One channel of the chat: «Мир», «Альянс», «ЛС» … with its unread count. */

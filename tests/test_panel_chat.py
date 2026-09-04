@@ -623,6 +623,95 @@ def test_the_sprite_route_serves_only_the_extracted_art():
         assert chat_assets.sprite_named(_url.unquote(name)), entry
 
 
+# --- the ear is kept up, and its silence is said (#2418) --------------------
+
+class _Var:
+    """The monitor switch, without Tk."""
+
+    def __init__(self, on: bool) -> None:
+        self._on = bool(on)
+
+    def get(self):
+        return self._on
+
+    def set(self, on) -> None:
+        self._on = bool(on)
+
+
+def _ear_stand_in(pm, *, wanted=True, on=True):
+    """A ChatTab shaped just enough to answer for the reader's lifetime."""
+    P = object.__new__(pm.ChatTab)
+    P._chat_var = _Var(on)
+    P._chat_proc = None
+    P._chat_wanted = wanted
+    P._chat_retry = 0.0
+    P._chat_retry_timer = None
+    P._said = []
+    P.say = lambda tag, key, **fmt: P._said.append(key)
+    P.post = lambda call: None
+    for name in ("_on_chat_exit", "_schedule_chat_retry", "_cancel_chat_retry",
+                 "_chat_retry_now", "_chat_silence"):
+        setattr(P, name, getattr(pm.ChatTab, name).__get__(P))
+    return P
+
+
+def test_a_dead_reader_is_brought_back_and_never_switches_the_monitor_off():
+    """The live failure of #2418: the reader died and the ear stayed down for days.
+
+    The child dies with the game it listens to — a client restart, a failed hook — and
+    the exit used to switch the monitor off. Nothing switches it back, and a chat that
+    has stopped growing is indistinguishable from a quiet one, so the panel filed
+    nothing for three days and said so once, in a line that scrolled away.
+    """
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
+        print(f"  SKIP test_a_dead_reader_is_brought_back...: {exc}")
+        return
+
+    P = _ear_stand_in(pm)
+    P._on_chat_exit()
+    assert P._chat_var.get() is True, "a death switched the person's monitor off"
+    assert P._chat_retry_timer is not None, "nothing was scheduled to bring it back"
+    assert "log.chat.retry" in P._said, "the retry is not said in the log"
+    # …and the gap WIDENS, so a client that is off is not hammered.
+    first = P._chat_retry
+    P._chat_retry_timer.cancel()
+    P._on_chat_exit()
+    assert P._chat_retry > first, "the gap between attempts does not widen"
+    assert P._chat_retry <= pm.ChatTab.CHAT_RETRY_MAX
+    P._chat_retry_timer.cancel()
+
+    # A monitor the PERSON switched off is left alone: no retry, no timer.
+    Q = _ear_stand_in(pm, wanted=False, on=False)
+    Q._on_chat_exit()
+    assert Q._chat_retry_timer is None, "a monitor nobody wants is being restarted"
+
+
+def test_the_chat_says_how_old_its_newest_message_is():
+    """A reading with no age on it is read as fresh (#2418)."""
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_the_chat_says_how_old...: {exc}")
+        return
+
+    import game_clock
+
+    P = _ear_stand_in(pm)
+    P._chat_msgs = {t: [] for t in pm.CHAT_TABS}
+    assert P._chat_silence() is None, "an empty chat claims an age"
+
+    was = game_clock.now_ms
+    game_clock.now_ms = lambda: 1_000_000_000_000
+    try:
+        # The stamp is the GAME's, judged on the game's clock and never the machine's.
+        P._chat_msgs["world"] = [{"ts": 1_000_000_000.0 - 90.0}]
+        assert abs(P._chat_silence() - 90.0) < 1.0, P._chat_silence()
+    finally:
+        game_clock.now_ms = was
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

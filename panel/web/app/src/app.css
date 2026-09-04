@@ -1584,6 +1584,8 @@ body.modal-open {
    a thumb already is. The pane takes what the viewport has left rather than a fixed
    height — a phone in landscape and a desktop window are the same markup. */
 .chat { display: flex; flex-direction: column; gap: 8px; }
+/* How old the conversation on screen is, and whether anything is listening (#2418). */
+.chatstate { margin: 2px 0 6px; }
 
 .chatpane {
   display: flex;

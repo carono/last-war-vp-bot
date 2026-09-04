@@ -248,6 +248,10 @@ function Panel() {
      Held here only to draw it. */
   const [theme, setTheme] = useState<Theme>('system')
   const [tickCount, setTickCount] = useState(0)
+  /* Is the page in a pocket? It decides how fast the poll beats, and it is STATE rather
+     than a reading taken once, because the interval is re-armed when it moves (#2418). */
+  const [hidden, setHidden] = useState(document.hidden)
+  const idRef = useRef(0)
   const logAt = useRef(0)
   const notifyRef = useRef(false)
   const viewRef = useRef<ViewName>('state')
@@ -357,20 +361,30 @@ function Panel() {
   }, [theme])
 
   // The poll: quick while somebody is looking, slow while the phone is in a pocket.
+  //
+  // THE CLOCK IS RE-ARMED WHEN THE PAGE COMES BACK (#2418). It used to be cleared on
+  // `visibilitychange` and never started again — the effect only re-runs when `tick`
+  // changes, which it does not — so the FIRST time a phone was locked or another app
+  // was opened, the panel stopped asking for anything for as long as the page stayed
+  // open: no state, no log, and a chat frozen at whatever was on it. That is what «чат
+  // не обновляется» looks like from the front-end's side. The interval now hangs off a
+  // piece of state the listener moves, so hiding and showing re-arm it at the right
+  // speed instead of killing it.
   useEffect(() => {
+    const beat = () => {
+      window.clearInterval(idRef.current)
+      idRef.current = window.setInterval(() => void tick(), hidden ? SLOW_MS : POLL_MS)
+    }
     void tick()
-    const every = document.hidden ? SLOW_MS : POLL_MS
-    const id = window.setInterval(() => void tick(), every)
-    const wake = () => {
-      window.clearInterval(id)
-      if (!document.hidden) void tick()
-    }
-    document.addEventListener('visibilitychange', wake)
-    return () => {
-      window.clearInterval(id)
-      document.removeEventListener('visibilitychange', wake)
-    }
-  }, [tick])
+    beat()
+    return () => window.clearInterval(idRef.current)
+  }, [tick, hidden])
+
+  useEffect(() => {
+    const watch = () => setHidden(document.hidden)
+    document.addEventListener('visibilitychange', watch)
+    return () => document.removeEventListener('visibilitychange', watch)
+  }, [])
 
   useEffect(() => {
     if (view === 'timers') void refreshTimers()
