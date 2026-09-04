@@ -994,14 +994,14 @@ class ChatTab(PanelTab):
 
     @staticmethod
     def _parse_rooms(raw: str) -> dict:
-        """`<id>\t<name in hex>\t<messages>` per line — as `read_chat_rooms` leaves it.
+        """`<id>\t<name in hex>\t<messages>`, `;;` between rooms — as the recipe leaves it.
 
         The name is hex because a group is named by a person and may hold any byte; a
         line that will not decode keeps the room and loses the name, which is the way
         round that shows a chip rather than hiding one.
         """
         out: dict = {}
-        for line in raw.replace("\r", "").split("\n"):
+        for line in raw.replace("\r", "").replace("\n", ";;").split(";;"):
             bits = line.split("\t")
             room = bits[0].strip() if bits else ""
             if not room:

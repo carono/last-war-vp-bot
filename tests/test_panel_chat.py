@@ -801,7 +801,9 @@ def test_the_room_list_is_read_from_the_client_never_written_down():
         return
 
     raw = "\t".join(["custom_group_00ff", "d093d180d183d0bfd0bfd0b0", "40"])
-    got = pm.ChatTab._parse_rooms(raw + "\ncountry_1000_11\t\t24")
+    # `;;` between rooms: the reading travels as ONE line, so a newline between them
+    # is cut off at the first (measured live — 69 rooms came back as one).
+    got = pm.ChatTab._parse_rooms(raw + ";;country_1000_11\t\t24")
     assert got["custom_group_00ff"]["name"] == "Группа", got
     assert got["custom_group_00ff"]["msgs"] == 40
     assert got["country_1000_11"]["name"] == "", "a nameless room invented one"
