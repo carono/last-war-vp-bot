@@ -1160,8 +1160,11 @@ and no fallback**. Every line below is counted off `panel.log` between those two
 | | seconds | share |
 |---|---|---|
 | parked — the game belongs to somebody else | **620** | **61 %** |
-| our own statements (294 of them, median gap 0 s, mean 0.8 s) | 113 | 11 % |
-| the rest — marches in the air, waits the recipe asked for | 277 | 28 % |
+| the chain's own statements, uninterrupted (183 gaps, median 0 s, mean 1.4 s) | 259 | 26 % |
+| this session's own dev probes, which an ordinary evening does not have | 81 | 8 % |
+| the rest — marches in the air, waits the recipe asked for | 50 | 5 % |
+
+The chain played **253 statements** in the window — 84 a kill.
 
 Sixty-six parks, median **7 s**, longest 40 s. Who took it:
 
@@ -1177,9 +1180,10 @@ other three are.
 
 ### What that says, and what it does not
 
-**The recipe is no longer the slow part.** 294 statements cost 113 s between them — a
-median gap of zero seconds, which is what a lap looks like when the VM answers in 0.15 s
-and nothing is queued behind it. The flight was not the slow part either: the picks were
+**The recipe is no longer the slow part.** Of the 252 gaps between those statements, the
+183 nobody interrupted cost 259 s together — a median of zero seconds, which is what a lap
+looks like when the VM answers in 0.15 s and nothing is queued behind it. The other 69 —
+the ones with a park in them — cost 736 s, a median of **8 s each**. The flight was not the slow part either: the picks were
 8, 40 and 11 tiles, ten to fifty seconds of marching.
 
 **The slow part is the priority the chain is deliberately given.** `DETACH` puts it below
@@ -1194,7 +1198,7 @@ So the two levers left are, in order of what they are worth:
 1. **Fewer questions from the neighbours.** `default/poll` alone held the client for 204 s
    of the window — a fifth of it — and that is the rule this repository already has
    («Read once, then LISTEN»). Every poll retired is a fifth of a kill given back.
-2. **Fewer statements per lap.** 98 statements a kill is 98 chances to be parked. Folding
+2. **Fewer statements per lap.** 84 statements a kill is 84 chances to be parked. Folding
    the reads that always travel together into one call — the way `golden_land_or_reaim`
    folded «has it landed» and «re-aim it» into one round trip (§4j) — cuts the exposure
    without touching anybody else's priority.
