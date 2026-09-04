@@ -544,7 +544,25 @@ class Schedule:
         # …and then whatever the errand itself said would make the run pointless
         # (:meth:`register_precondition`). Only asked with the client up, so the check
         # never pays for a reading that cannot answer.
+        # A SQUAD ALREADY OUT IS A SKIP, FOR EVERY ERRAND AND NOT JUST THE ONE THAT WAS
+        # WIRED BY HAND (#2404). The operator's rule: «другой сценарий, использующий этот
+        # же отряд, просто должен перезапуститься позже или пропустить свою очередь». The
+        # rally join has answered it since #1281 through a precondition of its own; every
+        # other errand that spends a slot — the arms race on slot 1, the golden hunt, the
+        # treasure dig — went the whole way in to find out, and the auto-join then spent
+        # about thirty seconds a run asking the game whether a squad it never had turned
+        # up. This asks from the errand's OWN arguments, so an ability written tomorrow is
+        # gated the day it picks squads. Above the registered check, because a slot that
+        # is away makes every other reason moot.
         check = self._before.get(name) if name is not None else None
+        if check is None and self._squads_away(name):
+            # …AND NOT OVER THE HEAD OF AN ERRAND THAT ANSWERS THIS ITSELF. The rally
+            # auto-join has had its own squad precondition since #1281 and it asks the
+            # GAME at the moment of the decision (0.06–0.10 s), where this one decides
+            # off a reading that may be a minute old. Two answers to one question is how
+            # a run gets held by the worse-informed of them, so where a bespoke check
+            # exists it is the only one asked.
+            return "timers.log.squad_busy"
         if check is None:
             return None
         try:
@@ -587,6 +605,65 @@ class Schedule:
             when = time.strftime("%H:%M", time.localtime(day.next_reset_epoch(time.time())))
             self.rt.say("timer", "timers.log.day_reset", at=when)
         except Exception:                     # noqa: BLE001 — a line, never the gate
+            pass
+
+    def _squads_away(self, name) -> tuple:
+        """Which of the named errand's squads are out — ``()`` for «go ahead» (#2404).
+
+        The slots are read off the same two places the run itself would be handed them:
+        the live source a tab registered (:meth:`register_args`) and the errand's own
+        entry in the catalogue. A reading, so it may never be the reason an errand did
+        not run — anything that goes wrong answers «go ahead», exactly as an unreadable
+        squad state does inside the gate itself.
+        """
+        if not name:
+            return ()
+        try:
+            return squadgate.held(self.rt, self._squad_args(name))
+        except Exception:                     # noqa: BLE001 — a reading, never the run
+            return ()
+
+    def _squad_args(self, name) -> dict:
+        """The named errand's arguments, from the two places a run would be handed them.
+
+        The catalogue entry's own, and the live source a tab registered
+        (:meth:`register_args`) — which is where the squad picker's list arrives from, so
+        a slot un-ticked on the page is not gated a second later off a stale copy.
+        """
+        args: dict = {}
+        if not name:
+            return args
+        entry = self.timers.by_name(name)
+        if entry is not None:
+            args.update(getattr(entry, "args", {}) or {})
+        source = self._args.get(name)
+        if source is not None:
+            args.update(source() or {})
+        return args
+
+    def _squads_moved(self, name) -> None:
+        """An errand that spends squads has just finished — look again (#2404).
+
+        THE EVENT THAT KEEPS THE SQUAD GATE HONEST, and the reason it is an event rather
+        than a clock. The gate above decides off the reading the panel already has and
+        never takes one itself, because a refused errand is parked and re-offered
+        (`panel/timers.py::_park_gated`) — a gate that read would become a question at
+        the client every few seconds, which is the background poll this repository
+        forbids. So the reading is refreshed at the one moment it can have changed: a run
+        that was handed squads has just ended, and whatever it sent is now out.
+
+        One call, on a worker, only for an errand that names slots — and only after the
+        claim has been let go, so it queues behind nothing. What it buys is the next
+        errand's skip: measured before it, 64 of 122 auto-join runs spent about thirty
+        seconds each finding out the hard way.
+        """
+        try:
+            if not squadgate.slots(self._squad_args(name)):
+                return
+            reader = getattr(self.rt, "squads", None)
+            if reader is not None:
+                reader.refresh_async()
+        except Exception:                     # noqa: BLE001 — a reading, never the run
             pass
 
     def _is_recovery(self, name: str) -> bool:
@@ -643,18 +720,6 @@ class Schedule:
         JSON carry its commands inline.
         """
         name = getattr(errand, "name", "")
-        # A SQUAD ALREADY OUT MEANS SKIP, AND IT IS ASKED BEFORE THE CLIENT IS CLAIMED
-        # (#2404, `panel/runtime/squad_gate.py`). The operator's rule: «другой сценарий,
-        # использующий этот же отряд, просто должен перезапуститься позже или пропустить
-        # свою очередь». So an errand whose every slot is marching never claims, never
-        # sends, and never asks the game whether the squad came back — it says which
-        # slots are away and comes round on its own next tick. HERE, above the detached
-        # branch as well, because the golden hunt spends a slot too.
-        away = self._squads_away(errand)
-        if away:
-            self.rt.say("timer", "timers.log.squad_busy", name=name,
-                        squads=squadgate.said(away))
-            return True
         # HOW URGENT THIS ERRAND SAID IT WAS (#1288). An entry marked «сразу» in the
         # catalogue claims the client at EXPRESS, which means two things at once: it
         # never waits behind an ordinary errand, and it is never asked to step aside for
@@ -780,18 +845,7 @@ class Schedule:
             self._note_presses(ctx)
             self.rt.game.release()
             self.rt.game.on_settled()
-
-    def _squads_away(self, errand) -> tuple:
-        """Which of this errand's squads are out, or ``()`` for «go ahead» (#2404).
-
-        A reading, so it may never be the reason an errand did not run: anything that
-        goes wrong while asking answers «go ahead», exactly as an unreadable squad state
-        already does inside the gate.
-        """
-        try:
-            return squadgate.held(self.rt, self.args(errand))
-        except Exception:                     # noqa: BLE001 — a reading, never the run
-            return ()
+            self._squads_moved(name)
 
     def _detached_errand(self, errand) -> bool:
         """Is this errand ONE scenario, and does that scenario declare `DETACH`? (#1702)
@@ -833,6 +887,7 @@ class Schedule:
         def done(outcome) -> None:
             ctx = getattr(outcome, "ctx", None)
             self._note_presses(ctx)
+            self._squads_moved(name)
             if ctx is None:
                 return
             if report is not None:

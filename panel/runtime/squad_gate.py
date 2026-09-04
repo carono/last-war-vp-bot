@@ -22,10 +22,17 @@ FOUR THINGS IT IS NOT, and each is a rule of this repository rather than taste:
   (`panel/runtime/schedule.py::run_errand`), so an errand that has nothing to send never
   joins the queue at all. That is the whole point: the arms race must not take the link
   in order to find out that its squad is away.
-* **not a guess.** The answer is the client's own copy of where the squads are
-  (`panel/runtime/squads.py`), which is read once and held for
-  :data:`~panel.runtime.squads.FRESH_SEC`, so three errands firing in the same second
-  cost one reading between them.
+* **not a poll, and it never reads the game itself.** It looks at the reading the panel
+  already has (`SquadReader.latest`) and at nothing else. That matters more than it
+  looks: a refused errand is PARKED and re-offered whenever the gate might have opened
+  (`panel/timers.py::_park_gated`), so a gate that took a reading would turn one held
+  errand into a question at the client every few seconds — the background poll this
+  repository forbids, invented in the name of the rule against waiting. The reading is
+  refreshed by EVENTS instead: a march crossing the wire, and a run that has just spent
+  a squad (`panel/runtime/schedule.py`, `SquadReader.refresh_async`).
+* **not a stale belief.** A reading older than :data:`FRESH_SEC` is not used at all, and
+  neither is a missing one: with nothing recent to go on the errand runs exactly as it
+  did before this module existed.
 * **not a refusal when it cannot see.** `at_base` answers `None` for «no reading» — no
   client, nothing parsed — and a gate that cannot see must never claim a squad is out.
   An unreadable state runs exactly as it did before this module existed.
@@ -46,6 +53,13 @@ from __future__ import annotations
 #: both shapes: `squads` is a list (the rally join, the treasure dig), `squad` is one
 #: (the arms race, the golden hunt, a rally raised by hand).
 SQUAD_ARGS = ("squads", "squad")
+
+#: How old the panel's squad reading may be and still decide this. A march is minutes
+#: and a gather is hours, so a reading from two minutes ago is still about the same
+#: journey — but a squad that came home in between must not be held out of its next tick
+#: for longer than that. It is a CEILING on a belief, not an interval: nothing here goes
+#: and looks when the reading is older, it simply stops answering.
+FRESH_SEC = 120.0
 
 #: How many squads a player has. A slot outside it is somebody's typo, not a squad, and
 #: is dropped rather than asked about — a reading for slot 9 would answer `None` and turn
@@ -89,15 +103,23 @@ def held(rt, args) -> tuple:
     reader = getattr(rt, "squads", None)
     if reader is None:
         return ()
+    try:
+        state = reader.latest()
+    except Exception:                         # noqa: BLE001 — a reading, never the run
+        return ()
+    if state is None or not getattr(state, "ok", False):
+        return ()                             # nothing has been read ⇒ never refuse
+    try:
+        if state.age() > FRESH_SEC:
+            return ()                         # too old to decide anything with
+    except Exception:                         # noqa: BLE001
+        return ()
     away: list = []
     for slot in wanted:
-        try:
-            at_base = reader.at_base(slot)
-        except Exception:                     # noqa: BLE001 — a reading, never the run
-            return ()
-        if at_base is None:
-            return ()                         # cannot see ⇒ never refuse
-        if at_base:
+        squad = state.squad(slot)
+        if squad is None:
+            return ()                         # cannot see this one ⇒ never refuse
+        if squad.at_base:
             return ()                         # one is home: there is work to do
         away.append(slot)
     return tuple(away)
