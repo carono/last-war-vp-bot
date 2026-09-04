@@ -528,9 +528,23 @@ class LuaEval:
         scan cannot see.
         """
         import il2cpp_dump as D
-        import il2cpp_probe as P
         for off in range(0x10, 0x2000, 8):
-            p = D.u64(P.rpm(self.x.h, self.mgr + off, 8), 0)
+            # SAFE READS, BECAUSE THE OBJECT IS SMALLER THAN THE SCAN (#2404). The walk
+            # is 0x2000 bytes long and the manager is a few hundred, so it runs off the
+            # end of it as a matter of course — and whether that is harmless was decided
+            # by whatever happened to be mapped next. On 2026-09-04 it was nothing: the
+            # manager landed at 0x…dc0, the scan reached the next page boundary 0x240
+            # bytes later, and the RAISING read took the whole ATTACH down with it. The
+            # live panel then sat for twenty minutes on a client that was up and healthy,
+            # saying «could not attach: RPM failed err=299» every twenty seconds.
+            #
+            # An unreadable address is the END of the object, so the scan stops there —
+            # and the getter walk below still answers for a build that keeps its env
+            # somewhere this cannot see.
+            raw = D.rpm_safe(self.x.h, self.mgr + off, 8)
+            if raw is None:
+                break
+            p = D.u64(raw, 0)
             if not (0x10000 < p < 0x7FFFFFFFFFFF) or (p & 7):
                 continue
             if D.u64(D.rpm_safe(self.x.h, p, 8) or b"\x00" * 8, 0) == luaenv_cls:
