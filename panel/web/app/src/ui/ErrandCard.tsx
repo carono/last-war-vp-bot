@@ -154,6 +154,28 @@ export function Stat({ stat }: { stat?: ErrandStat | null }) {
   )
 }
 
+/* THE ONE LINE, HOLDING WHICHEVER OF THE TWO IS TRUE RIGHT NOW (#2408).
+ *
+ * «В очереди» used to be drawn ON TOP of the reading — a pill on a line of its own that
+ * appeared the moment a card was ticked, so the card grew by a line, its foot left the
+ * floor and the row it stood in stopped matching. The person's words: «При активации
+ * карточки, появляется надпись "в очереди", она не вписана в сетку, давай эту пилюлю
+ * вставлять вместо строки со статистикой, когда карточка в очереди».
+ *
+ * They are never both wanted anyway: a reading answers «стоит ли запускать», and while
+ * the errand is already on its way that question has been answered. One line, one
+ * height, whatever the card is doing. */
+function Reading({ stat, queued }: { stat?: ErrandStat | null; queued?: boolean }) {
+  if (queued) {
+    return (
+      <p className="stat small queued">
+        <span className="pill warn">{t('web.ui.queued')}</span>
+      </p>
+    )
+  }
+  return <Stat stat={stat} />
+}
+
 /* THE CARD ITSELF. Three rows and the order of them is the point (#2061): the name with
  * its switch in the corner, what it is waiting for and what it has brought in, and —
  * last — the signs that ACT. The buttons used to sit on the head row beside the switch,
@@ -268,9 +290,8 @@ export function ErrandCard({
         {/* «Сейчас в очереди» and a word of the panel's own are NOT the schedule and
             stay where they are: they say what is happening to this errand this minute,
             which is the one thing a card must answer without being opened (#2370). */}
-        {queued || pill || (facts && !factsInSheet) ? (
+        {pill || (facts && !factsInSheet) ? (
           <p className="muted small facts">
-            {queued ? <span className="pill warn">{t('web.ui.queued')}</span> : null}
             {pill ? <span className="pill">{t(pill)}</span> : null}
             {factsInSheet ? null : facts}
           </p>
@@ -283,14 +304,14 @@ export function ErrandCard({
             card and every empty line is picture that could have been seen. The signs keep
             their own width (`flex: 0 0 auto`), so a long reading is cut rather than
             pushed under «▶». */}
-        {cover ? null : <Stat stat={stat} />}
+        {cover ? null : <Reading stat={stat} queued={queued} />}
         {/* AND THE FOOT IS DRAWN ON EVERY CARD OF THIS SHAPE (#2407), even an empty
             one: it is what holds the reading and the signs on the floor of the card, so
             a listener with no knobs and no «▶» must still have the same floor as the
             timer beside it. Empty, it costs no height. */}
         {row.length || cover ? (
           <div className="errand-acts">
-            {cover ? <Stat stat={stat} /> : null}
+            {cover ? <Reading stat={stat} queued={queued} /> : null}
             {row}
           </div>
         ) : null}

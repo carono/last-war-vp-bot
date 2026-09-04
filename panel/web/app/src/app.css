@@ -1341,6 +1341,17 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* …AND WHEN THAT LINE HOLDS THE PILL INSTEAD OF THE READING (#2408) it hugs its own
+   two words: the reading is a sentence that has to take the room the signs leave, «в
+   очереди» is a badge, and stretching a badge across the card draws a plate with a pill
+   floating in the left of it. No height changes with it — it is the SAME line, which is
+   the whole point of putting the pill there. */
+.item.errand.cover .errand-acts .stat.queued {
+  flex: 0 1 auto;
+  background: none;
+  backdrop-filter: none;
+  padding: 0;
+}
 .item.errand.cover .errand-acts > :last-child { margin-left: auto; }
 
 /* «У описания отступ сверху сделай, наезжает на чекбокс» — the line of facts begins
