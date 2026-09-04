@@ -91,6 +91,18 @@ OFF_RIP = 0xF8
 # own region with the game running freely, so they cost the game nothing and their old
 # 10/20 ms granularity was pure sitting about.
 #
+# THAT REASONING WENT STALE AND CAME BACK TRUE, and both halves are worth keeping.
+# §2.1 of `docs/research/link-contention.md` measured 22 samples per hijack — thirteen
+# frames, not one — and concluded the wait WAS for us to look. It was, and the cause was
+# on this side: a chunk paid THREE hijacks, so the panel suspended the client's main
+# thread some sixty times a call and the thread never reached its idle message-pump wait.
+# Two of the three are gone (`xlua_route.py::il2_string_pinned`, `::il2_bytes_reused`) and
+# the samples are back to 1.7-2.1, which is the frame the paragraph above describes.
+#
+# So the rule stands as written — do not tighten PARK_POLL — and the way to tell whether
+# it has gone stale again is the `park tries each` figure in the per-minute line, not an
+# argument about it.
+#
 # The call wait starts tight and backs off: a managed call that returns in a millisecond
 # should not be found 20 ms later, and one that runs for eight seconds should not be
 # polled five thousand times to find that out.
