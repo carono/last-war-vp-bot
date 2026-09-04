@@ -99,6 +99,46 @@ day sitting on it. That is the queue people see. Moving the claim from the run t
 call would move the queue from `claims.py` to the run lock and change nothing about its
 length.
 
+### 2.1 …and where the injection's own second goes
+
+Measured with the hijack counting its own phases (`tools/lib/hijack_call.py::STATS`), one
+minute of an ordinary farming panel:
+
+```
+hijacks 241 in 60s: 53.34s (0.221 s/hijack) = park 52.47 + start 0.05 + call 0.82
+                                            + free 0.00; 22.0 park tries each, 0 gave up
+```
+
+| phase | share | what it is |
+| --- | ---: | --- |
+| **park** | **98.4 %** | sampling the client's MAIN THREAD until its RIP is at the learned safe gate |
+| call | 1.5 % | the managed call itself, in flight on the runtime |
+| start, free | 0.1 % | the shellcode starting, and the RWX region being released |
+
+**Nothing is slow. The panel is waiting for a coincidence.** The main thread is only
+borrowed within ±16 bytes of one exact return address — the idle message-pump wait, which
+is the provably safe instant — and it takes **22 samples at 10 ms** to catch it there.
+That is 0.22 s a hijack, and there are **three hijacks per chunk** (241 hijacks over 80
+calls in the same minute: the byte array, the constant `"lw"` string, and
+`DoString(byte[])`), which is the 0.6–0.7 s of exclusive every call pays.
+
+So the five-to-tenfold gap against `docs/research/game-call-latency.md` is explained, and
+the old reasoning there is what has expired rather than been wrong. It says `PARK_POLL` is
+deliberately not tightened because «the wait is for the frame and not for us to look» —
+true when the park is caught in one or two samples. Twenty-two samples is thirteen frames,
+not one: this client reaches that exact address in about 4 % of the samples, so the wait
+IS for us to look.
+
+Two cuts follow, neither of them taken yet and both wanting their own measurement:
+
+* **one hijack of the three is a constant.** `il2_string_new("lw")` builds the same
+  managed string on every single call. Caching it is a third of the injection — with a GC
+  question to answer first: a managed string nothing roots may be collected under us.
+* **the sampling rate.** Every sample suspends and resumes the game's main thread, so
+  looking five times as often is not free for the CLIENT — it is the one number in this
+  file that costs the player as well as the panel, and it must be measured on the frame
+  rate, not assumed.
+
 ## 3. A third of the traffic ignores the claim entirely
 
 The same minute: **34 of 92 calls (37 %) carried no lease**, and up to **5 chunks were in
