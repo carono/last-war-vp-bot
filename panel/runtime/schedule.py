@@ -737,7 +737,17 @@ class Schedule:
         # the door and waits the short while it takes an ordinary errand to reach a
         # statement boundary and park. A plain `claim` would be refused and the errand
         # would go back on the queue it was marked to skip.
-        if express:
+        # …AND A SCENARIO THAT DECLARED `SHARE` CLAIMS AT :data:`claims.SHARED` (#2404).
+        # It opens no window, so there is nothing on screen for a neighbour to walk into:
+        # it holds the client while it is talking to the game and hands it back at every
+        # statement boundary and every poll of a `WAIT` that anybody is waiting through.
+        # It hangs a demand like an express errand does, for the same reason — whoever
+        # holds the client now is expected to finish, not to be given up on.
+        shares = self.rt.actions.shares(name)
+        if shares:
+            got = self.rt.game.claim_soon("timer", claims.SHARED,
+                                          linkmod.YIELD_WAIT_SEC)
+        elif express:
             got = self.rt.game.claim_soon("timer", claims.EXPRESS,
                                           linkmod.YIELD_WAIT_SEC)
         elif claims.level(self.rt.game.endpoint()) < claims.BACKGROUND:
@@ -794,7 +804,7 @@ class Schedule:
                 # An EXPRESS errand gets none: it is short by declaration, and a thing
                 # that may not queue behind the ordinary work should not be parked by
                 # it either. Everything else can be asked to wait for a press.
-                yield_to=None if express else self.rt.yield_hook("timer"),
+                yield_to=None if (express and not shares) else self.rt.yield_hook("timer"),
             )
             for step in errand.scenario:
                 # `tag="timer"` so the register — and «Прервать» — can say WHO started

@@ -744,6 +744,19 @@ _ARGS_RE = re.compile(rf"^ARGS\s+({_IDENT})\s*=\s*(.*?)\s*$", re.IGNORECASE)
 # reaches the parser. What it MEANS is in :func:`declares_detach`.
 _DETACH_RE = re.compile(r"^DETACH\s*$", re.IGNORECASE)
 
+# `SHARE` declares that this scenario TOUCHES NO WINDOW — it works by asking the game and
+# by sending it messages, and nothing it does is visible on screen (#2404). The operator's
+# own division, in their words: «некоторые сценарии могут работать в фоне полностью,
+# только запросами к игре, не занимая интерфейс… очередь создаётся только при фактическом
+# общении с игрой, это касается многих сценариев, но не всех».
+#
+# The declaration is per-recipe rather than derived, because the two things that decide it
+# are not both in the text: a `TAP` presses a button whose Lua may or may not open a
+# window, and a series may be ATOMIC (`docs/research/link-contention.md` §5) even when
+# every statement in it is a message. So a recipe SAYS it, and a recipe that says nothing
+# keeps the whole client for its whole run exactly as before.
+_SHARE_RE = re.compile(r"^SHARE\s*$", re.IGNORECASE)
+
 
 def declares_detach(text: str) -> bool:
     """Does this DSL source carry the ``DETACH`` declaration? (#1702)
@@ -759,6 +772,34 @@ def declares_detach(text: str) -> bool:
     the same file is played by a timer, by the window and by the phone.
     """
     return any(_DETACH_RE.match(line.strip()) for line in text.splitlines())
+
+
+def declares_share(text: str) -> bool:
+    """Does this DSL source carry the ``SHARE`` declaration? (#2404)
+
+    A sharing scenario keeps the client only for the moments it is actually talking to
+    the game: between two statements — and between the polls of a `WAIT` — it hands the
+    claim back to anybody who has asked for it, and takes it again afterwards. Nothing
+    else about the run changes; it is the same worker, the same priority, the same order
+    of statements.
+
+    It is declared and never inferred, because the recipe is the only place that knows
+    both halves: whether a press opens a window, and whether a series of statements has
+    to stay whole (`docs/research/link-contention.md` §5). Silence means «hold it all»,
+    which is what every recipe did before this existed.
+    """
+    return any(_SHARE_RE.match(line.strip()) for line in text.splitlines())
+
+
+def action_shares(name: str) -> bool:
+    """Does the named scenario declare ``SHARE``? ``False`` for one that is not there."""
+    path = resolve_action(name)
+    if path is None:
+        return False
+    try:
+        return declares_share(path.read_text(encoding="utf-8"))
+    except OSError:
+        return False
 
 
 def action_detached(name: str) -> bool:
@@ -779,7 +820,7 @@ def action_detached(name: str) -> bool:
 
 
 def extract_defaults(text: str) -> tuple[dict, str]:
-    """Split `ARGS` and `DETACH` declarations off a script; return ``(defaults, rest)``.
+    """Split `ARGS`, `DETACH` and `SHARE` declarations off a script; return ``(defaults, rest)``.
 
     The declarations are removed from the source, so the parser never sees them —
     they are about the script's signature, not its body. Blank lines take their
@@ -788,7 +829,7 @@ def extract_defaults(text: str) -> tuple[dict, str]:
     defaults: dict = {}
     lines = []
     for raw in text.splitlines():
-        if _DETACH_RE.match(raw.strip()):
+        if _DETACH_RE.match(raw.strip()) or _SHARE_RE.match(raw.strip()):
             lines.append("")              # a declaration, not a step — see `declares_detach`
             continue
         m = _ARGS_RE.match(raw.strip())

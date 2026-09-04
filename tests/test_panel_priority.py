@@ -599,7 +599,7 @@ def _schedule_stub(errand, asked: list, made: list):
                                       resolve=lambda step: "somewhere",
                                       # #1702: the schedule asks whether the errand's
                                       # recipe said `DETACH` before it picks a priority.
-                                      detached=lambda name: False,
+                                      detached=lambda name: False, shares=lambda _n: False,
                                       # …and the runner is told WHOSE run it is, so a
                                       # log line can name the errand's own tag.
                                       run=lambda step, hwnd=0, ctx=None, **kw: True),

@@ -74,6 +74,17 @@ FOREGROUND = "foreground"
 #: first statement boundary anybody else asks for it, and is never the reason a timer
 #: waited. Below :data:`BACKGROUND` on purpose, because a background errand is somebody's
 #: schedule and a detached run is a march that will still be walking in ten minutes.
+#: A run of a scenario that declared `SHARE` — it touches no window, so it keeps the
+#: client only while it is actually talking to the game (#2404). The operator's own
+#: division: «некоторые сценарии могут работать в фоне полностью, только запросами к игре,
+#: не занимая интерфейс… очередь создаётся только при фактическом общении с игрой».
+#:
+#: Below :data:`DETACHED` so that EVERYTHING outranks it — including another sharing run
+#: and a detached one — and `link.GameLink._yield_above` therefore has it stepping aside
+#: for any waiter at all rather than only for a more urgent one. It is not a queue
+#: position: a sharing run takes the claim straight back the moment the door is clear, so
+#: the level says «interruptible», not «last».
+SHARED = -2
 DETACHED = -1
 BACKGROUND = 0     #: the schedule's ordinary errands, the rally loops, a sweep
 EXPRESS = 1        #: an errand whose catalogue entry says «сразу» — it must not queue

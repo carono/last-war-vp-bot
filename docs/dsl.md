@@ -79,6 +79,43 @@ Callers: the panel's Develop tab has an «аргументы (JSON)» box, a tim
 its `args` block (see `panel/timers.py`), and from Python it is
 `run_action(name, hwnd=0, variables={...})`.
 
+### `SHARE`
+
+Declare that this scenario **touches no window** — everything it does is asking the game
+and sending it messages, and nothing it does is visible on screen. Like `DETACH` it
+describes the file rather than a step in it, takes no arguments and is stripped before
+parsing.
+
+```
+SHARE
+ARGS wins = 5
+```
+
+The operator's division, in their words: «некоторые сценарии могут работать в фоне
+полностью, только запросами к игре, не занимая интерфейс… очередь создаётся только при
+фактическом общении с игрой, это касается многих сценариев, но не всех».
+
+What the player does with it (`panel/runtime/host.py::play_async`,
+`panel/runtime/schedule.py::run_errand`):
+
+- the run claims at **`claims.SHARED`**, below everything including `DETACHED`, so
+  `panel/runtime/link.py::_yield_above` has it stepping aside for ANY waiter rather than
+  only for a more urgent one;
+- it carries **the step-aside hook**, so between two statements — and between the polls
+  of a `WAIT` — it hands the client back to whoever is waiting and takes it again
+  afterwards. A `WAIT 4` for a server reply therefore costs the rest of the panel
+  nothing: the reply lands in the game's own data whether or not we are holding the link;
+- it is **not detached**: same worker, same answer to the press, same order of
+  statements. Only the holding changes.
+
+**Do NOT declare it on a recipe that opens a window or presses one.** A neighbour that
+gets the client while a window is open presses into a screen it did not raise. Nor on one
+whose statements form an atomic series — `docs/research/link-contention.md` §5 lists them
+(a march being re-aimed, picking a squad and then sending it, parking arguments in
+`DataCenter.__lw_*` and then `TAP`-ing them, one round of `TAP … xall`). A recipe that
+says nothing holds the client for its whole run, exactly as every recipe did before this
+existed.
+
 ### `DETACH`
 
 Declare that this scenario **must not hold the rest of the panel up**. Like `ARGS`, it

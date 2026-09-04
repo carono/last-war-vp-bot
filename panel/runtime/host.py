@@ -858,6 +858,15 @@ class PanelRuntime:
         if detached:
             priority = claims.DETACHED
             self.log.say(tag, "action.detached", name=name)
+        # …AND ONE THAT DECLARED `SHARE` (#2404). It opens no window, so it keeps the
+        # client only while it is talking to the game: :data:`claims.SHARED` is below
+        # everything, which is what makes its step-aside hook answer ANY waiter rather
+        # than only a more urgent one. A press by a person is still a press — the run is
+        # not detached, the caller is answered as it always was — it merely does not sit
+        # on the client through its own pauses.
+        shares = self.actions.shares(name)
+        if shares and not detached:
+            priority = claims.SHARED
 
         held = self.game.reserve(tag, priority)
         if not held and not self.game.outranks(priority):
@@ -903,7 +912,8 @@ class PanelRuntime:
                 # The step-aside hook goes to the DETACHED run only: an ordinary press is
                 # already the most urgent thing there is, and one that parked for a
                 # background errand would be the queue this whole area exists to remove.
-                step_aside = self.yield_hook(tag, patient=True) if detached else None
+                step_aside = (self.yield_hook(tag, patient=True)
+                              if (detached or shares) else None)
                 # …AND THE SAME PATIENCE ON THE WAY BACK (#2390). Stepping aside was
                 # only half of it: a chain that let go politely still DIED the next
                 # time somebody took the lease outright, because the regain hook it

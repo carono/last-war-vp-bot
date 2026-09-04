@@ -401,6 +401,17 @@ class ActionRunner:
         from lastwar_bot import script_engine
         return bool(script_engine.action_detached(name))
 
+    @staticmethod
+    def shares(name: str) -> bool:
+        """Does the named scenario declare `SHARE` — «windowless, so share the client»?
+
+        The player's side of it, exactly as :meth:`detached`: WHAT a sharing run does with
+        the claim is decided where the claim lives (`panel/runtime/host.py::play_async`,
+        `panel/runtime/schedule.py::run_errand`), and this only reads the declaration.
+        """
+        from lastwar_bot import script_engine
+        return bool(script_engine.action_shares(name))
+
     def play(self, name: str, args: dict | None = None, *, hwnd: int = 0,
              on_event=None, cancel=None, yield_to=None, regain=None,
              human: bool = False, **kw) -> Outcome:

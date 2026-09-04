@@ -59,6 +59,7 @@
 # The wire, the managers and the measurements are docs/research/arena-3v3.md; the
 # reading behind the counts is actions/read_arena_3v3.md.
 
+SHARE
 ARGS wins = 5
 ARGS cap = 30
 

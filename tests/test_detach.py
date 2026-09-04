@@ -139,7 +139,9 @@ def test_the_press_drops_the_priority_and_hands_over_the_step_aside_hook():
         "play_async never asks whether the scenario is detached"
     assert "priority = claims.DETACHED" in src, \
         "a detached run claims the client at an ordinary priority"
-    assert "self.yield_hook(tag, patient=True) if detached else None" in src, \
+    # `SHARE` joined it on the same line (#2404): a windowless run also carries the hook,
+    # so what is pinned here is that a DETACHED one still does.
+    assert "self.yield_hook(tag, patient=True)" in src and "if (detached or shares)" in src, \
         "a detached run carries no step-aside hook — the priority is a note nobody reads"
     assert re.search(r"yield_to=step_aside", src), \
         "the hook is built and never handed to the run"
@@ -162,7 +164,9 @@ def test_a_detached_run_is_patient_about_getting_the_client_back():
     """
     src = HOST.read_text(encoding="utf-8")
     assert "def yield_hook(self, tag: str = \"timer\", patient: bool = False)" in src
-    assert "patient=True) if detached else None" in src, \
+    # A `SHARE` run is on the same line and wants the same patience — it parks constantly
+    # by declaration too (#2404).
+    assert "patient=True)" in src and "if (detached or shares) else None" in src, \
         "the detached run is handed the impatient hook — one busy minute kills it"
     assert "PARK_TRIES" in src and "PARK_RETRY_SEC" in src
     # …and an ordinary background errand still fails fast: its retry is the schedule's.
