@@ -1020,6 +1020,7 @@
   "timers.options.close": "Tutup",
   "timers.reason.busy": "panel sedang sibuk dengan hal lain",
   "timers.log.unfinished": "{name}: jalan sebelumnya tidak pernah kembali — dianggap gagal, menunggu jeda sebelum diulang",
+  "timers.log.resumed": "{name}: proses itu bertahan setelah panel dimulai ulang dan sakelarnya masih menyala — menjalankannya lagi",
   "rally.skip.squads_out": "semua regu yang bisa dikirim sedang di luar — tidak dijalankan",
   "timers.log.skip_busy": "{name}: panel sedang sibuk — tetap di antrean",
   "timers.log.squad_busy": "{name}: pasukan {squads} sedang di luar — dilewati, kembali pada tick berikutnya",

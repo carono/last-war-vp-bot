@@ -1219,6 +1219,35 @@ class Schedule:
         """
         for name in self.store.take_unfinished():
             self.rt.put("[timer] " + self.rt.t("timers.log.unfinished", name=name))
+            self._resume_unfinished(name)
+
+    def _resume_unfinished(self, name: str) -> bool:
+        """Start again an errand a restart killed in the middle — if it asked to be.
+
+        THE HOLE THIS FILLS (#2390). A `DETACH`ed chain lives as long as its marches, and
+        the panel it started in is restarted several times an evening — that is what
+        delivering a fix means here (`CLAUDE.md`). Measured on one evening: three
+        restarts by a neighbour, three golden-zombie chains killed mid-march, and each
+        time the account simply stopped hunting with a purse still full, because the
+        row's next turn was an hour away and nothing said the run had gone.
+
+        The wish is `Timer.resume` plus the person's own switch, and the ORDER of the two
+        is the point: an errand is resumed because it is SWITCHED ON, not because a
+        process was once alive. So a run the person stopped by turning the row off stays
+        off, and one they left on comes back by itself. Everything else is unchanged —
+        it goes on the ordinary queue, so the gates it has always had (no energy, squad
+        out, nothing on the map) answer with their own line and the run ends.
+        """
+        timer = self.timer_catalogue.by_name(name)
+        if timer is None or not getattr(timer, "resume", False):
+            return False
+        config = self.timer_config().get(name) or {}
+        if not config.get("enabled", False):
+            return False
+        if not self.timers.request(timer):
+            return False
+        self.rt.put("[timer] " + self.rt.t("timers.log.resumed", name=name))
+        return True
 
     def stop(self) -> None:
         self.triggers.stop()

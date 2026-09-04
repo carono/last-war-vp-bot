@@ -245,6 +245,21 @@ class Timer:
     # 2026-08-07. It is NOT for a long errand — a `restart_game` marked this way would
     # hold the client for five minutes with nothing able to make it park.
     immediate: bool = False
+    # AN ERRAND WHOSE RUN OUTLIVES ONE PANEL (#2390). A `DETACH`ed chain lasts as long
+    # as its marches — the golden hunt spends a purse of 3790 energy over about two hours
+    # — and the panel it started in is restarted several times an evening, because that
+    # is what delivering a fix means here (`CLAUDE.md`). Every one of those restarts
+    # killed the chain in the middle and left NOTHING running: the row's clock was an
+    # hour away, the log said «прогон был прерван» once, and the account stopped hunting
+    # until somebody happened to look.
+    #
+    # A row marked this way is started again by the panel that comes up, on ONE condition
+    # that is the person's own: the errand is still switched on. The wish being obeyed is
+    # «эта работа включена», which lives where every other wish of theirs lives — the
+    # profile's own settings — and never «a process was alive», which is a fact about a
+    # machine and dies with it. So an errand the person switched off is not resurrected,
+    # and one they left on comes back by itself.
+    resume: bool = False
     # WHICH WEEKDAYS THE ERRAND BELONGS TO — 1 = Monday … 7 = Sunday, empty for «any».
     #
     # A period cannot say «по воскресеньям». «Every seven days from the last run» drifts
@@ -275,6 +290,8 @@ class Timer:
         }
         if self.immediate:
             out["immediate"] = True
+        if self.resume:
+            out["resume"] = True
         if self.weekdays:
             out["weekdays"] = list(self.weekdays)
         if self.args:
@@ -778,6 +795,10 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # `Schedule.register_args` (`panel/tabs/events/tab.py::golden_args`). A block
         # here would be a second answer to «каким отрядом», and the first time the two
         # disagreed the row's would win in silence.
+        # …AND IT COMES BACK BY ITSELF AFTER A RESTART (#2390). Measured: one
+        # evening, three panel restarts by a neighbour delivering their own fix,
+        # three chains killed mid-march with 2390 energy left in the purse.
+        resume=True,
         label_key="timers.item.attack_golden_zombies",
     ),
     Timer(
@@ -1390,6 +1411,7 @@ def parse_catalogue(data, path: str | None = None,
             enabled=bool(raw.get("enabled", base.enabled if base else False)),
             immediate=bool(raw.get("immediate",
                                    base.immediate if base else False)),
+            resume=bool(raw.get("resume", base.resume if base else False)),
             weekdays=_as_weekdays(raw.get("weekdays"),
                                   base.weekdays if base else ()),
             args=dict(args) if isinstance(args, dict) else {},

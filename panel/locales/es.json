@@ -1020,6 +1020,7 @@
   "timers.options.close": "Cerrar",
   "timers.reason.busy": "el panel está ocupado con otra cosa",
   "timers.log.unfinished": "{name}: la ejecución anterior nunca volvió — se da por fallida y espera su pausa de reintento",
+  "timers.log.resumed": "{name}: esa ejecución sobrevive a un reinicio y el interruptor sigue activo — la inicio de nuevo",
   "rally.skip.squads_out": "todos los escuadrones que puede enviar están fuera — no se inicia",
   "timers.log.skip_busy": "{name}: el panel está ocupado — se queda en la cola",
   "timers.log.squad_busy": "{name}: los escuadrones {squads} están fuera — omitido, vuelve en el próximo ciclo",

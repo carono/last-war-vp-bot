@@ -662,6 +662,87 @@ def test_a_run_killed_mid_flight_is_written_off_and_not_inherited_as_due():
     assert BASE in cat.due_names(cfg, reborn.records(), later), "held back for ever"
 
 
+class _ResumeSchedule:
+    """The three collaborators `Schedule._resume_unfinished` touches, and nothing else."""
+
+    def __init__(self, catalogue, config) -> None:
+        self.timer_catalogue = catalogue
+        self._config = config
+        self.requested: list = []
+        self.said: list = []
+        self.rt = types.SimpleNamespace(put=self.said.append, t=lambda key, **fmt: key)
+        self.timers = types.SimpleNamespace(
+            request=lambda timer: (self.requested.append(timer.name), True)[1])
+
+    def timer_config(self) -> dict:
+        return self._config
+
+
+def _resume(name, *, enabled=True, catalogue=None):
+    """Play `_say_unfinished`'s resume half over a catalogue and a switch."""
+    from panel.runtime import schedule as schedmod
+
+    cat = catalogue if catalogue is not None else _catalogue()
+    cfg = cat.default_config()
+    for row in cfg.values():
+        row["enabled"] = False
+    cfg.setdefault(name, {})["enabled"] = enabled
+    sched = _ResumeSchedule(cat, cfg)
+    started = schedmod.Schedule._resume_unfinished(sched, name)
+    return started, sched
+
+
+def test_a_run_that_outlives_a_restart_is_started_again_by_the_panel_that_comes_up():
+    """#2390: three restarts in an evening, three chains killed, an account that stopped.
+
+    A `DETACH`ed errand lives as long as its marches — the golden hunt spends a purse of
+    3790 energy over about two hours — and the panel is restarted several times an
+    evening, because that is how a fix is delivered here. Every restart killed the chain
+    with nothing left running and the row's next turn an hour away.
+    """
+    hunt = "attack_golden_zombies"
+    timer = _catalogue().by_name(hunt)
+    assert timer is not None and timer.resume, \
+        "the hunt does not declare that its run outlives a restart"
+
+    started, sched = _resume(hunt, enabled=True)
+    assert started and sched.requested == [hunt], \
+        "a killed hunt was named and left lying there"
+    assert "timers.log.resumed" in " ".join(sched.said), \
+        "the panel starts it again and says nothing about why"
+
+
+def test_a_run_the_person_switched_off_is_never_resurrected():
+    """The wish obeyed is «эта работа включена», never «a process was once alive» (#2390).
+
+    A person who turns the row off while the hunt is running expects it to stay off, and
+    a panel restart is not a second opinion about that.
+    """
+    hunt = "attack_golden_zombies"
+    started, sched = _resume(hunt, enabled=False)
+    assert not started and sched.requested == [], \
+        "an errand the person switched off came back after a restart"
+
+    # …and an ordinary errand is not resumed even when it IS on: its run is seconds long
+    # and its clock brings it back by itself. Resuming is for the ones that declared it.
+    assert not _catalogue().by_name(BASE).resume, "every errand claims to outlive a restart"
+    started, sched = _resume(BASE, enabled=True)
+    assert not started and sched.requested == [], \
+        "an ordinary errand is re-fired by the boot instead of by its clock"
+
+
+def test_the_resume_flag_survives_the_catalogue_file():
+    """A profile's own timers.json carries the flag, so a row edited there keeps it."""
+    row = _catalogue().by_name("attack_golden_zombies")
+    assert row.as_dict().get("resume") is True, "the flag is not written to the file"
+    tmp = Path(tempfile.mkdtemp())
+    path = tmp / "timers.json"
+    path.write_text(json.dumps({"timers": [row.as_dict()]}, ensure_ascii=False),
+                    encoding="utf-8")
+    back = timersmod.load_profile_catalogue(str(path)).by_name("attack_golden_zombies")
+    assert back is not None and back.resume, "the flag is lost on the way back in"
+
+
 def test_an_errand_already_running_is_not_offered_again_by_the_clock():
     """A long run stays overdue for its whole length — the tick must not re-fire it."""
     tmp = Path(tempfile.mkdtemp())
