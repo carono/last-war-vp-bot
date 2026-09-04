@@ -415,6 +415,12 @@ export interface ChatRoomTab {
   type: string
   room: string
   unread: number
+  /* WHAT TO CALL IT (#2418). The list is the CLIENT's, so a chip may be a room the
+     panel has no word for: `key` is a locale key when the id says what the room is, and
+     `label` is the name the client itself gave it — which only a player's own custom
+     group ever has. Exactly one of the two is set. */
+  key?: string
+  label?: string
 }
 
 export interface PressAnswer {

@@ -2805,6 +2805,15 @@ def test_the_chat_screen_says_how_old_it_is():
     assert "silent={view.silent ?? null}" in screen, "the age never reaches the chat"
 
 
+def test_a_chat_chip_is_a_room_and_carries_the_clients_own_name():
+    """#2418: six buckets became one chip per room the client is sitting in."""
+    chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")
+    assert "key={tab.room || tab.type}" in chat, "a chip is still keyed by its bucket"
+    assert "{tab.label || t(tab.key || tabKey(tab.type))}" in chat, \
+        "a chip cannot show the name the client gave the room"
+    assert "setRoom(tab.room || '')" in chat, "pressing a chip does not open its room"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

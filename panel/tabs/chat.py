@@ -138,6 +138,17 @@ class ChatTab(PanelTab):
         self._chat_wanted = False
         self._chat_retry = 0.0
         self._chat_retry_timer = None
+        # THE ROOMS ARE THE CLIENT'S, NOT A TABLE IN THE CODE (#2418). The person's own
+        # report: «не вижу все контакты, там есть другие группы, кастомные, их нету». A
+        # player's own group is a room like any other and the client holds it by name —
+        # the panel simply never asked, so its messages were tipped into «Другие» beside
+        # the cross-server and season channels and the group's name was nowhere.
+        # `room id -> {"name": str, "msgs": int}`, read on the LOOK and on a press.
+        self._rooms: dict = {}
+        self._rooms_read = 0.0
+        self._rooms_busy = False
+        # …and unread per ROOM, because a chip is a room now and not a kind.
+        self._room_unread: dict = {}
         # In-memory chat messages keyed by chat_type. `system` has a tab of its own
         # now — it used to be counted here and shown nowhere.
         self._chat_msgs: dict = {t: [] for t in CHAT_TABS}
@@ -232,6 +243,7 @@ class ChatTab(PanelTab):
         # with the state rather than with the drawing, exactly like the reader it
         # empties (`docs/panel-tabs.md`, the `LAZY` contract).
         self._pump_chat()
+        self._read_rooms()
         if self._chat_var.get():
             self._start_chat()
 
@@ -330,10 +342,9 @@ class ChatTab(PanelTab):
                 # says it; stale is visibly stale rather than quietly wrong.
                 "silent": self._chat_silence(),
                 "waiting": bool(self._chat_wanted and self._chat_proc is None),
-                "rooms": [{"type": t, "room": self._chat_room(t),
-                           "unread": int(self._chat_unread.get(t, 0))}
-                          for t in CHAT_TABS],
-                "actions": [{"id": "history", "label": "chat.history.load"}]}
+                "rooms": self._web_rooms(),
+                "actions": [{"id": "history", "label": "chat.history.load"},
+                            {"id": "rooms", "label": "chat.rooms.reload"}]}
 
     def _chat_silence(self) -> "float | None":
         """Seconds since the newest message this profile has filed, or ``None``.
@@ -472,12 +483,17 @@ class ChatTab(PanelTab):
             self._picker_type = wanted
             return {"ok": True}
         chat_type = str(args.get("type") or "")
+        if action == "rooms":
+            # ASKED FOR, NEVER TIMED. The client's own list, re-read because somebody
+            # pressed — a group joined five minutes ago appears on the next press and
+            # not on a clock nobody asked for.
+            return {"ok": self._read_rooms(force=True)}
         if action not in ("send", "coords", "sticker") or chat_type not in CHAT_TABS:
             return {"error": "unknown"}
         # A DM answers the room the ROW named; a channel is its own room. Never
         # «whatever thread the window has open» — outgoing chat cannot be unsent.
         room = str(args.get("room") or "").strip()
-        if room and room not in self._known_rooms(chat_type):
+        if room and room not in self._known_rooms(chat_type) and room not in self._rooms:
             return {"error": "unknown"}
         room = room or ("" if chat_type == "dm" else self._chat_room(chat_type))
         if not room:
@@ -569,6 +585,11 @@ class ChatTab(PanelTab):
                 more = bool(rows) and store.has_older(chat_type, rows[0].get("ts", 0))
         except Exception:                      # noqa: BLE001 — a bad page is an empty one
             return {"rows": [], "more": False, "room": room, "type": chat_type}
+        if room:
+            # SOMEBODY IS READING IT, so it is not unread any more. The window clears
+            # its own marks by opening a tab; the phone's chip is a room, and this is
+            # the moment it was opened.
+            self._room_unread.pop(room, None)
         # WHICH ROOM a deeper read would name, and whether it is still worth naming.
         # Resolved from what was just served rather than from the drawn tab: this
         # answers on an HTTP thread, and the tab may never have been looked at.
@@ -924,6 +945,137 @@ class ChatTab(PanelTab):
                 nb.tab(frame, text=label)
             except tk.TclError:
                 pass
+
+    # -- the rooms the client is in ------------------------------------------
+    #
+    # ONE READ, ON THE LOOK. `read_chat_rooms` asks the CLIENT what it holds — no
+    # question reaches the server — and it is played when the tab is first needed and
+    # when somebody presses «Обновить». Never on a clock: a chip that appeared a minute
+    # late is a chip, and a poll is a robbery that did not happen.
+
+    #: A room read that is younger than this is not made again — a person tapping
+    #: between screens must not turn the look into a beat. Seconds.
+    ROOMS_FRESH = 60.0
+
+    #: What a room id says about itself when the client gave it no name of its own.
+    #: Prefix, longest first — `alliance_friend_` must beat `alliance_`.
+    ROOM_KEYS = (
+        ("alliance_friend_", "chat.room.alliance_friend"),
+        ("country_", "chat.tab.world"),
+        ("custom_lang_", "chat.tab.national"),
+        ("crossbattle_", "chat.room.crossbattle"),
+        ("season_faction_war", "chat.room.season_war"),
+        ("custom_season_", "chat.room.season"),
+        ("custom_group_", "chat.room.group"),
+        ("alliance_", "chat.tab.alliance"),
+    )
+
+    def _read_rooms(self, force: bool = False) -> bool:
+        """Ask the client for its rooms, off the Tk thread. False when it was too soon."""
+        if self._rooms_busy:
+            return False
+        if not force and (time.time() - self._rooms_read) < self.ROOMS_FRESH:
+            return False
+        self._rooms_busy = True
+
+        def work() -> None:
+            found: dict = {}
+            try:
+                outcome = self.rt.actions.play("read_chat_rooms", {},
+                                               human=True, tag="chat")
+                got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+                found = self._parse_rooms(str(got.get("rooms") or ""))
+            except Exception as exc:            # noqa: BLE001 — a failed read, not a dead tab
+                self.post(lambda: self.say("chat", "log.error", error=exc))
+            self.post(lambda: self._absorb_rooms(found))
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    @staticmethod
+    def _parse_rooms(raw: str) -> dict:
+        """`<id>\t<name in hex>\t<messages>` per line — as `read_chat_rooms` leaves it.
+
+        The name is hex because a group is named by a person and may hold any byte; a
+        line that will not decode keeps the room and loses the name, which is the way
+        round that shows a chip rather than hiding one.
+        """
+        out: dict = {}
+        for line in raw.replace("\r", "").split("\n"):
+            bits = line.split("\t")
+            room = bits[0].strip() if bits else ""
+            if not room:
+                continue
+            name = ""
+            if len(bits) > 1 and bits[1].strip():
+                try:
+                    name = bytes.fromhex(bits[1].strip()).decode("utf-8", "replace")
+                except ValueError:              # noqa: PERF203 — a mangled name, not a lost room
+                    name = ""
+            held = 0
+            if len(bits) > 2:
+                try:
+                    held = int(float(bits[2].strip() or 0))
+                except ValueError:
+                    held = 0
+            out[room] = {"name": name, "msgs": held}
+        return out
+
+    def _absorb_rooms(self, found: dict) -> None:
+        """Put the read away, on the Tk thread. An empty answer changes nothing."""
+        if not found:
+            return
+        self._rooms = found
+        self._rooms_read = time.time()
+
+    def _room_label(self, room: str) -> tuple:
+        """`(key, label)` for a chip — a locale key, or the group's own name.
+
+        A name the CLIENT gave the room wins, and only a custom group ever has one: it
+        is the whole point of this read. Everything else is named by what its id says,
+        so no room is drawn as a raw `custom_group_<uuid>`.
+        """
+        info = self._rooms.get(room) or {}
+        name = str(info.get("name") or "").strip()
+        if name and room.startswith("custom_group_"):
+            return "", name
+        for prefix, key in self.ROOM_KEYS:
+            if room.startswith(prefix):
+                if prefix == "alliance_" and room.endswith("_Notice"):
+                    return "chat.room.notice", ""
+                return key, ""
+        return "chat.tab.other", ""
+
+    def _web_rooms(self) -> list:
+        """The chips: one per room the CLIENT holds, then «ЛС» and «Системные».
+
+        A private conversation is NOT a chip — it is the contact list behind «ЛС», where
+        it has been since the phone got the chat. What is new is that every other room
+        the client is sitting in gets its own, named by the client, rather than six
+        buckets with everything that did not fit tipped into the last of them.
+        """
+        rows = []
+        for room in sorted(self._rooms):
+            if room.endswith("_v2"):
+                continue                        # a private thread lives behind «ЛС»
+            kind = chathistmod.classify_room(room)
+            key, label = self._room_label(room)
+            rows.append({"type": kind, "room": room, "key": key, "label": label,
+                         "unread": int(self._room_unread.get(room, 0))})
+        if not rows:
+            # NOTHING READ YET — a panel whose client is down still draws the channels
+            # it has history for, rather than an empty strip that looks broken.
+            for kind in CHAT_TABS:
+                if kind in ("dm", "system"):
+                    continue
+                room = self._chat_room(kind)
+                rows.append({"type": kind, "room": room, "key": f"chat.tab.{kind}",
+                             "label": "", "unread": int(self._chat_unread.get(kind, 0))})
+        rows.append({"type": "dm", "room": "", "key": "chat.tab.dm", "label": "",
+                     "unread": int(self._chat_unread.get("dm", 0))})
+        rows.append({"type": "system", "room": "", "key": "chat.tab.system", "label": "",
+                     "unread": int(self._chat_unread.get("system", 0))})
+        return rows
 
     def _known_rooms(self, chat_type: str) -> set:
         """Every room this tab has actually SEEN a message of `chat_type` in.
@@ -1637,6 +1789,12 @@ class ChatTab(PanelTab):
                 if (not backlog and not record.get("is_mine")
                         and chat_type != self._active_chat_type()):
                     self._chat_unread[chat_type] = self._chat_unread.get(chat_type, 0) + 1
+                # …and per ROOM, because a chip on the phone is a room now (#2418): two
+                # custom groups are two chips, and one of them being loud says nothing
+                # about the other.
+                room = str(record.get("room_id") or "").strip()
+                if room and not backlog and not record.get("is_mine"):
+                    self._room_unread[room] = self._room_unread.get(room, 0) + 1
         except queue.Empty:
             pass
 

@@ -424,19 +424,28 @@ export function ChatView({
     setRows([])
   }
 
+  /* Which chip is open. «ЛС» stays lit while one of its threads is being read — the
+     thread is a room, but it is not a chip of its own. */
+  const chosen = (tab: ChatRoomTab) =>
+    tab.type === 'dm' ? type === 'dm' : tab.room ? tab.room === room : !room && tab.type === type
+
   const chips = (
     <div className="chips">
+      {/* ONE CHIP PER ROOM THE CLIENT IS IN (#2418), not six buckets with whatever did
+          not fit tipped into the last of them. A chip carries its room, so two custom
+          groups are two chips and neither is «Другие»; «ЛС» and «Системные» carry no
+          room, because one is a list of people and the other has no room at all. */}
       {rooms.map((tab) => (
         <button
-          key={tab.type}
-          className={'chip' + (tab.type === type ? ' on' : '')}
+          key={tab.room || tab.type}
+          className={'chip' + (chosen(tab) ? ' on' : '')}
           onClick={() => {
             setType(tab.type)
-            setRoom('')
+            setRoom(tab.room || '')
             setText('')
           }}
         >
-          {t(tabKey(tab.type))}
+          {tab.label || t(tab.key || tabKey(tab.type))}
           {tab.unread ? <span className="count">{tab.unread}</span> : null}
         </button>
       ))}

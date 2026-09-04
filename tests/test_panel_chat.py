@@ -733,6 +733,86 @@ def test_the_reader_is_drained_by_a_panel_with_no_window():
 
 
 
+# --- the room list is the client's (#2418) ---------------------------------
+
+def _rooms_stand_in(pm, rooms):
+    P = object.__new__(pm.ChatTab)
+    P._rooms = rooms
+    P._room_unread = {}
+    P._chat_unread = {}
+    P._chat_msgs = {t: [] for t in pm.CHAT_TABS}
+    P._chat_store = None
+    for name in ("_web_rooms", "_room_label", "_chat_room", "_parse_rooms"):
+        setattr(P, name, getattr(pm.ChatTab, name).__get__(P))
+    P.ROOM_KEYS = pm.ChatTab.ROOM_KEYS
+    return P
+
+
+def test_a_custom_group_is_a_chip_of_its_own_named_by_the_client():
+    """The person's report: «не вижу все контакты, там есть другие группы, кастомные».
+
+    A player's own group is a room like any other and the client holds it by name. The
+    panel knew six buckets, so the group's messages were tipped into «Другие» beside the
+    cross-server and season channels and its name was nowhere on the screen.
+    """
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
+        print(f"  SKIP test_a_custom_group_is_a_chip...: {exc}")
+        return
+
+    # Invented ids and an invented group name — the shape is what the test is about.
+    rooms = {
+        "country_1000_11": {"name": "", "msgs": 24},
+        "alliance_1000_aaaabbbbcccc": {"name": "", "msgs": 40},
+        "alliance_1000_aaaabbbbcccc_Notice": {"name": "", "msgs": 0},
+        "alliance_friend_aaaabbbbcccc_ddddeeeeffff": {"name": "", "msgs": 40},
+        "custom_lang_xx_1000_11": {"name": "", "msgs": 0},
+        "crossbattle_cross_9": {"name": "", "msgs": 40},
+        "custom_group_0123456789abcdef": {"name": "Group One", "msgs": 40},
+        "custom_1000000000000001_1000000000000002_v2": {"name": "PRIVATE_x_to_y",
+                                                        "msgs": 0},
+    }
+    P = _rooms_stand_in(pm, rooms)
+    chips = P._web_rooms()
+    ids = [c["room"] for c in chips]
+    assert "custom_group_0123456789abcdef" in ids, "the custom group has no chip"
+    group = [c for c in chips if c["room"] == "custom_group_0123456789abcdef"][0]
+    assert group["label"] == "Group One", "the group is not named by the client"
+    assert not group["key"], "a named group must not also carry a locale key"
+    # A private thread is NOT a chip: it lives behind «ЛС», with the contacts.
+    assert not any(r.endswith("_v2") for r in ids), "a DM thread became a chip"
+    # …and the rooms with no name of their own are still called something a person reads.
+    named = {c["room"]: c["key"] for c in chips if c["key"]}
+    assert named["alliance_1000_aaaabbbbcccc_Notice"] == "chat.room.notice"
+    assert named["alliance_friend_aaaabbbbcccc_ddddeeeeffff"] == "chat.room.alliance_friend"
+    assert named["crossbattle_cross_9"] == "chat.room.crossbattle"
+    assert named["country_1000_11"] == "chat.tab.world"
+    # «ЛС» and «Системные» are the two chips that are not a room.
+    assert [c["type"] for c in chips[-2:]] == ["dm", "system"]
+
+
+def test_the_room_list_is_read_from_the_client_never_written_down():
+    """The list comes off `read_chat_rooms`, and the name travels as hex."""
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_the_room_list_is_read...: {exc}")
+        return
+
+    raw = "\t".join(["custom_group_00ff", "d093d180d183d0bfd0bfd0b0", "40"])
+    got = pm.ChatTab._parse_rooms(raw + "\ncountry_1000_11\t\t24")
+    assert got["custom_group_00ff"]["name"] == "Группа", got
+    assert got["custom_group_00ff"]["msgs"] == 40
+    assert got["country_1000_11"]["name"] == "", "a nameless room invented one"
+    # The scenario exists and asks the CLIENT, never the server.
+    recipe = (_REPO / "src" / "lastwar_bot" / "actions" / "read_chat_rooms.md").read_text(
+        encoding="utf-8")
+    assert "getRoomMgr" in recipe, "the rooms are not read off the client's own manager"
+    assert "ChatRoomRequestHistoryMsg" not in recipe, "the room list asks the server"
+
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
