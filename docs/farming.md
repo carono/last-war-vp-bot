@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 70 of 186
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **37%** — 70 of 187
 
-🟩 70 done · 🟨 85 partly · 🟥 31 not automated
+🟩 70 done · 🟨 86 partly · 🟥 31 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -264,6 +264,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Store
 
 - ✅ Taking everything the shop gives for nothing, in one press with no window opened: today's free gift from the week-card page, the daily reward of the week cards already held, what a running month card owes for today, and every level of an event battle pass («Акция») that has been earned and not yet paid out — the free track always, the premium one when it has already been unlocked. Nothing is ever bought — no diamonds, no gold bricks, no honour, no coupons — and every other tab of the shop is left alone. What is on offer is asked of the game rather than counted by the panel, so a day already collected is a clean no-op that says so, and a claim the game refuses is reported as refused instead of being written down as done. Its own page shows what is waiting and offers the press; can run on its own every six hours from «Таймеры» (off by default)
+- 🟡 Three more free claims the shop opens only on some days — the free spin the decoration shop keeps for itself, the free reward of the recharge page, and the daily free one of the camp — go with the same press and the same errand. Each is taken only when the game's own counter says it is on offer, so a day with nothing waiting sends nothing at all; nothing is bought and nothing is topped up, and the only attempt spent is one the game itself calls free. All three gates were read live and all three were closed that day, so the claims themselves have not been seen arriving yet
 - ❌ Anything in the shop that costs something — every one of the fifteen tabs of the two shop windows sells for a currency, and the panel makes no purchases; buying levels of a battle pass is a purchase too and is never made
 - 🟡 The shop opens and switches between its tabs on command
 

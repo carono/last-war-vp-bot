@@ -1,5 +1,5 @@
-# Take everything the shop gives for nothing: the free gift, the cards' daily reward, the battle pass.
-# ru: Забрать всё бесплатное в магазине: подарок, награду карт и ступени боевого пропуска.
+# Take everything the shop gives for nothing: the gifts, the cards, the battle pass, the free spins.
+# ru: Забрать всё бесплатное в магазине: подарки, карты, ступени пропуска и бесплатные попытки.
 #
 # HEADLESS, and completely so: no window is opened, no tab is switched, no marker is
 # tapped and no scene is required. Both presses are the client's own send, made from the
@@ -31,7 +31,22 @@
 #      paid way up the ladder is `buy.battle.pass.level` and this recipe never sends it.
 #      When a pass is at its last level and has the experience for it, the overflow box
 #      goes with it (`receive.bpv2.extra.reward`);
-#   6. reads the gates back and reports what MOVED rather than what was sent.
+#   6. takes the DECORATION SHOP's free spin when its own counter says there is an
+#      attempt left — `decoration.shop.receive.free.reward`, with the shop row's `id` as
+#      its one field. The attempt is free; nothing is bought, and the skins the shop
+#      SELLS are never touched;
+#   7. takes the free reward of the recharge page when the game says one is on offer
+#      today — `receive.week.free.reward`, no payload. Its gate is daily, not a purchase
+#      score;
+#   8. takes the GOLLOES CAMP's daily free one when the camp offers it —
+#      `receive.golloes.daily.free.reward`, no payload;
+#   9. reads the gates back and reports what MOVED rather than what was sent.
+#
+# THE LAST THREE ARE GATED AND WERE ALL CLOSED THE DAY THEY WERE ADDED (2026-09-04): the
+# decoration shop was not even selling, the recharge one had been taken earlier that game
+# day, and the camp was empty. That is the whole reason they are gated rather than sent
+# blind — an earlier pass sent all three with no gate, and a `success=true` that moves
+# nothing is indistinguishable from a claim.
 #
 # A REFUSAL IS NOT A SUCCESS. The server answers a claim it accepts by pushing the record
 # back — the free gate flips to `false`, a card's status goes from `2` to `3` — and one it
@@ -49,6 +64,9 @@ ARGS free_gift = 1
 ARGS card_daily = 1
 ARGS month_card = 1
 ARGS battle_pass = 1
+ARGS decoration_free = 1
+ARGS recharge_free = 1
+ARGS golloes_free = 1
 
 # ---- what the game says is waiting -------------------------------------------------
 CALL read_shop_freebies
@@ -86,8 +104,26 @@ IF battle_pass == 1
         LOG "Боевой пропуск: сверхнаград запрошено {extra_sent}"
         WAIT 3
 
+# ---- 5. the decoration shop's free spin, when an attempt is left ---------------------
+IF decoration_free == 1
+    IF dec_due > 0
+        LUA pcall(function() local d = DataCenter.CommonShopManager.decorationShopDic[150] SFSNetwork.SendMessage(MsgDefines.DecorationShopReceiveFreeReward, {id = d.id}) end)
+        WAIT 2.5
+
+# ---- 6. the free reward of the recharge page, when today's is still waiting ----------
+IF recharge_free == 1
+    IF week_free_due > 0
+        LUA pcall(function() SFSNetwork.SendMessage(MsgDefines.BuyFreeWeeklyPackage) end)
+        WAIT 2.5
+
+# ---- 7. the golloes camp's daily free one -------------------------------------------
+IF golloes_free == 1
+    IF golloes_due > 0
+        LUA pcall(function() SFSNetwork.SendMessage(MsgDefines.ClaimGolloesFreeReward) end)
+        WAIT 2.5
+
 # ---- what actually moved ------------------------------------------------------------
-READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local was = DataCenter.__lw_shop or {} local M = DataCenter.WeekCardManager local free = false pcall(function() free = (M:CheckIfHasFreeReward() == true) end) local due = 0 pcall(function() for _, c in pairs(M:GetWeekCardList() or {}) do if num(c:GetStatus()) == 2 then due = due + 1 end end end) local said = {} if num(was.free) == 1 then said[#said + 1] = 'подарок=' .. (free and 'ОТКАЗАНО — всё ещё предлагается' or 'забран') else said[#said + 1] = 'подарок=сегодня не предлагался' end local wasdue = num(was.cards) if wasdue > 0 then said[#said + 1] = 'карты=' .. (wasdue - due) .. ' из ' .. wasdue .. (due > 0 and (' (ОТКАЗАНО ' .. due .. ')') or '') else said[#said + 1] = 'карты=нечего забирать' end local mleft = false pcall(function() local MC = DataCenter.MonthCardNewManager mleft = (MC:CheckIfMonthCardActive() == true) and (MC:CheckIfHasGolloesGift() == true) end) if num(was.month) == 1 then said[#said + 1] = 'месячная карта=' .. (mleft and 'ОТКАЗАНО — всё ещё ждёт' or 'забрана') else said[#said + 1] = 'месячная карта=нечего забирать' end local B = DataCenter.__lw_shop_bp or {} local wasbp = num(B.due) if wasbp > 0 then local left = 0 local P = DataCenter.ActBattlePassData pcall(function() for id, _ in pairs((P or {}).list or {}) do left = left + num(P:GetActRed(id)) end end) said[#said + 1] = 'боевой пропуск=' .. (wasbp - left) .. ' из ' .. wasbp .. (left > 0 and (' (ОТКАЗАНО ' .. left .. ')') or '') else said[#said + 1] = 'боевой пропуск=' .. (num(B.acts) == 0 and 'не идёт' or 'нечего забирать') end return table.concat(said, ' ') end)() INTO taken
+READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local was = DataCenter.__lw_shop or {} local M = DataCenter.WeekCardManager local free = false pcall(function() free = (M:CheckIfHasFreeReward() == true) end) local due = 0 pcall(function() for _, c in pairs(M:GetWeekCardList() or {}) do if num(c:GetStatus()) == 2 then due = due + 1 end end end) local said = {} if num(was.free) == 1 then said[#said + 1] = 'подарок=' .. (free and 'ОТКАЗАНО — всё ещё предлагается' or 'забран') else said[#said + 1] = 'подарок=сегодня не предлагался' end local wasdue = num(was.cards) if wasdue > 0 then said[#said + 1] = 'карты=' .. (wasdue - due) .. ' из ' .. wasdue .. (due > 0 and (' (ОТКАЗАНО ' .. due .. ')') or '') else said[#said + 1] = 'карты=нечего забирать' end local mleft = false pcall(function() local MC = DataCenter.MonthCardNewManager mleft = (MC:CheckIfMonthCardActive() == true) and (MC:CheckIfHasGolloesGift() == true) end) if num(was.month) == 1 then said[#said + 1] = 'месячная карта=' .. (mleft and 'ОТКАЗАНО — всё ещё ждёт' or 'забрана') else said[#said + 1] = 'месячная карта=нечего забирать' end local X = DataCenter.__lw_shop_x or {} if num(X.dec) == 1 then local left = 0 pcall(function() local d = DataCenter.CommonShopManager.decorationShopDic[150] left = num(d.freeCount) end) said[#said + 1] = 'облики=' .. (left > 0 and 'ОТКАЗАНО — попытка на месте' or 'покручено') else said[#said + 1] = 'облики=нечего крутить' end if num(X.week) == 1 then local open = 0 pcall(function() local R = DataCenter.RechargeManager for k = 0, 8 do if R:GetIsCanReceiveFreeReward(k) == true then open = open + 1 end end end) said[#said + 1] = 'страница пополнения=' .. (open > 0 and 'ОТКАЗАНО — всё ещё предлагается' or 'забрано') else said[#said + 1] = 'страница пополнения=нечего забирать' end if num(X.gol) == 1 then local still = false pcall(function() still = (DataCenter.GolloesCampManager:CheckIfCanClaimFreeGolloes() == true) end) said[#said + 1] = 'лагерь Golloes=' .. (still and 'ОТКАЗАНО — всё ещё ждёт' or 'забран') else said[#said + 1] = 'лагерь Golloes=нечего забирать' end local B = DataCenter.__lw_shop_bp or {} local wasbp = num(B.due) if wasbp > 0 then local left = 0 local P = DataCenter.ActBattlePassData pcall(function() for id, _ in pairs((P or {}).list or {}) do left = left + num(P:GetActRed(id)) end end) said[#said + 1] = 'боевой пропуск=' .. (wasbp - left) .. ' из ' .. wasbp .. (left > 0 and (' (ОТКАЗАНО ' .. left .. ')') or '') else said[#said + 1] = 'боевой пропуск=' .. (num(B.acts) == 0 and 'не идёт' or 'нечего забирать') end return table.concat(said, ' ') end)() INTO taken
 LOG "Магазин, итог: {taken}"
 
 # ---- and the readings the page draws, off the state as it is NOW --------------------

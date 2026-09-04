@@ -10,7 +10,10 @@ card**; and — added on the second pass, after the person said «раздел �
 пропуск, появляются бонусы» — the **levels of every event BATTLE PASS that are earned and
 not yet paid out** (§8). Everything else on every tab has a price. Buying a subscription is a purchase and
 is never made — claiming what a running one owes costs nothing, and a day it is not
-claimed is a day of it thrown away. The ability that takes all four is
+claimed is a day of it thrown away. Three more claims were pressed blind on the first pass, answered
+with a shrug and written off as «not shipped»; the third pass (2026-09-04, «делай, там
+разберёмся») found a real GATE behind each of them and they are now claimed like the rest
+whenever that gate is open — §6. The ability that takes all seven is
 `actions/collect_shop_freebies.md`, and the reading behind it is
 `actions/read_shop_freebies.md`. There is ONE errand for them (every six hours), because
 that is what the person asked for.
@@ -66,7 +69,7 @@ Read off `w.View.tabs`, in the order the bar draws them:
 | 6 | 2010000 | 108 | Магазин золотых слитков | no, gold bricks are a currency |
 | 7 | 9999999 | 110 | «Наборы» (pop-collect packs) | no, money |
 
-## 4. The two claims that ARE free
+## 4. The three claims that are free EVERY day
 
 Both live on `DataCenter.WeekCardManager`, and both gates are the client's own record —
 filled at login, kept up to date by the server's pushes — so reading them costs one VM
@@ -136,25 +139,40 @@ round trip and puts nothing on the wire.
   RUNNING subscription owes is claimed (§4.3); nothing is ever bought.
 * **«Постоянный подарок», «Наборы», the activity tab.** Money.
 
-## 6. The three free-SHAPED claims that were pressed and are NOT shipped
+## 6. The three claims that are open only some days — and the gate behind each
 
-Named here with what each one's gate turned out to be, so the next agent does not spend
-the afternoon finding them again. **All three are «nothing on offer», not «broken»** —
-which is exactly what the fourth finding below explains.
+The first pass pressed all three with no gate, got `success=true` or `E000000` back and
+wrote them off. That was the wrong conclusion drawn from the right observation: the
+sends were answered that way **because there was nothing on offer**, and a claim sent
+blind cannot tell «nothing today» from «broken». Read live on **2026-09-04** the gate
+turned out to exist for every one of them, and all three were CLOSED that day — which is
+exactly what the sends had been saying.
 
-* **`receive.week.free.reward`** (`MsgDefines.BuyFreeWeeklyPackage`) — answered
-  `{success=true}` and **nothing moved**. Its gate is `RechargeManager:
-  GetIsCanReceiveFreeReward(type)`, and on this account every type from `0` to `6` reads
-  `false`; only type `1` even has a `GetFreeRewardIdByType`. So there was nothing to give.
-* **`receive.golloes.daily.free.reward`** (`MsgDefines.ClaimGolloesFreeReward`) — the same
-  shape: `{success=true}`, `lastClaimTime` unmoved, both with and without the card id. It
-  is a DIFFERENT reward from §4.3 and its own gate has not been found.
-* **`decoration.shop.receive.free.reward`** (`MsgDefines.DecorationShopReceiveFreeReward`)
-  — the decoration shop advertises a free daily reward
-  (`ActivityListDataManager:GetActHasFreeDailyReward(1051010)` = `true`, and the activity
-  is `activity_name_98800`, the decoration direct-purchase gift page). Its real gate is in
-  `CommonShopManager.decorationShopDic[150]`: `freeCount = 0`, `freeRewardId = 0`,
-  `maxFreeTime` empty. There was nothing to claim, which is why the server refused.
+| claim | message | the gate, in the client's own record | 2026-09-04 |
+|---|---|---|---|
+| the decoration shop's free spin | `decoration.shop.receive.free.reward` (`MsgDefines.DecorationShopReceiveFreeReward`), **`PutInt id`** — the shop row's own `id` | `CommonShopManager.decorationShopDic[150]`: `freeCount > 0` **and** `freeRewardId > 0` | `freeCount = 0`, `freeRewardId = 0`, `IsSaleInDecorationShop()` = `false`, no goods (`GetDecorationShopItemNum()` = 0) |
+| the recharge page's free reward | `receive.week.free.reward` (`MsgDefines.BuyFreeWeeklyPackage`), **no payload at all** | `RechargeManager:GetIsCanReceiveFreeReward(type)` over types `0…8` | every type `false`; only type `1` has a `GetFreeRewardIdByType`, and `RechargeManager.freeRewardInfoDic[1]` held that game day's own claim stamp |
+| the golloes camp's daily free one | `receive.golloes.daily.free.reward` (`MsgDefines.ClaimGolloesFreeReward`), **no payload** | `DataCenter.GolloesCampManager:CheckIfCanClaimFreeGolloes()` | `false`, with the camp empty: `GetGolloesCount()` = 0, trader and explorer states `0` |
+
+Three things that cost time and are worth writing down once:
+
+* **`GetActHasFreeDailyReward(1051010)` is NOT the decoration gate.** It reads `true` the
+  whole time — it is the ACTIVITY advertising a free daily, not the account's counter.
+  The counter is `freeCount` on the shop row, and asking the server for the page
+  (`CommonShopManager:RequestDecorationShopInfo()`) does not conjure one: on a day the
+  shop is not selling there is no attempt to spend.
+* **The recharge one is a DAILY gate, not a purchase score.** It looked like a top-up
+  reward and it is not. `freeRewardInfoDic` keeps a stamp per type: on 2026-09-04 type
+  `1` held `1788517530`, which is **after** that game day's zero (`GetTomorrowZero()`
+  minus a day), so it had already been taken that day and the gate had closed behind it.
+* **The golloes claim has nothing to do with the month card.** `MsgDefines` says
+  «Golloes» in both names — `ClaimGolloesDailyReward` is `month.card.reward` (§4.3) — but
+  this one belongs to `GolloesCampManager`, the camp. Its own manager holds the gate, and
+  `MonthCardNewManager` has no free-reward method at all.
+
+The wire shapes were read **without sending a byte**, with the `NewEmpty` + recording
+`sfsObj` trick: two of the three put nothing on the wire, and the decoration one asks its
+param for `id` twice and puts a single `PutInt id`.
 
 ### `E000000` is a REFUSAL, not an «all clear»
 

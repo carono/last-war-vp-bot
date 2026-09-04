@@ -136,10 +136,12 @@ SPEC: dict = {
     ),
     # WHAT THE SHOP GIVES FOR NOTHING (#2395). Four claims, and each is a decision
     # about somebody's own account rather than a rule: the daily free gift of the
-    # week-card page, the daily reward of the week and month cards already bought, and
-    # the levels an event battle pass has earned and not paid out. None of them
-    # spends a thing — the errand never buys — so all four default to on, and all are
-    # drawn on «Магазин» as well as here.
+    # week-card page, the daily reward of the week and month cards already bought, the
+    # levels an event battle pass has earned and not paid out, and the three claims that
+    # are open only some days — the decoration shop's free spin, the recharge page's free
+    # reward and the golloes camp's daily one. None of them spends a thing — the errand
+    # never buys, and the only «attempt» it uses is one the game calls free — so all
+    # seven default to on, and all are drawn on «Магазин» as well as here.
     "collect_shop_freebies": (
         _flag("free_gift", "shop.free_gift",
               hint_key="shop.free_gift.hint"),
@@ -149,6 +151,12 @@ SPEC: dict = {
               hint_key="shop.month_card.hint"),
         _flag("battle_pass", "shop.battle_pass",
               hint_key="shop.battle_pass.hint"),
+        _flag("decoration_free", "shop.decoration_free",
+              hint_key="shop.decoration_free.hint"),
+        _flag("recharge_free", "shop.recharge_free",
+              hint_key="shop.recharge_free.hint"),
+        _flag("golloes_free", "shop.golloes_free",
+              hint_key="shop.golloes_free.hint"),
     ),
     "send_trucks": (
         _flag("collect", "errand.arg.trucks.collect",

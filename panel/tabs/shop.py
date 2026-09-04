@@ -2,7 +2,7 @@
 
 WHAT THE PAGE IS FOR. The shop has a lot of tabs and almost all of them want money. This
 page answers the one question a person actually has to ask every day — «есть ли там
-что-нибудь бесплатное прямо сейчас» — and offers the press that takes it. Four readings
+что-нибудь бесплатное прямо сейчас» — and offers the press that takes it. Seven readings
 and nothing else: today's free gift on the week-card page, the daily reward of the week
 cards the account already holds, what a running month card owes for today, and the
 levels of every event battle pass («Акция») that are earned and not yet claimed.
@@ -22,7 +22,7 @@ or the errand fires. There is no clock here: both gates are the client's own rec
 up to date by the server's own pushes, and a page that re-read itself every minute would
 be a background poll of the game link (`CLAUDE.md`).
 
-THE FOUR KNOBS are what the routine is allowed to take, and they live in ONE place — the
+THE SEVEN KNOBS are what the routine is allowed to take, and they live in ONE place — the
 errand's own row on «Таймеры» (`panel/runtime/errand_args.py`). This page is a second
 DRAWING of them rather than a second copy: a box ticked here is written through
 `Schedule.set_timer_arg`, so the schedule fires with what the page shows and the gear
@@ -44,7 +44,8 @@ ERRAND = COLLECT_ACTION
 
 #: The two permissions, and what they mean when the row says nothing — the scenario's own
 #: `ARGS` defaults, so a profile that has never touched them behaves as the recipe does.
-KNOBS = ("free_gift", "card_daily", "month_card", "battle_pass")
+KNOBS = ("free_gift", "card_daily", "month_card", "battle_pass",
+         "decoration_free", "recharge_free", "golloes_free")
 
 #: The readings, in the order the page draws them: the scenario's variable and the locale
 #: key that names it. `free_due` is drawn through its own formatter.
@@ -54,6 +55,9 @@ ROWS = (("free_due", "shop.free_due"),
         ("month_due", "shop.month_due"),
         ("pass_due", "shop.pass_due"),
         ("pass_acts", "shop.pass_acts"),
+        ("dec_due", "shop.dec_due"),
+        ("week_free_due", "shop.week_free_due"),
+        ("golloes_due", "shop.golloes_due"),
         ("due", "shop.due"))
 
 #: What a value looks like before anything has been read. Never a zero: «0 наград» and
@@ -118,7 +122,8 @@ class ShopTab(PanelTab):
         raw = self._values.get(name, UNREAD)
         if raw == UNREAD:
             return UNREAD
-        if name in ("free_due", "month_due"):
+        if name in ("free_due", "month_due", "dec_due", "week_free_due",
+                    "golloes_due"):
             return self.t("shop.yes" if str(raw) not in ("0", "") else "shop.no")
         return str(raw)
 
@@ -150,6 +155,18 @@ class ShopTab(PanelTab):
         """May the routine take the ladder of every event battle pass that is running."""
         return self.knob("battle_pass")
 
+    def decoration_free(self) -> bool:
+        """May the routine spend the decoration shop's own free attempt."""
+        return self.knob("decoration_free")
+
+    def recharge_free(self) -> bool:
+        """May the routine take today's free reward of the recharge page."""
+        return self.knob("recharge_free")
+
+    def golloes_free(self) -> bool:
+        """May the routine take the golloes camp's daily free one."""
+        return self.knob("golloes_free")
+
     def set_knob(self, key: str, on) -> None:
         """Move one knob — from this page, from the phone, or from the gear on «Таймеры»."""
         value = on not in ("0", "", "false", "False", None, 0, False)
@@ -166,7 +183,7 @@ class ShopTab(PanelTab):
             self.set_knob(key, var.get())
 
     def args(self) -> dict:
-        """The four permissions as the scenario's `ARGS`. Nothing else is passed."""
+        """The seven permissions as the scenario's `ARGS`. Nothing else is passed."""
         return {key: 1 if self.knob(key) else 0 for key in KNOBS}
 
     # -- playing the two scenarios ---------------------------------------------
@@ -219,7 +236,7 @@ class ShopTab(PanelTab):
 
     # -- the phone ----------------------------------------------------------------
     def web_view(self) -> "dict | None":
-        """One card: the readings, the four permissions as fields, and the two presses."""
+        """One card: the readings, the seven permissions as fields, and the two presses."""
         rows = [{"label": key, "value": self.shown(name)} for name, key in ROWS]
         fields = [{"key": key, "label": "shop." + key,
                    "hint": "shop." + key + ".hint", "kind": "switch",
