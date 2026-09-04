@@ -327,3 +327,34 @@ Every number in §1–§4 was taken at ~1 s a call. At ~0.1 s a call:
   their price the case for it is a 137 s `radar_full_cycle` not making a rally join wait,
   and that is worth deciding on its own merits rather than as a cure for a queue.
 * **the socket door (§4, §6.2) is still unexplained** and is still the next thing to open.
+
+### The catalogue, twenty minutes later
+
+The same probe that produced §1's table, over 10:45–11:05 with the change in:
+
+| scenario | §1 avg s a run | after | calls | s a call |
+| --- | ---: | ---: | ---: | ---: |
+| `radar_full_cycle` | 137.3 | **17.0** | 23 | 0.22 |
+| `board_alliance_train` / `exchange_treasure_pieces` | 42.3 / 31.4 | — / **2.5** | 7 | 0.14 |
+| `do_radar_marches` | 38.0 | **8.0** | 10 | 0.15 |
+| `help_ally` | 3.2 | **0.9** | 17 | 0.53 |
+| `work_secret_tasks` | — | 44.0 | 170 | **0.33** |
+
+**And it moved what the remaining hold is MADE of, which is the next thing to argue
+about.** `arena_3v3_battles` held the client 54 s and spent 4 of them in the VM: the other
+50 are its own `WAIT`s. That is precisely the «idle exclusive» §1 said did not exist — and
+§1 was right at the time, because at a second a call the VM swamped everything else. It
+does not any more, so a run's own pauses are now the biggest thing holding the client for
+nothing.
+
+**Handing it back during those pauses is NOT a free change**, and the reason is §5's list.
+The machinery exists and is wired up already — `claims.demand` / `claims.wanted` /
+`panel/runtime/host.py::yield_hook`, called between statements, between the presses of a
+repeat and between the polls of a `WAIT` — but it is given to DETACHED runs only. Giving
+it to an ordinary background errand would let a press through in the middle of a series
+that §5 says may not be broken, including one whose entry names a `WAIT` explicitly:
+«refilling a squad → sending it again — the `WAIT 0.4` between them is a pause, not a
+guard». So the honest order of work is the operator's own third point: **name the atomic
+blocks in the recipes first** (a marker the interpreter reads, so a run cannot park inside
+one), and only then let ordinary runs step aside. That is a decision, not a tidy-up, and
+it is left to the person.
