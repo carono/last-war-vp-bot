@@ -670,8 +670,6 @@ def test_the_phone_is_offered_the_attack_only_while_the_event_is_running():
 def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     """The same rule as the boss: a reading that SAYS «no energy» kills the button."""
     spent = _tab(golden=GOLDEN_SPENT)
-    assert _golden_item(spent).get("actions") is None, \
-        "the tile offers a hunt the purse cannot pay for"
     assert spent.web_press("hunt_golden", {}) == {"error": "closed"}
     assert spent.rt.played == [], "a hunt reached the game with an empty purse"
 
@@ -683,7 +681,6 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     # labels sharing its foot row with a gear are drawn one letter per line at 390 px.
     # The tile keeps the press the card is ABOUT and nothing else.
     STEPS = [action for action, _scenario, _key in live.STEPS]
-    assert [a["id"] for a in _golden_item(live)["actions"]] == ["hunt_golden"]
     assert [a["id"] for a in _golden_steps(live)["actions"]] == STEPS
     assert live.web_press("hunt_golden", {}) == {"ok": True}
     assert live.rt.played == [modelmod.GOLDEN_ATTACK]
@@ -691,7 +688,6 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     # …and a reading nobody could take leaves it alive: «nobody knows» is not «you may
     # not», and the scenario holds its own gates.
     unknown = _tab(golden=None)
-    assert [a["id"] for a in _golden_item(unknown)["actions"]] == ["hunt_golden"]
     assert [a["id"] for a in _golden_steps(unknown)["actions"]] == STEPS
 
 
@@ -844,22 +840,6 @@ def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():
         "a slot that does not exist must not be sent anywhere"
 
 
-def _golden_item(tab):
-    """The one item of the «Золотые зомби» card — a tile of the new shape (#2390).
-
-    The card stopped being a list of rows with nine buttons over it: it is a `cards`
-    layout with one item, the state on a pill, the numbers as facts and every knob behind
-    the gear that opens the ONE modal (`CLAUDE.md`). Every test that used to read `rows`
-    reads `facts` through here.
-    """
-    card = next(c for c in tab.web_view()["cards"]
-                if c.get("title") == "events.group." + modelmod.GOLDEN)
-    assert card.get("layout") == "cards", "the golden card went back to being rows"
-    assert card["items"][0].get("shape") == "cover", (
-        "the hunt is drawn as the card every errand is drawn as (#2408)")
-    return card["items"][0]
-
-
 def _golden_steps(tab):
     """The card the chain's own step presses live on (#2408).
 
@@ -869,6 +849,22 @@ def _golden_steps(tab):
     """
     return next(c for c in tab.web_view()["cards"]
                 if c.get("title") == "events.golden.steps")
+
+
+def _golden_item(tab):
+    """The hunt's READINGS, which stayed on «События» when its card left (#2408).
+
+    The card itself is a row of the errand catalogue now — «Не, делаем в таймерах, туда
+    суём её, как обычную карточку» — because a section of this screen only opens when
+    somebody picks it out of the chip strip, and the person could not find it. What is
+    left here is the run taken apart into presses and the numbers they are read against;
+    they are `rows` of the steps card, and every test that read `facts` reads them here.
+    """
+    card = _golden_steps(tab)
+    assert not any(c.get("title") == "events.group." + modelmod.GOLDEN
+                   for c in tab.web_view()["cards"]), (
+        "the hunt is drawn twice — its card belongs to «Таймеры» (#2408)")
+    return {"facts": card.get("rows") or [], "actions": card.get("actions")}
 
 
 def test_the_fast_approach_is_a_switch_on_both_front_ends():
@@ -888,10 +884,9 @@ def test_the_fast_approach_is_a_switch_on_both_front_ends():
     # `switch` field behind the card's gear, set through the same `set` press every
     # other knob uses. The old `approach_toggle` is still answered, for a page a phone
     # already has open.
-    item = _golden_item(tab)
-    knob = next(f for f in item["options"]
-                if f["key"] == modelmod.GOLDEN_APPROACH_KEY)
-    assert knob["kind"] == "switch" and knob["value"] is False
+    knob = next(o for o in tab.errand_options()[modelmod.GOLDEN_ATTACK]
+                if o.key == modelmod.GOLDEN_APPROACH_KEY)
+    assert knob.kind == "switch" and knob.read(tab.rt) is False
     assert tab.web_press("set", {"key": modelmod.GOLDEN_APPROACH_KEY,
                                  "value": True}) == {"ok": True, "approach": True}
     assert tab.approach() is True
@@ -1366,3 +1361,28 @@ def test_every_red_packet_press_reaches_a_scenario_and_nothing_else_does():
         assert tab.web_press(press, {}) == {"ok": True}
         assert [p[0] for p in tab.rt.played] == [name]
     assert tab.red("nonsense") == {"error": "unknown"}
+
+
+def test_the_gear_can_actually_change_the_hunt_s_squad():
+    """The picker's value arrives as TEXT, and the knob has to parse it (#2408).
+
+    «В карточке золотых зомби не могу поменять отряд»: `Option.write` normalises every
+    squad knob to the slots that are ON joined by commas, so a setter treating it as a
+    list took the first CHARACTER, matched no slot, and answered «ok» while changing
+    nothing. The card then redrew the old squad and the press looked as if it had never
+    landed.
+    """
+    tab = _tab()
+    knobs = {o.key: o for o in tab.errand_options()[modelmod.GOLDEN_ATTACK]}
+    squad = knobs[modelmod.GOLDEN_SQUAD_KEY]
+    assert squad.read(tab.rt) == [tab.squad()]
+    assert squad.write(tab.rt, "3") is True
+    assert tab.squad() == 3
+    assert tab.golden_args()["squad"] == 3
+    # …and the picker's own list shape, which is what the phone actually sends.
+    assert squad.write(tab.rt, [1]) is True
+    assert tab.squad() == 1
+    # One squad, and only one: the hunt sends a single march, so naming none or naming
+    # two is refused rather than guessed at.
+    assert squad.write(tab.rt, "") is True and tab.squad() == 1
+    assert squad.write(tab.rt, "2,4") is True and tab.squad() == 1

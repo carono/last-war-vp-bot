@@ -479,8 +479,7 @@ class EventsTab(PanelTab):
                 errandopts.Option(modelmod.GOLDEN_SQUAD_KEY, "squads.title",
                                   errandopts.SQUADS, single=True,
                                   get=lambda: [self.squad()],
-                                  set=lambda picked: self._set_golden_squad(
-                                      picked[0] if picked else self.squad())),
+                                  set=self._pick_golden_squad),
                 errandopts.Option(modelmod.GOLDEN_LIMIT_KEY, "events.golden.limit",
                                   errandopts.NUMBER,
                                   hint_key="events.golden.limit.hint",
@@ -1154,6 +1153,20 @@ class EventsTab(PanelTab):
                 pass
         self.rt.settings.changed()
         return {"ok": True, "squad": wanted}
+
+    def _pick_golden_squad(self, value) -> dict:
+        """The gear's picker, whose value arrives as the picker's own text — «3».
+
+        `errand_options` normalises every squad knob to the slots that are ON, joined by
+        commas (`Option.write`), so a setter that indexed it like a list took the first
+        CHARACTER and quietly changed nothing: the write answered «ok» and the card came
+        back showing the old squad. Parsed by the one reader that understands that text
+        (`squad_picker.chosen_from`), the way every other squad knob does it.
+        """
+        picked = squad_picker.chosen_from(value)
+        if len(picked) != 1:
+            return {"error": "unknown"}
+        return self._set_golden_squad(picked[0])
 
     def _set_golden_approach(self, on) -> dict:
         """Throw the ride — a SETTING, and it presses nothing (#2390).
