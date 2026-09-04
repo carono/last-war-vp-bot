@@ -147,6 +147,9 @@ class ChatTab(PanelTab):
         self._rooms: dict = {}
         self._rooms_read = 0.0
         self._rooms_busy = False
+        # Rooms an arriving message revealed and the register was asked about, so a
+        # room the client will not name costs one read and not one per message.
+        self._rooms_asked: set = set()
         # …and unread per ROOM, because a chip is a room now and not a kind.
         self._room_unread: dict = {}
         # uid -> the link its face is served on, or "". The lookup walks a few thousand
@@ -1027,8 +1030,39 @@ class ChatTab(PanelTab):
         self._rooms_busy = False
         if not found:
             return                              # …and `_rooms_read` stays old, so the
-        self._rooms = found                     # next look asks again rather than
+        # A ROOM THE EAR HEARD IS NOT DROPPED BY A READ THAT MISSED IT (#2418). The
+        # client's answer wins wherever it has one — it carries the name, the pin and
+        # the client's own stamp — but a room only this panel has heard from keeps its
+        # entry, so a chip cannot disappear the moment the register is refreshed.
+        merged = dict(self._rooms)
+        merged.update(found)
+        for room, info in found.items():
+            was = float((self._rooms.get(room) or {}).get("last") or 0.0)
+            if was > float(info.get("last") or 0.0):
+                merged[room] = dict(info, last=was)
+        self._rooms = merged                    # next look asks again rather than
         self._rooms_read = time.time()          # trusting an answer nobody gave.
+
+    def _room_heard(self, room: str, ts: float) -> None:
+        """One message names its room: move that room's stamp, on the Tk thread.
+
+        A room the register has never seen is a room the CLIENT can name and this panel
+        cannot — a custom group is named by the person who made it — so the arrival that
+        revealed it asks for the register once. On the arrival, never on a clock, and
+        only for a room that is new: `_read_rooms` is already one-at-a-time, and a room
+        the client will not name is asked about exactly once per panel.
+        """
+        if not room:
+            return
+        info = self._rooms.get(room)
+        if info is None:
+            self._rooms[room] = {"name": "", "msgs": 0, "pin": False, "last": ts}
+            if room not in self._rooms_asked:
+                self._rooms_asked.add(room)
+                self._read_rooms(force=True)
+            return
+        if ts > float(info.get("last") or 0.0):
+            info["last"] = ts
 
     def _room_label(self, room: str) -> tuple:
         """`(key, label)` for a chip — a locale key, or the group's own name.
@@ -1831,6 +1865,18 @@ class ChatTab(PanelTab):
                 chat_type = record.get("chat_type", "other")
                 if chat_type not in self._chat_msgs:
                     chat_type = "other"
+                # THE ROOM LIST FOLLOWS THE EAR (#2418). It was read once, when the
+                # screen was first looked at, and never again while the panel ran: every
+                # stamp on the left-hand list was measured 96 minutes stale on a live
+                # panel whose newest message was 57 seconds old, so the sections that
+                # sort by their last message («лички по последнему сообщению», pinned)
+                # were sorted by an hour-old answer, and a room that started talking
+                # after that read had no chip at all until somebody pressed «Обновить
+                # комнаты». A message names its own room, so the arrival is the signal —
+                # no clock, and no question to the game for a stamp it already sent.
+                if not backlog:
+                    self._room_heard(str(record.get("room_id") or "").strip(),
+                                     float(record.get("ts") or 0.0))
                 # Persist first: the SQLite store is the history of record, so a
                 # message is durable the moment it arrives (idempotent on identity).
                 if self._chat_store is not None:

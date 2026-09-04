@@ -986,5 +986,68 @@ def _run_standalone() -> int:
     return 1 if failed else 0
 
 
+def test_the_room_list_follows_the_ear_instead_of_one_read_an_hour_old():
+    """#2418, measured live: the left-hand list was read ONCE, when the screen was first
+    looked at, and never again while the panel ran — every stamp on it was 96 minutes
+    old on a panel whose newest message was 57 seconds old. The sections that sort by
+    their last message were sorted by that hour-old answer, and a room that started
+    talking after the read had no chip at all until somebody pressed «Обновить комнаты».
+
+    A message names its own room, so the arrival is the signal: no clock, and no
+    question to the game for a stamp the message already carried.
+    """
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_the_room_list_follows_the_ear...: {exc}")
+        return
+
+    asked = []
+    P = object.__new__(pm.ChatTab)
+    P._rooms = {"country_1000_11": {"name": "", "msgs": 24, "pin": False,
+                                    "last": 1000.0}}
+    P._rooms_asked = set()
+    P._read_rooms = lambda force=False: asked.append(force) or True
+    heard = pm.ChatTab._room_heard.__get__(P)
+
+    heard("country_1000_11", 2000.0)
+    assert P._rooms["country_1000_11"]["last"] == 2000.0, \
+        "a message moves its own room's stamp"
+    heard("country_1000_11", 1500.0)
+    assert P._rooms["country_1000_11"]["last"] == 2000.0, "a stamp never walks backwards"
+    assert asked == [], "a room already in the register asks the client nothing"
+
+    # A room nobody has read yet: it gains a chip at once, and the client is asked ONCE
+    # for the one thing only it knows — the name a person gave the group.
+    heard("custom_group_00000000000000000000000000000001", 3000.0)
+    heard("custom_group_00000000000000000000000000000001", 3100.0)
+    assert "custom_group_00000000000000000000000000000001" in P._rooms
+    assert asked == [True], "an unknown room is asked about once, not once per message"
+
+
+def test_a_read_of_the_register_keeps_what_the_ear_heard():
+    """The client's answer wins where it has one — the name, the pin, its own stamp —
+    but a room only the ear has heard from keeps its chip, and a stamp the panel has
+    seen move is not walked backwards by an older reading (#2418)."""
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_a_read_of_the_register_keeps...: {exc}")
+        return
+
+    P = object.__new__(pm.ChatTab)
+    P._rooms = {"country_1000_11": {"name": "", "msgs": 24, "pin": False, "last": 9000.0},
+                "custom_group_00000000000000000000000000000001":
+                    {"name": "", "msgs": 0, "pin": False, "last": 8000.0}}
+    P._rooms_read, P._rooms_busy = 0.0, True
+    pm.ChatTab._absorb_rooms(P, {"country_1000_11": {"name": "", "msgs": 25,
+                                                     "pin": True, "last": 5000.0}})
+    assert P._rooms["country_1000_11"]["pin"] is True, "the client's own flag wins"
+    assert P._rooms["country_1000_11"]["last"] == 9000.0, \
+        "a read older than what the ear heard must not roll the stamp back"
+    assert "custom_group_00000000000000000000000000000001" in P._rooms, \
+        "a read that missed a room must not take its chip away"
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())
