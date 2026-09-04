@@ -969,6 +969,89 @@ def test_a_squad_that_cannot_act_where_it_stands_is_walked_off_it():
     assert i < send, "the ground is ruled out only after the order has been refused"
 
 
+def test_a_march_that_does_not_exist_is_never_re_aimed():
+    """Nine minutes, zero attacks, and every lap said `reaimed=1` (#2390).
+
+    The re-aim kept the uuid of the march it had sent and ordered `world.march.change` at
+    it without ever asking again whether that march was still there. Once the squad was
+    home the client held no march at all — `GetOwnerMarches` answered nothing — so the
+    order went nowhere, the proof answered `launched=0`, and the blame landed on the
+    ZOMBIE: the target was written off, the next one was picked, and the ghost was
+    re-aimed at that one instead. For nine minutes.
+
+    So: no march of ours, no re-aim. The answer is `0`, which is the caller's «send the
+    ordinary way out of the base» and is counted as a `fallback`.
+    """
+    import lupa
+
+    reaim = lua_actions.golden_reaim_now()
+    assert "local mu = p.own_march " not in reaim, \
+        "the remembered uuid is still taken on trust, without asking whether it names a march"
+    assert "local own = _ownmarch(p) local mu = _reaim(own, p) " in reaim.replace('" "', "") \
+        or ("_ownmarch(p)" in reaim and "_reaim(own, p)" in reaim), \
+        "the re-aim does not ask the game whether the march exists"
+
+    rt = lupa.LuaRuntime()
+    rt.execute("""
+        DataCenter = {
+          __lw_gold = {formation = 'F', squad = 2, own_march = 'GHOST',
+                       cur = {pid = 7, x = 1, y = 2, uuid = 5, key = '5'},
+                       used = {}, server = 935},
+          WorldMarchDataManager = {
+            GetOwnerFormationMarch = function() return nil end,
+            GetMarch = function() return nil end,
+            GetOwnerMarches = function() return nil end,
+          },
+        }
+        MarchTargetType = {ATTACK_MONSTER = 1, CROSS_ATTACK_MONSTER = 2}
+        LuaEntry = {Player = {uid = 1, allianceId = 1, stamina = 500}}
+        CS = {UnityEngine = {Debug = {LogError = function() end}}}
+    """)
+    got = int(rt.eval(reaim))
+    assert got == 0, f"a run with no march of its own answered {got}, wanted 0 (ordinary send)"
+    p = rt.eval("DataCenter.__lw_gold")
+    assert p["own_march"] is None, \
+        "the dead uuid is still remembered — the next lap re-aims the same ghost"
+    assert int(p["redeploys"] or 0) == 0, \
+        "an order that was never given is counted as a redeploy"
+    assert int(p["reaim_drops"] or 0) == 1, \
+        "the run says nothing about having dropped a march it could not find"
+
+
+def test_re_aims_that_produce_no_march_stop_after_a_counted_few():
+    """Point three of the same fix: bound the loop by FACT, not by a clock (#2390).
+
+    A re-aim is allowed to be optimistic once — the client drops the march object the
+    instant a fight resolves — but a second one in a row that produced no march is the
+    client saying twice over that there is no march. Then the uuid is dropped, the next
+    order goes out of the base, and the log carries the number.
+    """
+    import lupa
+
+    assert lua_actions.GOLDEN_REAIM_MISSES >= 1, "the streak can never be reached"
+    miss = lua_actions.golden_note_miss()
+    rt = lupa.LuaRuntime()
+    rt.execute("DataCenter = {__lw_gold = {own_march = 'GHOST', redeploy = 1}} "
+               "CS = {UnityEngine = {Debug = {LogError = function() end}}}")
+    for _ in range(lua_actions.GOLDEN_REAIM_MISSES):
+        rt.execute("DataCenter.__lw_gold.redeploy = 1")
+        rt.execute(miss)
+    p = rt.eval("DataCenter.__lw_gold")
+    assert p["own_march"] is None, \
+        f"{lua_actions.GOLDEN_REAIM_MISSES} re-aims in a row made no march and the uuid is still held"
+    assert int(p["reaim_resets"] or 0) == 1, "the reset is not counted anywhere"
+    assert "reaim_resets" in lua_actions.golden_report(), \
+        "the report says nothing about the loop having been broken"
+    # …and an ORDINARY miss — a zombie somebody else killed — leaves the march alone.
+    rt.execute("DataCenter.__lw_gold = {own_march = 'LIVE', redeploy = 0}")
+    rt.execute(miss)
+    assert rt.eval("DataCenter.__lw_gold.own_march") == "LIVE", \
+        "a dead target is being blamed on the march"
+    # …and a proven attack clears the streak, so two misses an hour apart never add up.
+    assert "p.reaim_miss = 0" in lua_actions.golden_confirm(), \
+        "the streak survives a kill — a long run would reset itself for no reason"
+
+
 def test_the_queue_is_refreshed_while_the_squad_is_walking():
     """#1702: eighteen targets thrown away in one run, all of them from one snapshot.
 

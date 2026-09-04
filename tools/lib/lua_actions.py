@@ -11518,6 +11518,22 @@ GOLDEN_REFRESH_AFTER = 3
 #: on 2026-08-19 was 10; this is only what keeps the gate honest if the call fails.
 GOLDEN_ATTACK_COST = 10
 
+#: HOW MANY RE-AIMS IN A ROW MAY FAIL TO PRODUCE A MARCH before the run stops trying to
+#: re-aim at all and sends the ordinary way out of the base (#2390).
+#:
+#: Measured live: a chain re-aimed a march that no longer existed for **nine minutes and
+#: zero attacks**. The squad was standing at home, `GetOwnerMarches` held nothing, and the
+#: run went on ordering `world.march.change` at the uuid it had been holding since its last
+#: send — because that uuid was remembered and never checked again. Every lap answered
+#: `reaimed=1`, every lap's proof answered `launched=0`, and the blame landed on the
+#: ZOMBIE: the target was written off, another was picked, and the ghost march was re-aimed
+#: at that one instead.
+#:
+#: Two, because one is the ordinary case the optimism was bought for — the client drops the
+#: march object the instant a fight resolves — and a second one in a row is the client
+#: saying it has no march, twice, which is a fact rather than a race.
+GOLDEN_REAIM_MISSES = 2
+
 #: Where the run's own state is parked in the game VM, so it survives between presses
 #: (`TAP` carries no arguments) and a panel restart.
 _GOLD = "DataCenter.__lw_gold"
@@ -12582,9 +12598,24 @@ def golden_reaim_now() -> str:
         # asked in between; whether the server took it is settled afterwards by the
         # ordinary proof (`golden_launched`), and a re-aim that did not land is
         # answered by the ordinary march out of the base.
-        "local mu = p.own_march "
-        "if mu == nil then local own = _ownmarch(p) mu = _reaim(own, p) end "
-        "if mu == nil then return 0 end "
+        # …AND THE MARCH HAS TO BE THERE (#2390). The uuid was taken on trust for as
+        # long as the run held one, which is right for the beat after a landing and
+        # wrong for ever: once the squad is home the client holds no march at all,
+        # and an order at a uuid nobody has is answered by nothing. So the game is
+        # asked whether the march EXISTS — `_reaim` answers with the uuid only for a
+        # banner-free march of ours — and when it does not, the remembered uuid is
+        # dropped and the caller sends the ordinary way, out of the base, which the
+        # report counts as a `fallback`.
+        "local own = _ownmarch(p) "
+        "local mu = _reaim(own, p) "
+        "if mu == nil then "
+        "if p.own_march ~= nil then p.own_march = nil "
+        "p.reaim_drops = (tonumber(p.reaim_drops) or 0) + 1 end "
+        "p.reaim_miss = 0 p.redeploy = 0 "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_reaim none — no march of ours; '
+        'sending out of the base instead, drops="..tostring(p.reaim_drops)) '
+        "return 0 end "
         "local uuid = _freshuuid(ws, p, t) "
         "if uuid == nil then p.used[tostring(t.pid)] = true "
         "p.dropped = (tonumber(p.dropped) or 0) + 1 p.cur = nil "
@@ -12682,7 +12713,7 @@ def golden_confirm() -> str:
         "if p.pending == nil then "
         'CS.UnityEngine.Debug.LogError("ACT golden_confirm skipped=nothing-pending") return end '
         "p.attacks = (tonumber(p.attacks) or 0) + 1 "
-        "p.misses = 0 "
+        "p.misses = 0 p.reaim_miss = 0 "
         "local lap_now = nil "
         "pcall(function() lap_now = (tonumber(UITimeManager.Instance:GetServerTime()) or 0) / 1000 end) "
         "if lap_now ~= nil and lap_now > 0 then "
@@ -13487,12 +13518,22 @@ def golden_note_miss() -> str:
     return (
         _GOLD_P +
         "p.misses = (tonumber(p.misses) or 0) + 1 "
+        "if math.floor(tonumber(p.redeploy) or 0) == 1 then "
+        "p.reaim_miss = (tonumber(p.reaim_miss) or 0) + 1 "
+        "if p.reaim_miss >= %(reaims)d then "
+        "p.own_march = nil p.reaim_miss = 0 "
+        "p.reaim_resets = (tonumber(p.reaim_resets) or 0) + 1 "
+        'CS.UnityEngine.Debug.LogError("ACT golden_reaim_reset after=%(reaims)d'
+        'total="..tostring(p.reaim_resets)) '
+        "end end "
+        "p.redeploy = 0 "
         "local uuid = p.pending and p.pending.uuid "
         "p.pending = nil p.hit = nil p.judge = nil p.judgeq = {} p.crowd = nil "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_note_miss uuid="..tostring(uuid)'
-        '.." misses="..tostring(p.misses))'
-        % {"gold": _GOLD}
+        '.." misses="..tostring(p.misses)'
+        '.." reaim_miss="..tostring(p.reaim_miss))'
+        % {"gold": _GOLD, "reaims": GOLDEN_REAIM_MISSES}
     )
 
 
@@ -13611,6 +13652,8 @@ def golden_report() -> str:
         # is the only number that says whether the redeploy is actually being reached.
         "' redeploys=' .. tostring(math.floor(tonumber(p.redeploys) or 0)) .. "
         "' fallbacks=' .. tostring(math.floor(tonumber(p.fallbacks) or 0)) .. "
+        "' reaim_drops=' .. tostring(math.floor(tonumber(p.reaim_drops) or 0)) .. "
+        "' reaim_resets=' .. tostring(math.floor(tonumber(p.reaim_resets) or 0)) .. "
         "' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. "
         "' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. "
         "' energy=' .. tostring(%(energy)s) .. "
