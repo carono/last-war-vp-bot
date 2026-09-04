@@ -148,6 +148,7 @@ export function ChatView({
   silent,
   waiting,
   pollKey,
+  onBack,
 }: {
   screen: string
   rooms: ChatRoomTab[]
@@ -157,6 +158,8 @@ export function ChatView({
   /** The monitor is on but its reader is down and being brought back. */
   waiting: boolean
   pollKey: number
+  /** The way out of the screen: the chat's own bar carries it, so there is one row. */
+  onBack: () => void
 }) {
   const toast = useToast()
   const [type, setType] = useState('world')
@@ -220,6 +223,17 @@ export function ChatView({
       (before ? '&before=' + encodeURIComponent(String(before)) : ''),
     [screen, type, room],
   )
+
+  /* NO BOTTOM BAR OVER A CONVERSATION (#2418): «на странице чатов убери футер с
+     кнопками». It is the panel's own navigation — «Состояние», «Таймеры», «Ещё» — and
+     nothing in it is reachable only from there: the bar above carries «Назад», which
+     goes back to the page the three of them are on. What it costs is 65 px of a 844 px
+     phone, directly under the box a thumb is typing in. Marked on the BODY rather than
+     passed up as a prop, so it is undone by leaving the screen however one leaves it. */
+  useEffect(() => {
+    document.body.classList.add('chatting')
+    return () => document.body.classList.remove('chatting')
+  }, [])
 
   /* A SENT MESSAGE PUTS THE BOX BACK TO ONE LINE. Without this the field keeps the
      height of what was just sent, and the conversation stays four lines shorter. */
@@ -662,10 +676,18 @@ export function ChatView({
   /** The strip over the conversation: what is open, and the way back to the list. */
   const bar = (
     <div className="chatbar">
+      {/* ONE ROW AT THE TOP (#2418), the person's words: «вверху кнопки назад и чаты в
+          одну строку сделай». The way out of the screen used to be a row of its own
+          above this one — two bars, 88 px of a phone, over a conversation. The screen's
+          own head is not drawn for this kind at all (`ScreenView`), so this is where
+          «Назад» lives now: leave, open the rooms, and read which room is open. */}
+      <button className="back" onClick={onBack}>
+        {t('web.ui.back')}
+      </button>
       <button className="back menu" onClick={() => setOpen(true)}>
         {t('chat.list.open')}
       </button>
-      <b>{here ? named(here) : t(tabKey(type))}</b>
+      <b className="room">{here ? named(here) : t(tabKey(type))}</b>
     </div>
   )
 
@@ -847,6 +869,39 @@ export function ChatView({
             its word as the label a screen-reader and a long press get. Nothing here
             carries text that a locale can widen, so no translation can push the send
             off the screen. */}
+        {/* THE PICKERS ARE THEIR OWN ROW, ABOVE THE BOX (#2418): «кнопки смайлов и
+            локации вынеси на другую строку, над сообщением». What is left beside the
+            field is the one control that acts on what is typed — the send — so the box
+            is as wide as the screen allows however long a locale's words are. */}
+        <div className="chattools">
+          <button
+            className="go icon"
+            disabled={busy}
+            title={t('chat.emoji')}
+            aria-label={t('chat.emoji')}
+            onClick={() => void openPicker('emoji')}
+          >
+            {'🙂'}
+          </button>
+          <button
+            className="go icon"
+            disabled={busy}
+            title={t('chat.stickers')}
+            aria-label={t('chat.stickers')}
+            onClick={() => void openPicker('sticker')}
+          >
+            {'🏷'}
+          </button>
+          <button
+            className="go icon"
+            disabled={busy}
+            title={t('chat.send_coords')}
+            aria-label={t('chat.send_coords')}
+            onClick={() => void send('coords')}
+          >
+            {'📍'}
+          </button>
+        </div>
         <div className="chatbox">
           <textarea
             className="grow"
@@ -876,33 +931,6 @@ export function ChatView({
               }
             }}
           />
-          <button
-            className="go icon"
-            disabled={busy}
-            title={t('chat.emoji')}
-            aria-label={t('chat.emoji')}
-            onClick={() => void openPicker('emoji')}
-          >
-            {'🙂'}
-          </button>
-          <button
-            className="go icon"
-            disabled={busy}
-            title={t('chat.stickers')}
-            aria-label={t('chat.stickers')}
-            onClick={() => void openPicker('sticker')}
-          >
-            {'🏷'}
-          </button>
-          <button
-            className="go icon"
-            disabled={busy}
-            title={t('chat.send_coords')}
-            aria-label={t('chat.send_coords')}
-            onClick={() => void send('coords')}
-          >
-            {'📍'}
-          </button>
           <button
             className="go icon send"
             disabled={busy}

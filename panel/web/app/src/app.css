@@ -1648,6 +1648,33 @@ body.modal-open {
 .bubble .who { display: flex; align-items: center; gap: 2px; }
 
 .chatbar { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+/* ONE ROW, AND THE ROOM'S NAME IS WHAT GIVES WAY (#2418). «Назад» and «☰ Чаты» are two
+   words a locale can lengthen; the name of a room is arbitrary and can be long enough on
+   its own, so it is the part that is cut with an ellipsis rather than the part that
+   pushes a button onto a second line. */
+.chatbar .back { flex: 0 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.chatbar .room { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* THE PICKERS, ON THE ROW ABOVE THE BOX (#2418). Square icons, left-aligned, one tap
+   each: they act on the message being written, so they stand directly over it. */
+.chattools { display: flex; gap: 6px; align-items: center; }
+.chattools .icon {
+  flex: 0 0 auto;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* NO BOTTOM BAR WHILE A CONVERSATION IS OPEN (#2418). The chat's own «Назад» is the way
+   out, and the 65 px the bar took are given to the conversation. `--navh` goes with it:
+   the page's clearance and the box's own `bottom` are both measured in it, so a bar that
+   is not drawn must not go on reserving its height. */
+body.chatting nav { display: none; }
+body.chatting { --navh: 0px; }
 .chatlist .chip.ear { margin-top: auto; }
 .chatscrim {
   position: fixed;
@@ -1684,7 +1711,11 @@ body.modal-open {
      measured in it is taller than the screen actually is, and what follows it goes
      under the browser's own furniture and under the panel's bottom bar. The person's
      words for the result: «футер налезает на окно чата, и я не вижу окно ввода». */
-  height: min(58dvh, 640px);
+  /* The head above it is ONE row now and the bottom bar is not drawn at all (#2418),
+     so the conversation is given the height those two were holding — measured on a
+     390×844 phone: 473 px before, and the box still stands clear of the keyboard
+     because this is `dvh` and shrinks with the visual viewport. */
+  height: min(66dvh, 700px);
   min-height: 180px;
   overflow-y: auto;
   overscroll-behavior: contain;

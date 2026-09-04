@@ -890,14 +890,20 @@ export function ScreenPage({
   const openCard = sectioned && part > 0 ? cards[part - 1] : null
   const drawn = sectioned ? (openCard ? [openCard] : []) : cards
   const searchable = drawn.some((c) => c.search || (c.items || []).length > PAGE_ITEMS)
+  /* A SCREEN THAT DRAWS A CONVERSATION CARRIES ITS OWN HEAD (#2418). Two bars — this
+     one and the chat's — is 88 px of a phone spent saying «Чат» twice, and the person
+     asked for one: «вверху кнопки назад и чаты в одну строку сделай». */
+  const ownHead = view?.map?.kind === 'chat'
   return (
     <>
-      <div className="row screen-head">
-        <button className="back" onClick={onBack}>
-          {t('web.ui.back')}
-        </button>
-        <b>{t(view?.title || '')}</b>
-      </div>
+      {ownHead ? null : (
+        <div className="row screen-head">
+          <button className="back" onClick={onBack}>
+            {t('web.ui.back')}
+          </button>
+          <b>{t(view?.title || '')}</b>
+        </div>
+      )}
       {/* A SCREEN MAY DRAW ITSELF INSTEAD OF LISTING (#2018, #2064). `map.kind` NAMES
           WHICH DRAWING — and every kind is matched by name, never by «there is a map,
           so paint the world». That default is how two different screens end up as one:
@@ -913,6 +919,7 @@ export function ScreenPage({
           silent={view.silent ?? null}
           waiting={!!view.waiting}
           pollKey={pollKey}
+          onBack={onBack}
         />
       ) : view?.map?.kind === 'world' ? (
         <WorldMap screen={id} mode={map} onMode={onMap} />
