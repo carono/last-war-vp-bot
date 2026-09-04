@@ -149,6 +149,9 @@ class ChatTab(PanelTab):
         self._rooms_busy = False
         # …and unread per ROOM, because a chip is a room now and not a kind.
         self._room_unread: dict = {}
+        # uid -> the link its face is served on, or "". The lookup walks a few thousand
+        # md5 sums, and the list draws sixty of them (`_face_for`).
+        self._faces: dict = {}
         # In-memory chat messages keyed by chat_type. `system` has a tab of its own
         # now — it used to be counted here and shown nowhere.
         self._chat_msgs: dict = {t: [] for t in CHAT_TABS}
@@ -702,6 +705,11 @@ class ChatTab(PanelTab):
                 "ts": ts, "when": when, "day": day,
                 "who": str(record.get("sender_name") or "?"),
                 "uid": str(record.get("sender_uid") or ""),
+                # THE FACE TRAVELS WITH THE MESSAGE (#2418). Only the file's NAME goes
+                # to the phone, on the same route every other face on this panel uses;
+                # somebody who never uploaded a photo has none, and the bubble draws an
+                # initial rather than borrowing anybody else's picture.
+                "face": self._face_for(record.get("sender_uid")),
                 "alliance": str(record.get("alliance") or ""),
                 "mine": bool(record.get("is_mine")),
                 "room": room, "parts": parts, "photo": photo}
@@ -1052,36 +1060,106 @@ class ChatTab(PanelTab):
                 return key, ""
         return "chat.tab.other", ""
 
-    def _web_rooms(self) -> list:
-        """The chips: one per room the CLIENT holds, then «ЛС» and «Системные».
+    #: The order the list is drawn in, and it is the person's own (#2418): «сначала
+    #: общие группы, мир, альянс, национальный и т.д., потом кастомные группы, потом
+    #: лички с игроками». A section is data — the front-end draws whatever comes.
+    ROOM_SECTIONS = ("channel", "group", "people")
 
-        A private conversation is NOT a chip — it is the contact list behind «ЛС», where
-        it has been since the phone got the chat. What is new is that every other room
-        the client is sitting in gets its own, named by the client, rather than six
-        buckets with everything that did not fit tipped into the last of them.
+    #: Which section a room belongs to. A custom group is the player's own; a private
+    #: thread is a person; everything else is a channel the game gave everybody.
+    @staticmethod
+    def _room_section(room: str) -> str:
+        if room.endswith("_v2"):
+            return "people"
+        if room.startswith("custom_group_"):
+            return "group"
+        return "channel"
+
+    def _face_for(self, uid: str) -> str:
+        """This player's face as a link, cached — `""` for somebody with no picture.
+
+        Cached because the lookup walks a few thousand md5 sums (`player_faces`) and a
+        list of sixty conversations would otherwise do it sixty times per draw.
+        """
+        uid = str(uid or "").strip()
+        if not uid:
+            return ""
+        if uid in self._faces:
+            return self._faces[uid]
+        from ..runtime import player_card
+
+        try:
+            link = player_card.face_link(uid)
+        except Exception:                       # noqa: BLE001 — a picture, never the page
+            link = ""
+        self._faces[uid] = link
+        return link
+
+    def _web_rooms(self) -> list:
+        """The whole list, in the order the person asked for it (#2418).
+
+        Channels first — the ones the game gives everybody — then the player's own
+        custom groups, then the private conversations, each with the face of whoever is
+        on the other end. A row carries its section and the front-end groups by it, so
+        the order is decided HERE and never guessed from an id in JavaScript.
+
+        THERE IS NO PICTURE FOR A GROUP, and that is measured rather than assumed: a
+        custom group's room data carries a name, a category and its members, and no icon
+        of any kind (#2418, probed live). So a group draws its initial, exactly as an
+        account with no photograph does — never somebody else's art.
         """
         rows = []
         for room in sorted(self._rooms):
             if room.endswith("_v2"):
-                continue                        # a private thread lives behind «ЛС»
+                continue                        # a private thread is drawn below
             kind = chathistmod.classify_room(room)
             key, label = self._room_label(room)
             rows.append({"type": kind, "room": room, "key": key, "label": label,
+                         "section": self._room_section(room), "face": "",
                          "unread": int(self._room_unread.get(room, 0))})
         if not rows:
             # NOTHING READ YET — a panel whose client is down still draws the channels
-            # it has history for, rather than an empty strip that looks broken.
+            # it has history for, rather than an empty list that looks broken.
             for kind in CHAT_TABS:
                 if kind in ("dm", "system"):
                     continue
                 room = self._chat_room(kind)
                 rows.append({"type": kind, "room": room, "key": f"chat.tab.{kind}",
-                             "label": "", "unread": int(self._chat_unread.get(kind, 0))})
-        rows.append({"type": "dm", "room": "", "key": "chat.tab.dm", "label": "",
-                     "unread": int(self._chat_unread.get("dm", 0))})
+                             "label": "", "section": "channel", "face": "",
+                             "unread": int(self._chat_unread.get(kind, 0))})
         rows.append({"type": "system", "room": "", "key": "chat.tab.system", "label": "",
+                     "section": "channel", "face": "",
                      "unread": int(self._chat_unread.get("system", 0))})
+        rows.extend(self._web_people())
         return rows
+
+    #: How many private conversations the phone is handed. Sixty of them is a list
+    #: nobody scrolls; the newest are the ones somebody is actually talking in, and the
+    #: front-end folds all but a handful away.
+    WEB_CONTACTS = 60
+
+    def _web_people(self) -> list:
+        """The private conversations, newest first, each with the peer's own face."""
+        store = self._store_for_reading()
+        if store is None:
+            return []
+        try:
+            contacts = store.dm_contacts(self._chat_uid)[:self.WEB_CONTACTS]
+        except Exception:                       # noqa: BLE001 — a closed store is empty
+            return []
+        out = []
+        for c in contacts:
+            room = str(c.get("room") or "")
+            uid = str(c.get("peer_uid") or "")
+            if not room:
+                continue
+            out.append({"type": "dm", "room": room, "key": "", "section": "people",
+                        "label": str(c.get("name") or uid or "?"),
+                        "face": self._face_for(uid),
+                        "text": str(c.get("last_text") or ""),
+                        "ts": float(c.get("last_ts") or 0.0),
+                        "unread": int(self._dm_unread.get(room, 0))})
+        return out
 
     def _known_rooms(self, chat_type: str) -> set:
         """Every room this tab has actually SEEN a message of `chat_type` in.

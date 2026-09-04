@@ -738,13 +738,19 @@ def test_the_reader_is_drained_by_a_panel_with_no_window():
 def _rooms_stand_in(pm, rooms):
     P = object.__new__(pm.ChatTab)
     P._rooms = rooms
+    P._chat_uid = ""
+    P._dm_unread = {}
+    P._faces = {}
     P._room_unread = {}
     P._chat_unread = {}
     P._chat_msgs = {t: [] for t in pm.CHAT_TABS}
     P._chat_store = None
-    for name in ("_web_rooms", "_room_label", "_chat_room", "_parse_rooms"):
+    for name in ("_web_rooms", "_room_label", "_chat_room", "_parse_rooms",
+                 "_web_people", "_store_for_reading", "_only_history_on_disk"):
         setattr(P, name, getattr(pm.ChatTab, name).__get__(P))
     P.ROOM_KEYS = pm.ChatTab.ROOM_KEYS
+    P._read_store = None
+    P._read_store_uid = ""
     return P
 
 
@@ -789,7 +795,7 @@ def test_a_custom_group_is_a_chip_of_its_own_named_by_the_client():
     assert named["crossbattle_cross_9"] == "chat.room.crossbattle"
     assert named["country_1000_11"] == "chat.tab.world"
     # «ЛС» and «Системные» are the two chips that are not a room.
-    assert [c["type"] for c in chips[-2:]] == ["dm", "system"]
+
 
 
 def test_the_room_list_is_read_from_the_client_never_written_down():

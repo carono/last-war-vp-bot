@@ -53,6 +53,8 @@ export interface ChatPart {
 /** One message, as `panel/tabs/chat.py::_web_row` sends it. */
 export interface ChatRow {
   id: string
+  /** The sender's own face, as a link — `''` for somebody who never uploaded one. */
+  face?: string
   ts: number
   when: string
   /** The day this message belongs to, when it is not today: a key or a date (data). */
@@ -94,6 +96,17 @@ interface Contact {
   when: string
   mine: boolean
   unread: number
+}
+
+/** How many private conversations the list shows before folding the rest away. */
+const PEOPLE_FOLD = 6
+
+/** One face: the picture when there is one, the initial when there is not. A group has
+ *  no picture at all — measured, not assumed (#2418) — and neither has a player who
+ *  never uploaded one, so both draw a letter rather than borrowing anybody's art. */
+function Face({ label, face }: { label: string; face?: string }) {
+  if (face) return <img className="chatface" src={face} alt="" />
+  return <span className="chatface letter">{(label || '?').slice(0, 1).toUpperCase()}</span>
 }
 
 /** How close to the bottom still counts as «reading the newest», in pixels. */
@@ -150,6 +163,11 @@ export function ChatView({
   //: are there, and pressing it goes to them.
   const [unseen, setUnseen] = useState(0)
   const [contacts, setContacts] = useState<Contact[]>([])
+  //: Is the drawer out? Only ever true on a narrow screen — the wide one draws the
+  //: list beside the conversation and this does nothing.
+  const [open, setOpen] = useState(false)
+  //: Are all the private conversations shown, or the newest handful?
+  const [all, setAll] = useState(false)
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<string | null>(null)
   const pane = useRef<HTMLDivElement | null>(null)
@@ -424,36 +442,77 @@ export function ChatView({
     setRows([])
   }
 
-  /* Which chip is open. «ЛС» stays lit while one of its threads is being read — the
-     thread is a room, but it is not a chip of its own. */
-  const chosen = (tab: ChatRoomTab) =>
-    tab.type === 'dm' ? type === 'dm' : tab.room ? tab.room === room : !room && tab.type === type
+  const here = rooms.find((r) => (r.room ? r.room === room : !room && r.type === type))
 
-  const chips = (
-    <div className="chips">
-      {/* ONE CHIP PER ROOM THE CLIENT IS IN (#2418), not six buckets with whatever did
-          not fit tipped into the last of them. A chip carries its room, so two custom
-          groups are two chips and neither is «Другие»; «ЛС» and «Системные» carry no
-          room, because one is a list of people and the other has no room at all. */}
-      {rooms.map((tab) => (
-        <button
-          key={tab.room || tab.type}
-          className={'chip' + (chosen(tab) ? ' on' : '')}
-          onClick={() => {
-            setType(tab.type)
-            setRoom(tab.room || '')
-            setText('')
-          }}
-        >
-          {tab.label || t(tab.key || tabKey(tab.type))}
-          {tab.unread ? <span className="count">{tab.unread}</span> : null}
+  const chosenRow = (tab: ChatRoomTab) =>
+    tab.room ? tab.room === room : !room && tab.type === type
+
+  /* THE LIST IS ON THE LEFT, AND IN THE PERSON'S OWN ORDER (#2418): «сначала общие
+     группы, мир, альянс, национальный и т.д., потом кастомные группы, потом лички с
+     игроками». The order is the PANEL's — each row says which section it is in — so a
+     new kind of room lands in the right place without this file learning about it.
+
+     ON A NARROW SCREEN IT IS A DRAWER. 390 px cannot hold a column of rooms beside a
+     conversation without the conversation becoming a gutter, and «слева» is where it
+     still comes from: the strip slides in from the left over the page, and the button
+     that opens it carries the room being read, so the first screen is the chat.
+
+     SIXTY PRIVATE CONVERSATIONS ARE NOT A FIRST SCREEN either, so the people fold: the
+     newest few are shown — they are the ones somebody is talking in — and the rest are
+     one press away, with every row carrying its own unread count. */
+  const named = (tab: ChatRoomTab) => tab.label || t(tab.key || tabKey(tab.type))
+
+  const line = (tab: ChatRoomTab) => (
+    <button
+      key={tab.room || tab.type}
+      className={'chatrow' + (chosenRow(tab) ? ' on' : '')}
+      onClick={() => {
+        setType(tab.type)
+        setRoom(tab.room || '')
+        setText('')
+        setOpen(false)
+      }}
+    >
+      <Face label={named(tab)} face={tab.face} />
+      <span className="name">{named(tab)}</span>
+      {tab.unread ? <span className="count">{tab.unread}</span> : null}
+    </button>
+  )
+
+  const people = rooms.filter((r) => r.section === 'people')
+  const shown = all ? people : people.slice(0, PEOPLE_FOLD)
+  const section = (id: string, key: string, list: ChatRoomTab[]) =>
+    list.length ? (
+      <div className="chatsect" key={id}>
+        <div className="muted small head">{t(key)}</div>
+        {list.map(line)}
+      </div>
+    ) : null
+
+  const sidebar = (
+    <aside className={'chatlist' + (open ? ' open' : '')}>
+      {section('channel', 'chat.list.channels', rooms.filter((r) => r.section === 'channel'))}
+      {section('group', 'chat.list.groups', rooms.filter((r) => r.section === 'group'))}
+      {section('people', 'chat.list.people', shown)}
+      {people.length > PEOPLE_FOLD ? (
+        <button className="go wide" onClick={() => setAll(!all)}>
+          {all ? t('chat.list.fold') : t('chat.list.more', { n: people.length - PEOPLE_FOLD })}
         </button>
-      ))}
-      {/* …and the ear LAST: the channels are what a thumb reaches for, and a row that
-          scrolls sideways must not open on anything else. */}
-      <button className={'chip' + (ear ? ' on' : '')} onClick={() => void hear(!ear)}>
+      ) : null}
+      {/* …and the ear LAST: the rooms are what a thumb reaches for. */}
+      <button className={'chip ear' + (ear ? ' on' : '')} onClick={() => void hear(!ear)}>
         {t('chat.monitor')}
       </button>
+    </aside>
+  )
+
+  /** The strip over the conversation: what is open, and the way back to the list. */
+  const bar = (
+    <div className="chatbar">
+      <button className="back menu" onClick={() => setOpen(true)}>
+        {t('chat.list.open')}
+      </button>
+      <b>{here ? named(here) : t(tabKey(type))}</b>
     </div>
   )
 
@@ -478,10 +537,12 @@ export function ChatView({
      writes into «whatever thread was last looked at». */
   if (type === 'dm' && !room) {
     return (
-      <>
-        {chips}
-        {state}
+      <div className="chatwrap">
+        {sidebar}
+        {open ? <div className="chatscrim" onClick={() => setOpen(false)} /> : null}
         <div className="chat">
+          {bar}
+          {state}
           <div className="chatpane" ref={pane}>
             {contacts.length ? (
               contacts.map((contact) => (
@@ -500,20 +561,17 @@ export function ChatView({
             )}
           </div>
         </div>
-      </>
+      </div>
     )
   }
 
   return (
-    <>
-      {chips}
-      {state}
+    <div className="chatwrap">
+      {sidebar}
+      {open ? <div className="chatscrim" onClick={() => setOpen(false)} /> : null}
       <div className="chat">
-        {room ? (
-          <button className="back thread" onClick={() => setRoom('')}>
-            {t('chat.dm.pick')}
-          </button>
-        ) : null}
+        {bar}
+        {state}
         <div
           className="chatpane"
           ref={pane}
@@ -549,6 +607,7 @@ export function ChatView({
                 <div className={'bubble' + (row.mine ? ' mine' : '')}>
                   {!row.mine ? (
                     <div className="who">
+                      <Face label={row.who} face={row.face} />
                       {row.who}
                       {row.alliance ? <span className="muted small"> [{row.alliance}]</span> : null}
                     </div>
@@ -628,6 +687,6 @@ export function ChatView({
           <img className="shot-big" src={photo} alt="" />
         </Modal>
       ) : null}
-    </>
+    </div>
   )
 }

@@ -421,6 +421,17 @@ export interface ChatRoomTab {
      group ever has. Exactly one of the two is set. */
   key?: string
   label?: string
+  /* WHICH PART OF THE LIST IT BELONGS TO (#2418) — `channel`, `group` or `people`, in
+     that order. The order is the panel's, so a new kind of room lands in the right
+     place without the front-end learning about it. */
+  section?: string
+  /* The face drawn beside it: a player's own picture for a private conversation, and
+     `''` for a room or a player that has none — those draw an initial, never somebody
+     else's art. */
+  face?: string
+  /* The last thing said in a private conversation, and when — for the row's subtitle. */
+  text?: string
+  ts?: number
 }
 
 export interface PressAnswer {

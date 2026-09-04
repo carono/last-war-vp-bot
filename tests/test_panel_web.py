@@ -2805,13 +2805,28 @@ def test_the_chat_screen_says_how_old_it_is():
     assert "silent={view.silent ?? null}" in screen, "the age never reaches the chat"
 
 
-def test_a_chat_chip_is_a_room_and_carries_the_clients_own_name():
-    """#2418: six buckets became one chip per room the client is sitting in."""
+def test_the_chat_list_is_on_the_left_in_the_order_the_person_asked_for():
+    """#2418: chips over the pane became a list beside it — channels, groups, people.
+
+    The person's words: «слева список доступных чатов, сначала общие группы, мир,
+    альянс, национальный и т.д., потом кастомные группы, потом лички с игроками, добавь
+    везде аватары групп и игроков». The ORDER is the panel's — each row says which
+    section it is in — and a face is drawn for every row: a picture where there is one,
+    an initial where there is not, never somebody else's art.
+    """
     chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")
-    assert "key={tab.room || tab.type}" in chat, "a chip is still keyed by its bucket"
-    assert "{tab.label || t(tab.key || tabKey(tab.type))}" in chat, \
-        "a chip cannot show the name the client gave the room"
-    assert "setRoom(tab.room || '')" in chat, "pressing a chip does not open its room"
+    for key in ("chat.list.channels", "chat.list.groups", "chat.list.people"):
+        assert "'%s'" % key in chat, "the list has no %s section" % key
+    assert "className={'chatrow'" in chat, "the rooms are still drawn as chips"
+    assert "<Face label={named(tab)} face={tab.face} />" in chat, "a row has no face"
+    assert "<Face label={row.who} face={row.face} />" in chat, "a message has no face"
+    # SIXTY CONVERSATIONS ARE NOT A FIRST SCREEN: the people fold.
+    assert "PEOPLE_FOLD" in chat and "chat.list.more" in chat, "the people never fold"
+    # …and on a phone the list is a drawer, so the conversation is what opens.
+    css = _css()
+    assert ".chatlist.open" in css and ".chatscrim" in css, "the list is not a drawer"
+    assert "@media (min-width: 721px)" in css, \
+        "the wide screen does not put the list beside the conversation"
 
 
 def _main() -> int:

@@ -1583,7 +1583,94 @@ body.modal-open {
    that lean to the side that said them, and the box to answer in pinned under it where
    a thumb already is. The pane takes what the viewport has left rather than a fixed
    height — a phone in landscape and a desktop window are the same markup. */
-.chat { display: flex; flex-direction: column; gap: 8px; }
+/* THE ROOM LIST IS ON THE LEFT (#2418) — a drawer that slides in from the left on a
+   phone, because 390 px cannot hold a column of rooms beside a conversation without the
+   conversation becoming a gutter, and a column beside it once there is room. Written
+   phone-first: the drawer is the DEFAULT and the wide screen is what adds a column. */
+.chatwrap { display: flex; gap: 10px; align-items: stretch; }
+
+.chatlist {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 40;
+  width: 78%;
+  max-width: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  padding: 8px;
+  transform: translateX(-102%);
+  transition: transform 0.18s ease;
+}
+.chatlist.open { transform: none; }
+
+.chatsect { display: flex; flex-direction: column; gap: 2px; }
+.chatsect .head { padding: 2px 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+.chatrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.chatrow.on { background: var(--bg-soft); }
+.chatrow .name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.chatface {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-soft);
+}
+.chatface.letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+.bubble .who .chatface { width: 20px; height: 20px; margin-right: 6px; vertical-align: -5px; }
+.bubble .who { display: flex; align-items: center; gap: 2px; }
+
+.chatbar { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.chatlist .chip.ear { margin-top: auto; }
+.chatscrim {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.chat { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-width: 0; }
+
+@media (min-width: 721px) {
+  .chatlist {
+    position: static;
+    flex: 0 0 232px;
+    width: 232px;
+    max-width: none;
+    max-height: 74vh;
+    border-radius: var(--radius);
+    transform: none;
+  }
+  .chatbar .menu { display: none; }
+  .chatscrim { display: none; }
+}
 /* How old the conversation on screen is, and whether anything is listening (#2418). */
 .chatstate { margin: 2px 0 6px; }
 
