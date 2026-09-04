@@ -1198,6 +1198,17 @@ So the two levers left are, in order of what they are worth:
 1. **Fewer questions from the neighbours.** `default/poll` alone held the client for 204 s
    of the window — a fifth of it — and that is the rule this repository already has
    («Read once, then LISTEN»). Every poll retired is a fifth of a kill given back.
+
+   Counted by SCENARIO rather than by owner, one of them is most of it: **`rally_monitor`,
+   20 runs and 291 s in those seventeen minutes** — more client time than the hunt itself
+   got. It fires on every burst of `push.alliance.march.*` and asks the game's VM for the
+   whole list of banners, which the ear on the wire has already parsed and printed. The
+   rest of the field is small by comparison: `arena_3v3_battles` 158 s once,
+   `board_alliance_train` 90 s once, `help_ally` 74 s across 19 runs.
+
+   **Put to the operator with those numbers on 2026-09-04, and their answer was to cut it**
+   — task #2403, deliberately a separate one: the fix belongs to the rally, not to the
+   hunt, and the hunt's own recipe needs nothing for it.
 2. **Fewer statements per lap** — and this one is worth far less than it looks, which is
    why it is second. 84 statements a kill is 84 chances to be parked, but a park is the
    neighbour doing REAL work: the 620 s is time the client owes to a rally join and a
