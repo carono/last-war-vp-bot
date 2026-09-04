@@ -1664,7 +1664,7 @@ body.modal-open {
     flex: 0 0 232px;
     width: 232px;
     max-width: none;
-    max-height: 74vh;
+    max-height: 74dvh;
     border-radius: var(--radius);
     transform: none;
   }
@@ -1797,31 +1797,65 @@ body.modal-open {
   z-index: 5;
   display: flex;
   gap: 6px;
-  align-items: center;
+  /* THE ICONS SIT WITH THE LAST LINE of a box that has grown, not in the middle of it. */
+  align-items: flex-end;
   padding: 6px 0;
   background: var(--bg);
 }
-/* «Отправить» IS ONE WORD. The row is three controls on a 360 px phone, and letting
-   the button wrap turns it into «Отпр / авить» — the box keeps its width by shrinking
-   the field instead, which has a `min-width: 0` for exactly that. */
-.chatbox .go {
-  white-space: nowrap;
-  /* …and a word that will not wrap is CLIPPED rather than allowed to grow: a locale
-     whose «Отправить» is three words would otherwise widen the row past the screen and
-     bring back the horizontal scrollbar #2061 removed. */
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* THE ROW IS A FIELD AND FOUR ICONS (#2418). It used to be a field and four buttons
+   carrying words — «🙂», «🏷», «📍» and «Отправить» — and on a 390 px phone the words
+   took half the row and the send was clipped. An icon is one tap wide whatever the
+   locale says, so nothing here can widen with a translation, and the field gets every
+   pixel that is left. */
+.chatbox .icon {
+  flex: 0 0 auto;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 1;
 }
-.chatbox input {
+/* …and the send is the one that is coloured, because it is the one that acts. */
+.chatbox .icon.send {
+  border-radius: 50%;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.chatbox textarea.grow {
   flex: 1 1 auto;
   min-width: 0;
   min-height: var(--tap);
-  padding: 8px 12px;
+  max-height: 128px;
+  /* A ONE-LINE MESSAGE MUST NOT SHOW A SCROLLBAR, and a long one grows the box instead
+     of hiding its own beginning — the height is set as it is typed (`grew`). */
+  resize: none;
+  overflow-y: auto;
+  padding: 9px 12px;
+  font: inherit;
+  line-height: 1.3;
   border-radius: 11px;
   border: 1px solid var(--card-edge);
   background: var(--bg-soft);
   color: var(--ink);
 }
+
+/* THE TRANSLATION AND THE WAY BACK (#2418). A quiet line under the message: the game's
+   own translator answered, and the same tap puts the original back. */
+.trbtn {
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.trbtn:disabled { opacity: 0.6; cursor: default; }
+.bubble .said .tr { font-style: italic; }
 
 /* One private conversation on the list: who, the last thing said, and when. */
 .contact {

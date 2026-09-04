@@ -2792,5 +2792,11 @@
   "timers.item.attack_golden_zombies.short": "Golden zombies",
   "timers.stat.golden": "{n} attacks left · {today} today",
   "web.ui.stop": "Stop",
-  "web.ui.stopping": "stopping: {name}"
+  "web.ui.stopping": "stopping: {name}",
+  "chat.translate": "Translate",
+  "chat.translate.back": "Original",
+  "chat.translate.doing": "Translating…",
+  "chat.translate.failed": "the game did not translate this message",
+  "chat.emoji": "Emoji",
+  "chat.stickers": "Stickers"
 }

@@ -128,6 +128,37 @@ def test_one_decoder_for_both_readers():
     assert chat_records.usable(rec)
 
 
+def test_an_interactive_post_is_drawn_the_way_the_game_draws_it():
+    """#2418, the person's report: «в чате альянса я вижу сообщения от игроков "msg", а в
+    игре там нормальные сообщения».
+
+    `getMsg()` answers the bare word `msg` for the interactive posts, and the rendered
+    text is on `getMessageWithExtra()`. Measured live: of 328 messages the client held,
+    189 render identically both ways and every one of the 139 that differ carries a
+    non-zero `post`. So the POST decides, not a list of placeholder words.
+    """
+    rendered = "506c6179657231206a6f696e6564"          # invented, «Player1 joined»
+    rec = chat_records.parse_record_line(
+        _line(post="608", msg="6d7367", we=rendered))
+    assert rec["msg"] == "Player1 joined", rec["msg"]
+
+
+def test_a_plain_message_keeps_its_own_words():
+    """The other half: a plain post (`post = 0`) is never replaced by the renderer's
+    version, whatever that would have been — no measured plain message's rendering even
+    extends its base, and a message rewritten by a renderer is a message nobody wrote."""
+    rec = chat_records.parse_record_line(
+        _line(post="0", msg="68656c6c6f", we="736f6d657468696e6720656c7365"))
+    assert rec["msg"] == "hello", rec["msg"]
+
+
+def test_the_placeholder_rule_still_holds_for_a_plain_post():
+    """A `?` is a placeholder whatever the post says — that is what it was before."""
+    rec = chat_records.parse_record_line(
+        _line(post="0", msg="3f", we="61207368617265"))
+    assert rec["msg"] == "a share", rec["msg"]
+
+
 def test_the_stamp_is_the_message_s_own_server_time():
     """History is parsed «now»; a parse-time stamp sorts every old message to the bottom."""
     rec = chat_records.parse_record_line(_line(st="1756412345000"))

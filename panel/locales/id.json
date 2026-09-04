@@ -2792,5 +2792,11 @@
   "timers.item.attack_golden_zombies.short": "Zombi emas",
   "timers.stat.golden": "cukup untuk {n} serangan · hari ini {today}",
   "web.ui.stop": "Hentikan",
-  "web.ui.stopping": "menghentikan: {name}"
+  "web.ui.stopping": "menghentikan: {name}",
+  "chat.translate": "Terjemahkan",
+  "chat.translate.back": "Asli",
+  "chat.translate.doing": "Menerjemahkan…",
+  "chat.translate.failed": "gim tidak menerjemahkan pesan ini",
+  "chat.emoji": "Emoji",
+  "chat.stickers": "Stiker"
 }

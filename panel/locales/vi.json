@@ -2792,5 +2792,11 @@
   "timers.item.attack_golden_zombies.short": "Zombie vàng",
   "timers.stat.golden": "đủ cho {n} lượt đánh · hôm nay {today}",
   "web.ui.stop": "Dừng",
-  "web.ui.stopping": "đang dừng: {name}"
+  "web.ui.stopping": "đang dừng: {name}",
+  "chat.translate": "Dịch",
+  "chat.translate.back": "Bản gốc",
+  "chat.translate.doing": "Đang dịch…",
+  "chat.translate.failed": "trò chơi không dịch được tin nhắn này",
+  "chat.emoji": "Biểu tượng",
+  "chat.stickers": "Nhãn dán"
 }

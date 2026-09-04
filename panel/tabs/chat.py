@@ -150,6 +150,10 @@ class ChatTab(PanelTab):
         # Rooms an arriving message revealed and the register was asked about, so a
         # room the client will not name costs one read and not one per message.
         self._rooms_asked: set = set()
+        # `room|seq` -> (translation, language). The game's own answer, kept so a
+        # reader can put the original back and read the translation again without a
+        # second round trip (#2418).
+        self._translated: dict = {}
         # …and unread per ROOM, because a chip is a room now and not a kind.
         self._room_unread: dict = {}
         # uid -> the link its face is served on, or "". The lookup walks a few thousand
@@ -444,6 +448,14 @@ class ChatTab(PanelTab):
             # client is holding, and the words they are looking for are on the server.
             return self._ask_server_for_older(str(args.get("room") or "").strip(),
                                               str(args.get("type") or ""))
+        if action == "translate":
+            # THE GAME'S OWN TRANSLATOR (#2418) — «в чате есть функция перевода, изучи
+            # её, сделай эту возможность». Nothing leaves this machine for an outside
+            # service: the client has the button and the answer comes back ON the
+            # message. One press, one message, and the original is never overwritten —
+            # the phone keeps both and shows whichever the reader asked for.
+            return self._translate(str(args.get("room") or "").strip(),
+                                   str(args.get("seq") or "").strip())
         chat_type = str(args.get("type") or "")
         if action == "rooms":
             # ASKED FOR, NEVER TIMED. The client's own list, re-read because somebody
@@ -671,6 +683,10 @@ class ChatTab(PanelTab):
         room = str(record.get("room_id") or "")
         return {"id": "%s|%s|%s" % (room, record.get("seq_id") or "",
                                     record.get("sender_uid") or ""),
+                # The message's own sequence id, on its own: a press that asks the game
+                # to translate this row names the room and the seq, and picking them out
+                # of the id above would be the front-end knowing how one is built.
+                "seq": str(record.get("seq_id") or ""),
                 "ts": ts, "when": when, "day": day,
                 "who": str(record.get("sender_name") or "?"),
                 "uid": str(record.get("sender_uid") or ""),
@@ -2040,6 +2056,54 @@ class ChatTab(PanelTab):
         except Exception:                      # noqa: BLE001 — a closed store is empty
             return ""
         return str(rows[-1].get("room_id") or "").strip() if rows else ""
+
+    #: How many messages may hold a translation at once. A reader taps a few of them;
+    #: keeping every one of a night's chat would be a second copy of the history in
+    #: memory for no one to read.
+    TRANSLATED_MAX = 200
+
+    def _translate(self, room: str, seq: str) -> dict:
+        """Ask the GAME to translate one message, and hand back what it answered.
+
+        The client's own button, measured live (`actions/translate_chat_message.md`):
+        `Ctrl:OnChatTranslate(message)` and the answer lands on the message itself —
+        `translateState = 2`, `getTranslationMsg()`, and the language is the player's
+        own chat setting rather than anything this panel picks. No outside service is
+        touched, which is the whole point of using the game's.
+
+        Answered on the HTTP worker thread — the round trip must not sit on the thread
+        that draws — and the translation is remembered here so the phone can put the
+        original back without asking the game a second time.
+        """
+        if not room or not seq:
+            return {"error": "unknown"}
+        if room not in self._rooms and not self._known_rooms(
+                chathistmod.classify_room(room)):
+            return {"error": "unknown"}
+        key = f"{room}|{seq}"
+        held = self._translated.get(key)
+        if held:
+            return {"ok": True, "text": held[0], "lang": held[1]}
+        try:
+            outcome = self.rt.actions.play("translate_chat_message",
+                                           {"room": room, "seq": seq},
+                                           human=True, tag="chat")
+        except Exception as exc:               # noqa: BLE001 — a failed press, not a dead tab
+            self.post(lambda: self.say("chat", "log.error", error=exc))
+            return {"ok": False, "reason": "chat.translate.failed"}
+        got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+        raw = str(got.get("tr_text") or "")
+        try:
+            text = bytes.fromhex(raw).decode("utf-8", "replace") if raw else ""
+        except ValueError:                     # noqa: PERF203 — a mangled answer, not a crash
+            text = ""
+        if not text:
+            return {"ok": False, "reason": "chat.translate.failed"}
+        lang = str(got.get("tr_lang") or "")
+        self._translated[key] = (text, lang)
+        while len(self._translated) > self.TRANSLATED_MAX:
+            self._translated.pop(next(iter(self._translated)))
+        return {"ok": True, "text": text, "lang": lang}
 
     def _ask_server_for_older(self, room: str, chat_type: str) -> dict:
         """Ask the SERVER for the slice above what the store and the client both hold.

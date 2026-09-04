@@ -53,6 +53,8 @@ export interface ChatPart {
 /** One message, as `panel/tabs/chat.py::_web_row` sends it. */
 export interface ChatRow {
   id: string
+  /** The message's own sequence id in its room — what a translate press names. */
+  seq?: string
   /** The sender's own face, as a link — `''` for somebody who never uploaded one. */
   face?: string
   ts: number
@@ -121,6 +123,9 @@ function Face({ label, face }: { label: string; face?: string }) {
 /** How close to the bottom still counts as «reading the newest», in pixels. */
 const GLUE = 48
 
+/** How tall the message box may grow before it scrolls instead — about five lines. */
+const GROW_MAX = 128
+
 /** How close to the top starts fetching the page above, in pixels. */
 const REACH = 80
 
@@ -187,7 +192,16 @@ export function ChatView({
   const [sprites, setSprites] = useState<Sprites>({ emoji: [], stickers: [] })
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<string | null>(null)
+  /* WHAT THE GAME TRANSLATED, per message id, and which rows are showing it (#2418).
+     Both are kept here rather than on the row: the original must never be lost — a
+     translation is a second reading of a message, not a replacement for it — so a tap
+     puts it back with nothing asked of the game. */
+  const [tr, setTr] = useState<Record<string, string>>({})
+  const [asTr, setAsTr] = useState<Record<string, boolean>>({})
+  const [tring, setTring] = useState('')
   const pane = useRef<HTMLDivElement | null>(null)
+  //: The message box, so a send that empties it puts it back to one line.
+  const box = useRef<HTMLTextAreaElement | null>(null)
   //: The pane's height just before older messages were put above what is on screen.
   const held = useRef(0)
   //: Was the reader at the bottom when this page was asked for? Decides whether a new
@@ -204,6 +218,19 @@ export function ChatView({
       (before ? '&before=' + encodeURIComponent(String(before)) : ''),
     [screen, type, room],
   )
+
+  /* A SENT MESSAGE PUTS THE BOX BACK TO ONE LINE. Without this the field keeps the
+     height of what was just sent, and the conversation stays four lines shorter. */
+  useEffect(() => {
+    const el = box.current
+    if (el && !text) el.style.height = 'auto'
+  }, [text])
+
+  /** A message box that follows the message: one line, then more, capped at five. */
+  const grew = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, GROW_MAX) + 'px'
+  }
 
   const atBottom = () => {
     const el = pane.current
@@ -525,6 +552,38 @@ export function ChatView({
     toast(t('chat.reply.gone'))
   }
 
+  /* THE GAME'S OWN TRANSLATOR (#2418), never an outside service: the client has the
+     button and `translate_chat_message` is the recipe that presses it. Asked once per
+     message — the answer is held here — and a second tap puts the original back. */
+  const translate = async (row: ChatRow) => {
+    if (asTr[row.id]) {
+      setAsTr((was) => ({ ...was, [row.id]: false }))
+      return
+    }
+    if (tr[row.id]) {
+      setAsTr((was) => ({ ...was, [row.id]: true }))
+      return
+    }
+    setTring(row.id)
+    try {
+      const answer = await post<PressAnswer & { text?: string }>('/api/screen/press', {
+        id: screen,
+        action: 'translate',
+        args: { room: row.room || room, seq: row.seq || '' },
+      })
+      if (answer && answer.ok && answer.text) {
+        setTr((was) => ({ ...was, [row.id]: answer.text as string }))
+        setAsTr((was) => ({ ...was, [row.id]: true }))
+      } else {
+        toast(pressWord(answer))
+      }
+    } catch {
+      toast(t('chat.translate.failed'))
+    } finally {
+      setTring('')
+    }
+  }
+
   const openThread = (contact: Contact) => {
     setRoom(contact.room)
     setRows([])
@@ -716,16 +775,36 @@ export function ChatView({
                     </div>
                   ) : null}
                   <div className="said">
-                    {(row.parts || []).map((part, k) =>
-                      part.t === 'img' ? (
-                        <img className="chat-sprite" key={k} src={part.v} alt="" />
-                      ) : (
-                        <span key={k}>
-                          <Marked text={part.v} parts={part.parts} />
-                        </span>
-                      ),
+                    {asTr[row.id] && tr[row.id] ? (
+                      <span className="tr">{tr[row.id]}</span>
+                    ) : (
+                      (row.parts || []).map((part, k) =>
+                        part.t === 'img' ? (
+                          <img className="chat-sprite" key={k} src={part.v} alt="" />
+                        ) : (
+                          <span key={k}>
+                            <Marked text={part.v} parts={part.parts} />
+                          </span>
+                        ),
+                      )
                     )}
                   </div>
+                  {/* THE TRANSLATION IS A SECOND READING, never a replacement: the tap
+                      that shows it is the tap that puts the original back (#2418). Not
+                      offered on one's own message — the game does not offer it either. */}
+                  {!row.mine && (row.seq || '') ? (
+                    <button
+                      className="trbtn"
+                      disabled={tring === row.id}
+                      onClick={() => void translate(row)}
+                    >
+                      {tring === row.id
+                        ? t('chat.translate.doing')
+                        : asTr[row.id]
+                          ? t('chat.translate.back')
+                          : t('chat.translate')}
+                    </button>
+                  ) : null}
                   {row.photo ? (
                     <button className="shot" onClick={() => setPhoto(row.photo?.big || row.photo?.small || '')}>
                       <img src={row.photo.small} alt={t('chat.photo')} />
@@ -757,9 +836,20 @@ export function ChatView({
         ) : null}
         {/* THE BOX IS AT THE BOTTOM, which is the half of «как в телеграм» a person
             feels first. Two sends and one box: words, and the coordinate in them. */}
+        {/* THE BOX IS AT THE BOTTOM, and on a 390 px phone it is ONE ROW (#2418). The
+            person's report: «поле для сообщения маленькое, кнопки смайлов занимают
+            половину строки, кнопка отправить не влезает». So the field takes every
+            pixel the icons leave and GROWS DOWNWARDS as the message does (a textarea
+            capped at five lines, never a scrollbar in a one-line box), the three
+            pickers are square icons of one tap each, and «Отправить» is an icon with
+            its word as the label a screen-reader and a long press get. Nothing here
+            carries text that a locale can widen, so no translation can push the send
+            off the screen. */}
         <div className="chatbox">
-          <input
-            type="text"
+          <textarea
+            className="grow"
+            ref={box}
+            rows={1}
             value={text}
             placeholder={t('chat.send.prompt')}
             /* THE KEYBOARD MUST NOT SWALLOW THE BOX. The page says
@@ -772,22 +862,53 @@ export function ChatView({
               const el = e.currentTarget
               window.setTimeout(() => el.scrollIntoView({ block: 'center' }), 350)
             }}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value)
+              grew(e.currentTarget)
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void send('send')
+              // Enter sends, Shift+Enter is a new line — the gesture every chat has.
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void send('send')
+              }
             }}
           />
-          <button className="go icon" disabled={busy} title={t('chat.picker.emoji')} onClick={() => void openPicker('emoji')}>
+          <button
+            className="go icon"
+            disabled={busy}
+            title={t('chat.emoji')}
+            aria-label={t('chat.emoji')}
+            onClick={() => void openPicker('emoji')}
+          >
             {'🙂'}
           </button>
-          <button className="go icon" disabled={busy} title={t('chat.picker.sticker')} onClick={() => void openPicker('sticker')}>
+          <button
+            className="go icon"
+            disabled={busy}
+            title={t('chat.stickers')}
+            aria-label={t('chat.stickers')}
+            onClick={() => void openPicker('sticker')}
+          >
             {'🏷'}
           </button>
-          <button className="go icon" disabled={busy} title={t('chat.send_coords')} onClick={() => void send('coords')}>
+          <button
+            className="go icon"
+            disabled={busy}
+            title={t('chat.send_coords')}
+            aria-label={t('chat.send_coords')}
+            onClick={() => void send('coords')}
+          >
             {'📍'}
           </button>
-          <button className="go" disabled={busy} onClick={() => void send('send')}>
-            {t('chat.send')}
+          <button
+            className="go icon send"
+            disabled={busy}
+            title={t('chat.send')}
+            aria-label={t('chat.send')}
+            onClick={() => void send('send')}
+          >
+            {'➤'}
           </button>
         </div>
       </div>

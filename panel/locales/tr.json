@@ -2792,5 +2792,11 @@
   "timers.item.attack_golden_zombies.short": "Altın zombiler",
   "timers.stat.golden": "{n} saldırıya yeter · bugün {today}",
   "web.ui.stop": "Durdur",
-  "web.ui.stopping": "durduruluyor: {name}"
+  "web.ui.stopping": "durduruluyor: {name}",
+  "chat.translate": "Çevir",
+  "chat.translate.back": "Orijinal",
+  "chat.translate.doing": "Çevriliyor…",
+  "chat.translate.failed": "oyun bu mesajı çeviremedi",
+  "chat.emoji": "Emojiler",
+  "chat.stickers": "Çıkartmalar"
 }

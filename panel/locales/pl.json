@@ -2792,5 +2792,11 @@
   "timers.item.attack_golden_zombies.short": "Złote zombie",
   "timers.stat.golden": "starczy na {n} ataków · dziś {today}",
   "web.ui.stop": "Zatrzymaj",
-  "web.ui.stopping": "zatrzymuję: {name}"
+  "web.ui.stopping": "zatrzymuję: {name}",
+  "chat.translate": "Przetłumacz",
+  "chat.translate.back": "Oryginał",
+  "chat.translate.doing": "Tłumaczę…",
+  "chat.translate.failed": "gra nie przetłumaczyła tej wiadomości",
+  "chat.emoji": "Emotki",
+  "chat.stickers": "Naklejki"
 }

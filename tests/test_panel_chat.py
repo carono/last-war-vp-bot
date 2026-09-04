@@ -1049,5 +1049,74 @@ def test_a_read_of_the_register_keeps_what_the_ear_heard():
         "a read that missed a room must not take its chip away"
 
 
+def test_a_row_filed_under_a_placeholder_is_repaired_by_a_re_read():
+    """#2418: the reader used to file the bare word `msg` — what the client answers for
+    an interactive post — as if somebody had written it. A re-read brings the rendered
+    text, and the row's identity is `(room, uid, ts, text)`: without the repair the
+    better copy would land BESIDE the poorer one instead of over it.
+
+    A real message is never rewritten: only a placeholder is written over.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        s = _store(tmp)
+        poor = dict(_rec(1), msg="msg")
+        s.append(poor)
+        s.append(dict(poor, msg="Player1 joined"))
+        rows = s.recent("alliance", 10)
+        assert len(rows) == 1, "the repaired message was filed twice"
+        assert rows[0]["msg"] == "Player1 joined", rows[0]["msg"]
+
+        # …and the other way round is refused: a re-read that KNOWS less changes nothing.
+        s.append(dict(poor, msg="msg"))
+        rows = s.recent("alliance", 10)
+        assert len(rows) == 2, "a placeholder must still be filed as its own message"
+        assert "Player1 joined" in [r["msg"] for r in rows]
+        s.close()
+
+
+def test_the_translation_is_the_game_s_own_and_asks_it_once():
+    """#2418: «в чате есть функция перевода, изучи её, сделай эту возможность».
+
+    The recipe presses the client's own button (`OnChatTranslate`) and the press holds
+    what came back, so putting the original back and reading the translation again cost
+    the game nothing. Nothing leaves this machine for an outside service.
+    """
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_the_translation_is_the_game_s_own...: {exc}")
+        return
+
+    played = []
+
+    class _Out:
+        class ctx:
+            vars = {"tr_text": "d0bfd180d0b8d0b2d0b5d182", "tr_lang": "ru"}
+
+    P = object.__new__(pm.ChatTab)
+    P._rooms = {"alliance_1000_aaaabbbbcccc": {"name": "", "msgs": 3}}
+    P._translated = {}
+    P._chat_msgs = {t: [] for t in pm.CHAT_TABS}
+    P._chat_store = None
+    P.TRANSLATED_MAX = pm.ChatTab.TRANSLATED_MAX
+    P._known_rooms = lambda kind: set()
+    P.rt = type("R", (), {"actions": type("A", (), {
+        "play": staticmethod(lambda name, args, **kw: played.append((name, args)) or _Out())})()})()
+    P._translate = pm.ChatTab._translate.__get__(P)
+
+    answer = P._translate("alliance_1000_aaaabbbbcccc", "8123")
+    assert answer.get("ok") and answer.get("text") == "привет", answer
+    assert played == [("translate_chat_message",
+                       {"room": "alliance_1000_aaaabbbbcccc", "seq": "8123"})], played
+
+    again = P._translate("alliance_1000_aaaabbbbcccc", "8123")
+    assert again.get("text") == "привет"
+    assert len(played) == 1, "the game was asked twice for one translation"
+
+    # A room this panel has never heard of is refused rather than named to the game.
+    assert P._translate("alliance_9999_ffff", "1").get("error") == "unknown"
+    assert P._translate("", "").get("error") == "unknown"
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())

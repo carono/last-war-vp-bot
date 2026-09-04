@@ -134,6 +134,12 @@ def _migrate(conn: sqlite3.Connection, migrations: tuple = MIGRATIONS) -> None:
     conn.commit()
 
 
+#: What the client answers instead of a message: `?` for an attachment it will render
+#: itself, and the bare word `msg` for the interactive posts (#2418). A row holding one
+#: of these is a row that lost its text, and a re-read is allowed to write over it.
+_POOR = ("?", "msg")
+
+
 class ChatHistoryStore:
     """A thin SQLite wrapper: append a record, read the newest page, page older."""
 
@@ -157,6 +163,23 @@ class ChatHistoryStore:
         """
         room = str(record.get("room_id") or "")
         chat_type = record.get("chat_type") or classify_room(room)
+        text = str(record.get("msg") or "")
+        # A MESSAGE ALREADY FILED UNDER A PLACEHOLDER IS REPAIRED (#2418). The reader
+        # used to file `msg` — the three letters the client answers for an interactive
+        # post — as if they were what somebody said, so every such row on disk holds a
+        # word nobody wrote. A re-read now brings the rendered text, and the row's
+        # identity is `(room, uid, ts, text)`: without this the better copy would land
+        # BESIDE the poorer one instead of replacing it. Only ever a placeholder is
+        # written over, so a real message can never be rewritten by a re-read.
+        if text and text not in _POOR:
+            self._conn.execute(
+                "UPDATE messages SET text=?, raw_json=? "
+                "WHERE room=? AND uid=? AND ts=? AND text IN (%s)"
+                % ",".join("?" * len(_POOR)),
+                (text, json.dumps(record, ensure_ascii=False), room,
+                 str(record.get("sender_uid") or ""), float(record.get("ts") or 0.0),
+                 *sorted(_POOR)),
+            )
         cur = self._conn.execute(
             "INSERT OR IGNORE INTO messages(ts, uid, name, text, room, chat_type, raw_json) "
             "VALUES(?, ?, ?, ?, ?, ?, ?)",

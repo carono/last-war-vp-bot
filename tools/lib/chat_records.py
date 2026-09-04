@@ -269,10 +269,23 @@ def parse_record_line(line: str, marker: str = MARKER) -> "dict | None":
     room_id = fields.get("roomId", "")
     base = hexdec(fields.get("msg", ""))          # getMsg()
     with_extra = hexdec(fields.get("we", ""))     # getMessageWithExtra()
-    # Attachment / interactive posts (coord shares, invites, …) leave getMsg() as a bare
-    # "?" placeholder; getMessageWithExtra() renders the real content. Prefer it only
-    # when the base is empty — otherwise a plain message would gain a rendered prefix.
-    display = with_extra if (base.strip() in _PLACEHOLDER and with_extra) else base
+    # Attachment / interactive posts (coord shares, invites, …) leave getMsg() as a
+    # placeholder; getMessageWithExtra() renders the real content.
+    #
+    # A PLACEHOLDER IS NOT ALWAYS «?» (#2418). The person's report: «в чате альянса я
+    # вижу сообщения от игроков "msg", а в игре там нормальные сообщения» — and that is
+    # literally what `getMsg()` answers for those: the three letters `msg`. Measured on
+    # the live client: of 328 messages the client held, 189 render identically both ways
+    # and every one of the 139 that differ carries a non-zero `post` (608, 611, 618,
+    # 632, 633, 645) — the interactive kinds. Not one plain message's rendering extends
+    # or prefixes its base, so there is nothing for a plain message to lose.
+    #
+    # So the rule is the POST rather than a list of placeholder words: a message the
+    # game marks as a special kind is drawn the way the game draws it, and a plain one
+    # (`post = 0`) keeps its own text whatever the renderer would have made of it.
+    post = fields.get("post", "")
+    special = post not in ("", "0", "0.0")
+    display = with_extra if with_extra and (special or base.strip() in _PLACEHOLDER) else base
     # Timestamp the record with the message's own serverTime (epoch ms), NEVER the parse
     # time: history read out of the client is parsed «now», so a parse-time stamp would
     # sort every ancient message to the bottom of the tab.

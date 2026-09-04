@@ -2792,5 +2792,11 @@
   "timers.item.attack_golden_zombies.short": "Золотые зомби",
   "timers.stat.golden": "хватит на {n} атак · сегодня {today}",
   "web.ui.stop": "Остановить",
-  "web.ui.stopping": "останавливаю: {name}"
+  "web.ui.stopping": "останавливаю: {name}",
+  "chat.translate": "Перевести",
+  "chat.translate.back": "Оригинал",
+  "chat.translate.doing": "Перевожу…",
+  "chat.translate.failed": "игра не перевела это сообщение",
+  "chat.emoji": "Смайлы",
+  "chat.stickers": "Стикеры"
 }

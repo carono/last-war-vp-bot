@@ -2792,5 +2792,11 @@
   "timers.item.attack_golden_zombies.short": "Zombies dorés",
   "timers.stat.golden": "de quoi faire {n} attaques · {today} aujourd'hui",
   "web.ui.stop": "Arrêter",
-  "web.ui.stopping": "arrêt en cours : {name}"
+  "web.ui.stopping": "arrêt en cours : {name}",
+  "chat.translate": "Traduire",
+  "chat.translate.back": "Original",
+  "chat.translate.doing": "Traduction…",
+  "chat.translate.failed": "le jeu n'a pas traduit ce message",
+  "chat.emoji": "Émojis",
+  "chat.stickers": "Autocollants"
 }
