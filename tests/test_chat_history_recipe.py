@@ -159,6 +159,16 @@ def test_the_placeholder_rule_still_holds_for_a_plain_post():
     assert rec["msg"] == "a share", rec["msg"]
 
 
+def test_the_recorder_carries_the_game_s_own_translate_flag():
+    """A button the game would refuse is a button that can only disappoint (#2418), so
+    `isShowTranslateBtn()` is recorded, DRAINED and decoded — a field written but never
+    put on the wire is the shape this test exists to catch."""
+    assert "isShowTranslateBtn" in chat_records.record_lua()
+    assert "cantr=" in chat_records.drain_lua()
+    assert chat_records.parse_record_line(_line(cantr="true"))["can_translate"] is True
+    assert chat_records.parse_record_line(_line(cantr="false"))["can_translate"] is False
+
+
 def test_the_stamp_is_the_message_s_own_server_time():
     """History is parsed «now»; a parse-time stamp sorts every old message to the bottom."""
     rec = chat_records.parse_record_line(_line(st="1756412345000"))

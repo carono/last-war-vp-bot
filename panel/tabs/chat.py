@@ -687,6 +687,12 @@ class ChatTab(PanelTab):
                 # to translate this row names the room and the seq, and picking them out
                 # of the id above would be the front-end knowing how one is built.
                 "seq": str(record.get("seq_id") or ""),
+                # WHETHER THE GAME OFFERS TO TRANSLATE IT (#2418). Its own answer where
+                # the recorder carried one — a coordinate share and a system post are
+                # refused by the client itself, and an offer the game will not honour is
+                # a button that can only disappoint. A row filed before the recorder
+                # carried it falls back to «a plain message, and not my own».
+                "tr": self._can_translate(record),
                 "ts": ts, "when": when, "day": day,
                 "who": str(record.get("sender_name") or "?"),
                 "uid": str(record.get("sender_uid") or ""),
@@ -702,6 +708,22 @@ class ChatTab(PanelTab):
                 # the ID OF THE MESSAGE IT NAMES — the same id this row is keyed by, so
                 # the front-end can walk to it without knowing how one is built.
                 "reply": self._web_reply(record, room)}
+
+    @staticmethod
+    def _can_translate(record: dict) -> bool:
+        """Does the GAME offer a translation for this message?
+
+        `isShowTranslateBtn()` is the client's own answer and the recorder carries it,
+        measured live: a coordinate share (`post = 13`) answers false, an ordinary
+        message answers true. Rows filed before the recorder carried it have to be
+        judged here, and the honest guess is the one the post already makes — a plain
+        message, and never one of my own, which the game does not offer either.
+        """
+        if record.get("is_mine"):
+            return False
+        if "can_translate" in record:
+            return bool(record.get("can_translate"))
+        return str(record.get("post") or "0") in ("0", "0.0", "")
 
     @staticmethod
     def _web_reply(record: dict, room: str) -> "dict | None":

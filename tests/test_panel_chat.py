@@ -1118,5 +1118,29 @@ def test_the_translation_is_the_game_s_own_and_asks_it_once():
     assert P._translate("", "").get("error") == "unknown"
 
 
+def test_the_offer_to_translate_is_the_game_s_own_answer():
+    """#2418: the button is drawn only where the GAME draws it. Measured live: a
+    coordinate share (`post = 13`) answers `isShowTranslateBtn() == false`, and an
+    ordinary message answers true — so a row that carries the client's answer uses it,
+    and one filed before the recorder carried it falls back to the post.
+
+    Never on one's own message: the game does not offer it there either.
+    """
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_the_offer_to_translate...: {exc}")
+        return
+
+    can = pm.ChatTab._can_translate
+    assert can({"can_translate": True}) is True
+    assert can({"can_translate": False}) is False
+    assert can({"can_translate": True, "is_mine": True}) is False
+    # Filed before the recorder carried the flag: a plain post is offered, a share is not.
+    assert can({"post": "0"}) is True
+    assert can({"post": "13"}) is False
+    assert can({}) is True
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())

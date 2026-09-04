@@ -80,6 +80,12 @@ _G.__CR_REC = function(a, sink)
   rec.msg    = hex(tostring(mg("getMsg")))
   rec.we     = hex(tostring(mg("getMessageWithExtra")))
   rec.ismy   = tostring(mg("isMySendChat"))
+  -- WHETHER THE GAME ITSELF OFFERS A TRANSLATION for this message (#2418). Its own
+  -- button asks exactly this, and a coordinate share or a system post answers false —
+  -- so the panel draws the offer only where the game does, instead of promising a
+  -- translation that comes back empty. Free here: the recorder is already holding the
+  -- message.
+  rec.cantr  = tostring(mg("isShowTranslateBtn"))
   rec.sender = hex(mg("getSenderName"))
   local si = mg("getSenderInfo")
   if type(si) == "table" then
@@ -130,7 +136,7 @@ for i, r in ipairs(cap) do
     L("R roomId="..f(r.roomId).." seqId="..f(r.seqId).." st="..f(r.st).." post="..f(r.post)
       .." type="..f(r.mtype).." uid="..f(r.uid).." lang="..f(r.lang)
       .." gm="..f(r.gm).." srv="..f(r.srv).." hp="..f(r.hp).." hpv="..f(r.hpv)
-      .." ismy="..f(r.ismy).." alliance="..f(r.alliance)
+      .." ismy="..f(r.ismy).." cantr="..f(r.cantr).." alliance="..f(r.alliance)
       .." rseq="..f(r.rseq).." ruid="..f(r.ruid).." rname="..f(r.rname)
       .." rmsg="..f(r.rmsg)
       .." sender="..f(r.sender).." msg="..f(r.msg).." we="..f(r.we))
@@ -310,6 +316,9 @@ def parse_record_line(line: str, marker: str = MARKER) -> "dict | None":
         "lang": fields.get("lang", ""),
         "gm": fields.get("gm", ""),
         "is_mine": fields.get("ismy", "") == "true",
+        # The game's own «may this be translated» (#2418) — absent on rows filed before
+        # the recorder carried it, and then the post decides (see `ChatTab._web_row`).
+        "can_translate": fields.get("cantr", "") == "true",
         "alliance": hexdec(fields.get("alliance", "")),
         "sender_name": hexdec(fields.get("sender", "")),
         "msg": render_text(display),

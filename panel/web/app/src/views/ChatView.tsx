@@ -55,6 +55,8 @@ export interface ChatRow {
   id: string
   /** The message's own sequence id in its room — what a translate press names. */
   seq?: string
+  /** Does the GAME offer to translate this one? Its own answer, never a guess here. */
+  tr?: boolean
   /** The sender's own face, as a link — `''` for somebody who never uploaded one. */
   face?: string
   ts: number
@@ -792,7 +794,7 @@ export function ChatView({
                   {/* THE TRANSLATION IS A SECOND READING, never a replacement: the tap
                       that shows it is the tap that puts the original back (#2418). Not
                       offered on one's own message — the game does not offer it either. */}
-                  {!row.mine && (row.seq || '') ? (
+                  {!row.mine && row.tr && (row.seq || '') ? (
                     <button
                       className="trbtn"
                       disabled={tring === row.id}
