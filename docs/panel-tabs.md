@@ -1016,6 +1016,23 @@ It is deliberately **not** a fourth shape. The card was written for the errands
 «A control that exists twice is written once» (`CLAUDE.md`). Improve that component; do
 not fork it, and do not invent a fifth layout for the next list.
 
+**AN ERRAND'S CARD HAS ONE FORMAT, AND A CARD WITH NO PICTURE WEARS THE PLACEHOLDER**
+(#2407) — the person's words: «Все карточки в таймерах и триггерах должны быть по новому
+формату, если нет картинки, вставляем заглушку… больше старый формат не добавляем». Every
+row of «Таймеры» — a timer, a listener, a standing order — is handed `cover`
+unconditionally, so the shape does not depend on what this machine has on disk: a row with
+a picture draws it in full colour, a row with none gets `.blank` and the one mark the
+stylesheet paints (`--errand-blank`, a data URI, so nothing has to be generated or
+fetched). There used to be a second drawing — the game's own sprite spread over the card
+under a darkening wash — and it is gone from the payload, from `panel/runtime/errand_art.py`
+and from the route. **Never draw a card of this page any other way, and never stand another
+ability's icon in for a picture that was not drawn**; `tests/test_panel_web_cards.py` fails
+on both.
+
+A card of a SCREEN is the same component and does not take `cover`: a player with no face
+is a card with no picture, and that is not the omission this rule is about — a register is
+read by its names, where a page of thirty errands is read by its pictures.
+
 The person's words: «переделай таблицу игроков на карточки». «Игроки» is the first
 caller — a register of three hundred thousand people was nine columns of a table, which
 on a phone is nine columns nobody reads.
