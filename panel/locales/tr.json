@@ -2802,5 +2802,7 @@
   "chat.translate.failed": "oyun bu mesajı çeviremedi",
   "chat.emoji": "Emojiler",
   "chat.stickers": "Çıkartmalar",
-  "chat.tools": "Sohbet işlemleri"
+  "chat.tools": "Sohbet işlemleri",
+  "chat.autotr.on": "Yeni mesajları çevir",
+  "chat.autotr.off": "Yeni mesajları çevirmeyi bırak"
 }

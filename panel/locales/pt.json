@@ -2802,5 +2802,7 @@
   "chat.translate.failed": "o jogo não traduziu esta mensagem",
   "chat.emoji": "Emojis",
   "chat.stickers": "Autocolantes",
-  "chat.tools": "Ações do chat"
+  "chat.tools": "Ações do chat",
+  "chat.autotr.on": "Traduzir as mensagens novas",
+  "chat.autotr.off": "Parar de traduzir as mensagens novas"
 }

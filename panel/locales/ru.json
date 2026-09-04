@@ -2802,5 +2802,7 @@
   "chat.translate.failed": "игра не перевела это сообщение",
   "chat.emoji": "Смайлы",
   "chat.stickers": "Стикеры",
-  "chat.tools": "Действия чата"
+  "chat.tools": "Действия чата",
+  "chat.autotr.on": "Переводить новые сообщения",
+  "chat.autotr.off": "Не переводить новые сообщения"
 }

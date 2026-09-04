@@ -2802,5 +2802,7 @@
   "chat.translate.failed": "trò chơi không dịch được tin nhắn này",
   "chat.emoji": "Biểu tượng",
   "chat.stickers": "Nhãn dán",
-  "chat.tools": "Thao tác trò chuyện"
+  "chat.tools": "Thao tác trò chuyện",
+  "chat.autotr.on": "Dịch tin nhắn mới",
+  "chat.autotr.off": "Ngừng dịch tin nhắn mới"
 }

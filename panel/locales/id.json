@@ -2802,5 +2802,7 @@
   "chat.translate.failed": "gim tidak menerjemahkan pesan ini",
   "chat.emoji": "Emoji",
   "chat.stickers": "Stiker",
-  "chat.tools": "Tindakan obrolan"
+  "chat.tools": "Tindakan obrolan",
+  "chat.autotr.on": "Terjemahkan pesan baru",
+  "chat.autotr.off": "Berhenti menerjemahkan pesan baru"
 }

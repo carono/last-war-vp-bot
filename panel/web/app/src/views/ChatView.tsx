@@ -73,6 +73,9 @@ export interface ChatRow {
   /** What this message answers, when it answers something: the quote the game draws,
    *  and the id of the row it names (#2418). */
   reply?: { id: string; who: string; text: string } | null
+  /** The game's translation of this message, when auto-translation is on and the game
+   *  has already answered for it. Empty otherwise — the original is never replaced. */
+  trtext?: string
 }
 
 interface Page {
@@ -229,6 +232,28 @@ export function ChatView({
      puts it back with nothing asked of the game. */
   const [tr, setTr] = useState<Record<string, string>>({})
   const [asTr, setAsTr] = useState<Record<string, boolean>>({})
+  /* WHAT ARRIVED ALREADY TRANSLATED (#2418). With auto-translation on, the panel has
+     asked the game before the phone ever saw the message, and the answer rides the row.
+     It is SHOWN by default in that case — that is what the switch is for — and the same
+     tap that has always put the original back still does. A row a reader has already
+     toggled by hand is left exactly as they left it. */
+  useEffect(() => {
+    const held: Record<string, string> = {}
+    for (const row of rows) if (row.trtext) held[row.id] = row.trtext
+    if (!Object.keys(held).length) return
+    setTr((prev) => ({ ...held, ...prev }))
+    setAsTr((prev) => {
+      const next = { ...prev }
+      let moved = false
+      for (const id of Object.keys(held)) {
+        if (!(id in next)) {
+          next[id] = true
+          moved = true
+        }
+      }
+      return moved ? next : prev
+    })
+  }, [rows])
   const [tring, setTring] = useState('')
   /* THE SERVICE PRESSES ARE BEHIND ⚙ (#2418): «кнопки загрузить историю и обновить
      убирай, можно добавить кнопку шестеренки сверху с выпадайкой». They are things a

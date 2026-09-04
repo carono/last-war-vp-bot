@@ -1161,5 +1161,41 @@ def test_the_chat_screen_carries_no_message_cards():
     assert '"silent"' in view, "the age of the reading left the screen"
 
 
+
+def test_auto_translation_is_off_by_default_and_never_asks_on_a_clock():
+    """#2418: «пусть на все новые сообщения … сразу переводить».
+
+    THERE IS NO LANGUAGE ON A MESSAGE, and that is measured rather than assumed — the
+    finding is written into `actions/translate_chat_batch.md`: `originalLang` is a field
+    the server never fills (40 of 40 empty, and still empty on a message the game had
+    just translated), and `isShowTranslateBtn()` answered true for 39 of those 40, so it
+    is a permission and not a language. So the switch translates what the game offers,
+    and everything expensive about that is pinned here:
+
+    * OFF unless somebody turns it on — it spends the one game link;
+    * fed by the ARRIVAL of a message and by nothing else, so an idle chat asks nothing;
+    * a BACKLOG read is not «new messages» and must not be queued;
+    * never one's own message, and never one already translated.
+    """
+    src = (_REPO / "panel" / "tabs" / "chat.py").read_text(encoding="utf-8")
+    take = src.split("def _tr_take")[1].split("def _tr_flush")[0]
+    assert 'record.get("is_mine")' in take, "auto-translation would translate my own"
+    assert "self._translated" in take, "a message already translated is asked about again"
+    assert "self._can_translate(record)" in take, "it asks for what the game refuses"
+    pump = src.split("def _pump_chat")[1].split("def _load_backlog")[0]
+    assert "if not backlog:\n                    # THE ARRIVAL IS THE SIGNAL" in pump, \
+        "the queue is fed by something other than an arrival, or by a backlog read"
+    flush = src.split("def _tr_flush")[1].split("def _tr_batch")[0]
+    assert "self._tr_at" in flush and "TR_GAP" in flush, "the batches lost their pacing"
+    assert "threading.Thread" in flush, "a four-second batch would sit on the Tk thread"
+    apply_cfg = src.split("def apply_config")[1].split("def persist_vars")[0]
+    assert 'raw.get("chat_autotr", False)' in apply_cfg, \
+        "auto-translation is not off by default"
+    # …and one batch is one round trip, however many messages it carries.
+    recipe = (_REPO / "src" / "lastwar_bot" / "actions"
+              / "translate_chat_batch.md").read_text(encoding="utf-8")
+    assert recipe.count("\nWAIT ") == 1, "a batch waits once, not once per message"
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())

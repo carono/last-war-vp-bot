@@ -154,6 +154,23 @@ class ChatTab(PanelTab):
         # reader can put the original back and read the translation again without a
         # second round trip (#2418).
         self._translated: dict = {}
+        # AUTO-TRANSLATION (#2418): «пусть на все новые сообщения, которые не на моём
+        # языке, сразу переводить». There is NO language on a message — measured, see
+        # `actions/translate_chat_batch.md` — so what this can honestly do is translate
+        # everything the GAME offers to translate, which is what the person chose when
+        # told the finding. Off unless somebody switches it on, because it spends the
+        # one game link: `_tr_queue` is what has arrived and not been asked about yet,
+        # `_tr_at` is the earliest the next batch may go, and `_tr_busy` is a batch in
+        # flight. Nothing here is a clock — the arrival of a message is the signal, and
+        # the flush rides the queue's own pump.
+        self._tr_auto = False
+        self._tr_queue: dict = {}
+        self._tr_at = 0.0
+        self._tr_busy = False
+        #: How many messages one batch asks about. One batch costs one three-second wait
+        #: whether it carries one message or twenty, so the cap is about how much of a
+        #: burst is worth catching up on rather than about the cost of a message.
+        self._tr_done = 0
         # …and unread per ROOM, because a chip is a room now and not a kind.
         self._room_unread: dict = {}
         # uid -> the link its face is served on, or "". The lookup walks a few thousand
@@ -346,7 +363,14 @@ class ChatTab(PanelTab):
                 "silent": self._chat_silence(),
                 "waiting": bool(self._chat_wanted and self._chat_proc is None),
                 "rooms": self._web_rooms(),
-                "actions": [{"id": "history", "label": "chat.history.load"},
+                # WHETHER ARRIVING MESSAGES ARE TRANSLATED AT ONCE (#2418), and how many
+                # this run has done — the price of the switch, said where it is thrown.
+                "autotr": bool(self._tr_auto),
+                "autotr_done": int(self._tr_done),
+                "actions": [{"id": "autotr",
+                             "label": ("chat.autotr.off" if self._tr_auto
+                                       else "chat.autotr.on")},
+                            {"id": "history", "label": "chat.history.load"},
                             {"id": "rooms", "label": "chat.rooms.reload"}]}
 
     def _chat_silence(self) -> "float | None":
@@ -435,6 +459,18 @@ class ChatTab(PanelTab):
             # client is holding, and the words they are looking for are on the server.
             return self._ask_server_for_older(str(args.get("room") or "").strip(),
                                               str(args.get("type") or ""))
+        if action == "autotr":
+            # THE SWITCH, and it is a switch rather than a press at the game (#2418):
+            # what it decides is whether an ARRIVING message is queued. Off by default —
+            # a batch holds the game for about four seconds, and this is the one link.
+            self._tr_auto = not self._tr_auto
+            if not self._tr_auto:
+                self._tr_queue.clear()
+            # …AND WRITTEN DOWN, the same road the ear's switch takes (#2064): a knob
+            # moved from the phone reaches the state directly, so nothing else would
+            # save it, and a switch a restart forgets is a switch nobody trusts.
+            self.rt.settings.changed()
+            return {"ok": True, "on": self._tr_auto}
         if action == "translate":
             # THE GAME'S OWN TRANSLATOR (#2418) — «в чате есть функция перевода, изучи
             # её, сделай эту возможность». Nothing leaves this machine for an outside
@@ -694,6 +730,14 @@ class ChatTab(PanelTab):
                 # WHAT IT ANSWERS (#2418). The quote the game shows above a reply, plus
                 # the ID OF THE MESSAGE IT NAMES — the same id this row is keyed by, so
                 # the front-end can walk to it without knowing how one is built.
+                # WHAT THE GAME ALREADY ANSWERED FOR THIS ROW (#2418). Sent only
+                # while auto-translation is on: that is the mode in which a translation
+                # is meant to be READ instead of the original, and a reader who tapped
+                # one by hand has it on the phone already. The original travels
+                # untouched beside it, so the same tap puts it back.
+                "trtext": (self._translated.get(f"{room}|{record.get('seq_id')}",
+                                                ("", ""))[0]
+                           if self._tr_auto else ""),
                 "reply": self._web_reply(record, room)}
 
     @staticmethod
@@ -795,11 +839,15 @@ class ChatTab(PanelTab):
         # messages it already has without asking the game who is logged in. The game
         # remains the authority: the next read overwrites it.
         return {"chat_monitor": bool(self._chat_var.get()),
+                "chat_autotr": bool(self._tr_auto),
                 "chat_uid": str(self._chat_uid or "")}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         self._chat_var.set(bool(raw.get("chat_monitor", False)))
+        # Off unless it was switched on: it spends the game link, so a profile that has
+        # never been asked gets nothing (#2418).
+        self._tr_auto = bool(raw.get("chat_autotr", False))
         self._chat_uid = str(raw.get("chat_uid") or "")
 
     def persist_vars(self) -> list:
@@ -1847,6 +1895,12 @@ class ChatTab(PanelTab):
                 if not backlog:
                     self.take(INTAKE_CHAT).kept()
                 self._met_in_chat(met, record)
+                if not backlog:
+                    # THE ARRIVAL IS THE SIGNAL (#2418): auto-translation is fed here
+                    # and nowhere else, so nothing asks the game on a clock. A backlog
+                    # read is a person pressing «Загрузить историю» — three hundred old
+                    # messages are not «new messages» and must not be queued.
+                    self._tr_take(record)
                 chat_type = record.get("chat_type", "other")
                 if chat_type not in self._chat_msgs:
                     chat_type = "other"
@@ -1943,6 +1997,10 @@ class ChatTab(PanelTab):
         # …and the flow strip on the same second (#1549): «идут ли данные ПРЯМО СЕЙЧАС»
         # is a question only a moving strip can answer.
         self._refresh_flow()
+        # …and one batch of translations goes out if one is due (#2418). It rides this
+        # pump rather than a clock of its own: the queue is only ever filled by an
+        # arrival, so an idle chat asks the game nothing at all.
+        self._tr_flush()
         self.rt.tick.arm("chat", 1000, self._pump_chat)
 
     #: How many messages of EACH ROOM the backlog read asks the client for. The client
@@ -2030,6 +2088,95 @@ class ChatTab(PanelTab):
     #: keeping every one of a night's chat would be a second copy of the history in
     #: memory for no one to read.
     TRANSLATED_MAX = 200
+
+    #: How many messages one auto-translate batch names.
+    TR_BATCH = 20
+
+    #: The shortest gap between two batches, in seconds.
+    #:
+    #: THIS IS THE PRICE OF THE FEATURE AND IT IS DELIBERATE (#2418). A batch is one
+    #: call, one three-second wait and one reading — near enough four seconds during
+    #: which nothing else may touch the game. Measured on this account: 1.5 messages a
+    #: minute over a quiet hour, 8.2 over the busiest hour, 22.4 in the busiest ten
+    #: minutes. Translating each message as it lands would spend half the link on a busy
+    #: hour and more than all of it on a busy ten minutes; batching every 20 s spends
+    #: three batches a minute — about 12 s of every 60, whatever the chat is doing.
+    TR_GAP = 20.0
+
+    def _tr_take(self, record: dict) -> None:
+        """A message has arrived: queue it for translation if the switch is on.
+
+        Never my own — the person said so outright, and the game does not offer to
+        translate one either. Never one already translated: the answers are kept
+        (`_translated`), so a message that has been through this costs nothing again.
+        """
+        if not self._tr_auto or record.get("is_mine"):
+            return
+        if not self._can_translate(record):
+            return
+        room = str(record.get("room_id") or "").strip()
+        seq = str(record.get("seq_id") or "").strip()
+        if not room or not seq or f"{room}|{seq}" in self._translated:
+            return
+        waiting = self._tr_queue.setdefault(room, [])
+        if seq not in waiting:
+            waiting.append(seq)
+
+    def _tr_flush(self) -> None:
+        """Send one batch, if one is due. Called by the queue's own pump, never a clock.
+
+        The work goes to a thread of its own: a batch holds the game for about four
+        seconds and this is the tick that draws.
+        """
+        import threading
+        import time as _time
+
+        if self._tr_busy or not self._tr_queue or not self._tr_auto:
+            return
+        now = _time.monotonic()
+        if now < self._tr_at:
+            return
+        room = max(self._tr_queue, key=lambda k: len(self._tr_queue[k]))
+        seqs = self._tr_queue[room][:self.TR_BATCH]
+        rest = self._tr_queue[room][self.TR_BATCH:]
+        if rest:
+            self._tr_queue[room] = rest
+        else:
+            self._tr_queue.pop(room, None)
+        if not seqs:
+            return
+        self._tr_busy = True
+        self._tr_at = now + self.TR_GAP
+        threading.Thread(target=self._tr_batch, args=(room, list(seqs)),
+                         daemon=True, name="chat-autotr").start()
+
+    def _tr_batch(self, room: str, seqs: list) -> None:
+        """One round trip: ask the game for all of these, file what came back."""
+        try:
+            outcome = self.rt.actions.play("translate_chat_batch",
+                                           {"room": room, "seqs": ",".join(seqs)},
+                                           human=False, tag="chat")
+            got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+            lang = str(got.get("tr_lang") or "")
+            done = str(got.get("tr_done") or "")
+            if done and done != "none":
+                for pair in done.split(","):
+                    seq, _, raw = pair.partition("=")
+                    if not seq or not raw:
+                        continue
+                    try:
+                        text = bytes.fromhex(raw).decode("utf-8", "replace")
+                    except ValueError:         # noqa: PERF203 — a mangled pair, not a crash
+                        continue
+                    if text:
+                        self._translated[f"{room}|{seq}"] = (text, lang)
+                        self._tr_done += 1
+                while len(self._translated) > self.TRANSLATED_MAX:
+                    self._translated.pop(next(iter(self._translated)))
+        except Exception as exc:               # noqa: BLE001 — a failed batch, not a dead tab
+            self.post(lambda: self.say("chat", "log.error", error=exc))
+        finally:
+            self._tr_busy = False
 
     def _translate(self, room: str, seq: str) -> dict:
         """Ask the GAME to translate one message, and hand back what it answered.
