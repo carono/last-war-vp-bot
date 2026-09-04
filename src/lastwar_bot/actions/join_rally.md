@@ -322,9 +322,13 @@ READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchData
 # machine's ~1.4 calls a second now, so the same loop was up to seven seconds of exclusive
 # per pass and twice that per run, spent in front of the next banner
 # (`docs/research/link-contention.md`). The wait is what the squad needs and the reads
-# were never what made it arrive, so the wait is kept whole and only ONE look follows it.
+# were never what made it arrive, so the WHOLE WAIT IS KEPT — 2.5 s, which is the three
+# seconds #1285 measured a squad coming through `fill_empty_squads` to need — and exactly
+# ONE look follows it. Shortening the wait instead of the looks would buy the same calls
+# back at the price of calling a squad that is on its way a failure, which is the fault
+# the loop was grown to fix.
 IF joined < 1
-    WAIT 1.5
+    WAIT 2.5
     READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
 IF joined >= 1
@@ -367,7 +371,7 @@ IF resent == 0
 READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
 IF joined < 1
-    WAIT 1.5
+    WAIT 2.5
     READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
 IF joined >= 1
