@@ -710,6 +710,27 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.red_packet_watch",
     ),
     Trigger(
+        name="collect_reward_watch",
+        # THE SPECIAL RESOURCE-COLLECT POINT, and the ear that marches at it (#2406). The
+        # map announces one with `push.user.collect.reward.create`, which carries the
+        # tile — and that push is the only place the tile is ever stated, so the send is
+        # made inside the client's own message ingress by `watch_collect_rewards`.
+        #
+        # This poll exists for ONE thing: keeping that hook alive. A client restart takes
+        # the VM and everything parked in it, and an ear nobody re-armed hears nothing
+        # for ever while looking perfectly healthy. The check is the hook's own flag, so
+        # the ordinary answer is «no» and the recipe is played only when the ear is gone
+        # — the same shape as `red_packet_watch` above, for the same reason.
+        kind=KIND_POLL,
+        check=("(function() local B = DataCenter.__lw_crw "
+               "return (B == nil) or (not B.on) end)()"),
+        interval_sec=180,
+        cooldown_sec=170,
+        scenario=("watch_collect_rewards",),
+        enabled=False,
+        label_key="triggers.item.collect_reward_watch",
+    ),
+    Trigger(
         name="piece_exchange",
         # SOMEBODY TOOK OUR OFFER — measured, not assumed (#1975). Twice over, the wire
         # shows `push.treasure.fragment.exchange {DIG_GAME_TREASURE_FRAGMENT = 1}`

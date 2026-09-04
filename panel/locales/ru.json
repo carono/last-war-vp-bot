@@ -2725,6 +2725,7 @@
   "events.red.collect": "Забрать",
   "events.red.watch": "Поставить караул",
   "triggers.item.red_packet_watch": "«Красные пакеты в чате»: держать караул",
+  "triggers.item.collect_reward_watch": "«Спец-сбор ресурсов»: держать караул",
   "timers.item.lucky_share": "«Ящик с сюрпризом»: раздать бесплатные алмазы",
   "timers.item.lucky_share.short": "Алмазы из ящика: раздать",
   "tab.farming": "Что умеет бот",

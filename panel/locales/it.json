@@ -2725,6 +2725,7 @@
   "events.red.collect": "Raccogli",
   "events.red.watch": "Attiva la guardia",
   "triggers.item.red_packet_watch": "Pacchetti rossi in chat: tenere la guardia attiva",
+  "triggers.item.collect_reward_watch": "Raccolta speciale di risorse: tenere la guardia attiva",
   "timers.item.lucky_share": "«Cassa a sorpresa»: distribuire i diamanti gratis",
   "timers.item.lucky_share.short": "Diamanti gratis: distribuire",
   "tab.farming": "Che cosa sa fare il bot",

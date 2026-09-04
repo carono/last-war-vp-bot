@@ -2725,6 +2725,7 @@
   "events.red.collect": "Recolher",
   "events.red.watch": "Pôr a guarda",
   "triggers.item.red_packet_watch": "Pacotes vermelhos no chat: manter a guarda de pé",
+  "triggers.item.collect_reward_watch": "Coleta especial de recursos: manter a guarda de pé",
   "timers.item.lucky_share": "«Caixa surpresa»: distribuir os diamantes grátis",
   "timers.item.lucky_share.short": "Diamantes grátis: distribuir",
   "tab.farming": "O que o bot sabe fazer",

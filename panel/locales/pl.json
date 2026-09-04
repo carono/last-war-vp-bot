@@ -2725,6 +2725,7 @@
   "events.red.collect": "Odbierz",
   "events.red.watch": "Postaw wartę",
   "triggers.item.red_packet_watch": "Czerwone paczki na czacie: utrzymuj wartę",
+  "triggers.item.collect_reward_watch": "Specjalny zbiór surowców: utrzymuj wartę",
   "timers.item.lucky_share": "«Skrzynia niespodzianka»: rozdać darmowe diamenty",
   "timers.item.lucky_share.short": "Darmowe diamenty: rozdaj",
   "tab.farming": "Co potrafi bot",

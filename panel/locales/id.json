@@ -2725,6 +2725,7 @@
   "events.red.collect": "Ambil",
   "events.red.watch": "Pasang penjagaan",
   "triggers.item.red_packet_watch": "Paket merah di obrolan: jaga penjagaan tetap aktif",
+  "triggers.item.collect_reward_watch": "Pengumpulan sumber daya khusus: jaga penjagaan tetap aktif",
   "timers.item.lucky_share": "«Peti kejutan»: bagikan berlian gratis",
   "timers.item.lucky_share.short": "Berlian gratis: bagikan",
   "tab.farming": "Apa yang bisa dilakukan bot",

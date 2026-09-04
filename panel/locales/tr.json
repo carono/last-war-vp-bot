@@ -2725,6 +2725,7 @@
   "events.red.collect": "Topla",
   "events.red.watch": "Nöbeti başlat",
   "triggers.item.red_packet_watch": "Sohbetteki kırmızı paketler: nöbeti ayakta tut",
+  "triggers.item.collect_reward_watch": "Özel kaynak toplama: nöbeti ayakta tut",
   "timers.item.lucky_share": "«Sürpriz sandık»: bedava elmasları paylaş",
   "timers.item.lucky_share.short": "Bedava elmas: paylaş",
   "tab.farming": "Bot neler yapabiliyor",

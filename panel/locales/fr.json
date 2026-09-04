@@ -2725,6 +2725,7 @@
   "events.red.collect": "Récupérer",
   "events.red.watch": "Mettre la veille",
   "triggers.item.red_packet_watch": "Enveloppes rouges du chat : maintenir la veille",
+  "triggers.item.collect_reward_watch": "Collecte spéciale de ressources : maintenir la veille",
   "timers.item.lucky_share": "« Coffre surprise » : partager les diamants gratuits",
   "timers.item.lucky_share.short": "Diamants gratuits : partager",
   "tab.farming": "Ce que sait faire le bot",

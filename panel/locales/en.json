@@ -2725,6 +2725,7 @@
   "events.red.collect": "Collect",
   "events.red.watch": "Start watching",
   "triggers.item.red_packet_watch": "Chat red packets: keep the watch standing",
+  "triggers.item.collect_reward_watch": "Special resource collect: keep the watch standing",
   "timers.item.lucky_share": "«Surprise box»: give away the free diamonds",
   "timers.item.lucky_share.short": "Free diamonds: give away",
   "tab.farming": "What the bot can do",
