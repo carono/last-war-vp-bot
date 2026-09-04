@@ -111,21 +111,62 @@ being argued about is already advisory: the readings a tab takes, a wire handler
 lookup and a child tool's probe queue at the run lock beside whatever holds the claim,
 and every one of them costs the holder most of a second of `wait`.
 
-## 4. What follows
+## 4. Who is actually making the calls
 
-In the order the measurement puts them, largest first:
+The per-minute line names its callers now, grouped by what a thread is FOR (a scenario
+worker is named per run, so counted raw one errand reads as sixty different callers).
+Three consecutive minutes on the live panel:
 
-1. **Make fewer calls.** Every call removed gives back ~1 s of exclusive and ~2 s of
-   somebody's wall clock. The confirmation polls are the biggest single class of them:
-   `join_rally` asks «did a squad appear» up to six times after a send, twice over, and
-   each of those asks is a second — a ceiling written when a call was 0.14 s.
-2. **Batch a recipe's reads into one chunk.** Eight `READ_LUA`s are eight injections; one
-   chunk answering eight values is one. `join_rally` already learnt this once (#1281,
-   5.48 s → 0.19 s) and the rest of the catalogue has not.
+```
+callers: thread:_serve=48, thread:work=6, thread:_read_work=6, panel-rally=4,
+         panel-trigger=4, thread:_loop=3, trigger-poll-session_kick=3,
+         panel-timers:default=3, thread:_day_work=3
+callers: thread:_serve=34, thread:work=5, panel-trigger=4, trigger-poll-treasure_auto=3,
+         trigger-poll-session_kick=3, thread:_day_work=3, thread:_read_work=2
+```
+
+**Two thirds of the traffic arrives through the socket door**, not from a scenario this
+profile ran — and `panel.log`, which is where every «панель занята» investigation starts,
+cannot see a single one of those calls. They are not all capture tools either: the chunks
+coming through it include scenario reads (`DataCenter.LWAllyStationDataManager…`, the
+alliance-train recipe, and the `__v0` locals of a merged read), so something on the panel
+side is reaching this VM by socket rather than in process. This machine runs the panel
+with two profiles at once and thirteen child tools, and telling those apart is its own
+task; what is settled is that **the scenario catalogue is a minority of the calls**, so
+tuning recipes alone cannot reach the ceiling.
+
+## 5. What was done, and what it moved
+
+Read the measurement in the order it puts them, largest first:
+
+1. **Make fewer calls.** Done for the catalogue: the DSL grew `READ_LUA <expr> INTO a, b,
+   c` (`docs/dsl.md`), which reads several Lua return values in ONE hijack, and thirteen
+   recipes stopped asking one question at a time — `join_rally`, `auto_treasure` and
+   `read_server_info` by hand, the radar cycle and eight ordinary errands mechanically.
+   `join_rally` also lost the confirmation poll that looked six times after every send,
+   twice per run: a ceiling written when a read cost 0.14 s had grown into seven seconds
+   of exclusive a pass.
+
+   Measured on the same probe afterwards: `read_server_info`, the status probe that runs
+   every few minutes, went from **3.0 calls and 10.7 s a run to 2.0 calls and 4.2 s**;
+   `auto_treasure` from 13.2 calls a run to 10; `join_rally` from 10.7 to 9.5 with its
+   worst path shortened by twelve. The price of a call did not move, because nothing here
+   could move it.
+
+2. **The socket door (§4)** — now the biggest single source, and unexplained. Whoever
+   takes it next has the histogram already.
+
 3. **Decide the gates before claiming.** «Сейчас не час дрона», «отряд не тот», «квота
-   выбрана» — a run that takes the client to find out it has nothing to do costs a
-   claim, a context, and at least one call.
-4. **Then, and only then, the claim itself.** With calls at a second each, per-call
-   claiming buys interleaving at call granularity, not parallelism. It is worth doing for
-   fairness — a 137 s `radar_full_cycle` should not make a rally join wait — but it is
-   not what turns 52 % into single figures.
+   выбрана» — a run that takes the client to find out it has nothing to do costs a claim,
+   a context, and at least one call.
+
+4. **The injection itself.** 0.5–1.0 s against a client reporting 60 fps and a 3 ms frame
+   is five to ten times the two-frames-per-hijack the chain is supposed to cost
+   (`docs/research/game-call-latency.md`). Nothing in this task explains the difference,
+   and a five-fold cut there would end the queue outright — it is the largest unopened
+   lever there is.
+
+5. **The claim itself, last.** With calls at a second each, per-call claiming buys
+   interleaving at call granularity, not parallelism: a 137 s `radar_full_cycle` should
+   not make a rally join wait, and that is worth having — but it is fairness, not
+   throughput, and it is not what turns 52 % into single figures.

@@ -89,8 +89,14 @@ def _caller(name: str) -> str:
     return name
 
 
-#: The first thing a chunk names, for telling one CHILD's traffic from another's.
-_FIRST_NAME = re.compile(r"[A-Za-z_][\w.]{4,}")
+#: The first thing a chunk names, for telling one CHILD's traffic from another's — and
+#: the words that are not a name, because every chunk begins with some of them.
+_FIRST_NAME = re.compile(r"[A-Za-z_][\w.]{3,}")
+_NOT_A_NAME = frozenset({
+    "local", "function", "return", "pcall", "tostring", "tonumber", "then", "else",
+    "elseif", "false", "true", "while", "repeat", "until", "break", "ipairs", "pairs",
+    "table", "string", "math", "type", "select", "error", "assert", "unpack", "next",
+})
 
 
 def _child_of(chunk: str) -> str:
@@ -103,8 +109,12 @@ def _child_of(chunk: str) -> str:
     person can act on. Cut short deliberately: a whole chunk carries uuids and names, and
     this is a histogram key, not a record of what was asked.
     """
-    found = _FIRST_NAME.search(chunk or "")
-    return "child:" + (found.group(0)[:32] if found else "?")
+    for found in _FIRST_NAME.finditer(chunk or ""):
+        word = found.group(0)
+        if word.lower() in _NOT_A_NAME:
+            continue
+        return "child:" + word[:32]
+    return "child:?"
 
 
 #: How often the three-way split of a chunk's cost is written to `debug.log` (#2404).
