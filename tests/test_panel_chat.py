@@ -945,6 +945,32 @@ def test_the_quote_names_the_row_it_points_at():
 
 
 
+def test_a_message_already_filed_can_still_learn_its_quote():
+    """A reply on disk from before the recorder carried quotes (#2418).
+
+    The identity index makes a re-read idempotent, which is what keeps the store honest
+    — and it also means the older, poorer copy wins. The one field that can only be
+    GAINED is written over it; nothing else is touched, or a re-read would be a way of
+    forgetting things.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        store = _store(tmp)
+        plain = _rec(1, "custom_group_00ff")
+        store.append(plain)
+        rich = dict(plain, reply={"seq_id": "4057", "uid": "1000000000000001",
+                                  "name": "Player1", "text": "test"})
+        store.append(rich)
+        rows = store.recent(plain["chat_type"], 10)
+        assert len(rows) == 1, "the re-read duplicated the message"
+        assert rows[0].get("reply", {}).get("seq_id") == "4057", rows[0]
+        # …and a re-read that knows LESS does not take the quote away again.
+        store.append(plain)
+        rows = store.recent(plain["chat_type"], 10)
+        assert rows[0].get("reply", {}).get("seq_id") == "4057", rows[0]
+        store.close()
+
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

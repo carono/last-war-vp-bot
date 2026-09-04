@@ -170,6 +170,21 @@ class ChatHistoryStore:
         added = int(cur.rowcount or 0)
         if added and self._total is not None:
             self._total += added
+        if not added and record.get("reply"):
+            # A MESSAGE ALREADY FILED MAY HAVE LEARNT SOMETHING (#2418). The recorder
+            # did not carry the quote a reply holds until now, so every reply already on
+            # disk is a row that knows less than the client does. A re-read brings the
+            # same message back under the same identity — `INSERT OR IGNORE` keeps the
+            # older, poorer copy — so the ONE field that can only be gained is written
+            # over it. Never the whole row: an update that could lose a field would make
+            # a re-read a way of forgetting things.
+            self._conn.execute(
+                "UPDATE messages SET raw_json=? WHERE room=? AND uid=? AND ts=? AND text=? "
+                "AND (raw_json IS NULL OR raw_json NOT LIKE '%\"reply\": {%')",
+                (json.dumps(record, ensure_ascii=False),
+                 room, str(record.get("sender_uid") or ""),
+                 float(record.get("ts") or 0.0), str(record.get("msg") or "")),
+            )
         return added
 
     def append(self, record: dict) -> None:
