@@ -2845,6 +2845,12 @@ def test_the_sprites_are_behind_two_buttons_in_the_one_modal():
     assert "setText(text + ('token' in one ? one.token : ''))" in chat, \
         "an emoji no longer goes into the message"
     assert "void sendSticker(one.id)" in chat, "a sticker is no longer sent on the tap"
+    # THE LEAK (#2418): the picker must not carry a channel of its own — a private
+    # message once went to the WORLD chat because it did.
+    assert "picker_type" not in chat, "the picker names a channel again"
+    assert "const args: Record<string, unknown> = { type, room, text: typed }" in chat, \
+        "a send no longer names its room"
+    assert "args: { type, room, id }" in chat, "a sticker no longer names its room"
     # THE ONE MODAL, never a second component (CLAUDE.md).
     assert chat.count("<Modal") == 2 and "from '../ui/Modal'" in chat, \
         "the picker did not reuse the panel's one modal"

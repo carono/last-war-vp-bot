@@ -229,6 +229,18 @@ export function ChatView({
     void draw()
   }, [draw])
 
+  /* WHAT IS OPEN WHEN NOTHING HAS BEEN CHOSEN YET (#2418). The first row of the
+     client's own list — never «the world», which is what a default cost last time. The
+     bar over the conversation says which room it is, and the send names it outright. */
+  useEffect(() => {
+    if (room || !rooms.length) return
+    const first = rooms.find((r) => r.room)
+    if (first) {
+      setType(first.type)
+      setRoom(first.room)
+    }
+  }, [rooms, room])
+
   /* THE CONTACT LIST IS ITS OWN READING, and it is asked for only while «ЛС» is open
      with no thread chosen — a channel has no contacts and must not fetch a list. */
   useEffect(() => {
@@ -405,8 +417,10 @@ export function ChatView({
     if (!typed || busy) return
     setBusy(true)
     try {
-      const args: Record<string, unknown> = { type, text: typed }
-      if (room) args.room = room
+      /* THE ROOM ALWAYS TRAVELS (#2418). A private message once went to the WORLD
+         chat because the press carried a channel rather than the conversation; the
+         panel refuses a send with no room now, and this is the side that names it. */
+      const args: Record<string, unknown> = { type, room, text: typed }
       const answer = await post<PressAnswer>('/api/screen/press', {
         id: screen,
         action,
@@ -471,7 +485,7 @@ export function ChatView({
       const answer = await post<PressAnswer>('/api/screen/press', {
         id: screen,
         action: 'sticker',
-        args: { type, room: room || undefined, id },
+        args: { type, room, id },
       })
       toast(pressWord(answer))
       if (answer && answer.ok) window.setTimeout(() => void draw(), 900)

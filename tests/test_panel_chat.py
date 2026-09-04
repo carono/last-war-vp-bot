@@ -526,83 +526,87 @@ def test_coords_button_shares_what_is_written_in_the_box():
     assert P._chat_msg_var.get() == "всем привет", P._chat_msg_var.get()
 
 
-def test_the_phone_gets_the_picker_and_its_sprites_come_off_the_panels_own_port():
-    """The emoji grid and the sticker grid on a phone (#1976).
+def test_the_picker_names_no_room_at_all():
+    """THE LEAK, AND WHY IT CANNOT COME BACK (#2418).
 
-    They were the one part of this tab that had not travelled, and the reason was a
-    question rather than a decision: the sprites are the game's own art extracted onto
-    THIS machine, so a phone means serving those images over the remote-control port. The
-    person answered it — serve them — and what this pins is the shape that answer takes:
+    The person: «до этих доработок отправил эмодзи в личку, а оно опубликовалось в
+    мировом чате». The picker was two grids on the screen and every sprite's press
+    carried a channel of the PICKER's own, which defaulted to the WORLD — so an emoji
+    tapped while a private conversation was open was posted where everybody read it.
 
-      * every item carries a LINK to `/api/chatsprite`, never bytes: `web_view` runs on
-        the Tk thread, and a card with a hundred base64 images is a hundred file reads in
-        front of the event loop;
-      * a tap on an emoji opens the send box with its `{e:<id>}` token already in it —
-        the window inserts the same token at the caret — and a sticker is sent as its own
-        message, because the game allows no text beside one;
-      * WHICH ROOM is a field on the card. Outgoing chat cannot be unsent.
+    The picker hands back pictures and nothing else now. The room is decided where the
+    send is made and nowhere else, and there is no default anywhere near it.
     """
     try:
         from panel.tabs import chat as pm
     except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
-        print(f"  SKIP test_the_phone_gets_the_picker: {exc}")
+        print(f"  SKIP test_the_picker_names_no_room_at_all: {exc}")
         return
 
     P = types.SimpleNamespace()
-    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("en")
-    P.t = i18n.t
-    P._picker_type = "alliance"
-    P._chat_room = lambda kind: {"world": "w1", "alliance": "a1"}.get(kind, "")
-    for name in ("_web_picker_cards", "_web_picker_type"):
-        setattr(P, name, getattr(pm.ChatTab, name).__get__(P))
-    P.WEB_PICKER_DEFAULT = pm.ChatTab.WEB_PICKER_DEFAULT
-
-    cards = P._web_picker_cards()
-    assert [c["title"] for c in cards] == ["chat.picker.emoji", "chat.picker.sticker"]
-    field = cards[0]["fields"][0]
-    assert field["key"] == "picker_type" and field["kind"] == "choice"
-    assert field["value"] == "alliance", field
-    assert {o["value"] for o in field["options"]} == {"world", "alliance"}, field
-
-    for card in cards:
-        for item in card["items"]:
-            assert item["icon"].startswith("/api/chatsprite?sprite="), item
-            press = item["actions"][0]
-            assert press["args"]["type"] == "alliance", press
-    if cards[0]["items"]:
-        first = cards[0]["items"][0]["actions"][0]
-        assert first["id"] == "send", first
-        assert first["value"].startswith("{e:") and first["value"].endswith("}"), first
-        assert first["prompt"] == "chat.send.prompt", first
-    if cards[1]["items"]:
-        assert cards[1]["items"][0]["actions"][0]["id"] == "sticker"
+    P._web_picker = pm.ChatTab._web_picker.__get__(P)
+    got = P._web_picker()
+    assert set(got) == {"emoji", "stickers"}, got
+    blob = json.dumps(got)
+    assert "room" not in blob and "type" not in blob, "the picker still names a channel"
+    assert "country_" not in blob and "world" not in blob, blob[:200]
+    for one in got["emoji"][:5]:
+        assert one["icon"].startswith("/api/chatsprite?sprite="), one
+        assert one["token"].startswith("{e:") and one["token"].endswith("}"), one
+    for one in got["stickers"][:5]:
+        assert one["icon"].startswith("/api/chatsprite?sprite="), one
+    # …and the tab keeps no channel of its own for a picker to fall back on.
+    assert not hasattr(pm.ChatTab, "WEB_PICKER_DEFAULT"), \
+        "the picker has a default channel again"
+    assert not hasattr(pm.ChatTab, "_web_picker_type")
 
 
-def test_a_sticker_from_the_phone_is_its_own_message_and_names_its_room():
-    """…and the room is the one the picker was set to, never «wherever the window is»."""
+def test_no_send_can_fall_into_the_world():
+    """Every send names its room outright, or nothing leaves (#2418).
+
+    Four paths — text, an emoji (which is text), a sticker and a coordinate — and each
+    of them is refused unless the room is said and agrees with the kind. A DM room
+    arriving with `world` on it is the exact shape the leak had, so it is refused rather
+    than reconciled: one of the two is wrong and there is no telling which.
+    """
     try:
         from panel.tabs import chat as pm
     except Exception as exc:      # noqa: BLE001
-        print(f"  SKIP test_a_sticker_from_the_phone: {exc}")
+        print(f"  SKIP test_no_send_can_fall_into_the_world: {exc}")
         return
 
+    # Invented ids throughout — the shape is what is being pinned.
+    dm = "custom_1000000000000001_1000000000000002_v2"
+    world = "country_1000_11"
     P = types.SimpleNamespace()
     sent = []
     P._chat_send = lambda args, what, room="": sent.append((args, what, room)) or True
-    P._chat_room = lambda kind: {"world": "w1", "alliance": "a1"}.get(kind, "")
-    P._known_rooms = lambda kind: {"w1", "a1"}
+    P._chat_room = lambda kind: {"world": world}.get(kind, "")
+    P._known_rooms = lambda kind: {world, dm}
+    P._rooms = {world: {}, dm: {}}
     P.web_press = pm.ChatTab.web_press.__get__(P)
 
-    assert P.web_press("sticker", {"type": "alliance", "id": "35"}) == {"ok": True}
-    assert sent == [({"sticker": "35"}, "sticker 35", "a1")], sent
+    # A private message goes to the private room, and only there.
+    assert P.web_press("send", {"type": "dm", "room": dm, "text": "hi"}) == {"ok": True}
+    assert sent[-1][2] == dm, sent[-1]
+    assert P.web_press("sticker", {"type": "dm", "room": dm, "id": "35"}) == {"ok": True}
+    assert sent[-1][2] == dm, sent[-1]
+    assert P.web_press("coords", {"type": "dm", "room": dm,
+                                  "text": "@[600,400|100]"}) == {"ok": True}
+    assert sent[-1][2] == dm, sent[-1]
 
-    # A press with no sticker named is not a press…
-    assert P.web_press("sticker", {"type": "alliance"}) == {"error": "unknown"}
-    # …and the picker's own choice is checked against the rooms this tab has seen.
-    assert P.web_press("set", {"key": "picker_type", "value": "dm"})["ok"] is False
-    assert P.web_press("set", {"key": "picker_type", "value": "world"}) == {"ok": True}
-    assert P._picker_type == "world"
-    assert P.web_press("set", {"key": "elsewhere", "value": 1}) == {"error": "unknown"}
+    # NO ROOM, NO SEND — on every path, and never a fall into the world.
+    for action, args in (("send", {"text": "hi"}), ("sticker", {"id": "35"}),
+                         ("coords", {"text": "@[600,400|100]"})):
+        answer = P.web_press(action, dict(args, type="world"))
+        assert answer == {"ok": False, "reason": "chat.no_room"}, (action, answer)
+    # …and a room that disagrees with the kind it was sent under is refused too.
+    answer = P.web_press("send", {"type": "world", "room": dm, "text": "hi"})
+    assert answer == {"ok": False, "reason": "chat.no_room"}, answer
+    answer = P.web_press("send", {"type": "dm", "room": world, "text": "hi"})
+    assert answer == {"ok": False, "reason": "chat.no_room"}, answer
+    # Nothing above sent anything beyond the three private ones.
+    assert [row[2] for row in sent] == [dm, dm, dm], sent
 
 
 def test_the_sprite_route_serves_only_the_extracted_art():

@@ -379,98 +379,38 @@ class ChatTab(PanelTab):
             return None
         return max(0.0, now - newest)
 
-    #: Which channel the phone's picker sends into. Not a per-profile setting — it is
-    #: «which card am I answering» and it is answered again every time the screen is
-    #: opened, so it lives here and defaults to the room the window is answering in.
-    WEB_PICKER_DEFAULT = "world"
-
-    def _web_picker_type(self) -> str:
-        chosen = str(getattr(self, "_picker_type", "") or "")
-        rooms = [t for t in CHAT_TABS if t != "dm" and self._chat_room(t)]
-        if chosen in rooms:
-            return chosen
-        return rooms[0] if rooms else self.WEB_PICKER_DEFAULT
-
     def _web_picker(self) -> dict:
-        """The sprites for the modal: the emoji to insert, the stickers to send.
+        """The sprites for the modal: the emoji to write with, the stickers to send.
 
-        The same catalogue the grids drew, without the grids: a phone asks for it when
-        somebody opens the picker, so a chat nobody is decorating costs nothing.
-        """
-        cards = self._web_picker_cards()
-        out = {"emoji": [], "stickers": []}
-        for card in cards:
-            items = card.get("items") or []
-            if card.get("title") == "chat.picker.emoji":
-                out["emoji"] = [{"id": str(i.get("text") or ""), "icon": i.get("icon"),
-                                 "token": "{e:%s}" % i.get("text")} for i in items]
-            else:
-                out["stickers"] = [{"id": str((i.get("actions") or [{}])[0]
-                                              .get("args", {}).get("id") or ""),
-                                    "name": str(i.get("text") or ""),
-                                    "icon": i.get("icon")} for i in items]
-        return out
+        IT NAMES NO ROOM, AND THAT IS THE POINT (#2418). It used to be two grids on the
+        screen whose taps carried a channel of the PICKER's own — defaulting to the
+        world — so an emoji tapped while a private conversation was open was posted to
+        the world chat, where everybody read it. The picker hands back pictures and
+        nothing else now: the room is the one the conversation is in, decided where the
+        send is made and nowhere else.
 
-    def _web_picker_cards(self) -> list:
-        """The emoji grid and the sticker grid, as the phone draws them (#1976).
-
-        THE SPRITES TRAVEL NOW, and it was a question rather than a decision until the
-        person answered it: they are the game's own art extracted onto THIS machine
-        (`tools/chat_assets.py`), so putting them on a phone means serving those images
-        over the remote-control port. That is `/api/chatsprite`, behind the same token as
-        everything else — and the pictures are the same for every profile, which is why
-        the route takes none.
-
-        WHAT A TAP DOES is exactly what it does in the window, in the shape a phone has:
-        an emoji opens the send box with its `{e:<id>}` token already in it, so words may
-        be typed around it — the window inserts the same token at the caret — and a
-        sticker is sent as its own message, because the game does not allow a sticker
-        beside text. Neither invents a press: both go through the sends this tab already
-        has.
-
-        WHICH ROOM is a field on the card rather than «wherever the window is looking»:
-        outgoing chat cannot be unsent, and a phone that had no way of saying where a
-        sticker was going would be the fastest way to post one in the wrong channel.
+        Asked for when somebody opens the picker, so a chat nobody is decorating costs
+        nothing.
         """
         import chat_assets
 
-        rooms = [t for t in CHAT_TABS if t != "dm" and self._chat_room(t)]
-        if not rooms:
-            return []                     # nowhere to answer, so nothing to answer with
-        picked = self._web_picker_type()
-        field = {"key": "picker_type", "label": "chat.picker.room", "kind": "choice",
-                 "value": picked,
-                 "options": [{"value": t, "text": self.t(f"chat.tab.{t}")}
-                             for t in rooms]}
-        emoji, stickers = [], []
         try:
             catalogue = chat_assets.emoji_catalogue()
             grid = chat_assets.sticker_catalogue()
-        except Exception:                 # noqa: BLE001 — nothing extracted is an empty card
+        except Exception:                 # noqa: BLE001 — nothing extracted is an empty picker
             catalogue, grid = [], []
+        emoji, stickers = [], []
         for item in catalogue:
             link = chat_assets.sprite_link(item.get("path"))
-            if not link:
-                continue
-            emoji.append({"text": str(item.get("id") or ""), "icon": link,
-                          "actions": [{"id": "send", "label": "chat.send",
-                                       "prompt": "chat.send.prompt",
-                                       "value": "{e:%s}" % item.get("id"),
-                                       "args": {"type": picked}}]})
+            if link:
+                emoji.append({"id": str(item.get("id") or ""), "icon": link,
+                              "token": "{e:%s}" % item.get("id")})
         for item in grid:
             link = chat_assets.sprite_link(item.get("path"))
-            if not link:
-                continue
-            stickers.append({"text": str(item.get("name") or item.get("id") or ""),
-                             "icon": link,
-                             "actions": [{"id": "sticker",
-                                          "label": "chat.picker.send_sticker",
-                                          "args": {"type": picked,
-                                                   "id": str(item.get("id") or "")}}]})
-        return [{"title": "chat.picker.emoji", "fields": [field], "items": emoji,
-                 "empty": "chat.picker.empty"},
-                {"title": "chat.picker.sticker", "items": stickers,
-                 "empty": "chat.picker.empty"}]
+            if link:
+                stickers.append({"id": str(item.get("id") or ""),
+                                 "name": str(item.get("name") or ""), "icon": link})
+        return {"emoji": emoji, "stickers": stickers}
 
     def web_press(self, action: str, args: dict) -> dict:
         """Answer into one card's room — the window's sends, and nothing else.
@@ -501,16 +441,6 @@ class ChatTab(PanelTab):
             # client is holding, and the words they are looking for are on the server.
             return self._ask_server_for_older(str(args.get("room") or "").strip(),
                                               str(args.get("type") or ""))
-        if action == "set":
-            # The picker's own «в какой канал» — remembered for as long as the screen is
-            # being looked at, and checked against the rooms this tab has actually seen.
-            if str(args.get("key") or "") != "picker_type":
-                return {"error": "unknown"}
-            wanted = str(args.get("value") or "")
-            if wanted not in CHAT_TABS or wanted == "dm" or not self._chat_room(wanted):
-                return {"ok": False, "reason": "chat.no_room"}
-            self._picker_type = wanted
-            return {"ok": True}
         chat_type = str(args.get("type") or "")
         if action == "rooms":
             # ASKED FOR, NEVER TIMED. The client's own list, re-read because somebody
@@ -519,13 +449,21 @@ class ChatTab(PanelTab):
             return {"ok": self._read_rooms(force=True)}
         if action not in ("send", "coords", "sticker") or chat_type not in CHAT_TABS:
             return {"error": "unknown"}
-        # A DM answers the room the ROW named; a channel is its own room. Never
-        # «whatever thread the window has open» — outgoing chat cannot be unsent.
+        # THE ROOM IS SAID OUTRIGHT OR NOTHING IS SENT (#2418). A private message went
+        # to the WORLD chat once — an emoji tapped in the old picker carried the
+        # picker's own channel, which defaulted to the world — and everybody read it.
+        # There is no falling back to «the last room of that kind» any more, and least
+        # of all to the world: the most expensive mistake this panel can make must never
+        # be anybody's default. A press that cannot name its room is refused and says so.
         room = str(args.get("room") or "").strip()
-        if room and room not in self._known_rooms(chat_type) and room not in self._rooms:
-            return {"error": "unknown"}
-        room = room or ("" if chat_type == "dm" else self._chat_room(chat_type))
         if not room:
+            return {"ok": False, "reason": "chat.no_room"}
+        if room not in self._known_rooms(chat_type) and room not in self._rooms:
+            return {"error": "unknown"}
+        # …AND THE ROOM AND THE KIND MUST AGREE. A DM room reaching this with `world` on
+        # it is the shape the leak had, so it is refused rather than reconciled: one of
+        # the two is wrong and there is no way to tell which.
+        if chathistmod.classify_room(room) != chat_type:
             return {"ok": False, "reason": "chat.no_room"}
         if action == "sticker":
             # A STICKER IS ITS OWN MESSAGE — the game allows no text beside it, which is
@@ -1275,6 +1213,7 @@ class ChatTab(PanelTab):
         """
         room = room or self._chat_room(self._active_chat_type())
         if not room:
+            # A send with nowhere to go is REFUSED, never redirected (#2418).
             self.say("chat", "chat.no_room")
             return False
         self.say("chat", "chat.sending", room=room, what=what)
