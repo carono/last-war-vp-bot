@@ -1198,10 +1198,16 @@ So the two levers left are, in order of what they are worth:
 1. **Fewer questions from the neighbours.** `default/poll` alone held the client for 204 s
    of the window — a fifth of it — and that is the rule this repository already has
    («Read once, then LISTEN»). Every poll retired is a fifth of a kill given back.
-2. **Fewer statements per lap.** 84 statements a kill is 84 chances to be parked. Folding
-   the reads that always travel together into one call — the way `golden_land_or_reaim`
-   folded «has it landed» and «re-aim it» into one round trip (§4j) — cuts the exposure
-   without touching anybody else's priority.
+2. **Fewer statements per lap** — and this one is worth far less than it looks, which is
+   why it is second. 84 statements a kill is 84 chances to be parked, but a park is the
+   neighbour doing REAL work: the 620 s is time the client owes to a rally join and a
+   timer whether or not this chain exists, and folding statements does not give any of it
+   back. It moves the interruption to a coarser grain and reclaims only the chain's OWN
+   overhead — the 736 s of interrupted gaps minus the neighbours' 620 s, so about 116 s of
+   the window, plus whatever a fold saves out of the 259 s of clean gaps. Folding the reads
+   that always travel together into one call — the way `golden_land_or_reaim` folded «has
+   it landed» and «re-aim it» into one round trip (§4j) — is worth doing on that budget and
+   not on a promise of the 61 %.
 
 ### The re-aim window itself is caught
 

@@ -487,3 +487,19 @@ refill is noticed: a tick inside a worked window is two local reads and a `STOP`
 * `panel/timers.py` — the schedulable row, and where `claim` / `keep_free` are set.
 * `panel/tabs/checklist/model.py` — the row on «Чеклист» (in the group that is still off,
   #1275).
+
+## The daily plan is settled: hoard, but never into the ceiling (#2390)
+
+The one part of the radar that was implemented but never agreed — what a NON-duel day does
+— was put to the operator on 2026-09-04 as three choices: claim everything as it ripens,
+hold everything for the duel day, or hold but keep a few places open. **They chose the
+third, with three places**, which is exactly what `actions/radar_full_cycle.md` already
+ships: `duel_days` discharges the hoard, any other day does the work, holds the reward and
+opens at most `keep_free = 3` places — and only while the day's allowance still has
+something to put in them.
+
+So nothing changed in the code; what changed is that the default is now a decision rather
+than a guess, and the next agent reading «алгоритм не согласован» in a task can stop
+looking for one. What is still the player's own fact and not the game's is WHICH weekdays
+score (`duel_days`, defaulting to one player's week) — the client does not expose it
+(«Negative finding» above).
