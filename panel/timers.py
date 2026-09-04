@@ -231,7 +231,14 @@ class Timer:
     # How long to wait before retrying after a FAILED run (a raised step or a FAIL in
     # the scenario). A success uses interval_sec; only a failure uses this.
     retry_sec: int = int(RETRY_HOLD_SEC)
-    enabled: bool = False
+    # ON, UNLESS THE ROW SAYS OTHERWISE (#2390). The person's decision, in their words:
+    # «Все новые механики по умолчанию включай и по дефолту включенные». A new ability
+    # that ships switched off is an ability nobody uses: the panel that has it does
+    # nothing with it until somebody happens to open the page and tick the box, and the
+    # agent who wrote it is the only person who knows it is there. The rows below that
+    # were written under the old rule keep their explicit `enabled=False`; anything
+    # ADDED from now on inherits this and arrives working.
+    enabled: bool = True
     # «СРАЗУ, БЕЗ ОЧЕРЕДИ» (#1288). An errand the operator has marked this way does not
     # wait behind the ordinary work: it runs on a thread of its own, and it asks for the
     # client at a level that makes an ordinary errand step aside for it
@@ -313,6 +320,11 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # An hour. The production buildings keep banking while nobody collects,
         # so the period is about not letting them sit full, not about a cap.
         interval_sec=3600,
+        # Written before the switch-on-by-default rule and left exactly as it was
+        # (#2390): the rule is about mechanics added FROM NOW ON, and a row that
+        # quietly turned itself on for every existing profile would be the panel
+        # changing an account's behaviour without anybody asking for it.
+        enabled=False,
         label_key="timers.item.collect_base_resources",
     ),
     Timer(
@@ -1408,7 +1420,7 @@ def parse_catalogue(data, path: str | None = None,
             retry_sec=_as_interval(
                 raw.get("retry_sec"),
                 base.retry_sec if base else int(RETRY_HOLD_SEC)),
-            enabled=bool(raw.get("enabled", base.enabled if base else False)),
+            enabled=bool(raw.get("enabled", base.enabled if base else True)),   # on by default (#2390)
             immediate=bool(raw.get("immediate",
                                    base.immediate if base else False)),
             resume=bool(raw.get("resume", base.resume if base else False)),

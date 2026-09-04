@@ -82,6 +82,16 @@ All of these are class attributes with defaults, so declare only what is true.
 | `LAZY` | Is `build()` allowed to wait until somebody looks at the tab? **True by default**; see the section below for what it asks of you. | Never, unless your tab must exist before it is looked at — and then say why beside it. |
 | `WEB_SCREEN` | Does this tab hand the phone a screen (`web_view` / `web_press`)? | Always, and `True`: since #1976 there is no tab that must not (below). |
 
+**A NEW ERRAND AND A NEW TRIGGER SHIP SWITCHED ON** (#2390). The person's decision, in
+their words: «Все новые механики по умолчанию включай и по дефолту включенные». So
+`Timer.enabled` and `Trigger.enabled` default to `True`, and a row that says nothing about
+its switch — in the built-in table or in a profile's own `timers.json` — arrives working.
+The old rule was the opposite and the rows written under it keep their explicit
+`enabled=False`: the change is about what is ADDED from now on, never about turning an
+existing account's errands on behind its back. Something that spends an irreversible
+resource — diamonds, a daily quota that cannot be earned back — is the one thing that is
+still shipped off and named to the person instead.
+
 `DEFAULT_ENABLED` is what a profile that has NEVER opened «Настройки → Вкладки»
 behaves by — the code's own constant. A profile that HAS opened that page keeps
 its own tick list from then on (`tabs.enabled` in its `config.json`) — except that

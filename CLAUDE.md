@@ -452,6 +452,26 @@ Two things follow, and neither is optional:
 Whatever grows a state next is drawn the same way: what the account DOES, in the words a
 person uses about it, and never the panel's own bookkeeping.
 
+## A new ability ships SWITCHED ON
+
+**Binding, and it is the person's decision**, in their words: «Все новые механики по
+умолчанию включай и по дефолту включенные» (#2390). An ability that ships switched off is
+an ability nobody uses — the panel that has it does nothing until somebody happens to open
+the page and tick the box, and the agent who wrote it is the only person who knows it is
+there.
+
+So a new errand or trigger is added with no `enabled=` at all and inherits `True`
+(`panel/timers.py`, `panel/triggers.py`), and a new tab is `DEFAULT_ENABLED = True` unless
+it is for working on the bot itself. **This is about what is ADDED — the rows written under
+the old opt-in rule keep their explicit `enabled=False`**, because turning an existing
+account's errands on behind its back is the panel changing behaviour nobody asked it to
+change.
+
+**The one exception is an irreversible spend.** Anything that can spend diamonds, a
+purchase, or a daily quota that cannot be earned back is shipped OFF and named to the
+person, who switches it on themselves. The energy refill is the worked example: the person
+has already allowed it, and it still gates on a price it can read (#2390).
+
 ## A control that exists twice is written once
 
 **Binding, and it is how the panel stops growing a second version of every widget.** When

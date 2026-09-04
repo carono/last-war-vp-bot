@@ -301,7 +301,14 @@ class Trigger:
     interval_sec: int = DEFAULT_POLL_INTERVAL_SEC   # poll: how often the check runs
     cooldown_sec: int = DEFAULT_POLL_COOLDOWN_SEC   # poll: quiet time after a fire
     backoff: BackoffPolicy | None = None            # adaptive pre-run delay (opt-in)
-    enabled: bool = False
+    # ON, UNLESS THE ROW SAYS OTHERWISE (#2390). The person's decision, in their words:
+    # «Все новые механики по умолчанию включай и по дефолту включенные». A new ability
+    # that ships switched off is an ability nobody uses: the panel that has it does
+    # nothing with it until somebody happens to open the page and tick the box, and the
+    # agent who wrote it is the only person who knows it is there. The rows below that
+    # were written under the old rule keep their explicit `enabled=False`; anything
+    # ADDED from now on inherits this and arrives working.
+    enabled: bool = True
     # «СРАЗУ, БЕЗ ОЧЕРЕДИ» — the same flag a timer carries, and it means the same thing
     # here (`panel/timers.py::Timer.immediate`, #1288): the fire does not queue behind
     # the ordinary work, it runs on a thread of its own, and it asks for the client at
@@ -1032,7 +1039,7 @@ def parse_catalogue(data, path: str | None = None,
             backoff=BackoffPolicy.from_raw(
                 raw.get("backoff"), base.backoff if base else None)
             if "backoff" in raw else (base.backoff if base else None),
-            enabled=bool(raw.get("enabled", base.enabled if base else False)),
+            enabled=bool(raw.get("enabled", base.enabled if base else True)),   # on by default (#2390)
             immediate=bool(raw.get("immediate",
                                    base.immediate if base else False)),
             args=dict(args) if isinstance(args, dict) else {},

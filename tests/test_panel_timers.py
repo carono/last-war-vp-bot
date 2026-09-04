@@ -197,7 +197,9 @@ def test_each_profile_keeps_its_own_timers():
     """Two profiles, two schedules — seeded from the same template, then apart."""
     template = Path(tempfile.mkdtemp()) / "timers.json"
     template.write_text(json.dumps([
-        {"name": BASE, "interval_sec": 1800},
+        # …switched off deliberately: since #2390 a row that says nothing about its
+        # switch is ON, and this one is here to be ticked ON by the test below.
+        {"name": BASE, "interval_sec": 1800, "enabled": False},
         {"name": "shared_extra", "scenario": 'LOG "hi"', "interval_sec": 600},
     ]), encoding="utf-8")
     seed = timersmod.load_catalogue(str(template))
@@ -1315,6 +1317,10 @@ def test_timers_tab_builds_from_the_config_and_binds():
         tab._fill_timer_grid()
 
         assert set(tab._timer_rows) == {BASE, "inline_one"}, tab._timer_rows
+        # THE NEW DEFAULT (#2390): a row in a profile's file that says nothing about
+        # its switch arrives ON — «все новые механики по умолчанию включённые».
+        assert tab._timer_config()["inline_one"]["enabled"] is True, \
+            "a row with no switch of its own came up off"
         assert tab._timer_config()[BASE] == {"enabled": False, "interval_sec": 1800,
                                             "immediate": False}
 
@@ -1335,7 +1341,9 @@ def test_timers_tab_builds_from_the_config_and_binds():
         tab._refresh_timer_rows()
         row = tab._timer_rows[BASE]
         assert row["next"].cget("text") == tab.t("timers.due_now")
-        assert tab._timer_rows["inline_one"]["next"].cget("text") == tab.t("timers.off")
+        # …and «inline_one» is ON now (the new default), so its cell says when it is
+        # due rather than «выключен» — it has never run, which is «сейчас».
+        assert tab._timer_rows["inline_one"]["next"].cget("text") == tab.t("timers.due_now")
         # Nothing has been tried yet, and the status column says so rather than
         # looking like a success.
         assert row["outcome"].cget("text") == tab.t("timers.outcome.never")
