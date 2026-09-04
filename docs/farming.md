@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **37%** — 69 of 186
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 70 of 186
 
-🟩 69 done · 🟨 85 partly · 🟥 32 not automated
+🟩 70 done · 🟨 85 partly · 🟥 31 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -270,7 +270,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Promotions
 
 - ❌ "Battle of Arsenals" rewards
-- ❌ Battle Pass rewards and its daily missions
+- ✅ Battle Pass rewards — the levels an event pass has earned are claimed together with everything else the shop gives for nothing (see «Store»): the free track always, the premium one once it is already unlocked, and the extra box behind the last level when the pass has reached it. Its daily missions need no press at all — the game pays their experience itself and there is no claim for them to have — and buying levels is a purchase, so it is never made. Proven live on two running passes: one at level 40 with two rewards owed came back at 41 with none owed, the other went from level 14 to 16
 
 ### Arena
 
