@@ -2752,5 +2752,15 @@
   "farming.state.done": "fonctionne",
   "farming.state.partial": "en partie",
   "farming.state.todo": "à la main",
-  "farming.of": "{done} sur {total}"
+  "farming.of": "{done} sur {total}",
+  "order.reward_popups": "Fenêtres de récompense : fermer toutes seules les fenêtres « voici ce qu'on vous a donné » et noter ce qu'il y avait dedans",
+  "order.reward_popups.short": "Fenêtres de récompense",
+  "order.reward_popups.hint": "L'écoute vit dans le client et chaque tâche qui rapporte quelque chose la remet en place. Désactivée, les fenêtres restent à l'écran du client et rien n'est noté.",
+  "order.reward_popups.state": "{closed} fermées · {unknown} hors liste",
+  "events.golden.limit": "Attaques par passage",
+  "events.golden.limit.hint": "S'arrêter après ce nombre d'attaques. 0 signifie « autant que l'énergie le permet », ce que la chasse a toujours fait.",
+  "events.golden.cluster": "Carré de regroupement, cases",
+  "events.golden.cluster.hint": "La file est découpée en carrés de ce côté, le plus rempli est traité d'abord et chaque cible est choisie dedans. 0 signifie « le zombie le plus proche, où qu'il soit ».",
+  "events.golden.stop": "Arrêter la chasse",
+  "events.golden.steps": "Zombies dorés : étape par étape"
 }

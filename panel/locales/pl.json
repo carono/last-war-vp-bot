@@ -2752,5 +2752,15 @@
   "farming.state.done": "działa",
   "farming.state.partial": "częściowo",
   "farming.state.todo": "ręcznie",
-  "farming.of": "{done} z {total}"
+  "farming.of": "{done} z {total}",
+  "order.reward_popups": "Okna nagród: samodzielnie zamykać okna «oto co ci dano» i zapisywać, co w nich było",
+  "order.reward_popups.short": "Okna nagród",
+  "order.reward_popups.hint": "Nasłuch mieszka w kliencie, a każde zadanie, które coś zarabia, wstawia go z powrotem. Wyłączony — okna zostają na ekranie klienta i nic nie jest zapisywane.",
+  "order.reward_popups.state": "zamkniętych {closed} · spoza listy {unknown}",
+  "events.golden.limit": "Ataków na przebieg",
+  "events.golden.limit.hint": "Zatrzymać się po tylu atakach. 0 oznacza «tyle, na ile pozwoli energia» — tak polowanie działało zawsze.",
+  "events.golden.cluster": "Kwadrat skupiska, pola",
+  "events.golden.cluster.hint": "Kolejka jest cięta na kwadraty o tym boku, najpierw brany jest najpełniejszy, a każdy cel wybierany jest w jego wnętrzu. 0 oznacza «najbliższy zombie gdziekolwiek».",
+  "events.golden.stop": "Zatrzymaj polowanie",
+  "events.golden.steps": "Złote zombie: krok po kroku"
 }

@@ -77,6 +77,12 @@ class RewardBook:
         #: The last rows booked, newest first — what a page draws without touching the
         #: database on every poll.
         self._recent: list = []
+        #: WHOEVER ELSE WANTS TO KNOW A DRAIN HAPPENED (#2408). One callback list, told
+        #: the rows that were just booked. The standing order uses it to put a switched
+        #: OFF wish back into a client that has restarted since it was made — the ear is
+        #: in the client, so a drain is the only proof there is that it is listening
+        #: again, and it is an EVENT rather than a clock (`CLAUDE.md`).
+        self._watchers: list = []
 
     # -- listening ----------------------------------------------------------
     def listen(self) -> None:
@@ -89,6 +95,10 @@ class RewardBook:
         off, self._off = self._off, None
         if off is not None:
             off()
+
+    def watch(self, on_rows) -> None:
+        """Be told the rows of every drain. Never raises out of the book."""
+        self._watchers.append(on_rows)
 
     def _heard(self, line: str) -> None:
         """One log line. Cheap and total: everything the panel says passes through here."""
@@ -117,6 +127,11 @@ class RewardBook:
                 self._pruned = True
                 store.rewards_prune(time.time() - KEEP_SEC)
         self._announce(rows)
+        for watcher in tuple(self._watchers):
+            try:
+                watcher(rows)
+            except Exception:             # noqa: BLE001 — a listener, never the book
+                pass
         return rows
 
     @staticmethod

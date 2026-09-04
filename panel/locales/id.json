@@ -2752,5 +2752,15 @@
   "farming.state.done": "berjalan",
   "farming.state.partial": "sebagian",
   "farming.state.todo": "manual",
-  "farming.of": "{done} dari {total}"
+  "farming.of": "{done} dari {total}",
+  "order.reward_popups": "Jendela hadiah: menutup sendiri jendela «ini yang diberikan kepada Anda» dan mencatat isinya",
+  "order.reward_popups.short": "Jendela hadiah",
+  "order.reward_popups.hint": "Pendengar tinggal di dalam klien dan setiap tugas yang menghasilkan sesuatu memasangnya kembali. Saat dimatikan, jendela tetap di layar klien dan tidak ada yang dicatat.",
+  "order.reward_popups.state": "{closed} ditutup · {unknown} tidak ada di daftar",
+  "events.golden.limit": "Serangan per putaran",
+  "events.golden.limit.hint": "Berhenti setelah sekian serangan. 0 berarti «sebanyak yang diizinkan energi», seperti yang selalu dilakukan perburuan ini.",
+  "events.golden.cluster": "Kotak kerumunan, petak",
+  "events.golden.cluster.hint": "Antrean dipotong menjadi kotak dengan sisi ini, yang terpenuh dikerjakan lebih dulu, dan setiap sasaran dipilih di dalamnya. 0 berarti «zombi terdekat di mana saja».",
+  "events.golden.stop": "Hentikan perburuan",
+  "events.golden.steps": "Zombi emas: langkah demi langkah"
 }

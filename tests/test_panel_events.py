@@ -438,6 +438,9 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN,
     tab._golden_button = None
     tab._golden_target = ""          # what «найти ближайшего» last chose (#1702)
     tab._golden_lap = 0              # the run's own seconds-per-zombie (#2390)
+    # …and the two knobs the hunt takes that only the phone draws (#2408).
+    tab._golden_limit = modelmod.GOLDEN_LIMIT_DEFAULT
+    tab._golden_cluster = modelmod.GOLDEN_CLUSTER_DEFAULT
     tab._golden_lap_last = 0
     tab._target_var = None           # the label that shows it beside the buttons
     tab._step_said = ""              # what the last step press answered (#1702)
@@ -675,20 +678,21 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     live = _tab(golden=GOLDEN_OPEN)
     # …and beside the chain, the chain taken apart: one press per step, so a person can
     # find a zombie, look at what was chosen, and only then send anything at it (#1702).
-    # …AND THE PRESSES ARE THE ITEM'S, NOT THE CARD'S (#2390): the golden card is one
-    # tile now, so its buttons sit on the tile beside the gear its knobs open — and
-    # «быстрый подход» has left the row of buttons entirely, because it never pressed
-    # anything at the game.
-    STEPS = ["find_golden", "attack_golden", "recall_golden", "state_golden",
-             "goto_golden", "forget_golden", "rescan_golden"]
-    assert [a["id"] for a in _golden_item(live)["actions"]] == ["hunt_golden"] + STEPS
+    # THE STEPS ARE A CARD OF THEIR OWN SINCE #2408, and #2390's arrangement — all of
+    # them on the tile — is what that replaced: the tile is a picture now, and seven long
+    # labels sharing its foot row with a gear are drawn one letter per line at 390 px.
+    # The tile keeps the press the card is ABOUT and nothing else.
+    STEPS = [action for action, _scenario, _key in live.STEPS]
+    assert [a["id"] for a in _golden_item(live)["actions"]] == ["hunt_golden"]
+    assert [a["id"] for a in _golden_steps(live)["actions"]] == STEPS
     assert live.web_press("hunt_golden", {}) == {"ok": True}
     assert live.rt.played == [modelmod.GOLDEN_ATTACK]
 
     # …and a reading nobody could take leaves it alive: «nobody knows» is not «you may
     # not», and the scenario holds its own gates.
     unknown = _tab(golden=None)
-    assert [a["id"] for a in _golden_item(unknown)["actions"]] == ["hunt_golden"] + STEPS
+    assert [a["id"] for a in _golden_item(unknown)["actions"]] == ["hunt_golden"]
+    assert [a["id"] for a in _golden_steps(unknown)["actions"]] == STEPS
 
 
 def test_every_step_of_the_hunt_is_a_scenario_the_phone_can_press():
@@ -851,7 +855,20 @@ def _golden_item(tab):
     card = next(c for c in tab.web_view()["cards"]
                 if c.get("title") == "events.group." + modelmod.GOLDEN)
     assert card.get("layout") == "cards", "the golden card went back to being rows"
+    assert card["items"][0].get("shape") == "cover", (
+        "the hunt is drawn as the card every errand is drawn as (#2408)")
     return card["items"][0]
+
+
+def _golden_steps(tab):
+    """The card the chain's own step presses live on (#2408).
+
+    Off the tile since the tile became a picture: seven long labels and a gear in one
+    foot row are drawn a letter per line on a phone. Same presses, same ids, one card
+    lower.
+    """
+    return next(c for c in tab.web_view()["cards"]
+                if c.get("title") == "events.golden.steps")
 
 
 def test_the_fast_approach_is_a_switch_on_both_front_ends():

@@ -276,6 +276,15 @@ export interface ViewItem {
   options?: Field[]
   /* What to call that sheet: a key, or the tile's own words when it has no key. */
   options_title?: string
+  /* WHICH DRAWING OF THE ONE CARD THIS ROW WANTS (#2408). `"cover"` is the errand
+     drawing «Таймеры» uses for every row it has: the picture behind the words, or the
+     one placeholder when this machine has no cover for it. Absent, and the row is drawn
+     as it has been — a picture beside the name, which is what a player's face is. It is
+     a WORD and not a flag on purpose: there are two drawings, and the day there is a
+     third it is named here rather than added as a second boolean. */
+  shape?: 'cover'
+  /* Where the card crops that picture — a CSS vertical position (#2340). */
+  focus?: string
 }
 
 /* ONE SQUAD ON THE PICKER (#2062) — the slot, whether it is on, and the faces standing

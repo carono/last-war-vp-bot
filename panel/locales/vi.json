@@ -2752,5 +2752,15 @@
   "farming.state.done": "chạy được",
   "farming.state.partial": "một phần",
   "farming.state.todo": "thủ công",
-  "farming.of": "{done} trên {total}"
+  "farming.of": "{done} trên {total}",
+  "order.reward_popups": "Cửa sổ phần thưởng: tự đóng các cửa sổ «đây là thứ bạn được tặng» và ghi lại những gì có trong đó",
+  "order.reward_popups.short": "Cửa sổ phần thưởng",
+  "order.reward_popups.hint": "Bộ lắng nghe nằm trong client và mọi việc vặt kiếm được thứ gì đó đều đặt nó trở lại. Khi tắt, các cửa sổ vẫn nằm trên màn hình client và không có gì được ghi lại.",
+  "order.reward_popups.state": "đã đóng {closed} · ngoài danh sách {unknown}",
+  "events.golden.limit": "Số đòn đánh mỗi lượt chạy",
+  "events.golden.limit.hint": "Dừng sau ngần này đòn đánh. 0 nghĩa là «bao nhiêu tuỳ năng lượng cho phép», đúng như cuộc săn vẫn luôn làm.",
+  "events.golden.cluster": "Ô vuông tụ tập, ô",
+  "events.golden.cluster.hint": "Hàng đợi được cắt thành các ô vuông có cạnh này, ô đầy nhất được làm trước, và mọi mục tiêu đều chọn bên trong nó. 0 nghĩa là «con zombie gần nhất ở bất cứ đâu».",
+  "events.golden.stop": "Dừng cuộc săn",
+  "events.golden.steps": "Zombie vàng: từng bước"
 }

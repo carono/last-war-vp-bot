@@ -118,6 +118,10 @@ DEFAULTS: dict = {
     "launcher": game_paths.launcher(),
     "game_exe": game_paths.game_exe(),
     "watchdog": False,
+    # THE REWARD-POPUP EAR (#2408) — the standing order on «Триггеры». On by
+    # default because that is what every profile has been doing since #2027; the
+    # switch exists so it can be seen and stopped, not to change what it does.
+    "reward_popups": True,
     # WHETHER THIS PROFILE WORKS AT ALL — the one checkbox on «Главная» (#1882,
     # panel/runtime/power.py). Off means off: the client is closed, the daemon is
     # stopped, and no timer, trigger, watchdog or recovery may put any of it back. It is

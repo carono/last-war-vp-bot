@@ -2752,5 +2752,15 @@
   "farming.state.done": "funciona",
   "farming.state.partial": "em parte",
   "farming.state.todo": "à mão",
-  "farming.of": "{done} de {total}"
+  "farming.of": "{done} de {total}",
+  "order.reward_popups": "Janelas de recompensa: fechar sozinhas as janelas «foi isto que lhe deram» e anotar o que havia nelas",
+  "order.reward_popups.short": "Janelas de recompensa",
+  "order.reward_popups.hint": "A escuta vive dentro do cliente e cada tarefa que ganha algo volta a colocá-la. Desligada, as janelas ficam no ecrã do cliente e nada é anotado.",
+  "order.reward_popups.state": "{closed} fechadas · {unknown} fora da lista",
+  "events.golden.limit": "Ataques por passagem",
+  "events.golden.limit.hint": "Parar após este número de ataques. 0 significa «tantos quantos a energia permitir», que é o que a caça sempre fez.",
+  "events.golden.cluster": "Quadrado de agrupamento, casas",
+  "events.golden.cluster.hint": "A fila é cortada em quadrados deste lado, o mais cheio é trabalhado primeiro e cada alvo é escolhido dentro dele. 0 significa «o zombie mais próximo em qualquer lugar».",
+  "events.golden.stop": "Parar a caça",
+  "events.golden.steps": "Zombies dourados: passo a passo"
 }

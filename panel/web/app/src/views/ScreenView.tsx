@@ -407,6 +407,12 @@ function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; s
   return (
     <ErrandCard
       icon={item.avatar || item.icon}
+      /* THE ERRAND DRAWING, WHERE A ROW ASKS FOR IT (#2408) — the golden-zombie hunt is
+         the first: it is an errand in everything but the catalogue it is not in, so it
+         is drawn as one, and a machine with no cover for it wears the same placeholder
+         every other errand card does. */
+      cover={item.shape === 'cover'}
+      focus={item.focus}
       title={title}
       /* THE MARK, AT THE NAME (#2308) — «Метку выводим у имени». */
       badge={item.badge}

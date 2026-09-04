@@ -304,6 +304,32 @@ def request(rt) -> dict:
     return {"ok": True, "stopped": stop_one(rt)}
 
 
+def stop_named(rt, name: str) -> list:
+    """Ask the runs of ONE scenario to stop, and say so in this profile's log (#2408).
+
+    «Прервать» stops everything the profile is doing, which is the right answer to «что
+    вообще происходит» and the wrong one to «запустил охоту не тем отрядом»: a detached
+    chain of marches runs beside the schedule, and ending the schedule with it costs an
+    errand nobody asked to lose. Answers the runs asked, which is empty when there were
+    none — a perfectly good answer, not a fault.
+    """
+    wanted = str(name or "")
+    asked = []
+    for run in rt.interrupts.running():
+        if run.name != wanted:
+            continue
+        state = run.state()
+        run.stop()
+        asked.append(state)
+        if state.get("asked"):
+            rt.log.say("action", "interrupt.again", name=state["name"],
+                       secs=state["secs"])
+        else:
+            rt.log.say("action", "interrupt.asked", name=state["name"],
+                       who=state["tag"] or "?", step=state["step"] or "—")
+    return asked
+
+
 def stop_one(rt) -> list:
     """Stop everything running in ONE runtime, and say so in its log.
 

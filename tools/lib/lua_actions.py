@@ -15837,7 +15837,12 @@ def reward_watch_install() -> str:
         f"for _,m in ipairs({{{shows}}}) do local f=rcls[m] "
         "if type(f)=='function' then rawset(rm,m,function(self,...) "
         "local a={...} "
-        "pcall(function() local got='' "
+        # THE WISH, asked at every call and never at the install (#2408). The switch
+        # on «Триггеры» writes `__lw_rewards_off` through `reward_watch_mute`, and it
+        # is a global of its own rather than a field of the ring below: a recipe that
+        # earns something re-installs the ear as it goes, and a wish kept in the ring
+        # would be rebuilt away by the next collect.
+        "pcall(function() if D.__lw_rewards_off then return end local got='' "
         "for i=1,#a do local s=items(a[i]) if s~='' then got=s break end end "
         "B.expect=now() add('reward',m..'|'..got) end) "
         "return f(self,...) end) end end end "
@@ -15855,7 +15860,7 @@ def reward_watch_install() -> str:
         "local up=table.unpack or unpack "
         "if type(orig)=='function' then rawset(mgr,'OpenWindow',function(self,name,...) "
         "local res=pk(orig(self,name,...)) "
-        "pcall(function() local s=tostring(name) "
+        "pcall(function() if D.__lw_rewards_off then return end local s=tostring(name) "
         # guard 2: the game said «here is a reward» a moment ago. Everything else that
         # opens is somebody's press and is not this ear's business at all.
         f"if not (B.expect and (now()-B.expect)<{REWARD_WINDOW_MS}) then return end "
@@ -15895,6 +15900,22 @@ def reward_watch_hold(minutes: float = 30.0) -> str:
             "local t=0 pcall(function() t=UITimeManager.Instance:GetServerTime() end) "
             "t=math.floor((tonumber(tostring(t)) or 0)+0) "
             f"B.hold=(({span:.0f})>0) and (t+{span:.0f}) or nil end)")
+
+
+def reward_watch_mute(on: bool) -> str:
+    """Lua *chunk* — «hear the reward popups» / «close nothing, say nothing» (#2408).
+
+    THE SWITCH THE CARD ON «Триггеры» MOVES. The wish is a global of its own,
+    `DataCenter.__lw_rewards_off`, and deliberately not a field of the ear's own ring:
+    a recipe that earns something puts the ear back as it goes
+    (`actions/collect_reward_popups.md`), and a wish kept inside the ring would be
+    rebuilt away by the next collect — a switch that flips itself back on.
+
+    `on=True` clears the wish, `on=False` sets it. Safe on a client that has never had
+    the ear in: the flag is read by the wrappers when they run and by nothing else.
+    """
+    return ("pcall(function() DataCenter.__lw_rewards_off = %s end)"
+            % ("nil" if on else "true"))
 
 
 # --- Explorer treasure: the chests in the mobile squad's window (#2381) ---------------

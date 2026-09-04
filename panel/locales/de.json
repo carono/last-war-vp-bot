@@ -2752,5 +2752,15 @@
   "farming.state.done": "läuft",
   "farming.state.partial": "teilweise",
   "farming.state.todo": "von Hand",
-  "farming.of": "{done} von {total}"
+  "farming.of": "{done} von {total}",
+  "order.reward_popups": "Belohnungsfenster: die «das haben Sie bekommen»-Fenster selbst schließen und aufschreiben, was darin war",
+  "order.reward_popups.short": "Belohnungsfenster",
+  "order.reward_popups.hint": "Der Lauscher sitzt im Client und wird von jedem Auftrag, der etwas einbringt, wieder eingesetzt. Ausgeschaltet bleiben die Fenster auf dem Bildschirm des Clients stehen und nichts wird aufgeschrieben.",
+  "order.reward_popups.state": "{closed} geschlossen · {unknown} nicht auf der Liste",
+  "events.golden.limit": "Angriffe pro Lauf",
+  "events.golden.limit.hint": "Nach so vielen Angriffen aufhören. 0 bedeutet «so viele, wie die Energie erlaubt» — so hat die Jagd es immer gemacht.",
+  "events.golden.cluster": "Ballungsquadrat, Felder",
+  "events.golden.cluster.hint": "Die Warteschlange wird in Quadrate dieser Seitenlänge geteilt, das vollste zuerst bearbeitet, und jedes Ziel darin gewählt. 0 bedeutet «der nächste Zombie irgendwo».",
+  "events.golden.stop": "Jagd anhalten",
+  "events.golden.steps": "Goldene Zombies: Schritt für Schritt"
 }

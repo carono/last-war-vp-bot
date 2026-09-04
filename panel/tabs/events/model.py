@@ -100,6 +100,22 @@ GOLDEN_APPROACH_KEY = "golden_approach"
 GOLDEN_SQUADS: tuple = (1, 2, 3, 4)
 GOLDEN_SQUAD_DEFAULT = 1
 
+#: HOW MANY ATTACKS ONE RUN MAY MAKE — the recipe's `limit`, and 0 is «as many as the
+#: energy allows», which is the recipe's own default and what the hunt has always done.
+#: A knob since #2408: it is the one way to spend half a purse deliberately, and it was
+#: reachable from nowhere at all.
+GOLDEN_LIMIT_KEY = "golden_limit"
+GOLDEN_LIMIT_DEFAULT = 0
+GOLDEN_LIMIT_MAX = 200
+
+#: THE SQUARE THE CHAIN WORKS, IN TILES — the recipe's `cluster` (#2390). The queue is
+#: cut into squares of this side, the fullest is chosen, and every pick is made inside it
+#: until it is empty. 0 goes back to «the nearest zombie anywhere», which is what left the
+#: hunt with one target and a full purse once the invasion had moved off the base.
+GOLDEN_CLUSTER_KEY = "golden_cluster"
+GOLDEN_CLUSTER_DEFAULT = 50
+GOLDEN_CLUSTER_MAX = 2000
+
 # -- the three states an event can be in ------------------------------------
 OPEN = "open"
 CLOSED = "closed"
@@ -832,6 +848,21 @@ def tally(row) -> str:
     """`6 · 60` — the day's attacks and the energy they cost, as this panel sent them."""
     row = row or {}
     return "%d · %d" % (int(row.get("attacks", 0) or 0), int(row.get("spent", 0) or 0))
+
+
+def whole_of(raw, fallback: int, low: int, high: int) -> int:
+    """A saved whole number, held inside its bounds (#2408).
+
+    A HALF-TYPED BOX IS NEVER OBEYED — the rule the rest of the panel already keeps
+    (`panel/runtime/opt_value.py`): a blank «лимит атак» read as 0 would be a different
+    ability, and a stray letter in the square's side would silently unpick the clustering
+    that #2390 was written for.
+    """
+    try:
+        value = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return fallback
+    return max(low, min(high, value))
 
 
 def squad_of(raw) -> int:

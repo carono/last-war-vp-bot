@@ -2752,5 +2752,15 @@
   "farming.state.done": "çalışıyor",
   "farming.state.partial": "kısmen",
   "farming.state.todo": "elle",
-  "farming.of": "{total} içinden {done}"
+  "farming.of": "{total} içinden {done}",
+  "order.reward_popups": "Ödül pencereleri: «işte size verilenler» pencerelerini kendiliğinden kapatmak ve içindekileri yazmak",
+  "order.reward_popups.short": "Ödül pencereleri",
+  "order.reward_popups.hint": "Dinleyici istemcinin içinde yaşar ve bir şey kazandıran her görev onu yerine geri koyar. Kapalıyken pencereler istemcinin ekranında kalır ve hiçbir şey yazılmaz.",
+  "order.reward_popups.state": "{closed} kapatıldı · {unknown} listede yok",
+  "events.golden.limit": "Tur başına saldırı",
+  "events.golden.limit.hint": "Bu kadar saldırıdan sonra dur. 0, «enerjinin izin verdiği kadar» demektir; av her zaman böyle çalıştı.",
+  "events.golden.cluster": "Yığın karesi, kare sayısı",
+  "events.golden.cluster.hint": "Kuyruk bu kenar uzunluğunda karelere bölünür, önce en dolusu işlenir ve her hedef onun içinden seçilir. 0, «nerede olursa olsun en yakın zombi» demektir.",
+  "events.golden.stop": "Avı durdur",
+  "events.golden.steps": "Altın zombiler: adım adım"
 }

@@ -9,6 +9,10 @@ of ours, and written down — what was given, and what the panel was doing at th
   drains its ring. Called at the end of a recipe that earns something.
 - The book: `panel/runtime/rewards.py`, the table `all_reward_popups` in `profiles/panel.db`
   (schema v9), the page `panel/tabs/rewards.py`.
+- The switch (#2408): the standing order `reward_popups`, registered by
+  `panel/runtime/panel_orders.py` and drawn among the listeners on «Таймеры». It plays
+  `src/lastwar_bot/actions/set_reward_popups.md`, which carries the wish to the client
+  through `reward_watch_mute`.
 - Tests: `tests/test_reward_popups.py` (the ear, in a real Lua VM),
   `tests/test_panel_rewards.py` (the book).
 
@@ -165,3 +169,31 @@ line — not of the wrapper, which runs inside a call the game was making anyway
 * **The whitelist is not derived from a pattern.** `Reward`/`GetGift` matches 190 of the
   client's 2 221 window names, including previews, rank tables and shop pages. The list is
   17 names, and it grows only by an `unknown` row somebody has read.
+
+## 10. The switch, and where the wish lives (#2408)
+
+The ability worked and appeared nowhere. It is in no catalogue — nothing installs it, every
+recipe that earns something puts it back as it goes — so «Триггеры» had no row for it, and
+the page that draws its book (`panel/tabs/rewards.py`) is `IN_DEVELOPMENT` and absent from
+the live profile. The person's words: «мы поставили триггер на авто закрытие сообщений о
+подарках, к слову работает отлично, но я не вижу в триггерах её карточку».
+
+It is a STANDING ORDER now, the same shape «Автолут ★» has had since #2017, and registered
+from `panel/runtime/panel_orders.py` rather than from a tab — an order that lives on a tab
+the profile has switched off is the fault #2010 found in the ghost robbery.
+
+**The wish is `DataCenter.__lw_rewards_off`, a global of its own, and deliberately not a
+field of the ear's ring.** The ring is rebuilt by every install, and an install happens on
+every collect: a wish kept inside it would be a switch that flips itself back on within
+minutes. The wrappers read the global when they RUN — both of them, so a muted ear closes
+nothing and records nothing — and the flag costs a table lookup per window the client opens.
+
+Where the value really lives is the profile's own setting `reward_popups`
+(`panel/runtime/settings.py::DEFAULTS`, on by default because that is what every profile
+has been doing since #2027). Moving the switch writes that and plays the recipe.
+
+**A client that restarts forgets the wish**, because the global dies with it. That is
+answered by an EVENT and not by a clock: `RewardBook.watch` tells the order the rows of
+every drain, and a drain is the one proof there is that the ear is listening again — so a
+switched-off order re-asserts itself there and nowhere else.
+

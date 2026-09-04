@@ -2752,5 +2752,15 @@
   "farming.state.done": "works",
   "farming.state.partial": "partly",
   "farming.state.todo": "by hand",
-  "farming.of": "{done} of {total}"
+  "farming.of": "{done} of {total}",
+  "order.reward_popups": "Reward popups: close the «here is what you were given» windows by themselves and write down what was in them",
+  "order.reward_popups.short": "Reward popups",
+  "order.reward_popups.hint": "The listener lives inside the client and is put back by every errand that earns something. Switched off, the windows stay on the client's screen and nothing is written down.",
+  "order.reward_popups.state": "{closed} closed · {unknown} not on the list",
+  "events.golden.limit": "Attacks per run",
+  "events.golden.limit.hint": "Stop after this many attacks. 0 means «as many as the energy allows», which is what the hunt has always done.",
+  "events.golden.cluster": "Cluster square, tiles",
+  "events.golden.cluster.hint": "The queue is cut into squares of this side, the fullest is worked out first, and every pick is made inside it. 0 means «the nearest zombie anywhere».",
+  "events.golden.stop": "Stop the hunt",
+  "events.golden.steps": "Golden zombies: step by step"
 }

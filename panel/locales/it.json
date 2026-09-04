@@ -2752,5 +2752,15 @@
   "farming.state.done": "funziona",
   "farming.state.partial": "in parte",
   "farming.state.todo": "a mano",
-  "farming.of": "{done} su {total}"
+  "farming.of": "{done} su {total}",
+  "order.reward_popups": "Finestre dei premi: chiudere da sole le finestre «ecco cosa ti hanno dato» e annotare cosa c'era dentro",
+  "order.reward_popups.short": "Finestre dei premi",
+  "order.reward_popups.hint": "L'ascolto vive dentro il client e ogni incarico che guadagna qualcosa lo rimette a posto. Spento, le finestre restano sullo schermo del client e non viene annotato nulla.",
+  "order.reward_popups.state": "{closed} chiuse · {unknown} fuori elenco",
+  "events.golden.limit": "Attacchi per giro",
+  "events.golden.limit.hint": "Fermarsi dopo questo numero di attacchi. 0 significa «quanti ne permette l'energia», che è ciò che la caccia ha sempre fatto.",
+  "events.golden.cluster": "Quadrato di raggruppamento, caselle",
+  "events.golden.cluster.hint": "La coda viene tagliata in quadrati di questo lato, prima si lavora il più pieno e ogni bersaglio si sceglie al suo interno. 0 significa «lo zombie più vicino ovunque».",
+  "events.golden.stop": "Ferma la caccia",
+  "events.golden.steps": "Zombie dorati: passo per passo"
 }

@@ -35,6 +35,7 @@ from .. import triggers as triggersmod
 from .paths import TOOLS, repo_rel
 from . import claims
 from . import errand_args as errandargs
+from . import panel_orders
 from . import errand_options as errandopts
 from . import link as linkmod
 from . import squad_gate as squadgate
@@ -161,6 +162,10 @@ class Schedule:
         # because the catalogue is the schedule's: a profile with that tab switched off
         # still runs every errand in it, and its phone still gets the timers screen.
         errandargs.register(self)
+        # …and the standing orders that belong to no TAB (#2408) — the
+        # reward-popup ear, whose page is `IN_DEVELOPMENT` and therefore absent
+        # from the live profile while the ability itself runs in every one.
+        panel_orders.register(self)
         self.timers = timersmod.TimerScheduler(
             store=self.store,
             catalogue=lambda: self.timer_catalogue,

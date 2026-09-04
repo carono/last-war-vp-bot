@@ -250,6 +250,18 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.reward_watch_hold(30),
         wait=0.0, label="hold the reward-popup ear",
     ),
+    "hear_reward_popups": Button(
+        # THE SWITCH, ON (#2408). The card on «Триггеры» presses this and then puts the
+        # ear back; the wish lives in a global of its own so a collect cannot undo it.
+        lua=_lua_actions.reward_watch_mute(True),
+        wait=0.0, label="hear the reward popups",
+    ),
+    "mute_reward_popups": Button(
+        # …and OFF: the wrappers stay where they are and do nothing at all, so a client
+        # that has already been taught the ear goes quiet without being restarted.
+        lua=_lua_actions.reward_watch_mute(False),
+        wait=0.0, label="mute the reward popups",
+    ),
     # --- base -> collect every ready resource building -----------------------
     "collect_base_resources": Button(
         # "Собрать все ресурсы с базы" — the base's own "Collect All" in one press.

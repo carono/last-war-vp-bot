@@ -1092,6 +1092,28 @@ standing above the grid they narrowed — the person's verdict: «Управле
   replaced two cycling presses: a control that says where it stands, standing where the
   thing it moves is.
 
+**A row may ask for the ERRAND DRAWING of the card** (#2408). `layout: "cards"` already
+hands its items to the one card every errand on «Таймеры» is drawn as
+(`ui/ErrandCard.tsx`); `shape: "cover"` on an ITEM asks for that card's OTHER drawing —
+the picture behind the words at full colour, or the one placeholder when this machine has
+no cover for it. It travels with `icon` (`panel/runtime/errand_art.py::cover_for`, a link
+and never a blob) and, optionally, `focus`.
+
+    {"label": "events.group.golden", "shape": "cover",
+     "icon": artmod.cover_for("attack_golden_zombies"),
+     "focus": artmod.cover_focus("attack_golden_zombies"),
+     "pill": "events.golden.state.open", "facts": [...],
+     "options": [...], "options_title": "events.golden.options"}
+
+It is a WORD and not a flag: there are two drawings — the cover, and the small picture
+beside the name that a player's face is — and the day there is a third it is named here
+rather than added as a second boolean.
+
+**A cover card's foot row holds ONE press, and the rest go on a card below it.** Measured
+on an emulated iPhone at 390 px: seven wordy buttons and a gear sharing that row are each
+drawn a letter per line. The golden-zombie hunt keeps «Бить зомби» (or «Остановить охоту»
+while a run is out) on the tile and puts its six manual steps on a card of their own.
+
 **A row's mark rides its NAME, and everything else about it is behind an «i»** (#2308).
 Two more keys on an ITEM, and they are what a card of a thousand rows must look like:
 
