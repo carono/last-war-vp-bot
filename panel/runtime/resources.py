@@ -92,6 +92,25 @@ WATCH_CHAIN = "resources.watch"
 #: long as an errand runs, drowning the log somebody opened the page to read.
 RETRY_SEC = 15.0
 
+#: The longest a refusal may push the next attempt out to, in seconds.
+#:
+#: A refusal backs off — the same errand is usually still holding the link a moment
+#: later, and asking every fifteen seconds writes the refusal into the log more often
+#: than the reading it is failing to take. It backs off to a CEILING and no further:
+#: the next attempt is still made, on the next look or the next thing the game says,
+#: and a card that has given up for good is exactly the bug this whole thread is about.
+RETRY_MAX_SEC = 120.0
+
+#: How long a play may be «in flight» before the panel stops believing in it.
+#:
+#: THE RESERVATION MUST HAVE A WAY OUT (#2418). `self._reading` is set before the play
+#: and cleared by its result — and if that result never comes (the play raised on its
+#: worker, the callback was dropped, the link went away mid-run) the flag stays True and
+#: `_maybe_refresh` returns at its first line FOR EVER. That is what made the card blank
+#: from 2 September: not one refusal, but a refusal that left a state with no exit.
+#: Nothing polls for this; the next look simply stops believing a play this old.
+READ_LOST_SEC = 90.0
+
 #: How the scenario separates its records and its fields (`read_base_resources.md`).
 RECORD_SEP = " #|# "
 FIELD_SEP = ";;"
@@ -190,6 +209,12 @@ class BaseResources:
         self._rows: list = []
         self._at = 0.0                   # when the rows were read, 0 = never
         self._reading = False            # a play is in flight
+        #: When it went in, so a play whose answer never arrives cannot wedge the card
+        #: (see :data:`READ_LOST_SEC`). Monotonic, like every other clock here.
+        self._reading_at = 0.0
+        #: How many times in a row the link refused. Decides the backoff and nothing
+        #: else; a single success clears it.
+        self._refusals = 0
         self._failed = False             # the last play answered nothing
         self._hold_until = 0.0           # a refusal backs off until then
         # THE EAR (`panel/runtime/wire.py`): the unsubscribe while it is up, and the flag
@@ -305,7 +330,15 @@ class BaseResources:
 
     # -- the refresh ---------------------------------------------------------
     def _maybe_refresh(self, now: float) -> None:
-        if self._reading or now < self._hold_until:
+        if self._reading:
+            # A PLAY IN FLIGHT — unless it has been «in flight» so long that believing
+            # in it is the bug (#2418). Then the reservation is dropped and this look is
+            # allowed to ask again; the stale play, if it is somehow still alive, lands
+            # on `_from_run` and is simply a reading like any other.
+            if now - self._reading_at < READ_LOST_SEC:
+                return
+            self._reading = False
+        if now < self._hold_until:
             return
         if self._at and now - self._at < MIN_GAP_SEC:
             return
@@ -362,24 +395,44 @@ class BaseResources:
         except Exception:                # noqa: BLE001 — a gate that cannot answer
             return                       #   is not a licence to press
         self._reading = True
+        self._reading_at = now
         # CLEARED BEFORE THE PLAY, never after: a push that lands while the read is in
         # flight describes a change that read may have missed, and clearing on the way
         # back would throw it away.
         self._dirty = False
-        started = self._rt.play_async(ACTION, tag="resources", human=False,
-                                      priority=(claims.HUMAN if asked
-                                                else claims.DETACHED),
-                                      on_result=self._from_run)
+        # THE RESERVATION IS GIVEN BACK ON EVERY ROAD OUT OF HERE (#2418) — the refusal,
+        # the raise, and the answer (`_from_run`). It used to be given back on two of
+        # the three, and the third is not hypothetical: `play_async` reaches a link, a
+        # gate and a worker, any of which can raise, and the flag it left behind is
+        # checked at the first line of this method. One escape missed is a card that
+        # never reads again for as long as the panel runs.
+        started = False
+        try:
+            started = self._rt.play_async(ACTION, tag="resources", human=False,
+                                          priority=(claims.HUMAN if asked
+                                                    else claims.DETACHED),
+                                          on_result=self._from_run)
+        except Exception:                # noqa: BLE001 — a play that would not start is
+            started = False              #   a reading not taken, never a wedged card
         if not started:
             # Refused before it reached a worker (busy, held, no client). Not a reading
-            # and not a failure to remember — but not something to retry two and a half
-            # seconds later either, or the refusal itself becomes the log.
+            # and not a failure to remember — and not the end of it either: the next
+            # look or the next thing the game says tries again, a little later each time
+            # up to a ceiling, so the refusals do not become the log and the card does
+            # not quietly give up.
             self._reading = False
             self._dirty = True
-            self._hold_until = self._clock() + RETRY_SEC
+            self._refusals += 1
+            self._hold_until = self._clock() + min(
+                RETRY_SEC * (2 ** min(self._refusals - 1, 8)), RETRY_MAX_SEC)
 
     def _from_run(self, outcome) -> None:
-        """The play came back: keep what it read, or keep the old rows and say so."""
+        """The play came back: keep what it read, or keep the old rows and say so.
+
+        FIRST LINE GIVES THE RESERVATION BACK, whatever the outcome turns out to be
+        (#2418): every road out of this method — a good reading, an empty one, a raise
+        while parsing — has to leave the card able to read again.
+        """
         self._reading = False
         got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
         rows = parse(got.get("resources", ""))
@@ -391,6 +444,7 @@ class BaseResources:
             self._dirty = True           # nothing was read, so the change is still owed
             return
         self._failed = False
+        self._refusals = 0               # it got through; the backoff starts over
         self._rows = rows
         self._at = self._clock()
 

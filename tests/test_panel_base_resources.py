@@ -325,5 +325,74 @@ def test_a_reading_somebody_asked_for_waits_its_turn_instead_of_being_refused():
         "the stock read grew a poll"
 
 
+
+def test_the_reservation_is_given_back_on_every_road_out():
+    """#2418, the root of it: a reservation with no way out.
+
+    `_reading` is set before the play and cleared by its result. It was cleared on the
+    refusal and on the answer — and NOT when `play_async` itself raised, and not when the
+    answer never came. Either leaves the flag True, and `_maybe_refresh` returns at its
+    first line for as long as the panel runs: one missed escape and the card never reads
+    again. That is why the base stock was blank from 2 September.
+    """
+    # A play that raises on the way in leaves nothing behind.
+    rt, clock = _FakeRuntime(), _Clock()
+
+    def boom(*_a, **_k):
+        raise RuntimeError("no link")
+
+    rt.play_async = boom
+    stock = res.BaseResources(rt, clock)
+    stock.state()
+    assert stock._reading is False, "a play that raised left the card reserved for ever"
+
+    # A play whose answer never arrives is not believed past READ_LOST_SEC.
+    rt2, clock2 = _FakeRuntime(), _Clock()
+    rt2.play_async = lambda *a, **k: True          # accepted, and never answers
+    stock2 = res.BaseResources(rt2, clock2)
+    stock2.state()
+    assert stock2._reading is True, "the play was not marked in flight at all"
+    clock2.at += res.READ_LOST_SEC - 1
+    plays = [0]
+    def counting(*_a, **_k):
+        plays[0] += 1
+        return True
+    rt2.play_async = counting
+    stock2.state()
+    assert plays[0] == 0, "a play in flight was asked for a second time straight away"
+    clock2.at += 2
+    stock2.state()
+    assert plays[0] == 1, "a play whose answer never came wedged the card for ever"
+
+
+def test_a_refusal_backs_off_to_a_ceiling_and_never_gives_up():
+    """A refusal is «later», never «never» — and «later» has a ceiling (#2418).
+
+    Asking again every fifteen seconds writes the refusal into the log more often than
+    the reading it is failing to take; asking never is the bug this thread is about. So
+    the gap doubles up to :data:`RETRY_MAX_SEC`, and one success starts it over.
+    """
+    rt, clock = _FakeRuntime(started=False), _Clock()
+    stock = res.BaseResources(rt, clock)
+    gaps = []
+    for _ in range(12):
+        before = stock._hold_until
+        stock.state()
+        if stock._hold_until > before:
+            gaps.append(round(stock._hold_until - clock.at, 3))
+        clock.at = stock._hold_until + 0.001
+    assert gaps[0] == res.RETRY_SEC, gaps
+    assert gaps[1] > gaps[0], "the gap does not grow"
+    assert max(gaps) <= res.RETRY_MAX_SEC, "the backoff has no ceiling"
+    assert gaps[-1] == res.RETRY_MAX_SEC, "the backoff stopped short of its ceiling"
+    # …and it never stops trying: every one of those was another attempt.
+    assert rt.plays == len(gaps), "the card gave up instead of retrying later"
+    # A reading that gets through starts the backoff over.
+    rt.started = True
+    clock.at = stock._hold_until + 1
+    stock.state()
+    assert stock._refusals == 0, "a success did not clear the backoff"
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())
