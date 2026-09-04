@@ -194,21 +194,22 @@ LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = 
 # is opened by it.
 TAP rally_join_all
 
-# What it did, and what it left behind. A reading, so it costs nothing a banner cares
-# about: the sends are already away.
-READ_LUA (DataCenter.__lw_rally_report or "the join left no report — the press did not run") INTO report
+# What it did, and what it left behind — ALL OF IT IN ONE CALL (#2404). Three questions
+# the same chunk already has the answers to used to be three reads, and a read is a
+# thread hijack into the client at half a second a time whatever it asks
+# (`docs/research/link-contention.md`). The three:
+#
+#   * `report` — what the press did, banner by banner;
+#   * `todo` — one number, three answers: how many went out, `0` for nothing to be done,
+#     and `-1` for «there is a rally standing there and the only squads left are empty»,
+#     which is the one case `fill_empty_squads.md` earns its keep in;
+#   * `kinds` — WHAT EACH SQUAD WENT TO, in the order it went. The budget is told this
+#     rather than «one join happened», so an invasion boss is counted under
+#     `zombie_invasion` and never against the ordinary monsters' twenty
+#     (`Schedule._kinds`, #1281).
+READ_LUA (DataCenter.__lw_rally_report or "the join left no report — the press did not run"), (DataCenter.__lw_rally_todo or 0), (DataCenter.__lw_rally_kinds or "") INTO report, todo, kinds
 
 LOG "the line above is what the press did, banner by banner"
-
-# One number, three answers: how many went out, `0` for nothing to be done, and `-1` for
-# «there is a rally standing there and the only squads left are empty», which is the one
-# case `fill_empty_squads.md` earns its keep in.
-READ_LUA (DataCenter.__lw_rally_todo or 0) INTO todo
-
-# WHAT EACH SQUAD WENT TO, in the order it went — the budget is told this rather than
-# «one join happened», so an invasion boss is counted under `zombie_invasion` and never
-# against the ordinary monsters' twenty (`Schedule._kinds`, #1281).
-READ_LUA (DataCenter.__lw_rally_kinds or "") INTO kinds
 
 # THE DAY'S CEILING, AND IT IS CHECKED BEFORE EVERY OTHER ENDING (#1317). `-4` says the
 # game's own count of today's rallies has reached the number the person set, so a banner
@@ -279,14 +280,13 @@ IF todo < 0
         STOP
 
     TAP rally_join_all
-    READ_LUA (DataCenter.__lw_rally_report or "the second join left no report — the press did not run") INTO report
+    # THE SAME THREE, IN ONE CALL. `kinds` is read AGAIN because the FIRST pass sent
+    # nothing — that is why this branch was reached — so the kinds read up there are
+    # empty, and a budget told «this run went for nothing» writes nothing down for a run
+    # that did join. Live: `kinds = ''` on seven runs that each sent one and joined one
+    # (#1281).
+    READ_LUA (DataCenter.__lw_rally_report or "the second join left no report — the press did not run"), (DataCenter.__lw_rally_todo or 0), (DataCenter.__lw_rally_kinds or "") INTO report, todo, kinds
     LOG "the line above is what the press did, banner by banner"
-    READ_LUA (DataCenter.__lw_rally_todo or 0) INTO todo
-    # AND WHAT THIS PASS WENT FOR. Read again because the FIRST pass sent nothing —
-    # that is why this branch was reached — so the kinds read up there are empty, and a
-    # budget told «this run went for nothing» writes nothing down for a run that did
-    # join. Live: `kinds = ''` on seven runs that each sent one and joined one (#1281).
-    READ_LUA (DataCenter.__lw_rally_kinds or "") INTO kinds
 
 # THE ENDINGS THAT ARE A SKIP AND NOT A FAILURE. The squads were asked about and what
 # came back is not enough to send: nothing the bot can press changes that, and the answer
@@ -316,14 +316,15 @@ IF todo == 0
 # them.
 READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
-# A few more looks and no more. The server answers in well under a second when it accepts
-# off the fast path, and a poll that keeps asking is a poll holding the game in front of
-# the next banner — but a run that came through `fill_empty_squads` waits longer, because
-# the squad it just fetched an army for has to reach the map. Two looks called that a
-# failure while the squad was already on its way (#1285, measured on a live banner), so
-# the ceiling is three seconds and it is only ever paid when nothing has appeared yet.
-WHILE joined < 1 LIMIT 6
-    WAIT 0.5
+# ONE MORE LOOK, AND NO MORE (#2404). This used to be `WHILE joined < 1 LIMIT 6` with a
+# half-second wait in it — a ceiling written when a read cost 0.14 s, so six of them were
+# the three seconds a squad on its way needs (#1285). A read is 0.5–1.0 s of the whole
+# machine's ~1.4 calls a second now, so the same loop was up to seven seconds of exclusive
+# per pass and twice that per run, spent in front of the next banner
+# (`docs/research/link-contention.md`). The wait is what the squad needs and the reads
+# were never what made it arrive, so the wait is kept whole and only ONE look follows it.
+IF joined < 1
+    WAIT 1.5
     READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
 IF joined >= 1
@@ -352,15 +353,12 @@ LOG "no squad appeared where this pass sent — those banners are written off as
 
 TAP rally_join_all
 
-READ_LUA (DataCenter.__lw_rally_report or "the second pass left no report — the press did not run") INTO report
+# THE SAME THREE IN ONE CALL, and `kinds` is read again for the same reason as above:
+# the first pass's squads never arrived, so its kinds stand for nothing and the run must
+# be counted by what actually went out.
+READ_LUA (DataCenter.__lw_rally_report or "the second pass left no report — the press did not run"), (DataCenter.__lw_rally_kinds or ""), (DataCenter.__lw_rally_sent or 0) INTO report, kinds, resent
 
 LOG "the line above is the second pass, with the shut banners taken out"
-
-# …and what THIS pass went for: the first pass's squads never arrived, so its kinds
-# stand for nothing and the run must be counted by what actually went out.
-READ_LUA (DataCenter.__lw_rally_kinds or "") INTO kinds
-
-READ_LUA (DataCenter.__lw_rally_sent or 0) INTO resent
 
 IF resent == 0
     LOG "no other banner had a seat for the squads that came back — nothing more to try this run"
@@ -368,8 +366,8 @@ IF resent == 0
 
 READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
-WHILE joined < 1 LIMIT 6
-    WAIT 0.5
+IF joined < 1
+    WAIT 1.5
     READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
 IF joined >= 1

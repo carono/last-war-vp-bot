@@ -168,7 +168,13 @@ TAP treasure_auto_step
 
 # What it did, chest by chest. A reading, so it costs a chest nothing — the sends are
 # already away.
-READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the step left no report — the press did not run") INTO report
+# READ IN ONE CALL, NOT ONE AT A TIME (#2404). Every one of these is a field of the
+# same `DataCenter.__lw_treasure_auto` the press has already written, and a read is a
+# thread hijack into the client at half a second a time whatever it asks
+# (`docs/research/link-contention.md`). Five statements were five seconds of the whole
+# machine's ~1.4 calls a second for five answers that were all sitting in one table.
+# What each of them is, in the order they come back, is on the LOG lines under it.
+READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the step left no report — the press did not run"), (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'the auto errand has never been armed' end local until_ms = tonumber(A.day_until) or 0 local w = {} for c, how in pairs(A.day_bad or {}) do w[#w+1] = tostring(c) .. '/' .. tostring(how) end table.sort(w) return 'full=' .. ((A.day_full and until_ms > 0) and 1 or 0) .. ' held=' .. tostring(A.t_held or 0) .. ' refused=' .. tostring(A.limit_all or 0) .. ' groups=[' .. tostring(A.day_groups or '') .. '] shut-types=[' .. table.concat(w, ',') .. '] reset=' .. tostring(A.day_reset or 0) end)(), (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'on=0 ticks=0 live=0 claims=0 paid=0 lag=-1 worst=-1 hear=-1 gone=0 eye=never' end return 'on=' .. tostring((A.reap_on and A.reap_on ~= 0) and 1 or 0) .. ' ticks=' .. tostring(A.ticks or 0) .. ' live=' .. tostring(A.t_live or 0) .. ' claims=' .. tostring(A.claims_all or 0) .. ' paid=' .. tostring(A.paid_all or 0) .. ' lag=' .. tostring(A.lag_ms or -1) .. ' worst=' .. tostring(A.lag_worst or -1) .. ' hear=' .. tostring(A.hear_ms or -1) .. ' gone=' .. tostring(A.gone_all or 0) .. ' eye=' .. tostring(A.look_why or 'never') end)(), (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.did) or 0 end)(), (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return A.asked and 1 or 0 end)() INTO report, day, watch, did, asked
 
 LOG "the line above is what the run did: sent= marches that went out, claimed= claims sent, paid= gifts actually received (the reward window came up, or the server answered «claim repeat», which is the same thing said from the other side), waiting= chests whose squad is still out or whose claim has not answered, resent= sends the client had dropped in silence and which went again, gone= chests struck off because the GAME said they are not there — the server's «treasure is null» in answer to a claim, or a tile the client holds that no longer carries the chest — with dropped=[…] naming the last one in words, lag=/worst= how long the last and the worst chest waited between becoming takeable and their first claim leaving — the acceptance criterion in milliseconds — watch= whether the game-side clock is running, and one note per chest"
 
@@ -176,26 +182,23 @@ LOG "the line above is what the run did: sent= marches that went out, claimed= c
 # claim with `activity_sports_uitips_015 day times limit N` once the day's rewards are
 # spent, and that is a fact about the DAY and not about the chest — the chest is still on
 # the map and still diggable, it is simply worth nothing to this account until the reset.
-# The client keeps the same books, so they are read here instead of being guessed at:
+# The client keeps the same books, so they are read (in the call above) instead of guessed at:
 # `dailyGot` is one counter per treasure group and `CheckTreasureReachDailyLimit` is the
 # game's own verdict on each. Read live while the refusals were arriving, the counters
 # disagreed — one group full, another with room — which is why one refusal holds the chest
 # it was sent for and never the whole errand.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'the auto errand has never been armed' end local until_ms = tonumber(A.day_until) or 0 local w = {} for c, how in pairs(A.day_bad or {}) do w[#w+1] = tostring(c) .. '/' .. tostring(how) end table.sort(w) return 'full=' .. ((A.day_full and until_ms > 0) and 1 or 0) .. ' held=' .. tostring(A.t_held or 0) .. ' refused=' .. tostring(A.limit_all or 0) .. ' groups=[' .. tostring(A.day_groups or '') .. '] shut-types=[' .. table.concat(w, ',') .. '] reset=' .. tostring(A.day_reset or 0) end)() INTO day
 
 LOG "the day's reward allowance: {day} — full=1 is «дневной лимит наград исчерпан — до сброса суток за кладами не хожу»: nothing is claimed and no squad is sent while it stands. held= chests standing still for it, refused= claims the server has answered «day times limit» since the client started, groups= the client's own counter per treasure group with /full on the ones that are spent — a group that is not full is exactly why one refusal never stands the whole errand down — shut-types= the treasure TYPES excluded until the reset with how each was shut (/server = a claim was refused, /client = the client's own counter says spent), which is what stops the ear queueing the same kind of chest all day — and reset= the game's own stamp the hold ends at, so the day turning over lets every chest and every type go by itself, with no restart and no hand on the panel"
 
-# WHAT THE WATCH ITSELF IS DOING, read apart from the press. The report above is written by
+# WHAT THE WATCH ITSELF IS DOING, asked in the same call as the rest. The report is written by
 # a press; this is written by the thing that runs between presses, and the two disagreeing
 # is the one symptom worth chasing — a watch that says `on=0` after an arm is a client that
 # lost its timer, and every claim is back to waiting for a panel tick.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'on=0 ticks=0 live=0 claims=0 paid=0 lag=-1 worst=-1 hear=-1 gone=0 eye=never' end return 'on=' .. tostring((A.reap_on and A.reap_on ~= 0) and 1 or 0) .. ' ticks=' .. tostring(A.ticks or 0) .. ' live=' .. tostring(A.t_live or 0) .. ' claims=' .. tostring(A.claims_all or 0) .. ' paid=' .. tostring(A.paid_all or 0) .. ' lag=' .. tostring(A.lag_ms or -1) .. ' worst=' .. tostring(A.lag_worst or -1) .. ' hear=' .. tostring(A.hear_ms or -1) .. ' gone=' .. tostring(A.gone_all or 0) .. ' eye=' .. tostring(A.look_why or 'never') end)() INTO watch
 
-LOG "the line above is the game-side watch: on= is its timer alive, ticks= how many times it has looked since the client started, live= chests it is working right now, claims=/paid= what it has sent and been paid for, lag=/worst= milliseconds from takeable to claim (-1 = no chest has been taken yet), hear= milliseconds from HEARING the chest to claiming it — «услышали — собрали» end to end — gone= chests written off since the client started because the game said they are not there, eye= what the second ear last saw — «looked» on the map, «city» in the base, and «no-point-manager» when the client has not been out on the map since it started"
+LOG "the game-side watch: {watch} — on= is its timer alive, ticks= how many times it has looked since the client started, live= chests it is working right now, claims=/paid= what it has sent and been paid for, lag=/worst= milliseconds from takeable to claim (-1 = no chest has been taken yet), hear= milliseconds from HEARING the chest to claiming it — «услышали — собрали» end to end — gone= chests written off since the client started because the game said they are not there, eye= what the second ear last saw — «looked» on the map, «city» in the base, and «no-point-manager» when the client has not been out on the map since it started"
 
 # One number: how many sends this run actually made. `0` is an ordinary quiet minute —
 # nothing was announced, or the squads are all out — and not a failure.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.did) or 0 end)() INTO did
 
 # A SQUAD THAT READS EMPTY IS USUALLY A SQUAD NOBODY HAS ASKED ABOUT (#1285). The
 # client's soldier count is a reply cache: measured on this account, the same three
@@ -204,15 +207,13 @@ READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then re
 # asked the server for the army — that is `asked-for-army` in the report — and one short
 # wait later the numbers are back and the same press goes again. Off the fast path on
 # purpose: it costs nothing on a run that had a squad.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return A.asked and 1 or 0 end)() INTO asked
 
 IF asked == 1
     LOG "every squad that could go reads as empty — the game was asked for its army, trying again"
     WAIT 0.6
     TAP treasure_auto_step
-    READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the second press left no report") INTO report
+    READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the second press left no report"), (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.did) or 0 end)() INTO report, did
     LOG "the line above is the second pass, with the army the game had all along"
-    READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.did) or 0 end)() INTO did
 
 # A CLAIM IS NOT PROOF OF PAYMENT, and finding that out cost one experiment worth
 # repeating: a claim the server refuses is COMPLETELY silent — no message on screen, no
@@ -228,14 +229,13 @@ IF asked == 1
 # it is still up, reads the server's own «claim repeat» as payment when the window was
 # missed, and keeps claiming until the chest is paid or gone. A run therefore reports what
 # is true at the moment it asks and stops pretending to be the last word.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.claim_sent) or 0 end)() INTO claim_sent
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.claim_sent) or 0 end)(), (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'heard=0 queued=0 working=0 finished=0 to-claim=0 to-march=0' end local q, w, f, c, m = 0, 0, 0, 0, 0 for _, t in ipairs(A.targets or {}) do if t.done then f = f + 1 elseif t.sent then w = w + 1 else q = q + 1 if t.plan == 'claim' or t.claim_only then c = c + 1 else m = m + 1 end end end return 'heard=' .. tostring(A.news or 0) .. ' queued=' .. tostring(q) .. ' working=' .. tostring(w) .. ' finished=' .. tostring(f) .. ' to-claim=' .. tostring(c) .. ' to-march=' .. tostring(m) end)() INTO claim_sent, ear
 
 # WHAT THE EAR HAS HEARD, said in words rather than left to be inferred from a report
 # that only counts what a PRESS did (#1886). The errand is a listener's now — the timer
 # that walked the map on a clock is gone — and a listener that cannot say «я услышал N,
 # сделал вот это» is the same «работает плохо» over again, only silent. `heard` only ever
 # grows, so two runs with the same number is a genuinely quiet minute and not a deaf one.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'heard=0 queued=0 working=0 finished=0 to-claim=0 to-march=0' end local q, w, f, c, m = 0, 0, 0, 0, 0 for _, t in ipairs(A.targets or {}) do if t.done then f = f + 1 elseif t.sent then w = w + 1 else q = q + 1 if t.plan == 'claim' or t.claim_only then c = c + 1 else m = m + 1 end end end return 'heard=' .. tostring(A.news or 0) .. ' queued=' .. tostring(q) .. ' working=' .. tostring(w) .. ' finished=' .. tostring(f) .. ' to-claim=' .. tostring(c) .. ' to-march=' .. tostring(m) end)() INTO ear
 
 LOG "the ear so far: {ear} — heard= chests this client has been told about since it started, queued= waiting for a squad, working= a squad is out or a claim is unanswered, finished= done with, to-claim/to-march= the branch each queued chest was put on by its STATUS when it was heard"
 

@@ -70,6 +70,12 @@ CATCH_SEC = 1.5
 #: just been restarted may find its own previous listener still letting go.
 BIND_TRIES, BIND_WAIT = 20, 0.25
 
+#: How often the three-way split of a chunk's cost is written to `debug.log` (#2404).
+#: A minute, and only when calls have been made since the last line: it is the evidence
+#: behind «the claim is held for a whole run, and almost none of that is exclusive», and
+#: a number nobody can read is a number nobody will check.
+TIMING_SAY_SEC = 60.0
+
 
 def _daemon_module():
     """`tools/lua_daemon.py`, imported lazily — it is the VM half, not the protocol.
@@ -187,6 +193,9 @@ class LuaService:
         #: number the person judges this panel by: «I started the game, how long until it
         #: works». Stamped by the watch, read once by whoever announces green.
         self._seen_at: "float | None" = None
+        #: The last `CallTimes` snapshot written to the log, and when (#2404).
+        self._timing_was: dict = {}
+        self._timing_at = time.monotonic()
 
     # -- the connection ------------------------------------------------------
     @property
@@ -289,6 +298,15 @@ class LuaService:
         refused = self.lease.check_run(token)
         if refused:
             raise lua_client.LeaseLost(refused)
+        if not (token or "").strip():
+            # AN UNLEASED CALL IS LET THROUGH — that is the gate's own rule, and it is
+            # the one way a chunk reaches the client beside whoever holds the claim
+            # (`tools/lib/game_lease.py::check_run`). Counted rather than stopped: this
+            # is a measurement of who is in the queue, not a new refusal (#2404).
+            times = self._daemon.times
+            times.unleased += 1
+            who = threading.current_thread().name
+            times.by[who] = times.by.get(who, 0) + 1
         try:
             lines = self._daemon.run(chunk, marker, float(settle), early=early,
                                      sentinel=sentinel)
@@ -317,7 +335,8 @@ class LuaService:
         """What a `{"op":"ping"}` used to answer, from the object rather than the wire."""
         return {"ok": True, "warm": self._daemon.is_warm(),
                 "pid": self._daemon.target_pid(), "self": os.getpid(),
-                "panel": True, "lease": self.lease.state(), **self.pulse.state()}
+                "panel": True, "lease": self.lease.state(),
+                "calls": self._daemon.times.state(), **self.pulse.state()}
 
     def target_pid(self) -> "int | None":
         return self._daemon.target_pid()
@@ -357,6 +376,51 @@ class LuaService:
             except BaseException as exc:              # noqa: BLE001 — never the last word
                 self._note_warn("watch: %s", exc)
             self._mark_seen()
+            self._say_timing()
+
+    def _say_timing(self) -> None:
+        """Write the last minute's calls to `debug.log`, split three ways (#2404).
+
+        A DELTA, not a total: the interesting question is what a call costs NOW, and a
+        cumulative mean over a panel that has been open for a day answers a different one.
+        Silent when nothing was called, so an idle profile does not write a line a minute
+        saying it did nothing.
+        """
+        now = time.monotonic()
+        was, at = self._timing_was, self._timing_at
+        if now - at < TIMING_SAY_SEC:
+            return
+        self._timing_at = now
+        state = self._daemon.times.state()
+        self._timing_was = state
+        n = state["n"] - (was.get("n", 0) if was else 0)
+        if n <= 0:
+            return
+        def moved(key: str) -> float:
+            return state[key] - (was.get(key, 0.0) if was else 0.0)
+        wait, inject, harvest = moved("wait"), moved("inject"), moved("harvest")
+        total = wait + inject + harvest
+        queued = state["queued"] - (was.get("queued", 0) if was else 0)
+        unleased = state["unleased"] - (was.get("unleased", 0) if was else 0)
+        self._note("calls %d in %.0fs: %.2fs total (%.3f s/call) = "
+                   "wait %.2f + inject %.2f + harvest %.2f; exclusive %.0f%%; "
+                   "found %.2f already in flight, %d unleased, busiest %d",
+                   n, now - at, total, total / n, wait, inject, harvest,
+                   100.0 * (inject / total) if total else 0.0,
+                   queued / n, unleased, state["busiest"])
+        if unleased:
+            self._note("unleased callers: %s", ", ".join(
+                f"{who}={n}" for who, n in sorted(
+                    self._unleased_delta(state, was).items(),
+                    key=lambda kv: -kv[1])[:8]))
+
+    @staticmethod
+    def _unleased_delta(state: dict, was: dict) -> dict:
+        """Which callers went past the claim SINCE the last line, and how often."""
+        before = (was or {}).get("by") or {}
+        now = state.get("by") or {}
+        return {who: n - before.get(who, 0) for who, n in now.items()
+                if n - before.get(who, 0) > 0}
 
     def catching(self) -> bool:
         """Is there something to catch — i.e. is nothing held? Then look again soon."""

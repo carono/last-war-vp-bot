@@ -728,7 +728,7 @@ LUA UIManager.Instance:OpenWindow(UIWindowNames.UIAllianceScience)
 LUA local rec = DataCenter.AllianceScienceDataManager:GetCurRecommendScience(); UIManager.Instance:GetStackTopWindow().Ctrl:OnScienceInfoClick(rec, nil)
 ```
 
-### `READ_LUA <expr> INTO <var>`
+### `READ_LUA <expr> INTO <var>` — and `INTO a, b, c`
 
 Evaluate a Lua expression and store its value in a script variable. Numeric results
 become numbers (so `IF`/`WHILE` can compare them); anything else stays a string. The
@@ -739,6 +739,27 @@ anything up to it.
 READ_LUA DataCenter.AllianceScienceDataManager:GetResDonateRestCount() INTO attempts
 READ_LUA (UIManager.Instance:GetStackTopWindow() and 1 or 0) INTO haswin
 ```
+
+**SEVERAL NAMES AFTER `INTO` READ SEVERAL VALUES IN ONE CALL, and a recipe that asks
+more than one question should.** A chunk reaches the game's Lua VM through a thread
+hijack that costs 0.5–1.0 s and cannot be divided, and the machine can make about 1.4 of
+them a second in total (`docs/research/link-contention.md`, #2404) — so four questions in
+four statements are four seconds of the whole panel's budget for four answers one
+expression could have returned together.
+
+```
+READ_LUA (DataCenter.__lw_rally_report or ""), (DataCenter.__lw_rally_todo or 0), (DataCenter.__lw_rally_kinds or "") INTO report, todo, kinds
+```
+
+The expression returns as many Lua values as there are names; they are laid out in
+order, each coerced exactly as a single read is. It is ONE line, like every other
+statement — the parser reads a statement per line and does not join them. Two rules come
+with it:
+
+* **never a bare `nil` in the middle** — say `x or ""` / `x or 0`. A `nil` stops the
+  values being counted and everything after it would move up a name;
+* a name the expression had no value for is `None`, and an expression that ERRORS sets
+  every name to `None` — a missing answer, never a shifted one.
 
 Variables are then tested with a **numeric condition** in `IF`/`WHILE`:
 `<var> <op> <number>`, where `<op>` is `==`, `!=`, `>`, `<`, `>=`, `<=`. Testing a

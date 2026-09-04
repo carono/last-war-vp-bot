@@ -276,9 +276,17 @@ _TAP_RE = re.compile(r"^TAP\s+([A-Za-z_]\w*)(?:\s+x\s*(\d+|all))?\s*$", re.IGNOR
 # LUA takes the rest of the line as a raw Lua chunk (no quotes — Lua is quote-heavy).
 # READ_LUA <expr> INTO <var> captures a value; the `INTO <var>` tail is anchored at
 # the end so the expression itself may contain anything up to it.
+#
+# SEVERAL NAMES AFTER `INTO` READ SEVERAL VALUES IN ONE CALL (#2404), and that is not a
+# convenience — it is the only lever the measurement left. A chunk reaches the game's Lua
+# VM through a thread hijack that costs 0.5–1.0 s and cannot be divided
+# (`docs/research/link-contention.md`), so a recipe asking four questions in four
+# statements spends four seconds of the machine's ~1.4 calls a second on four answers the
+# same expression could have returned together.
 _LUA_RE = re.compile(r"^LUA\s+(.+)$", re.IGNORECASE)
 _READ_LUA_RE = re.compile(
-    r"^READ_LUA\s+(.+)\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
+    r"^READ_LUA\s+(.+)\s+INTO\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*$",
+    re.IGNORECASE,
 )
 # …and the world's own monster REGISTER, which is a question and not a look (#1523). It
 # is a statement of its own rather than a `READ_LUA` with a chunk in the recipe, because
@@ -496,9 +504,18 @@ class LuaStmt(_Stmt):
 
 @dataclass(slots=True)
 class ReadLuaStmt(_Stmt):
-    """Evaluate a Lua expression and store its value in the script variable `var`."""
+    """Evaluate a Lua expression and store what it returned in the script variables.
+
+    `names` is what stood after `INTO`, in order. One name is the ordinary read; several
+    names take the expression's SEVERAL Lua return values and lay them out one per name,
+    in one call into the game — see :data:`_READ_LUA_RE` for why that matters.
+
+    `var` is the first of them and is kept because everything that reports a read — the
+    log line, the gate, a test — names one variable.
+    """
     expr: str
     var: str
+    names: tuple = ()
 
 
 @dataclass(slots=True)
@@ -1012,8 +1029,10 @@ def _parse_one(lines, i, indent):
 
     m = _READ_LUA_RE.match(text)
     if m:
+        names = tuple(part.strip() for part in m.group(2).split(","))
         return ReadLuaStmt(
-            text=text, line_no=ln, expr=m.group(1).strip(), var=m.group(2),
+            text=text, line_no=ln, expr=m.group(1).strip(), var=names[0],
+            names=names,
         ), i + 1
 
     m = _LUA_RE.match(text)
@@ -2773,6 +2792,9 @@ class Interpreter:
         Numeric results are stored as int/float so numeric conditions work; anything
         else is stored as its string form. A Lua-side error stores None and logs it.
         """
+        if len(stmt.names) > 1:
+            self._do_read_lua_many(stmt)
+            return
         chunk = (
             'local ok,v=pcall(function() return %s end) '
             'CS.UnityEngine.Debug.LogError("RLUA "..(ok and tostring(v) or ("ERR:"..tostring(v))))'
@@ -2789,6 +2811,50 @@ class Interpreter:
                     value = _coerce(raw)
         self.ctx.vars[stmt.var] = value
         self._log(f"READ_LUA {stmt.var} = {value!r}")
+
+    #: What separates the values of a multi-name `READ_LUA` on their way back. A tab
+    #: because the game's own strings are full of everything else — commas, semicolons,
+    #: pipes and brackets all appear inside a rally report — and because a tab cannot
+    #: survive `tostring` of a number, which is what most of these are.
+    READ_SEP = "\t"
+
+    def _do_read_lua_many(self, stmt: ReadLuaStmt) -> None:
+        """`READ_LUA <expr> INTO a, b, c` — several answers, ONE call into the game.
+
+        The expression is expected to return as many Lua values as there are names; they
+        come back joined by :data:`READ_SEP` and are laid out in order. A name the
+        expression had no value for gets ``None``, exactly as a read that errored does —
+        the recipe sees a missing answer rather than a shifted one.
+
+        A `nil` IN THE MIDDLE cannot be carried and must not be written: `{pcall(...)}`
+        stops counting at it, so the values after it would silently move up a name. Say
+        `x or ""` in the expression, which is what every recipe here does anyway.
+        """
+        chunk = (
+            "local t = {pcall(function() return " + stmt.expr + " end)} "
+            "local out = {} "
+            "for i = 2, #t do out[#out + 1] = tostring(t[i]) end "
+            'CS.UnityEngine.Debug.LogError("RLUA "..(t[1] and table.concat(out, "\t") '
+            'or ("ERR:"..tostring(t[2]))))'
+        )
+        raw: "str | None" = None
+        for ln in self._run_lua(chunk, marker="RLUA"):
+            if "RLUA " in ln:
+                raw = ln.split("RLUA ", 1)[1]
+        if raw is None or raw.strip().startswith("ERR:"):
+            if raw is not None:
+                self._log(f"READ_LUA error: {raw.strip()[4:]}")
+            for name in stmt.names:
+                self.ctx.vars[name] = None
+            self._log("READ_LUA " + ", ".join(f"{n} = None" for n in stmt.names))
+            return
+        parts = raw.split(self.READ_SEP)
+        said = []
+        for i, name in enumerate(stmt.names):
+            value = _coerce(parts[i].strip()) if i < len(parts) else None
+            self.ctx.vars[name] = value
+            said.append(f"{name} = {value!r}")
+        self._log("READ_LUA " + ", ".join(said))
 
     def _do_scan_monsters(self, stmt: ScanMonstersStmt) -> None:
         """Ask the world's own register, and say how many it answered with (#1523).

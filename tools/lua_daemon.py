@@ -140,6 +140,77 @@ class ClientUnreachable(RuntimeError):
     """
 
 
+class CallTimes:
+    """Where the seconds of a chunk actually go (#2404).
+
+    «Поручения стоят в очереди друг за другом» is answered by ONE number and nobody had
+    it: a run holds the game claim from its first statement to its last, and how much of
+    that is genuinely exclusive depends on the split between
+
+    * **wait** — this call queued behind another chunk's injection, the only part that
+      is contention with somebody else;
+    * **inject** — the hijack itself, under the run lock, which is not reentrant and is
+      the reason there is a lock at all;
+    * **harvest** — reading the answer out of the chunk's own file, which holds no lock,
+      needs no exclusive and is where a `settle` deadline is spent.
+
+    Cumulative and never reset: a reader takes two snapshots and subtracts, which is the
+    only shape that works for several readers at once. Counted without a lock — three
+    floats and an int, appended to by the one thread that just finished a call — because
+    a counter that made calls take turns would be measuring itself.
+    """
+
+    __slots__ = ("n", "wait", "inject", "harvest", "worst", "inflight", "busiest",
+                 "queued", "unleased", "by")
+
+    def __init__(self) -> None:
+        self.n = 0
+        self.wait = self.inject = self.harvest = 0.0
+        #: How many calls are in this object right now, and the most there has ever
+        #: been. A `wait` that is most of a call means somebody was ahead of it, and
+        #: this is who: the panel's own claim lets ONE run drive the game, so anything
+        #: above one in flight is a caller that took no claim at all.
+        self.inflight = 0
+        self.busiest = 0
+        #: The sum of «how many were already in here when I arrived», so a mean depth
+        #: can be read off the same delta the times are.
+        self.queued = 0
+        #: …and how many calls carried no lease. See :meth:`LuaService.run`.
+        self.unleased = 0
+        #: `caller -> how many of ITS calls carried no lease`. The caller is a thread
+        #: name, which the panel already sets to say whose run it is
+        #: (`lw:<profile>:<tag>:<scenario>`, `panel-timers:<profile>`) — so «кто ломится
+        #: в игру мимо замка» is answerable without adding an argument to every call.
+        self.by: dict = {}
+        #: The longest single call since the process started, as `(wait, inject, harvest)`.
+        self.worst = (0.0, 0.0, 0.0)
+
+    def enter(self) -> None:
+        self.inflight += 1
+        self.queued += self.inflight - 1
+        if self.inflight > self.busiest:
+            self.busiest = self.inflight
+
+    def leave(self) -> None:
+        self.inflight = max(0, self.inflight - 1)
+
+    def add(self, wait: float, inject: float, harvest: float) -> None:
+        self.n += 1
+        self.wait += wait
+        self.inject += inject
+        self.harvest += harvest
+        if wait + inject + harvest > sum(self.worst):
+            self.worst = (wait, inject, harvest)
+
+    def state(self) -> dict:
+        return {"n": self.n, "wait": round(self.wait, 3),
+                "inject": round(self.inject, 3), "harvest": round(self.harvest, 3),
+                "worst": [round(v, 3) for v in self.worst],
+                "inflight": self.inflight, "busiest": self.busiest,
+                "queued": self.queued, "unleased": self.unleased,
+                "by": dict(self.by)}
+
+
 def _to_stdout(msg: str) -> None:
     """Where this module's diagnosis goes when it IS a process. See `Daemon.say`."""
     print(msg, flush=True)
@@ -164,6 +235,8 @@ class Daemon:
         #: (`tools/lib/daemon_pulse.py`). Every successful run stamps it, so a busy
         #: daemon never probes at all and the guarantee is free while the panel works.
         self.pulse = Pulse()
+        #: What a chunk costs, split three ways (:class:`CallTimes`, #2404).
+        self.times = CallTimes()
         self.lease = Lease(on_expire=lambda owner, held: self.say(
             f"[daemon] lease of {owner!r} expired after {held:.0f}s — dropped"))
 
@@ -338,8 +411,20 @@ class Daemon:
         priced for.
         """
         pending = None
+        began = got = time.monotonic()
+        self.times.enter()
+        try:
+            return self._run(chunk, marker, settle, early, sentinel, began)
+        finally:
+            self.times.leave()
+
+    def _run(self, chunk, marker, settle, early, sentinel, began: float):
+        """:meth:`run` proper — split off so the in-flight gauge has a `finally`."""
+        pending = None
+        got = began
         for attempt in (1, 2):
             with self._lock:
+                got = time.monotonic()
                 try:
                     pending = self._ensure().send(chunk, marker=marker, settle=settle,
                                                   early=early, sentinel=sentinel,
@@ -355,7 +440,9 @@ class Daemon:
                         # daemon stops holding a port it cannot answer for.
                         self.pulse.failed(verdict)
                         raise verdict from exc
+        sent = time.monotonic()
         lines = pending.harvest()
+        self.times.add(got - began, sent - got, time.monotonic() - sent)
         if lines:
             self.pulse.ok()
         return lines
