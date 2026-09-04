@@ -246,12 +246,27 @@ def test_a_refusal_backs_off_instead_of_filling_the_log():
     assert rt.plays == 2, "…and it must ask again once the wait is over"
 
 
-def test_a_busy_link_is_not_pressed_into():
+def test_a_busy_link_holds_the_sweep_back_but_not_a_reading_somebody_asked_for():
+    """#2418 reversed half of this, and the half it reversed is the whole bug.
+
+    «A busy link is not pressed into» was pinned here for every read alike. On the live
+    panel the link is busy almost continuously, so the FIRST read was refused every time
+    and the card was blank for days with nothing saying why. A page being opened is a
+    press, and a press waits its turn; a clock is not, and still gives up.
+    """
+    # Nothing has ever been read: somebody opened the page, so it goes in and waits.
     rt, clock = _FakeRuntime(), _Clock()
     rt.game.busy = True
     stock = res.BaseResources(rt, clock)
-    assert stock.state()["rows"] == []
-    assert rt.plays == 0
+    assert stock.state()["rows"], "the first reading was refused because the link was busy"
+    assert rt.plays == 1
+
+    # …and once there are numbers on the card, the safety clock alone does not press in.
+    clock.at += res.SAFETY_SEC + 1
+    stock._dirty = False
+    before = rt.plays
+    stock.state()
+    assert rt.plays == before, "the safety sweep pressed into a busy link"
 
 
 def test_an_empty_answer_keeps_the_rows_that_were_there():
@@ -278,6 +293,36 @@ def _run_standalone() -> int:
             print(f"  FAIL {test.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     return 1 if failed else 0
+
+
+
+def test_a_reading_somebody_asked_for_waits_its_turn_instead_of_being_refused():
+    """#2418: «запас базы» was blank from 2 September, and nothing said why.
+
+    The read gave up whenever the link was busy and tried again in fifteen seconds. On
+    the live panel timers, rallies and sweeps hold the link almost continuously, so it
+    was refused EVERY time — and a DETACHED play cannot queue by construction either:
+    `host.py::play_async` only hangs a demand on the door when the priority outranks the
+    run holding the client, and DETACHED outranks nothing.
+
+    So the priority now says who asked. A page opened or a balance the GAME announced is
+    a press by the same contract every screen keeps (`web/api.py::_look`) and waits its
+    turn; the safety clock stays DETACHED and is still refused, which is right — nobody
+    is waiting on it. Neither path is a poll: the queue is a look and an event, exactly
+    as before.
+    """
+    src = (_REPO_ROOT / "panel" / "runtime" / "resources.py").read_text(encoding="utf-8")
+    body = src.split("def _maybe_refresh")[1].split("def _from_run")[0]
+    assert "asked = bool(not self._at or self._dirty)" in body, \
+        "the read no longer knows whether anybody asked for it"
+    assert "if not asked:" in body and "if self._rt.game.busy:" in body, \
+        "either every read gives up on a busy link again, or none of them does"
+    assert "claims.HUMAN if asked" in body, \
+        "a reading somebody asked for is queued where it cannot wait"
+    assert "claims.DETACHED" in body, "the safety sweep stopped being the humble one"
+    # …and it is still not a clock: nothing here arms a timer of its own.
+    assert "tick.arm" not in body and "Timer(" not in body, \
+        "the stock read grew a poll"
 
 
 if __name__ == "__main__":

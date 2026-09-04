@@ -206,9 +206,11 @@ class BaseResources:
         to a worker by :meth:`~panel.runtime.host.PanelRuntime.play_async`, and this
         answers with whatever is already in memory.
 
-        The play goes in at :data:`~panel.runtime.claims.DETACHED` — below every ordinary
-        errand — because it is a page being looked at and nothing else: a stock figure is
-        never worth making a robbery or a rally join wait for it.
+        The play WAITS ITS TURN when somebody asked for it — a page was opened, or the
+        game said a balance moved — and is refused when only the safety clock wants it.
+        It used to be DETACHED in both cases, which sounds humble and is not: a DETACHED
+        play cannot queue at all, so on a panel whose link is busy it is refused every
+        time and the card is blank for days (#2418).
         """
         now = self._clock() if now is None else now
         self._looked_at = now
@@ -312,23 +314,44 @@ class BaseResources:
         # re-read every half minute was paying for the same nine numbers all evening.
         if self._at and not self._dirty and now - self._at < SAFETY_SEC:
             return
-        # THE LINK IS EXCLUSIVE AND SOMETHING ELSE IS ON IT. Asked here rather than left
-        # to the claim, for the same reason as the gate below: the refusal is a warning
-        # line, and this poll would write one every 2.5 s for the length of an errand.
-        try:
-            # …EXCEPT WHEN NOTHING HAS EVER BEEN READ (#2418). The bail below is there so
-            # a poll does not write a refusal line every 2.5 s while an errand holds the
-            # link — right for a card that already has numbers on it and is only going
-            # stale. It was wrong for a card that has NONE: on the live panel the link is
-            # held by timers and rallies almost continuously, so the first reading never
-            # got in and «запас базы» said «не прочитано» for two days. The first read is
-            # queued like any other play at DETACHED — below every errand — and waits its
-            # turn instead of being refused.
-            if self._rt.game.busy and self._at:
-                self._hold_until = now + RETRY_SEC
-                return
-        except Exception:                # noqa: BLE001 — an unreadable link is not
-            return                       #   a licence to press either
+        # WHY THIS READ MAY WAIT, AND WHEN (#2418).
+        #
+        # It used to give up here: «the link is exclusive and something else is on it»,
+        # so the card held off and tried again in fifteen seconds. That was written when
+        # a VM call was expensive, and it had a consequence nobody measured until the
+        # person asked why «Профиль» was blank — on the live panel timers, rallies and
+        # sweeps hold the link almost continuously, so the read was refused every single
+        # time it was attempted and «запас базы» said «не прочитано» FROM 2 SEPTEMBER.
+        # A reading that is always refused is not a cheap reading; it is no reading, and
+        # it is silent about it.
+        #
+        # Two things changed. The call is ten times cheaper and the link measures 8–19%
+        # busy, so waiting for a parking moment costs the game almost nothing. And a
+        # DETACHED play cannot wait AT ALL by construction: `play_async` only hangs a
+        # demand on the door when the priority outranks the run holding the client
+        # (`host.py`), and DETACHED outranks nothing — so it is refused rather than
+        # queued, for ever, whatever the retry interval says.
+        #
+        # So the priority says WHO ASKED, which is what a priority is for:
+        #
+        #   * somebody opened the page, or the GAME said a balance moved — that is a
+        #     press by the contract this panel already keeps for every screen
+        #     (`web/api.py::_look`), so it goes in as one and waits its turn behind
+        #     whatever is parking;
+        #   * the safety sweep — a clock, nobody asked — stays DETACHED and is still
+        #     refused while the link is busy, which is right: nothing is waiting on it.
+        #
+        # Nothing here polls the game. The queue is a look and an event, exactly as
+        # before; only the answer to «the link is busy» changed, from «never mind» to
+        # «then I will wait».
+        asked = bool(not self._at or self._dirty)
+        if not asked:
+            try:
+                if self._rt.game.busy:
+                    self._hold_until = now + RETRY_SEC
+                    return
+            except Exception:            # noqa: BLE001 — an unreadable link is not
+                return                   #   a licence to press either
         # ASKED BEFORE IT IS PLAYED, and silently. `play_async` gates too and says so in
         # the log — which for a poll this regular would be a refusal line every half
         # minute for as long as a stopped profile's page is open, drowning the log the
@@ -344,7 +367,8 @@ class BaseResources:
         # back would throw it away.
         self._dirty = False
         started = self._rt.play_async(ACTION, tag="resources", human=False,
-                                      priority=claims.DETACHED,
+                                      priority=(claims.HUMAN if asked
+                                                else claims.DETACHED),
                                       on_result=self._from_run)
         if not started:
             # Refused before it reached a worker (busy, held, no client). Not a reading
