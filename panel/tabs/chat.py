@@ -266,7 +266,8 @@ class ChatTab(PanelTab):
 
         THE TAIL OF THIS METHOD HAD BEEN LOST since #1221: the lines that close the
         store, forget the character and start the reader again had drifted below a
-        `return` at the end of `_web_messages`, where they were unreachable. So a
+        `return` at the end of the web view's message helper, where they were
+        unreachable. So a
         profile switch stopped the reader and cleared the widgets and then went on
         paging the PREVIOUS account's history out of a store that was never closed.
         """
@@ -308,28 +309,16 @@ class ChatTab(PanelTab):
     def web_view(self) -> "dict | None":
         import time as _time
 
-        cards = []
-        for chat_type in CHAT_TABS:
-            rows = self._web_messages(chat_type)
-            if not rows and chat_type not in ("world", "alliance", "dm"):
-                continue                       # a quiet corner is not worth a card
-            # `drawn`: a front-end that knows this screen is a CONVERSATION draws the
-            # channel itself and skips this card; one that does not still shows the
-            # newest messages as a list (#2064).
-            card = {"title": f"chat.tab.{chat_type}", "items": rows, "drawn": True,
-                    "empty": "chat.empty", "flow": self._web_flow()}
-            if chat_type != "dm" and self._chat_room(chat_type):
-                # No room, no box: a card that has never had a message has nowhere to
-                # answer into, and an «Отправить» that can only be refused is worse
-                # than no button (the window greys its target line the same way). The
-                # DM card has no whole-card room at all — see `_web_messages`.
-                card["actions"] = [
-                    {"id": "send", "label": "chat.send",
-                     "prompt": "chat.send.prompt", "args": {"type": chat_type}},
-                    {"id": "coords", "label": "chat.send_coords",
-                     "prompt": "chat.send_coords.prompt", "args": {"type": chat_type}},
-                ]
-            cards.append(card)
+        # THE CHAT SCREEN CARRIES NO MESSAGE CARDS AT ALL (#2418). They were the
+        # fallback list for a front-end that does not draw a conversation — five cards
+        # of thirty messages, marked `drawn` so the one front-end there is throws every
+        # one of them away (`ScreenView.tsx`: `cards.filter(c => !(map && c.drawn))`).
+        # The chat page re-asks `/api/screen` every couple of seconds, so that fallback
+        # was 26.6 KB of a 35.2 KB reading built, serialised and discarded 24 times a
+        # minute on a phone. The conversation itself has travelled on
+        # `/api/screen/data?kind=page` since #2064 and is what the screen actually
+        # shows; the send box, the picker and the room list are the ChatView's own.
+        cards: list = []
         # THE PICKER IS NOT A PAIR OF GRIDS UNDER THE CHAT ANY MORE (#2418). The person:
         # «эмодзи и стикеры сделаны огромными таблицами под чатом, сделай дополнительные
         # кнопки, и в модалке сделай нужный выбор». Two hundred sprites laid out below
@@ -344,8 +333,6 @@ class ChatTab(PanelTab):
         # the same door the world map goes through (#2018), and the messages travel on
         # `/api/screen/data` rather than on the screen's own poll.
         #
-        # The cards STAY: they are the emoji and sticker picker, and the channel cards
-        # are what a front-end that does not know this kind still shows.
         # WHETHER THE EAR IS OPEN travels too (#2064). Nothing is written down while
         # the reader child is stopped, so a phone reading a chat with the monitor off is
         # reading a history that has quietly stopped growing — and until now the only
@@ -782,37 +769,6 @@ class ChatTab(PanelTab):
             if marks is not None:
                 part["parts"] = marks
         return parts, photo
-
-    def _web_messages(self, chat_type: str) -> list:
-        """The newest messages of one type, oldest first — as the window shows them.
-
-        A DM row carries its OWN room as a reply button. A private conversation is one
-        of many, and the card cannot be answered as a whole: the window's «open thread»
-        is the window's, and a phone that replied into it would answer whoever the
-        person at the machine happens to be reading. A message, on the other hand, says
-        exactly who it came from.
-        """
-        rows = list(self._chat_msgs.get(chat_type) or ())[-self.WEB_MESSAGES:]
-        if not rows and self._chat_store is not None:
-            try:
-                rows = self._chat_store.recent(chat_type, self.WEB_MESSAGES)
-            except Exception:                  # noqa: BLE001 — a closed store is empty
-                rows = []
-        out = []
-        for row in rows:
-            text = str(row.get("msg") or "").strip()
-            if not text:
-                continue                       # a sticker or a photo: the window's job
-            item = {"text": str(row.get("sender_name") or "?"),
-                    "note": text,
-                    "until": None}
-            room = str(row.get("room_id") or "").strip()
-            if chat_type == "dm" and room:
-                item["actions"] = [{"id": "send", "label": "chat.send",
-                                    "prompt": "chat.send.prompt",
-                                    "args": {"type": chat_type, "room": room}}]
-            out.append(item)
-        return out
 
     def panic(self) -> None:
         self._was_watching = bool(self._chat_var.get())
@@ -1873,15 +1829,6 @@ class ChatTab(PanelTab):
             self._flow_label.configure(foreground=said["colour"])
         except tk.TclError:
             pass
-
-    def _web_flow(self) -> dict:
-        """The same badge for the phone — data, never words (#1549)."""
-        from ..runtime import flow
-
-        badge = flow.badge(self.rt, INTAKE_CHAT)
-        said = flow.line(badge)
-        return {"key": said["key"], "fmt": said["fmt"], "colour": said["colour"],
-                "state": badge.get("state")}
 
     def _pump_chat(self) -> None:
         """Drain the chat queue and refresh treeviews — scheduled every 1 s."""

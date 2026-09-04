@@ -1142,5 +1142,24 @@ def test_the_offer_to_translate_is_the_game_s_own_answer():
     assert can({}) is True
 
 
+def test_the_chat_screen_carries_no_message_cards():
+    """#2418: the phone was handed 30 messages x 5 channels it throws away.
+
+    `ScreenView.tsx` filters every card marked `drawn` off a screen that draws itself,
+    so the fallback list was built, serialised and discarded on each of the chat page's
+    polls — measured live at 26.6 KB of a 35.2 KB reading, 24 times a minute. The
+    conversation travels on `/api/screen/data?kind=page`; the screen carries the rooms,
+    the ear and the age and nothing else.
+    """
+    src = (_REPO / "panel" / "tabs" / "chat.py").read_text(encoding="utf-8")
+    view = src.split("def web_view")[1].split("\n    def ")[0]
+    assert "_web_messages" not in view and "_web_flow" not in view, \
+        "the chat screen is building message cards again"
+    assert "for chat_type in CHAT_TABS" not in view, \
+        "the chat screen loops the channels into cards again"
+    assert '"rooms": self._web_rooms()' in view, "the room list left the screen"
+    assert '"silent"' in view, "the age of the reading left the screen"
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())
