@@ -723,9 +723,13 @@ def test_the_reader_is_drained_by_a_panel_with_no_window():
     src = (_REPO / "panel" / "tabs" / "chat.py").read_text(encoding="utf-8")
     loaded = src.split("def ensure_loaded")[1].split("def on_show")[0]
     assert "self._pump_chat()" in loaded, "the queue is drained only where it is drawn"
-    # …and nothing the pump touches may be a widget that was never built.
-    assert "self._chat_count_var.set(" not in src, \
+    # …and nothing it touches on that tick may be a widget that was never built.
+    pump = src.split("def _pump_chat")[1].split("def _load_backlog")[0]
+    assert "self._set_chat_count(" in pump and "_chat_count_var" not in pump, \
         "the pump writes a variable that only build() makes"
+    clear = src.split("def _clear_chat")[1].split("def _load_chat_history")[0]
+    assert "_chat_count_var" not in clear, \
+        "clearing the chat writes a variable that only build() makes"
 
 
 

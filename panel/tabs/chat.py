@@ -2222,7 +2222,7 @@ class ChatTab(PanelTab):
         if getattr(self, "_dm_header_var", None) is not None:
             self._dm_header_var.set(self.t("chat.dm.pick"))
         self._refresh_dm_contacts()
-        self._chat_count_var.set(self.t("chat.count", n=0))
+        self._set_chat_count(0)
 
     def _load_chat_history(self) -> None:
         """Point the chat store at the CURRENT CHARACTER and render its newest page.
