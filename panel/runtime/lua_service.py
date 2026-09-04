@@ -428,7 +428,15 @@ class LuaService:
             except BaseException as exc:              # noqa: BLE001 — never the last word
                 self._note_warn("watch: %s", exc)
             self._mark_seen()
-            self._say_timing()
+            try:
+                self._say_timing()
+            except BaseException as exc:              # noqa: BLE001 — a diagnostic
+                # A LINE ABOUT THE WORK MAY NEVER STOP THE WORK. This runs OUTSIDE the
+                # try above, on the thread that follows the client, probes the link and
+                # rebuilds the attach — so a counter that raised would take the whole
+                # watch down and the panel would sit there with a client it never
+                # re-attached to.
+                self._note_warn("timing line failed: %s", exc)
 
     def _say_timing(self) -> None:
         """Write the last minute's calls to `debug.log`, split three ways (#2404).
