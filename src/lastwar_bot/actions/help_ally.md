@@ -37,4 +37,5 @@
 # (GetAllianceHelpSliderData -> {todayHelpPoint, maxHelpCount}); reaching the cap
 # does not stop you from helping — it just stops the points from growing.
 
+SHARE
 TAP help_ally_all xall   # press "Help All" until no request is left pending

@@ -44,6 +44,7 @@
 # from tools/lib/lua_actions.py (ministry_own_position / ministry_apply_cooldown_ms /
 # ministry_can_apply) and the quoting cannot drift. Engine side: docs/research/ministry.md.
 
+SHARE
 READ_LUA (function() local ok, p = pcall(function() return DataCenter.OfficialApplyManager:GetOwnPositionId() end) if not ok or p == nil then p = DataCenter.GovernmentManager.self_positionId end return tonumber(p) or 0 end)() INTO post
 
 IF post == 10007

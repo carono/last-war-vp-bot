@@ -26,6 +26,8 @@
 
 # Which carriage to queue in, as the player sees them — 1 is the first one behind the
 # locomotive. Clamped to the carriages this train actually has.
+
+SHARE
 ARGS carriage = 1
 
 # What to offer the conductor: 0 is a like and costs nothing, 1..3 are Trade Contracts
