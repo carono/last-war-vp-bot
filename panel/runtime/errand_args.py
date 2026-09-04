@@ -37,14 +37,20 @@ from . import errand_options as errandopts
 DAY_KEYS = tuple("errand.arg.day.%d" % day for day in range(1, 8))
 
 
-def _flag(key: str, label_key: str, *, hint_key: str = "") -> dict:
+def _flag(key: str, label_key: str, *, hint_key: str = "", default: int = 0) -> dict:
     """An argument the recipe reads as 0/1 — drawn as a switch, stored as a number.
 
     The recipes take numbers because the DSL has no booleans; a person should not have
     to know that, so the box is a box and the conversion happens on the way in.
+
+    `default` is what the switch SHOWS while the row has never been written — and it
+    must be the recipe's own `ARGS` value, or the two disagree: the errand would run
+    with the recipe's default while the page drew the opposite. It is `0` only because
+    most of the older knobs are opt-in; a knob whose recipe declares `ARGS x = 1` says
+    `default=1` here (#2390, #2395).
     """
     return {"key": key, "label": label_key, "kind": errandopts.SWITCH,
-            "hint": hint_key, "cast": "flag"}
+            "hint": hint_key, "cast": "flag", "default": int(default)}
 
 
 def _num(key: str, label_key: str, *, low: int, high: int,
@@ -144,19 +150,19 @@ SPEC: dict = {
     # seven default to on, and all are drawn on «Магазин» as well as here.
     "collect_shop_freebies": (
         _flag("free_gift", "shop.free_gift",
-              hint_key="shop.free_gift.hint"),
+              hint_key="shop.free_gift.hint", default=1),
         _flag("card_daily", "shop.card_daily",
-              hint_key="shop.card_daily.hint"),
+              hint_key="shop.card_daily.hint", default=1),
         _flag("month_card", "shop.month_card",
-              hint_key="shop.month_card.hint"),
+              hint_key="shop.month_card.hint", default=1),
         _flag("battle_pass", "shop.battle_pass",
-              hint_key="shop.battle_pass.hint"),
+              hint_key="shop.battle_pass.hint", default=1),
         _flag("decoration_free", "shop.decoration_free",
-              hint_key="shop.decoration_free.hint"),
+              hint_key="shop.decoration_free.hint", default=1),
         _flag("recharge_free", "shop.recharge_free",
-              hint_key="shop.recharge_free.hint"),
+              hint_key="shop.recharge_free.hint", default=1),
         _flag("golloes_free", "shop.golloes_free",
-              hint_key="shop.golloes_free.hint"),
+              hint_key="shop.golloes_free.hint", default=1),
     ),
     "send_trucks": (
         _flag("collect", "errand.arg.trucks.collect",
@@ -219,10 +225,12 @@ def _one_option(schedule, errand: str, spec: dict):
     kind = spec["kind"]
     low, high = spec.get("low"), spec.get("high")
 
-    def read(_k=key, _kind=kind):
-        value = schedule.timer_arg(errand, _k)
+    fallback = int(spec.get("default") or 0)
+
+    def read(_k=key, _kind=kind, _d=fallback):
+        value = schedule.timer_arg(errand, _k, _d)
         if _kind == errandopts.SWITCH:
-            return bool(_as_int(value, fallback=0))
+            return bool(_as_int(value, fallback=_d))
         return "" if value is None else value
 
     def write(value, _k=key, _kind=kind, _low=low, _high=high):
