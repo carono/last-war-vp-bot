@@ -1022,11 +1022,17 @@ class ChatTab(PanelTab):
         return out
 
     def _absorb_rooms(self, found: dict) -> None:
-        """Put the read away, on the Tk thread. An empty answer changes nothing."""
+        """Put the read away, on the Tk thread. An empty answer changes nothing.
+
+        THE FLAG IS CLEARED HERE, WHATEVER CAME BACK. A read made while the link was
+        not up yet — the boot does exactly that — answers with nothing, and leaving the
+        flag standing meant no look and no press could ever ask again.
+        """
+        self._rooms_busy = False
         if not found:
-            return
-        self._rooms = found
-        self._rooms_read = time.time()
+            return                              # …and `_rooms_read` stays old, so the
+        self._rooms = found                     # next look asks again rather than
+        self._rooms_read = time.time()          # trusting an answer nobody gave.
 
     def _room_label(self, room: str) -> tuple:
         """`(key, label)` for a chip — a locale key, or the group's own name.

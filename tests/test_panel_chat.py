@@ -813,6 +813,29 @@ def test_the_room_list_is_read_from_the_client_never_written_down():
 
 
 
+def test_a_room_read_that_answered_nothing_can_be_asked_again():
+    """The boot reads before the link is up, and the answer is empty (#2418).
+
+    The «one at a time» flag was set on the way in and cleared nowhere, so that first
+    empty read locked the register shut: neither a look nor a press could ask again, and
+    the chips stayed the fallback six for as long as the panel ran.
+    """
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_a_room_read_that_answered_nothing...: {exc}")
+        return
+
+    P = object.__new__(pm.ChatTab)
+    P._rooms, P._rooms_read, P._rooms_busy = {}, 0.0, True
+    pm.ChatTab._absorb_rooms(P, {})
+    assert P._rooms_busy is False, "an empty answer locks the register for ever"
+    assert P._rooms_read == 0.0, "an empty answer counts as a fresh reading"
+    pm.ChatTab._absorb_rooms(P, {"country_1000_11": {"name": "", "msgs": 1}})
+    assert P._rooms and P._rooms_read > 0.0
+
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
