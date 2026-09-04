@@ -1143,7 +1143,12 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         assert knobs["monitor"]["value"] is True, knobs
         assert knobs["alert"]["value"] is False, knobs
         assert knobs["autojoin"]["value"] is False, knobs
-        assert {f["kind"] for f in knobs.values()} == {"switch"}, knobs
+        assert {f["kind"] for f in knobs.values()} == {"switch", "number"}, knobs
+        # …AND THE FLIGHT CEILING, WHICH IS A NUMBER AND NOT A SWITCH (#2425): the door
+        # that leaves a far banner alone lives with the auto-join's own knobs, so the
+        # phone can move it without walking to the machine.
+        assert knobs["max_fly"]["kind"] == opt_value.NUMBER, knobs
+        assert knobs["max_fly"]["value"] == autorallymod.MAX_FLY_DEFAULT, knobs
 
         # Nothing ticked reads as a WORD, so it says the same in eleven languages.
         card = tab._web_autorally_card()

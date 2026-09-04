@@ -115,7 +115,12 @@ def join_args(rt) -> dict:
             # the next one, so the question «хватает ли на все три» is about the base and
             # the answer is one door over the whole run, judged in the press against the
             # pool it already reads.
-            "min_soldiers": rallytab.min_soldiers(rt)}
+            "min_soldiers": rallytab.min_soldiers(rt),
+            # …AND HOW LONG A SQUAD MAY FLY to reach the banner (#2425). A squad sent to
+            # the far side of the map is busy while every near banner arrives, so a
+            # banner priced over the ceiling is left alone and the squad goes to the next
+            # one in the same pass. Seconds; `0` is «any distance».
+            "max_fly": rallytab.max_fly(rt)}
 
 
 def wire(rt, bind=None) -> None:

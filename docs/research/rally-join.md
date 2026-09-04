@@ -77,6 +77,34 @@ Verify success by an increase in own marches:
 `DataCenter.WorldMarchDataManager:GetOwnerMarches()` count (enumerate it). `IsHaveMarchInWorld()`
 alone is not proof — it is already true whenever any unrelated march is out.
 
+## How far away a banner is, and what the ride costs (#2425)
+
+A joiner marches to the LEADER's tile, so «how far is this banner» is the distance from
+our base to `startPos` — not to the monster. Both numbers are the game's own and neither
+needs a call of its own on the join path:
+
+```lua
+SceneUtils.TileDistanceToMyHome(pointIndex, serverId)        -- tiles, 0 at the base
+MarchUtil.CalcMarchSpeedByConfig(MarchTargetType.JOIN_RALLY, formationUuid, nil, nil)
+```
+
+The speed is **tiles per second** and it is the SQUAD's — the bonuses behind it
+(`GetFormationSpeedAddByIndex`) are per formation, so it is asked per squad and cached
+for the run. `docs/research/golden-zombies.md` §4b checked the unit against the server's
+own `endTime` on a 271 s march and came out two seconds apart.
+
+So the flight is `distance / speed`, and `rally_join_all` refuses a banner priced over
+the ceiling the panel parks in `DataCenter.__lw_rally_max_fly` (seconds, `0` = any
+distance; the person's default is 5). A refused banner does NOT spend the squad it was
+offered — the squad goes to the next banner in the same pass — and the run's report names
+both sides: `to=[<team>/s<slot>/<seconds>s]` for the banners that went and
+`too_far=[<team>:<seconds>s]` for the ones that did not. A distance or a speed that
+cannot be read prices nothing and refuses nothing.
+
+Why the door exists at all: a squad on a far banner is away for the whole ride and the
+fight, and the near banners keep arriving while it is gone — the auto-join is the
+heaviest errand the panel runs (186 runs in twelve hours).
+
 ## Decline / leave
 
 Wire command: `alliance.team.retreat`. Send it directly:

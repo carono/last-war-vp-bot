@@ -137,6 +137,28 @@ ARGS kind_left =
 # floor costs no call of its own. A number that cannot be read at all refuses nothing.
 ARGS min_soldiers = 0
 
+# HOW LONG A SQUAD MAY BE IN THE AIR ON ITS WAY TO A BANNER, in seconds — `0` is «any
+# distance» (#2425).
+#
+# «Когда приходит пуш свободного стяга, нужно проверять расстояние до того, кто
+# организует стягивание, если расстояние большое (поход занимает более 5 секунд), то к
+# такому стягу не присоединяемся.» A squad that flies to the far side of the map is busy
+# for as long as it flies and fights, and the near banners keep arriving while it is
+# away — the auto-join was the heaviest errand there is, 186 runs in twelve hours, and
+# most of that is squads spent on banners that were never close.
+#
+# WHAT IS MEASURED IS THE JOINER'S OWN RIDE — from OUR base to the LEADER's tile, which
+# is where a joiner is sent (`docs/research/rally-join.md`: the gathering point, never
+# the monster). Both numbers are the game's own: `SceneUtils.TileDistanceToMyHome` for
+# the distance and `MarchUtil.CalcMarchSpeedByConfig(JOIN_RALLY, squad)` for that squad's
+# speed in tiles a second.
+#
+# It is judged INSIDE the press, on the banner list the sieve was already building, so
+# the door costs no call of its own — and a banner it passes over does not spend the
+# squad, which then goes to the next banner in the same pass. A distance or a speed that
+# cannot be read refuses nothing.
+ARGS max_fly = 5
+
 # THIS RUN DOES NOT HOLD THE PANEL UP (#1702). Measured over 127 episodes in one evening:
 # the join itself is fast — median 1 s, three quarters of them inside 2 s — and the tail
 # is not: 31, 51, 59, 63 and 241 seconds, 656 s of client time in all. The long ones are
@@ -188,7 +210,7 @@ DETACH
 # `__lw_rally_cap` is the day's ceiling, parked in the same line and for the same reason:
 # the press is one chunk and a door in front of it would be a second call on the one path
 # that is measured in fractions of a second (#1317).
-LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_points = "{points}" DataCenter.__lw_rally_cap = tonumber("{max_joins}") or 0 DataCenter.__lw_rally_kind_left = "{kind_left}" DataCenter.__lw_rally_kind_skip = "{kind_skip}" DataCenter.__lw_rally_min_soldiers = tonumber("{min_soldiers}") or 0 DataCenter.__lw_rally_shut = {}
+LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_points = "{points}" DataCenter.__lw_rally_cap = tonumber("{max_joins}") or 0 DataCenter.__lw_rally_kind_left = "{kind_left}" DataCenter.__lw_rally_kind_skip = "{kind_skip}" DataCenter.__lw_rally_min_soldiers = tonumber("{min_soldiers}") or 0 DataCenter.__lw_rally_max_fly = tonumber("{max_fly}") or 0 DataCenter.__lw_rally_shut = {}
 
 # Sieve, pair, send — every rally, in one press. Nothing is read before it and no window
 # is opened by it.

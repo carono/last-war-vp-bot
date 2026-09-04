@@ -938,6 +938,14 @@ class RallyTab(PanelTab):
                 {"key": "drill_banner", "label": "autorally.drill.banner",
                  "kind": opt_value.SWITCH,
                  "value": bool(self.autorally._drill_banner_var.get())},
+                # …AND HOW FAR A BANNER MAY BE, IN SECONDS OF FLIGHT (#2425). A number
+                # rather than a switch, and it sits with the auto-join's own knobs
+                # because it is the auto-join's own door: over it, the banner is left
+                # alone and the squad stays home for the next one. `0` is «any distance».
+                {"key": "max_fly", "label": "rally_fly.max",
+                 "kind": opt_value.NUMBER, "value": self.autorally.max_fly(),
+                 "min": 0, "max": autorallymod.MAX_FLY_TOP,
+                 "hint": "rally_fly.hint"},
             ],
         }
 
@@ -976,6 +984,13 @@ class RallyTab(PanelTab):
         rows.append({"label": "rally_troops.min",
                      "value": (str(floor) if floor
                                else self.t("rally_troops.none"))})
+        # …AND HOW FAR A BANNER MAY BE (#2425), as a reading beside the floor: the
+        # number itself is typed behind the card's own gear, and what a person reads
+        # here is which ceiling the joins of the last hour were judged against.
+        fly = self.autorally.max_fly()
+        rows.append({"label": "rally_fly.max",
+                     "value": (self.t("rally_fly.secs", n=fly) if fly
+                               else self.t("rally_fly.none"))})
         rows.append({"label": "rally_troops.now", "value": self.autorally.pool_text()})
         # …AND WHICH KINDS ARE SWITCHED OFF (#1317). The filter is what actually decides
         # whether a banner is joined, so the phone has to be able to see it — «галки стоят
@@ -1209,6 +1224,12 @@ class RallyTab(PanelTab):
                 if not self.autorally.set_cap(kind, raw):
                     return {"error": "unknown"}
                 return {"ok": True}
+            # …AND THE AUTO-JOIN'S OWN NUMBERS, which go through the one setter the
+            # gear on «Таймеры» uses — never a second copy of the value (#2425).
+            if key in ("max_fly", "min_soldiers", "daily_max"):
+                if not self.set_join_number(key, raw):
+                    return {"error": "unknown"}
+                return {"ok": True}
             if key == "squads":
                 # THE PICKER SENDS A LIST, not a box (#2062): «1,3» is every slot that is
                 # on, so the write is the whole list and never a diff the panel has to
@@ -1311,6 +1332,11 @@ class RallyTab(PanelTab):
                               low=0, high=autorallymod.MIN_SOLDIERS_TOP,
                               get=self.autorally.min_soldiers,
                               set=lambda v: self.set_join_number("min_soldiers", v)),
+            errandopts.Option("max_fly", "rally_fly.max", errandopts.NUMBER,
+                              hint_key="rally_fly.hint",
+                              low=0, high=autorallymod.MAX_FLY_TOP,
+                              get=self.autorally.max_fly,
+                              set=lambda v: self.set_join_number("max_fly", v)),
             errandopts.Option("daily_max", "rally_day.max", errandopts.NUMBER,
                               hint_key="rally_day.hint",
                               low=0, high=autorallymod.DAILY_MAX_TOP,
@@ -1366,11 +1392,16 @@ class RallyTab(PanelTab):
         raw = str(value if value is not None else "").strip()
         if not raw.isdigit():
             return False
-        top = (autorallymod.MIN_SOLDIERS_TOP if key == "min_soldiers"
-               else autorallymod.DAILY_MAX_TOP)
-        number = max(0, min(top, int(raw)))
-        var = (self.autorally._min_soldiers_var if key == "min_soldiers"
-               else self.autorally._daily_var)
+        tops = {"min_soldiers": autorallymod.MIN_SOLDIERS_TOP,
+                "max_fly": autorallymod.MAX_FLY_TOP,
+                "daily_max": autorallymod.DAILY_MAX_TOP}
+        vars_ = {"min_soldiers": self.autorally._min_soldiers_var,
+                 "max_fly": self.autorally._max_fly_var,
+                 "daily_max": self.autorally._daily_var}
+        if key not in tops:
+            return False
+        number = max(0, min(tops[key], int(raw)))
+        var = vars_[key]
         var.set(str(number))
         self.remember({"autorally": {key: number}})
         self.rt.settings.changed()
@@ -2157,7 +2188,11 @@ class RallyTab(PanelTab):
                                         # …and the soldier floor, on this driver too: a
                                         # door only one of the two drivers passes is not
                                         # a door (#1317).
-                                        "min_soldiers": self.autorally.min_soldiers()},
+                                        "min_soldiers": self.autorally.min_soldiers(),
+                                        # …and the flight ceiling, on this driver too:
+                                        # a door only one of the two drivers passes is
+                                        # not a door (#2425).
+                                        "max_fly": self.autorally.max_fly()},
                                        on_event=lambda msg: self.rt.put(f"[rally] {msg}"))
             # THE SAME BOOK THE OTHER DRIVER WRITES IN (#1281). This tab plays the recipe
             # itself, off the capture's own reader and past the schedule entirely, so its
@@ -2324,6 +2359,28 @@ def daily_max(rt) -> int:
     raw = (saved or {}).get("daily_max") if isinstance(saved, dict) else None
     if not isinstance(raw, int) or not 0 <= raw <= autorallymod.DAILY_MAX_TOP:
         return autorallymod.DAILY_MAX_DEFAULT
+    return raw
+
+
+def max_fly(rt) -> int:
+    """How many seconds a squad may fly to a banner — `0` is «any distance» (#2425).
+
+    The same two-source rule as :func:`join_squads`, and for the same reason: the
+    «rally_auto_join» trigger fires in a profile whose «Ралли» tab may never be built.
+
+    A profile with no saved number answers the person's own five seconds rather than «no
+    ceiling»: the cost the door answers — a squad away on a far banner while the near
+    ones keep arriving — is paid by every profile, including the ones written before the
+    box existed.
+    """
+    tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
+    if tab is not None:
+        return tab.autorally.max_fly()
+    block = rt.settings.tab_config(RallyTab.ID, RallyTab.LEGACY_KEYS)
+    saved = block.get("autorally")
+    raw = (saved or {}).get("max_fly") if isinstance(saved, dict) else None
+    if not isinstance(raw, int) or not 0 <= raw <= autorallymod.MAX_FLY_TOP:
+        return autorallymod.MAX_FLY_DEFAULT
     return raw
 
 

@@ -81,6 +81,14 @@ MarchUtil = {
 }
 UITimeManager = {GetInstance = function(self) return {GetServerTime = function(self)
   return NOW end} end}
+
+-- HOW THE GAME PRICES A RIDE (#2425): the distance from the base to the tile a joiner
+-- gathers on, and that squad's own speed in tiles a second. `DIST` is keyed by tile, so
+-- a test can stand one banner next door and another across the map.
+SPEED = 4
+DIST = {}
+MarchUtil.CalcMarchSpeedByConfig = function(kind, formation) return SPEED end
+SceneUtils = {TileDistanceToMyHome = function(point, server) return DIST[point] end}
 LuaEntry = {Player = {uid = "1000000000000001", allianceId = 1}}
 
 -- A .NET collection as the chunk walks it: `GetEnumerator()`, `MoveNext()`, `Current`.
@@ -113,7 +121,7 @@ def _lua_str(s: str) -> str:
 
 
 def _vm(*, client_marches=(), own_marches=None, squads=((1, 3000),),
-        points="", slots="", targets=""):
+        points="", slots="", targets="", max_fly=0, speed=4, dist=None):
     """A VM holding the stand-in client, with the run's arguments already parked.
 
     `own_marches` defaults to ONE march of ours with no team — that is what teaches the
@@ -146,11 +154,16 @@ DataCenter.__lw_rally_points = %s
 DataCenter.__lw_rally_slots = %s
 DataCenter.__lw_rally_targets = %s
 DataCenter.__lw_rally_shut = {}
+DataCenter.__lw_rally_max_fly = %s
+SPEED = %s
+DIST = {%s}
 """ % (", ".join(rows),
        ", ".join(client_marches),
        ", ".join(own_marches),
        ", ".join(str(slot) for slot, _n in squads),
-       _lua_str(points), _lua_str(slots), _lua_str(targets)))
+       _lua_str(points), _lua_str(slots), _lua_str(targets),
+       max_fly, speed,
+       ", ".join("[%d] = %d" % (tile, d) for tile, d in (dist or {}).items())))
     return lua
 
 
@@ -338,6 +351,103 @@ def test_the_recipe_declares_and_parks_the_argument() -> None:
         encoding="utf-8")
     assert "ARGS points" in recipe
     assert 'DataCenter.__lw_rally_points = "{points}"' in recipe
+
+
+# -- how far a banner may be (#2425) --------------------------------------------
+
+#: A second banner, on the far side of the map. Its own tile, so the distance table can
+#: price the two apart.
+_FAR_TEAM = _TEAM + 500
+_FAR_TILE = _LEADER_TILE + 12345
+
+
+def _two_banners():
+    """One banner next door and one far away, both this alliance's, neither joined."""
+    return (_march(_TEAM, _TEAM - 1, leader=True, tile=_LEADER_TILE),
+            _march(_FAR_TEAM, _FAR_TEAM - 1, leader=True, tile=_FAR_TILE))
+
+
+def test_a_banner_too_far_to_reach_in_time_is_left_alone() -> None:
+    """«Поход занимает более 5 секунд — к такому стягу не присоединяемся» (#2425).
+
+    4 tiles a second, a ceiling of five: 8 tiles is a two-second ride and 400 tiles is a
+    hundred-second one, so only the near banner is worth a squad.
+    """
+    if lupa is None:
+        print("  SKIP no lupa"); return
+    lua = _vm(client_marches=_two_banners(), max_fly=5, speed=4,
+              dist={_LEADER_TILE: 8, _FAR_TILE: 400}, squads=((1, 3000), (2, 3000)))
+    sends, report = _run(lua)
+    assert len(sends) == 1, report
+    assert sends[0]["team"] == _TEAM, sends
+    assert "too_far=" in report and str(_FAR_TEAM) in report, report
+
+
+def test_the_far_banner_does_not_spend_the_squad_it_was_offered() -> None:
+    """The whole point: a banner passed over leaves the squad for the one behind it.
+
+    The far banner is FIRST in the list, so a door that consumed the squad before
+    refusing would send nothing at all — which is the bug this test exists to catch.
+    """
+    if lupa is None:
+        print("  SKIP no lupa"); return
+    far, near = _two_banners()[1], _two_banners()[0]
+    lua = _vm(client_marches=(far, near), max_fly=5, speed=4,
+              dist={_LEADER_TILE: 8, _FAR_TILE: 400})
+    sends, report = _run(lua)
+    assert len(sends) == 1, report
+    assert sends[0]["team"] == _TEAM, (sends, report)
+
+
+def test_no_ceiling_joins_whatever_is_out() -> None:
+    """`0` is «any distance» — what every profile did before the door existed."""
+    if lupa is None:
+        print("  SKIP no lupa"); return
+    lua = _vm(client_marches=_two_banners(), max_fly=0, speed=4,
+              dist={_LEADER_TILE: 8, _FAR_TILE: 400}, squads=((1, 3000), (2, 3000)))
+    sends, report = _run(lua)
+    assert len(sends) == 2, report
+    assert "too_far=" not in report, report
+
+
+def test_a_gate_that_cannot_see_refuses_nothing() -> None:
+    """An unreadable distance is not a far banner: the door falls open, as they all do."""
+    if lupa is None:
+        print("  SKIP no lupa"); return
+    lua = _vm(client_marches=_two_banners(), max_fly=1, speed=4, dist={})
+    sends, report = _run(lua)
+    assert len(sends) == 1, report
+    assert "too_far=" not in report, report
+
+
+def test_a_squad_with_no_speed_is_not_refused_either() -> None:
+    """Same rule from the other side: a speed of zero prices nothing."""
+    if lupa is None:
+        print("  SKIP no lupa"); return
+    lua = _vm(client_marches=_two_banners(), max_fly=1, speed=0,
+              dist={_LEADER_TILE: 8, _FAR_TILE: 400})
+    sends, report = _run(lua)
+    assert len(sends) == 1, report
+    assert "too_far=" not in report, report
+
+
+def test_the_report_prices_the_banner_that_went() -> None:
+    """A join names the seconds it was priced at, or the threshold cannot be checked."""
+    if lupa is None:
+        print("  SKIP no lupa"); return
+    lua = _vm(client_marches=(_two_banners()[0],), max_fly=5, speed=4,
+              dist={_LEADER_TILE: 8})
+    sends, report = _run(lua)
+    assert len(sends) == 1, report
+    assert "/2.0s" in report, report
+
+
+def test_the_recipe_declares_and_parks_the_flight_ceiling() -> None:
+    """A door the recipe never parks is a door that never shuts (#2425)."""
+    recipe = (ROOT / "src" / "lastwar_bot" / "actions" / "join_rally.md").read_text(
+        encoding="utf-8")
+    assert "ARGS max_fly = 5" in recipe
+    assert 'DataCenter.__lw_rally_max_fly = tonumber("{max_fly}") or 0' in recipe
 
 
 def _main() -> int:

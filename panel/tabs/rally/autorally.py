@@ -93,6 +93,16 @@ DAILY_UNREAD = "—"
 #: (`min_soldiers`) — all the panel keeps is the number.
 MIN_SOLDIERS_DEFAULT, MIN_SOLDIERS_TOP = 0, 9_999_999
 
+#: The flight ceiling: how many SECONDS a squad may be in the air on its way to the
+#: banner's gathering tile, and the range the box offers (#2425).
+#:
+#: `5` is the person's own number — «если поход занимает более 5 секунд, к такому стягу
+#: не присоединяемся» — and it is the default rather than «no ceiling», because the cost
+#: it answers is paid by every profile: a squad on a far banner is a squad missing the
+#: near ones, and the banners are frequent. `0` switches the door off. The judging is in
+#: `actions/join_rally.md` (`max_fly`) — all the panel keeps is the number.
+MAX_FLY_DEFAULT, MAX_FLY_TOP = 5, 600
+
 
 class AutoRallyPage:
     """The «Авторалли» page's state, and the widgets over it."""
@@ -118,6 +128,10 @@ class AutoRallyPage:
         # for the same reason: the door is read at boot in a profile whose tab nobody has
         # opened, and the reading beside it is what makes the number choosable (#1317).
         self._min_soldiers_var = statevar.string(master, str(MIN_SOLDIERS_DEFAULT))
+        # …and how long a squad may fly to reach a banner. Here for the same reason as
+        # the floor above: the auto-join fires at boot in a profile whose tab nobody has
+        # opened, and a door that only holds while a tab is drawn is not a door (#2425).
+        self._max_fly_var = statevar.string(master, str(MAX_FLY_DEFAULT))
         # THE THREE THE SCHEDULE READS OFF A WORKER THREAD (#1416). `Schedule.args`
         # builds `join_rally`'s arguments on the scheduler's own thread, and every one of
         # these is a Tk variable: read from there while the event loop is not running it
@@ -130,6 +144,7 @@ class AutoRallyPage:
                              for s, v in self._squad_vars.items()}
         self._read_daily = widgets.var_mirror(self._daily_var)
         self._read_min_soldiers = widgets.var_mirror(self._min_soldiers_var)
+        self._read_max_fly = widgets.var_mirror(self._max_fly_var)
         self._read_elite = widgets.var_mirror(self._create_elite_var)
         self._pool = None                      # soldiers in the base; None = never asked
         self._pool_var = statevar.string(master, "%s / %s" % (DAILY_UNREAD, DAILY_UNREAD))
@@ -580,6 +595,18 @@ class AutoRallyPage:
             return MIN_SOLDIERS_DEFAULT
         return max(0, min(MIN_SOLDIERS_TOP, int(raw)))
 
+    def max_fly(self) -> int:
+        """The flight ceiling as `join_rally` wants it — seconds, `0` = «any distance».
+
+        A half-typed box reads as the DEFAULT rather than as 0, for the same reason the
+        day's ceiling does: 0 here means «join a banner however far away it is», and a
+        box being edited must never quietly turn a door off (#2425).
+        """
+        raw = str(self._read_max_fly()).strip()
+        if not raw.isdigit():
+            return MAX_FLY_DEFAULT
+        return max(0, min(MAX_FLY_TOP, int(raw)))
+
     def pool_text(self) -> str:
         """«N / M» — what the base holds against the floor it is compared with (#1317).
 
@@ -671,6 +698,9 @@ class AutoRallyPage:
             # worth a squad at all. `0` is «no floor» and is what every profile written
             # before #1317 answers — a door nobody set must not start refusing.
             "min_soldiers": self.min_soldiers(),
+            # …and how long a squad may be in the air on its way to a banner. Seconds,
+            # `0` is «any distance» (#2425).
+            "max_fly": self.max_fly(),
             # …and the kinds of banner to leave alone. Stored as what is OFF, so a season
             # that adds a boss is joined by default rather than silently ignored by every
             # profile written before it existed.
@@ -728,6 +758,15 @@ class AutoRallyPage:
             floor = MIN_SOLDIERS_DEFAULT
         self._min_soldiers_var.set(str(floor))
 
+        # …and the flight ceiling, whose default is the person's five seconds rather
+        # than «no ceiling»: the cost it answers — a squad away on a far banner while the
+        # near ones arrive — is paid by every profile, including the ones written before
+        # the box existed (#2425).
+        fly = raw.get("max_fly")
+        if not isinstance(fly, int) or not 0 <= fly <= MAX_FLY_TOP:
+            fly = MAX_FLY_DEFAULT
+        self._max_fly_var.set(str(fly))
+
         off = raw.get("kinds_off")
         self._kinds_off = {str(k) for k in off} if isinstance(off, list) else set()
         for kind, var in self._kind_vars.items():
@@ -740,4 +779,5 @@ class AutoRallyPage:
         variable, so those call `rt.settings.changed()` from their own handler instead.
         """
         return [self._drill_on_var, self._drill_banner_var, self._create_elite_var,
-                self._daily_var, self._min_soldiers_var, *self._squad_vars.values()]
+                self._daily_var, self._min_soldiers_var, self._max_fly_var,
+                *self._squad_vars.values()]

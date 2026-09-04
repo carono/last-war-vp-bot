@@ -7498,6 +7498,40 @@ def rally_join_all() -> str:
         # then this door stands open exactly as it did before it existed.
         "local minpool = tonumber(DataCenter.__lw_rally_min_soldiers) or 0 "
         "local short_pool = (minpool > 0 and pool > 0 and pool < minpool) "
+        # …AND HOW LONG THE SQUAD WOULD BE IN THE AIR (#2425).
+        #
+        # «Когда приходит пуш свободного стяга, нужно проверять расстояние до того, кто
+        # организует стягивание; если поход занимает более 5 секунд, к такому стягу не
+        # присоединяемся.» A squad sent to the far side of the map is a squad that misses
+        # every near banner while it flies, and the banners are many and frequent.
+        #
+        # PRICED THE WAY THE GAME PRICES IT, and both halves are the game's own answer:
+        # `SceneUtils.TileDistanceToMyHome(point, server)` is the distance from the base
+        # — where a squad the sieve keeps is standing — to the tile the joiners gather
+        # on, and `MarchUtil.CalcMarchSpeedByConfig(JOIN_RALLY, formationUuid)` is that
+        # squad's own speed in tiles a second (`docs/research/golden-zombies.md` §4b
+        # measured that unit against the server's own `endTime`, two seconds apart over a
+        # 271 s march). Nothing is invented here and nothing is read that was not already
+        # to hand: it is arithmetic on two calls the chunk makes for itself.
+        #
+        # THE SPEED IS THE SQUAD'S, so it is asked per formation and cached for the run —
+        # the bonuses behind it (`GetFormationSpeedAddByIndex`) are per squad, and the
+        # banner is judged against the squad that would actually go to it.
+        #
+        # A GATE THAT CANNOT SEE DOES NOT REFUSE: an unreadable distance or speed comes
+        # back `-1` and the banner is taken exactly as it was before this existed.
+        "local maxfly = tonumber(DataCenter.__lw_rally_max_fly) or 0 "
+        "local spd_of = {} "
+        "local function fly_secs(r, q) "
+        "if r == nil or q == nil or r.point == nil then return -1 end "
+        "local key = tostring(q.uuid) local sp = spd_of[key] "
+        "if sp == nil then sp = 0 pcall(function() "
+        "sp = tonumber(MarchUtil.CalcMarchSpeedByConfig(6, q.uuid, nil, nil)) or 0 end) "
+        "spd_of[key] = sp end "
+        "if sp <= 0 then return -1 end "
+        "local d = -1 pcall(function() "
+        "d = tonumber(SceneUtils.TileDistanceToMyHome(r.point, r.server)) or -1 end) "
+        "if d < 0 then return -1 end return d / sp end "
         # …AND THE CEILING PER KIND (#1317). `kind:left,…`, parked by the panel, which is
         # the only thing that can count them: the client keeps ONE daily rally counter and
         # no per-species number anywhere — every manager was walked for #1317 and there is
@@ -7532,6 +7566,7 @@ def rally_join_all() -> str:
         "local kind_blocked = {} "
         "local kind_dropped = {} "
         "local sent, errs, went, left_over, kinds, went_kind = 0, {}, {}, {}, {}, {} "
+        "local far = {} "
         "local sent_teams = {} "
         "local unknown_kind = 0 "
         "local pairs_n = #home if #rallies < pairs_n then pairs_n = #rallies end "
@@ -7560,7 +7595,15 @@ def rally_join_all() -> str:
         "kind_blocked[kind] = (kind_blocked[kind] or 0) + 1 "
         "left_over[#left_over+1] = tostring(r.team)..':kind-capped('..kind..')' "
         "elseif qi >= #home then left_over[#left_over+1] = tostring(r.team)..(#home == 0 and ':no-squad' or ':squads-spent') "
-        "else qi = qi + 1 local q = home[qi] "
+        # TOO FAR TO BE WORTH A SQUAD (#2425). Judged against the squad that would be
+        # sent — the next one in the queue — and it does NOT spend it: a banner passed
+        # over here leaves the squad for the banner behind it, which is the whole point.
+        "else local q = home[qi + 1] local ft = fly_secs(r, q) "
+        "if maxfly > 0 and ft >= 0 and ft > maxfly then "
+        "far[#far+1] = tostring(r.team)..':'..string.format('%.1f', ft)..'s' "
+        "left_over[#left_over+1] = tostring(r.team)..':too-far('"
+        "..string.format('%.1f', ft)..'s > '..tostring(maxfly)..'s)' "
+        "else qi = qi + 1 "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(q.uuid, 6, r.point, r.team, 1, 1, false, r.server, nil) end) "
         "if ok then sent = sent + 1 keep[tostring(r.team)] = 0 "        # age 0: freshly sent
@@ -7571,7 +7614,10 @@ def rally_join_all() -> str:
         "kind_left[kind] = kind_left[kind] - 1 end "
         "tries[tostring(r.team)] = (tonumber(tries[tostring(r.team)] or 0) or 0) + 1 "
         "sent_teams[#sent_teams+1] = tostring(r.team) "
-        "went[#went+1] = tostring(r.team)..'/s'..tostring(q.slot) "
+        # …WITH HOW LONG THE FLIGHT WAS PRICED AT (#2425), so the number the door judges
+        # can be read back against the server's own arrival time on any banner that went.
+        "went[#went+1] = tostring(r.team)..'/s'..tostring(q.slot)"
+        "..((ft >= 0) and ('/'..string.format('%.1f', ft)..'s') or '') "
         "kinds[#kinds+1] = kind "
         "went_kind[#went_kind+1] = tostring(r.team)..'='..kind"
         "..((r.level ~= nil) and (' lv'..tostring(r.level)) or '')"
@@ -7583,7 +7629,7 @@ def rally_join_all() -> str:
         'CS.UnityEngine.Debug.LogError("ACT rally_join_all send squad="..tostring(q.slot)'
         '.." team="..tostring(r.team).." point="..tostring(r.point).." server="..tostring(r.server)) '
         "else errs[#errs+1] = tostring(q.slot)..':'..tostring(err) "
-        "left_over[#left_over+1] = tostring(r.team)..':refused' end end end "
+        "left_over[#left_over+1] = tostring(r.team)..':refused' end end end end "
         "DataCenter.__lw_rally_joined = keep "
         "DataCenter.__lw_rally_sent = sent "
         "DataCenter.__lw_rally_kinds = table.concat(kinds, ',') "
@@ -7709,6 +7755,12 @@ def rally_join_all() -> str:
         "bite here, whatever the panel handed over)' "
         "else report = report..' (no target for this banner, or the event lists could "
         "not be read — counted as \"monster\", said rather than assumed)' end end "
+        # …AND THE BANNERS THAT WERE TOO FAR TO BE WORTH A SQUAD, WITH THEIR PRICE (#2425).
+        # Named whether or not anything else went out, because «стягов не было» and «до
+        # них было далеко лететь» are different evenings and the number is the one thing
+        # that makes the threshold choosable.
+        "if #far > 0 then report = report..' too_far=['..table.concat(far, ' ')"
+        "..'] (over the flight ceiling of '..tostring(maxfly)..'s set in «Автостяг»)' end "
         "if #arrived > 0 then report = report..' arrived=['..table.concat(arrived, ' ')..']' end "
         "if #full > 0 then report = report..' no_seat=['..table.concat(full, ' ')..']' end "
         "if #left_over > 0 then report = report..' passed=['..table.concat(left_over, ' ')..']' end "
