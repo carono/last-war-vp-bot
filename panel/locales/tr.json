@@ -998,6 +998,7 @@
   "timers.log.unfinished": "{name}: önceki çalışma hiç geri dönmedi — başarısız sayıldı, yeniden deneme molasını bekliyor",
   "rally.skip.squads_out": "gönderebileceği tüm birlikler yolda — başlatılmadı",
   "timers.log.skip_busy": "{name}: panel meşgul — sırada kalıyor",
+  "timers.log.squad_busy": "{name}: {squads} numaralı takımlar yolda — atlanıyor, sonraki turda",
   "timers.log.skip_off": "profil kapalı",
   "timers.log.skipped_once": "{name}: atlandı — {reason}",
   "timers.log.skipped_times": "{name}: {count} kez atlandı — {reason}",

@@ -998,6 +998,7 @@
   "timers.log.unfinished": "{name}: poprzedni przebieg nigdy nie wrócił — uznany za nieudany, czeka na przerwę przed ponowieniem",
   "rally.skip.squads_out": "wszystkie oddziały, które może wysłać, są w drodze — nie uruchamiam",
   "timers.log.skip_busy": "{name}: panel jest zajęty — zostaje w kolejce",
+  "timers.log.squad_busy": "{name}: oddziały {squads} są w drodze — pomijam, wrócę w następnym cyklu",
   "timers.log.skip_off": "profil jest wyłączony",
   "timers.log.skipped_once": "{name}: pominięto — {reason}",
   "timers.log.skipped_times": "{name}: pominięto {count} raz(y) — {reason}",

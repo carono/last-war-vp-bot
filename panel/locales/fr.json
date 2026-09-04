@@ -998,6 +998,7 @@
   "timers.log.unfinished": "{name} : l’exécution précédente n'est jamais revenue — comptée comme échouée, en attente avant nouvelle tentative",
   "rally.skip.squads_out": "toutes les escouades qu’il peut envoyer sont en route — non lancé",
   "timers.log.skip_busy": "{name} : le panneau est occupé — il reste en file",
+  "timers.log.squad_busy": "{name} : les escouades {squads} sont en route — ignoré, au prochain tour",
   "timers.log.skip_off": "le profil est éteint",
   "timers.log.skipped_once": "{name} : passé — {reason}",
   "timers.log.skipped_times": "{name} : passé {count} fois — {reason}",

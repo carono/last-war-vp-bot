@@ -998,6 +998,7 @@
   "timers.log.unfinished": "{name}: прошлый прогон не вернулся — считаю его провалившимся, жду паузу до повтора",
   "rally.skip.squads_out": "все отряды, которые он может послать, в разъездах — не запускаю",
   "timers.log.skip_busy": "{name}: панель занята — остаётся в очереди",
+  "timers.log.squad_busy": "{name}: отряды {squads} в разъезде — пропускаю, вернусь на следующем тике",
   "timers.log.skip_off": "профиль выключен",
   "timers.log.skipped_once": "{name}: пропуск — {reason}",
   "timers.log.skipped_times": "{name}: пропусков {count} — {reason}",

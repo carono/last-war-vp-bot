@@ -998,6 +998,7 @@
   "timers.log.unfinished": "{name}: the previous run never came back — written off as failed, waiting out its retry",
   "rally.skip.squads_out": "every squad it may send is out — not started",
   "timers.log.skip_busy": "{name}: the panel is busy — staying in the queue",
+  "timers.log.squad_busy": "{name}: squads {squads} are away — skipping, back on the next tick",
   "timers.log.skip_off": "the profile is switched off",
   "timers.log.skipped_once": "{name}: skipped — {reason}",
   "timers.log.skipped_times": "{name}: skipped {count} time(s) — {reason}",

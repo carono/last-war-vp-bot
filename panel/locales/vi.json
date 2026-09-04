@@ -998,6 +998,7 @@
   "timers.log.unfinished": "{name}: lần chạy trước không bao giờ quay lại — coi như thất bại, đang chờ hết thời gian trước khi thử lại",
   "rally.skip.squads_out": "mọi đội có thể gửi đều đang đi — không chạy",
   "timers.log.skip_busy": "{name}: bảng đang bận — vẫn nằm trong hàng đợi",
+  "timers.log.squad_busy": "{name}: các đội {squads} đang hành quân — bỏ qua, quay lại ở nhịp sau",
   "timers.log.skip_off": "hồ sơ đã tắt",
   "timers.log.skipped_once": "{name}: bỏ qua — {reason}",
   "timers.log.skipped_times": "{name}: bỏ qua {count} lần — {reason}",

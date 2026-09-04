@@ -37,6 +37,7 @@ from . import claims
 from . import errand_args as errandargs
 from . import errand_options as errandopts
 from . import link as linkmod
+from . import squad_gate as squadgate
 from . import game_control
 from . import game_process
 
@@ -642,6 +643,18 @@ class Schedule:
         JSON carry its commands inline.
         """
         name = getattr(errand, "name", "")
+        # A SQUAD ALREADY OUT MEANS SKIP, AND IT IS ASKED BEFORE THE CLIENT IS CLAIMED
+        # (#2404, `panel/runtime/squad_gate.py`). The operator's rule: «другой сценарий,
+        # использующий этот же отряд, просто должен перезапуститься позже или пропустить
+        # свою очередь». So an errand whose every slot is marching never claims, never
+        # sends, and never asks the game whether the squad came back — it says which
+        # slots are away and comes round on its own next tick. HERE, above the detached
+        # branch as well, because the golden hunt spends a slot too.
+        away = self._squads_away(errand)
+        if away:
+            self.rt.say("timer", "timers.log.squad_busy", name=name,
+                        squads=squadgate.said(away))
+            return True
         # HOW URGENT THIS ERRAND SAID IT WAS (#1288). An entry marked «сразу» in the
         # catalogue claims the client at EXPRESS, which means two things at once: it
         # never waits behind an ordinary errand, and it is never asked to step aside for
@@ -767,6 +780,18 @@ class Schedule:
             self._note_presses(ctx)
             self.rt.game.release()
             self.rt.game.on_settled()
+
+    def _squads_away(self, errand) -> tuple:
+        """Which of this errand's squads are out, or ``()`` for «go ahead» (#2404).
+
+        A reading, so it may never be the reason an errand did not run: anything that
+        goes wrong while asking answers «go ahead», exactly as an unreadable squad state
+        already does inside the gate.
+        """
+        try:
+            return squadgate.held(self.rt, self.args(errand))
+        except Exception:                     # noqa: BLE001 — a reading, never the run
+            return ()
 
     def _detached_errand(self, errand) -> bool:
         """Is this errand ONE scenario, and does that scenario declare `DETACH`? (#1702)

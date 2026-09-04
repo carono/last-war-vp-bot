@@ -998,6 +998,7 @@
   "timers.log.unfinished": "{name}: jalan sebelumnya tidak pernah kembali — dianggap gagal, menunggu jeda sebelum diulang",
   "rally.skip.squads_out": "semua regu yang bisa dikirim sedang di luar — tidak dijalankan",
   "timers.log.skip_busy": "{name}: panel sedang sibuk — tetap di antrean",
+  "timers.log.squad_busy": "{name}: pasukan {squads} sedang di luar — dilewati, kembali pada tick berikutnya",
   "timers.log.skip_off": "profil dimatikan",
   "timers.log.skipped_once": "{name}: dilewati — {reason}",
   "timers.log.skipped_times": "{name}: dilewati {count} kali — {reason}",

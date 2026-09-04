@@ -998,6 +998,7 @@
   "timers.log.unfinished": "{name}: a execução anterior nunca voltou — dada como falhada, aguardando a pausa até nova tentativa",
   "rally.skip.squads_out": "todos os esquadrões que pode enviar estão fora — não iniciado",
   "timers.log.skip_busy": "{name}: o painel está ocupado — continua na fila",
+  "timers.log.squad_busy": "{name}: os esquadrões {squads} estão fora — ignorado, volta no próximo ciclo",
   "timers.log.skip_off": "o perfil está desligado",
   "timers.log.skipped_once": "{name}: ignorado — {reason}",
   "timers.log.skipped_times": "{name}: ignorado {count} vez(es) — {reason}",
