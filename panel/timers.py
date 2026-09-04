@@ -761,6 +761,26 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.work_alert_tower",
     ),
     Timer(
+        name="attack_golden_zombies",
+        scenario=("attack_golden_zombies",),
+        # AN HOUR, AND IT IS THE ENERGY'S CLOCK RATHER THAN THE EVENT'S (#2408). One
+        # attack costs what the game charges for it and the purse fills back up by
+        # itself, so a run that emptied it has something to spend again within the hour
+        # — and a run that found the event shut is a clean no-op costing one reading.
+        interval_sec=3600,
+        # A failure here is a client that was not answering, or a squad that was already
+        # out on the map; ten minutes is soon enough to catch the next window.
+        retry_sec=600,
+        enabled=False,
+        # NO `args` BLOCK ON PURPOSE, and it is the piece exchange's reason: the squad,
+        # the ceiling, the square and the ride are knobs of «События», where the hunt's
+        # readings are, and the run reads them at fire time through
+        # `Schedule.register_args` (`panel/tabs/events/tab.py::golden_args`). A block
+        # here would be a second answer to «каким отрядом», and the first time the two
+        # disagreed the row's would win in silence.
+        label_key="timers.item.attack_golden_zombies",
+    ),
+    Timer(
         name="perform_arms_race",
         scenario=("perform_arms_race",),
         # A PERIOD THIS ROW NEVER USES WHILE THE GAME IS ANSWERING. «Гонка вооружений»

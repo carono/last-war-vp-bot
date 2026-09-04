@@ -746,6 +746,11 @@ class WebApi:
         records = schedule.store.records()
         catalogue = schedule.timer_catalogue
         pending = set(schedule.timers.pending())
+        # WHAT IS OUT RIGHT NOW (#2408), by the name of the scenario rather than of the
+        # row: a detached chain runs beside the schedule and is not «queued», so a card
+        # offering ▶ over a hunt that is already marching would start nothing and say
+        # nothing. Off the register every run goes through, so it costs no question.
+        running = {getattr(run, "name", "") for run in rt.interrupts.running()}
         rows = []
         for timer in catalogue:
             item = config.get(timer.name) or {}
@@ -772,6 +777,9 @@ class WebApi:
                 "last": when or None,
                 "last_state": state,
                 "queued": timer.name in pending,
+                # …and whether one of its steps is running, which is what turns the
+                # card's ▶ into a ■ (#2408).
+                "running": any(step in running for step in timer.scenario),
                 # «сразу, без очереди» (#1288) — the phone draws and sets the same
                 # box the window's row has, because the two are one runtime.
                 "immediate": bool(item.get("immediate", timer.immediate)),
@@ -1229,6 +1237,25 @@ class WebApi:
             return {"error": "unknown"}
         queued = bool(rt.schedule.timers.request(timer))
         return {"ok": queued, "queued": queued, "name": name}
+
+    def stop_timer(self, name: str, profile: str | None = None) -> dict:
+        """End what THIS row is running, and nothing else (#2408).
+
+        «Прервать» in the header stops everything the profile is doing, which is the
+        wrong answer to «запустил не тем отрядом»: the golden hunt is a `DETACH`ed chain
+        that lasts as long as its marches and is rarely the only thing running. Asks the
+        runs of this errand's own scenarios to stop; an errand that was not running is
+        answered `stopped: 0` rather than an error, because «уже не идёт» is a perfectly
+        good outcome of pressing stop.
+        """
+        rt = self._runtime(profile)
+        timer = rt.schedule.timer_catalogue.by_name(name)
+        if timer is None:
+            return {"error": "unknown"}
+        asked = []
+        for step in timer.scenario:
+            asked.extend(interruptmod.stop_named(rt, step))
+        return {"ok": True, "name": name, "stopped": len(asked)}
 
     # -- the scenarios -------------------------------------------------------
     def actions(self, profile: str | None = None) -> dict:
@@ -2154,6 +2181,8 @@ class WebApi:
                 return _answer(self.delete_timer(name, who))
             if path == "/api/timers/run":
                 return _answer(self.run_timer(name, who))
+            if path == "/api/timers/stop":
+                return _answer(self.stop_timer(name, who))
             if path == "/api/triggers/set":
                 return _answer(self.set_trigger(name, bool(body.get("enabled")), who))
             if path == "/api/errand/option":

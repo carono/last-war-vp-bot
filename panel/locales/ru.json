@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Квадрат скопления, клеток",
   "events.golden.cluster.hint": "Очередь режется на квадраты с такой стороной, сначала берётся самый полный, и все цели выбираются внутри него. 0 — «ближайший зомби где угодно».",
   "events.golden.stop": "Остановить охоту",
-  "events.golden.steps": "Золотые зомби: по шагам"
+  "events.golden.steps": "Золотые зомби: по шагам",
+  "timers.item.attack_golden_zombies": "Золотые зомби: бить одного за другим, пока не кончится энергия",
+  "timers.item.attack_golden_zombies.short": "Золотые зомби",
+  "timers.stat.golden": "хватит на {n} атак · сегодня {today}",
+  "web.ui.stop": "Остановить",
+  "web.ui.stopping": "останавливаю: {name}"
 }

@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Ballungsquadrat, Felder",
   "events.golden.cluster.hint": "Die Warteschlange wird in Quadrate dieser Seitenlänge geteilt, das vollste zuerst bearbeitet, und jedes Ziel darin gewählt. 0 bedeutet «der nächste Zombie irgendwo».",
   "events.golden.stop": "Jagd anhalten",
-  "events.golden.steps": "Goldene Zombies: Schritt für Schritt"
+  "events.golden.steps": "Goldene Zombies: Schritt für Schritt",
+  "timers.item.attack_golden_zombies": "Goldene Zombies: einen nach dem anderen jagen, bis die Energie aufgebraucht ist",
+  "timers.item.attack_golden_zombies.short": "Goldene Zombies",
+  "timers.stat.golden": "reicht für {n} Angriffe · heute {today}",
+  "web.ui.stop": "Anhalten",
+  "web.ui.stopping": "wird angehalten: {name}"
 }

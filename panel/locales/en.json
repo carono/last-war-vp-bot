@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Cluster square, tiles",
   "events.golden.cluster.hint": "The queue is cut into squares of this side, the fullest is worked out first, and every pick is made inside it. 0 means «the nearest zombie anywhere».",
   "events.golden.stop": "Stop the hunt",
-  "events.golden.steps": "Golden zombies: step by step"
+  "events.golden.steps": "Golden zombies: step by step",
+  "timers.item.attack_golden_zombies": "Golden zombies: hunt them one after another until the energy runs out",
+  "timers.item.attack_golden_zombies.short": "Golden zombies",
+  "timers.stat.golden": "{n} attacks left · {today} today",
+  "web.ui.stop": "Stop",
+  "web.ui.stopping": "stopping: {name}"
 }

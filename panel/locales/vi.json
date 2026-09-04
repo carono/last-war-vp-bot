@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Ô vuông tụ tập, ô",
   "events.golden.cluster.hint": "Hàng đợi được cắt thành các ô vuông có cạnh này, ô đầy nhất được làm trước, và mọi mục tiêu đều chọn bên trong nó. 0 nghĩa là «con zombie gần nhất ở bất cứ đâu».",
   "events.golden.stop": "Dừng cuộc săn",
-  "events.golden.steps": "Zombie vàng: từng bước"
+  "events.golden.steps": "Zombie vàng: từng bước",
+  "timers.item.attack_golden_zombies": "Zombie vàng: đánh lần lượt từng con cho đến khi hết năng lượng",
+  "timers.item.attack_golden_zombies.short": "Zombie vàng",
+  "timers.stat.golden": "đủ cho {n} lượt đánh · hôm nay {today}",
+  "web.ui.stop": "Dừng",
+  "web.ui.stopping": "đang dừng: {name}"
 }

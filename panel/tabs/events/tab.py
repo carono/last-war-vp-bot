@@ -69,7 +69,6 @@ from . import model as modelmod
 from ...runtime import statevar
 from ...runtime import errand_options as errandopts
 from ...runtime import squad_picker
-from ...runtime import errand_art as artmod
 from ...runtime import interrupt as interruptmod
 
 #: How a state looks in the window. A glyph is not a word — it needs no translating and
@@ -292,6 +291,9 @@ class EventsTab(PanelTab):
         self._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
         self._arms_args_registered = False
         self._register_arms_args()
+        #: …and the same for the hunt, which became an errand of its own in #2408.
+        self._golden_args_registered = False
+        self._register_golden_args()
 
     # -- the tab ------------------------------------------------------------
     def build(self) -> None:
@@ -312,6 +314,7 @@ class EventsTab(PanelTab):
         """Start the clock and take the first readings, the first time anybody looks."""
         self._register_train_args()
         self._register_arms_args()
+        self._register_golden_args()
         self._tick()
         self.refresh_both()
 
@@ -346,6 +349,31 @@ class EventsTab(PanelTab):
             return                              # a tab opened on its own
         schedule.register_args(modelmod.ARMS_ERRAND, self.arms_args)
         self._arms_args_registered = True
+
+    def _register_golden_args(self) -> None:
+        """Let the «attack_golden_zombies» errand read the hunt's knobs LIVE. Idempotent.
+
+        The hunt is a row on «Таймеры» since #2408 — the person could not find it where
+        it was: «Не, делаем в таймерах, туда суём её, как обычную карточку». Its row
+        carries no `args` on purpose, so this is where the squad, the ceiling, the square
+        and the ride come from: the same four values the card edits, read at fire time.
+        Without it the run would obey whatever the row was written with and the card
+        would show something else.
+        """
+        if self._golden_args_registered:
+            return
+        schedule = getattr(self.rt, "schedule", None)
+        if schedule is None or not hasattr(schedule, "register_args"):
+            return                              # a tab opened on its own
+        schedule.register_args(modelmod.GOLDEN_ATTACK, self.golden_args)
+        self._golden_args_registered = True
+
+    def golden_args(self) -> dict:
+        """The hunt's ARGS as this card has them right now — one home, two drawings."""
+        return {"squad": self.squad(),
+                "approach": 1 if self.approach() else 0,
+                "limit": self.limit(),
+                "cluster": self.cluster()}
 
     def arms_args(self) -> dict:
         """The arms errand's ARGS as this card has them right now.
@@ -443,6 +471,33 @@ class EventsTab(PanelTab):
         (`train_args`): plain attributes here, so a tab nobody has opened has them.
         """
         return {
+            # THE GOLDEN HUNT (#2408) — a row on «Таймеры» now, so its four knobs are
+            # drawn where the row is, by the gear every other errand card has. The same
+            # values the recipe reads at fire time (`golden_args`) and the same the
+            # steps below spend: one home, several drawings.
+            modelmod.GOLDEN_ATTACK: (
+                errandopts.Option(modelmod.GOLDEN_SQUAD_KEY, "squads.title",
+                                  errandopts.SQUADS, single=True,
+                                  get=lambda: [self.squad()],
+                                  set=lambda picked: self._set_golden_squad(
+                                      picked[0] if picked else self.squad())),
+                errandopts.Option(modelmod.GOLDEN_LIMIT_KEY, "events.golden.limit",
+                                  errandopts.NUMBER,
+                                  hint_key="events.golden.limit.hint",
+                                  low=0, high=modelmod.GOLDEN_LIMIT_MAX,
+                                  get=self.limit,
+                                  set=lambda v: self._set_golden_limit(v)),
+                errandopts.Option(modelmod.GOLDEN_CLUSTER_KEY, "events.golden.cluster",
+                                  errandopts.NUMBER,
+                                  hint_key="events.golden.cluster.hint",
+                                  low=0, high=modelmod.GOLDEN_CLUSTER_MAX,
+                                  get=self.cluster,
+                                  set=lambda v: self._set_golden_cluster(v)),
+                errandopts.Option(modelmod.GOLDEN_APPROACH_KEY, "events.golden.approach",
+                                  errandopts.SWITCH,
+                                  hint_key="events.golden.approach.hint",
+                                  get=self.approach,
+                                  set=lambda on: self._set_golden_approach(on))),
             modelmod.ARMS_ERRAND: (
                 errandopts.Option(modelmod.ARMS_HERO_KEY, "events.arms.hero",
                                   errandopts.SWITCH,
@@ -1099,6 +1154,37 @@ class EventsTab(PanelTab):
                 pass
         self.rt.settings.changed()
         return {"ok": True, "squad": wanted}
+
+    def _set_golden_approach(self, on) -> dict:
+        """Throw the ride — a SETTING, and it presses nothing (#2390).
+
+        One setter for the card, for the gear on «Таймеры» and for the window's box, so
+        the three are three drawings of one value.
+        """
+        self._approach = bool(on)
+        if self._approach_var is not None:
+            try:
+                self._approach_var.set(self._approach)
+            except tk.TclError:                 # the window is going away
+                pass
+        self._golden_knob_saved()
+        return {"ok": True, "approach": self._approach}
+
+    def _set_golden_limit(self, value) -> dict:
+        """How many attacks one run may make. Held inside its bounds rather than trusted:
+        0 is a whole ability of its own («as many as the energy allows») and a thumb-slip
+        must not choose it."""
+        self._golden_limit = modelmod.whole_of(
+            value, self.limit(), 0, modelmod.GOLDEN_LIMIT_MAX)
+        self._golden_knob_saved()
+        return {"ok": True, "limit": self.limit()}
+
+    def _set_golden_cluster(self, value) -> dict:
+        """The side of the square the chain works, in tiles; 0 is «the nearest anywhere»."""
+        self._golden_cluster = modelmod.whole_of(
+            value, self.cluster(), 0, modelmod.GOLDEN_CLUSTER_MAX)
+        self._golden_knob_saved()
+        return {"ok": True, "cluster": self.cluster()}
 
     def approach(self) -> bool:
         """Is the fast approach on? The widget while the tab is drawn, the saved value else."""
@@ -1971,16 +2057,13 @@ class EventsTab(PanelTab):
                               {"label": "events.crystal.daily",
                                "pill": "events.codename.attack.off"}]
 
-        # …and the same board for «Золотые зомби», including the squad, which is a
-        # CHOICE and therefore has to be reachable from the phone too: a control the
-        # window has and the phone does not is a control the person on the move cannot
-        # find (`CLAUDE.md`). The chain is a scenario, so the press travels with it.
+        # …and what «Золотые зомби» reads, which stays on this board after the hunt's
+        # own card moved to «Таймеры» (#2408): the energy, what an attack costs, how
+        # long one zombie takes. They are the numbers a person looks at BEFORE deciding
+        # to press anything, so they belong beside the steps rather than on the row that
+        # runs the chain — the row says what it is worth right now in one line
+        # (`panel/runtime/errand_stats.py`).
         gold = self.golden()
-        # THE CARD OF THE NEW SHAPE (#2390): a tile with the state on a pill, the facts
-        # in words under it, and every KNOB behind the gear — the one modal, never a
-        # second one (`CLAUDE.md`). It replaces nine buttons and a picker standing in a
-        # row above the numbers they belong to: on a phone that was two screens of
-        # controls before the first fact.
         facts = [
             {"label": "events.golden.energy", "value": modelmod.energy(gold)},
             {"label": "events.golden.affordable", "value": modelmod.affordable(gold)},
@@ -2000,72 +2083,22 @@ class EventsTab(PanelTab):
             {"label": "events.golden.said",
              "value": self.t(self._step_said) if self._step_said else "—"},
         ]
-        # WHICH SQUAD GOES, AS THE PICKER EVERY OTHER PAGE DRAWS (#2062) — the player's
-        # own four with the heroes standing in them, and one of them picked, because the
-        # hunt sends one. It replaces a button that WALKED the slots: «Отряд 3» is one
-        # touch here and was three there, and neither said what was standing in it.
-        #
-        # …and the ride is a SWITCH beside it now and not a press (#2390). It was a
-        # button that toggled a setting, which reads as «do it» and is not: nothing
-        # happens at the game when it is pressed, and the next hunt travels differently.
-        # …and EVERY KNOB THE HUNT TAKES IS BEHIND THE GEAR (#2408) — the person's
-        # words: «настройки в модалку, как обычно». Two of these could be reached from
-        # nowhere at all until now: how many attacks one run may make, and the side of
-        # the square the chain works (#2390). They are drawn on the phone and nowhere
-        # else on purpose — new controls go to the web while the window is retired
-        # (`CLAUDE.md`).
-        options = [squad_picker.field(
-            self.rt, modelmod.GOLDEN_SQUAD_KEY, "squads.title", [self.squad()],
-            single=True),
-            {"key": modelmod.GOLDEN_LIMIT_KEY, "label": "events.golden.limit",
-             "hint": "events.golden.limit.hint", "kind": "number",
-             "min": 0, "max": modelmod.GOLDEN_LIMIT_MAX, "value": self.limit()},
-            {"key": modelmod.GOLDEN_CLUSTER_KEY, "label": "events.golden.cluster",
-             "hint": "events.golden.cluster.hint", "kind": "number",
-             "min": 0, "max": modelmod.GOLDEN_CLUSTER_MAX, "value": self.cluster()},
-            {"key": modelmod.GOLDEN_APPROACH_KEY, "label": "events.golden.approach",
-             "hint": "events.golden.approach.hint", "kind": "switch",
-             "value": bool(self.approach())}]
-        # THE CARD OF «Таймеры», HERE (#2408) — the person's words: «по атаке золотых
-        # зомби давай тоже сделаем карточку». `shape` asks for the errand drawing:
-        # picture behind the words, or the one placeholder on a machine that has no
-        # cover for this errand. Nothing else on this screen changes with it.
-        gitem = {"label": "events.group." + modelmod.GOLDEN,
-                 "shape": "cover",
-                 "icon": artmod.cover_for(modelmod.GOLDEN_ATTACK),
-                 "focus": artmod.cover_focus(modelmod.GOLDEN_ATTACK),
-                 "pill": ("events.golden.state.open" if gold.state == modelmod.OPEN
-                          else "events.golden.state.closed"
-                          if gold.state == modelmod.CLOSED else "events.state.unknown"),
-                 "facts": facts,
-                 "options": options,
-                 "options_title": "events.golden.options"}
-        if self._golden_running:
-            # A RUN THAT IS GOING CAN BE ENDED (#2408). The chain is `DETACH`ed and
-            # lasts as long as its marches, so «запустил не тем отрядом» used to mean
-            # waiting it out or stopping the whole profile with «Прервать». This asks
-            # THIS run to stop and nothing else — and it is the only press the card
-            # offers while a hunt is out, because every other one would be queued behind
-            # the chain that is holding the client.
-            gitem["actions"] = [{"id": "stop_golden", "label": "events.golden.stop"}]
-        elif gold.can_attack:
-            gitem["actions"] = [{"id": "hunt_golden", "label": "events.golden.hunt"}]
-        # …and the chain taken apart, one press per step (#1702), on a CARD OF ITS OWN.
-        # #2390 put them on the tile beside the gear, and that arrangement does not
-        # survive the card being a picture: measured on an emulated iPhone at 390 px,
-        # seven long labels and a gear share the foot row, and every one of them is
-        # drawn one letter per line. They are presses for reading a run rather than for
-        # running one, so they go under the card the run is started from.
-        gsteps = {"title": "events.golden.steps"}
+        # THE HUNT'S OWN CARD IS ON «Таймеры» NOW (#2408) — the person's decision,
+        # in their words: «Не, делаем в таймерах, туда суём её, как обычную карточку».
+        # It was a section of this screen that only opened when somebody picked it out
+        # of the chip strip, so the card nobody could find was drawn twice over: here
+        # and nowhere a person looks. The errand `attack_golden_zombies` carries it now
+        # — switch, «i», gear and ▶ like every other row — and its knobs are declared by
+        # `errand_options` above, so they are the SAME four values these steps spend.
+        # What stays here is the run taken apart into presses, which is a reading tool
+        # and belongs beside the readings.
+        gsteps = {"title": "events.golden.steps", "rows": facts}
         if gold.can_attack and not self._golden_running:
             gsteps["actions"] = [{"id": action, "label": key}
                                  for action, _scenario, key in self.STEPS]
         else:
             gsteps["items"] = [{"label": key, "pill": "events.codename.attack.off"}
                                for _action, _scenario, key in self.STEPS]
-        gcard = {"title": "events.group." + modelmod.GOLDEN, "layout": "cards",
-                 "items": [gitem]}
-
         # …and «Салют», which needs no reading at all: the book is filled by the ear and
         # is already in memory, so this card answers on a phone whose game is asleep. The
         # press is the same scenario the window plays, so it travels (`CLAUDE.md`).
@@ -2325,7 +2358,6 @@ class EventsTab(PanelTab):
                            and not self._reading.error else "—")}]},
             card,
             ccard,
-            gcard,
             gsteps,
             tcard,
             fcard,
@@ -2512,27 +2544,14 @@ class EventsTab(PanelTab):
                 # which reads as «do it now» and never was: nothing leaves the base when
                 # it is thrown, and the next hunt travels by mine instead of marching.
                 # The old press is still answered above, for a page a phone already has.
-                self._approach = bool(raw)
-                if self._approach_var is not None:
-                    try:
-                        self._approach_var.set(self._approach)
-                    except tk.TclError:      # the window is going away
-                        pass
-                self._golden_knob_saved()
-                return {"ok": True, "approach": self._approach}
+                return self._set_golden_approach(raw)
             if key == modelmod.GOLDEN_LIMIT_KEY:
                 # HOW MANY ATTACKS ONE RUN MAY MAKE (#2408). Held inside its bounds
                 # rather than trusted: 0 is a whole ability of its own («as many as the
                 # energy allows») and a thumb-slip must not choose it.
-                self._golden_limit = modelmod.whole_of(
-                    raw, self.limit(), 0, modelmod.GOLDEN_LIMIT_MAX)
-                self._golden_knob_saved()
-                return {"ok": True, "limit": self.limit()}
+                return self._set_golden_limit(raw)
             if key == modelmod.GOLDEN_CLUSTER_KEY:
-                self._golden_cluster = modelmod.whole_of(
-                    raw, self.cluster(), 0, modelmod.GOLDEN_CLUSTER_MAX)
-                self._golden_knob_saved()
-                return {"ok": True, "cluster": self.cluster()}
+                return self._set_golden_cluster(raw)
             if key == modelmod.GOLDEN_SQUAD_KEY:
                 # ONE SQUAD, and the picker sends the list it drew (#2062). A press
                 # naming none is refused rather than silently sending squad 1 — the hunt

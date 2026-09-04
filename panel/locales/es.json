@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Cuadrado de agrupación, casillas",
   "events.golden.cluster.hint": "La cola se corta en cuadrados de este lado, primero se trabaja el más lleno y cada objetivo se elige dentro de él. 0 significa «el zombi más cercano en cualquier parte».",
   "events.golden.stop": "Detener la caza",
-  "events.golden.steps": "Zombis dorados: paso a paso"
+  "events.golden.steps": "Zombis dorados: paso a paso",
+  "timers.item.attack_golden_zombies": "Zombis dorados: atacarlos uno tras otro hasta agotar la energía",
+  "timers.item.attack_golden_zombies.short": "Zombis dorados",
+  "timers.stat.golden": "alcanza para {n} ataques · hoy {today}",
+  "web.ui.stop": "Detener",
+  "web.ui.stopping": "deteniendo: {name}"
 }

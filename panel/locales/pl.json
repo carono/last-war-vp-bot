@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Kwadrat skupiska, pola",
   "events.golden.cluster.hint": "Kolejka jest cięta na kwadraty o tym boku, najpierw brany jest najpełniejszy, a każdy cel wybierany jest w jego wnętrzu. 0 oznacza «najbliższy zombie gdziekolwiek».",
   "events.golden.stop": "Zatrzymaj polowanie",
-  "events.golden.steps": "Złote zombie: krok po kroku"
+  "events.golden.steps": "Złote zombie: krok po kroku",
+  "timers.item.attack_golden_zombies": "Złote zombie: bić jedno po drugim, aż skończy się energia",
+  "timers.item.attack_golden_zombies.short": "Złote zombie",
+  "timers.stat.golden": "starczy na {n} ataków · dziś {today}",
+  "web.ui.stop": "Zatrzymaj",
+  "web.ui.stopping": "zatrzymuję: {name}"
 }

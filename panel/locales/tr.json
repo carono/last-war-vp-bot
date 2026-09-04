@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Yığın karesi, kare sayısı",
   "events.golden.cluster.hint": "Kuyruk bu kenar uzunluğunda karelere bölünür, önce en dolusu işlenir ve her hedef onun içinden seçilir. 0, «nerede olursa olsun en yakın zombi» demektir.",
   "events.golden.stop": "Avı durdur",
-  "events.golden.steps": "Altın zombiler: adım adım"
+  "events.golden.steps": "Altın zombiler: adım adım",
+  "timers.item.attack_golden_zombies": "Altın zombiler: enerji bitene kadar birbiri ardına vur",
+  "timers.item.attack_golden_zombies.short": "Altın zombiler",
+  "timers.stat.golden": "{n} saldırıya yeter · bugün {today}",
+  "web.ui.stop": "Durdur",
+  "web.ui.stopping": "durduruluyor: {name}"
 }

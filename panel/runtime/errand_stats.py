@@ -323,6 +323,27 @@ def _visitors(rt) -> "dict | None":
     total = _int(values.get("recruit_pending")) + _int(values.get("gifts_pending"))
     return {"key": "timers.stat.visitors", "fmt": {"n": total}, "age": age}
 
+def _golden_hunt(rt) -> "dict | None":
+    """«412 атак · 6 сегодня» — what the energy still buys, and what today has spent.
+
+    Off the reading «События» already holds and the day's own tally beside it, so the
+    line costs the game nothing: an errand nobody can answer for free has no line at
+    all, which is this module's whole rule. A profile with the tab switched off, or one
+    where nobody has read the board yet, gets `None` rather than a zero that would read
+    as «энергии нет».
+    """
+    tab = rt.tabs.get("events") if rt.tabs is not None else None
+    if tab is None:
+        return None
+    state = tab.golden()
+    if state is None or state.attacks is None:
+        return None
+    today = tab.today() or {}
+    return {"key": "timers.stat.golden",
+            "fmt": {"n": int(state.attacks),
+                    "today": _int(today.get("attacks"))}}
+
+
 #: Errand name -> what to draw under its block. An errand that is not here draws
 #: nothing, and that is a deliberate answer rather than a gap to be filled in with a
 #: poll: see the module docstring, and the survey in `docs/research/errand-stats.md`.
@@ -355,6 +376,9 @@ PROVIDERS: dict = {
     # the activity is not running, and a dash draws nothing rather than a zero.
     "open_explorer_chests": _from_daily("timers.stat.explorer_chests",
                                         "explorer_chests", ("keys", "explorer_keys")),
+    # …and the golden hunt (#2408), which became a row of its own when the person could
+    # not find its card: «Не, делаем в таймерах, туда суём её, как обычную карточку».
+    "attack_golden_zombies": _golden_hunt,
 }
 
 

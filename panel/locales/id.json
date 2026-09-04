@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Kotak kerumunan, petak",
   "events.golden.cluster.hint": "Antrean dipotong menjadi kotak dengan sisi ini, yang terpenuh dikerjakan lebih dulu, dan setiap sasaran dipilih di dalamnya. 0 berarti «zombi terdekat di mana saja».",
   "events.golden.stop": "Hentikan perburuan",
-  "events.golden.steps": "Zombi emas: langkah demi langkah"
+  "events.golden.steps": "Zombi emas: langkah demi langkah",
+  "timers.item.attack_golden_zombies": "Zombi emas: hantam satu per satu sampai energi habis",
+  "timers.item.attack_golden_zombies.short": "Zombi emas",
+  "timers.stat.golden": "cukup untuk {n} serangan · hari ini {today}",
+  "web.ui.stop": "Hentikan",
+  "web.ui.stopping": "menghentikan: {name}"
 }

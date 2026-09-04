@@ -186,24 +186,33 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
       options={row.options}
       refresh={refresh}
       run={
+        /* ▶ WHILE IT IS NOT RUNNING, ■ WHILE IT IS (#2408). A detached chain — the
+           golden hunt — lasts as long as its marches, and until now the only way to end
+           one was «Прервать», which stops everything the profile is doing. The same
+           button, because it is the same question: «идёт или нет». */
         <button
           key="run"
           className="go icon"
-          title={t('web.ui.run')}
-          aria-label={t('web.ui.run')}
+          title={row.running ? t('web.ui.stop') : t('web.ui.run')}
+          aria-label={row.running ? t('web.ui.stop') : t('web.ui.run')}
           disabled={busy}
           onClick={async () => {
             setBusy(true)
             try {
-              const answer = await post<PressAnswer>('/api/timers/run', { name: row.name })
-              toast(answer.queued ? t('web.ui.started', { name: row.title }) : t('web.ui.refused'))
+              if (row.running) {
+                await post<PressAnswer>('/api/timers/stop', { name: row.name })
+                toast(t('web.ui.stopping', { name: row.title }))
+              } else {
+                const answer = await post<PressAnswer>('/api/timers/run', { name: row.name })
+                toast(answer.queued ? t('web.ui.started', { name: row.title }) : t('web.ui.refused'))
+              }
               await refresh()
             } finally {
               setBusy(false)
             }
           }}
         >
-          {'▶'}
+          {row.running ? '■' : '▶'}
         </button>
       }
     />

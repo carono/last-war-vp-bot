@@ -135,6 +135,9 @@ export interface TimerRow {
   last_state?: string
   retry_sec?: number
   queued?: boolean
+  /* Whether one of this row's scenarios is out RIGHT NOW (#2408). A detached run — the
+     golden hunt — is not «queued», so this is what turns the card's ▶ into a ■. */
+  running?: boolean
   /* What the EDITOR needs and the list does not: the steps, the args, and the title the
      operator typed — empty on a built-in row, whose `title` above is a translated label
      and must not be sent back as one (#1976). */

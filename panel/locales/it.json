@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Quadrato di raggruppamento, caselle",
   "events.golden.cluster.hint": "La coda viene tagliata in quadrati di questo lato, prima si lavora il più pieno e ogni bersaglio si sceglie al suo interno. 0 significa «lo zombie più vicino ovunque».",
   "events.golden.stop": "Ferma la caccia",
-  "events.golden.steps": "Zombie dorati: passo per passo"
+  "events.golden.steps": "Zombie dorati: passo per passo",
+  "timers.item.attack_golden_zombies": "Zombi dorati: colpirli uno dopo l'altro finché c'è energia",
+  "timers.item.attack_golden_zombies.short": "Zombi dorati",
+  "timers.stat.golden": "basta per {n} attacchi · oggi {today}",
+  "web.ui.stop": "Ferma",
+  "web.ui.stopping": "in arresto: {name}"
 }

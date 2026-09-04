@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Carré de regroupement, cases",
   "events.golden.cluster.hint": "La file est découpée en carrés de ce côté, le plus rempli est traité d'abord et chaque cible est choisie dedans. 0 signifie « le zombie le plus proche, où qu'il soit ».",
   "events.golden.stop": "Arrêter la chasse",
-  "events.golden.steps": "Zombies dorés : étape par étape"
+  "events.golden.steps": "Zombies dorés : étape par étape",
+  "timers.item.attack_golden_zombies": "Zombies dorés : les frapper l'un après l'autre jusqu'à épuisement de l'énergie",
+  "timers.item.attack_golden_zombies.short": "Zombies dorés",
+  "timers.stat.golden": "de quoi faire {n} attaques · {today} aujourd'hui",
+  "web.ui.stop": "Arrêter",
+  "web.ui.stopping": "arrêt en cours : {name}"
 }

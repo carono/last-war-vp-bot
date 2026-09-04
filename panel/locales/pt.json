@@ -2762,5 +2762,10 @@
   "events.golden.cluster": "Quadrado de agrupamento, casas",
   "events.golden.cluster.hint": "A fila é cortada em quadrados deste lado, o mais cheio é trabalhado primeiro e cada alvo é escolhido dentro dele. 0 significa «o zombie mais próximo em qualquer lugar».",
   "events.golden.stop": "Parar a caça",
-  "events.golden.steps": "Zombies dourados: passo a passo"
+  "events.golden.steps": "Zombies dourados: passo a passo",
+  "timers.item.attack_golden_zombies": "Zumbis dourados: atacar um após o outro até acabar a energia",
+  "timers.item.attack_golden_zombies.short": "Zumbis dourados",
+  "timers.stat.golden": "dá para {n} ataques · hoje {today}",
+  "web.ui.stop": "Parar",
+  "web.ui.stopping": "parando: {name}"
 }
