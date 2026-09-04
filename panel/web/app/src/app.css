@@ -1644,8 +1644,6 @@ body.modal-open {
   font-size: 13px;
   font-weight: 600;
 }
-.bubble .who .chatface { width: 20px; height: 20px; margin-right: 6px; vertical-align: -5px; }
-.bubble .who { display: flex; align-items: center; gap: 2px; }
 
 .chatbar { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 /* ONE ROW, AND THE ROOM'S NAME IS WHAT GIVES WAY (#2418). «Назад» and «☰ Чаты» are two
@@ -1748,20 +1746,26 @@ body.chatting .head-row .status { padding-top: 0; }
   padding: 6px;
   border: 1px solid var(--card-edge);
   border-radius: var(--radius);
-  background: var(--card);
+  /* THE PANE IS THE GREY AND THE BUBBLES ARE THE PAPER ON IT (#2418), which is the way
+     round the game's own chat draws it — and the way round ours did NOT: a white pane
+     with grey bubbles reads as a form with filled-in fields rather than as a
+     conversation. Nothing else in the palette moves; the two values simply swap. */
+  background: var(--bg-soft);
 }
 
 .chatpane .go.wide { align-self: stretch; }
 .chat .back.thread { align-self: flex-start; }
 
+/* THE CLOCK AND THE DAY ARE PLAIN CENTRED TEXT (#2418), the way the sample prints
+   them. A pill drew a second object into a column that is already full of them, for a
+   word that is only ever read in passing. */
 .chatday {
   align-self: center;
-  margin: 4px 0 2px;
-  padding: 1px 8px;
-  border-radius: 999px;
+  margin: 5px 0 3px;
+  padding: 0;
   font-size: 12px;
   color: var(--ink-soft);
-  background: var(--bg-soft);
+  background: none;
 }
 
 /* THE FACE STANDS BESIDE THE WORDS, NOT INSIDE THEM (#2418). It used to be the first
@@ -1769,11 +1773,11 @@ body.chatting .head-row .status { padding-top: 0; }
    face and a name even when the same person had just spoken. Now the row is the face
    and a column of bubbles, and a run from one person is drawn once — the continuation
    lines are indented past the face instead of repeating it. */
-.msg { display: flex; align-items: flex-start; gap: 6px; margin-top: 5px; }
-.msg.run { margin-top: 1px; padding-left: 34px; }
+.msg { display: flex; align-items: flex-start; gap: 6px; margin-top: 4px; }
+.msg.run { margin-top: 1px; padding-left: 38px; }
 .msg.mine { justify-content: flex-end; }
 .msg.mine.run { padding-left: 0; }
-.msg > .chatface { flex: 0 0 auto; width: 28px; height: 28px; margin-top: 14px; }
+.msg > .chatface { flex: 0 0 auto; width: 32px; height: 32px; margin-top: 14px; border-radius: 8px; }
 /* A BUBBLE IS AS WIDE AS ITS WORDS, never as wide as the pane: on a 1280 px window the
    column is a thousand pixels and «Приглашение на стягивание» would be a bar across all
    of it. The cap is the reading width the bubbles had before they moved into a column. */
@@ -1782,7 +1786,11 @@ body.chatting .head-row .status { padding-top: 0; }
   flex-direction: column;
   align-items: flex-start;
   min-width: 0;
-  max-width: min(82%, 620px);
+  /* THE SAMPLE'S BUBBLES RUN TO ABOUT 63% OF THE SCREEN and ours to 78, and the
+     difference is deliberate: the sample's avatar column is 56 px wide against our 32,
+     so an equal-looking bubble is a larger share of ours — and the measure this work is
+     judged by is how many messages fit, which a narrower column spends on wrapping. */
+  max-width: min(78%, 560px);
 }
 .msg.mine .col { align-items: flex-end; }
 /* The sender, over the first bubble of their run: 14 px, not a row of its own height. */
@@ -1800,10 +1808,13 @@ body.chatting .head-row .status { padding-top: 0; }
 .bubble {
   max-width: 100%;
   margin-right: auto;
-  padding: 4px 9px;
-  border-radius: 12px;
+  /* Measured off the sample and matched: 10 px of radius, 5/10 of padding, which puts a
+     one-line bubble at 34 px against the sample's 36. The border stays — it is what
+     tells a bubble from the pane at night, where the two fills are four steps apart. */
+  padding: 5px 10px;
+  border-radius: 10px;
   border: 1px solid var(--card-edge);
-  background: var(--bg-soft);
+  background: var(--card);
   word-break: break-word;
 }
 /* WHAT I SAID LEANS THE OTHER WAY, which is the whole of «whose message is this» at a

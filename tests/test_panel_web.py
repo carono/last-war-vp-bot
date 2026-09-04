@@ -2229,6 +2229,34 @@ def test_a_tile_is_the_place_it_draws_and_its_own_buttons_are_not():
         "a button on a tile would also press the tile it sits on"
 
 
+def test_the_pane_is_the_grey_and_the_bubbles_are_the_paper():
+    """#2418: «на пузыри сообщений обрати внимание, сделай по аналогии».
+
+    The chat was drawn the other way round from every chat there is — a white pane with
+    grey bubbles on it, which reads as a form with filled-in fields. The two fills swap,
+    and three things go with them: the radius and the padding matched to the sample, and
+    the clock between messages as plain centred text rather than a pill.
+
+    The one thing that must NOT follow the sample is my own bubble: it is mixed out of
+    the palette's accent so it darkens and lightens with the theme (13.3:1 by day, after
+    a version that measured 1.17:1), and a flat colour copied off a screenshot is how
+    that came back last time.
+    """
+    css = _css()
+    pane = css.split(".chatpane {")[1].split("}")[0]
+    assert "background: var(--bg-soft)" in pane, "the pane is the paper again"
+    bubble = css.split("\n.bubble {")[1].split("}")[0]
+    assert "background: var(--card)" in bubble, "the bubbles are the grey again"
+    assert "border-radius: 10px" in bubble and "padding: 5px 10px" in bubble, \
+        "the bubble geometry drifted from what was measured off the sample"
+    mine = css.split(".bubble.mine {")[1].split("}")[0]
+    assert "color-mix(in srgb, var(--accent)" in mine, \
+        "my own bubble is a flat colour again — that is the 1.17:1 bug"
+    day = css.split(".chatday {")[1].split("}")[0]
+    assert "border-radius" not in day and "background: none" in day, \
+        "the clock between messages is a pill again"
+
+
 def test_a_message_is_one_line_and_not_four():
     """#2418: «хочу такой же лаконичный интерфейс чата, много лишнего пространства».
 
