@@ -225,6 +225,13 @@ class ChatTab(PanelTab):
             return
         self._loaded = True
         self._load_chat_history()
+        # THE QUEUE IS DRAINED WITHOUT A WINDOW (#2418). The pump was armed in `build()`
+        # — the method that DRAWS — so on the live panel, which has no window at all,
+        # nothing ever took a message off the reader's queue: the ear heard, the child
+        # wrote its own file, and the panel filed nothing and showed nothing. It belongs
+        # with the state rather than with the drawing, exactly like the reader it
+        # empties (`docs/panel-tabs.md`, the `LAZY` contract).
+        self._pump_chat()
         if self._chat_var.get():
             self._start_chat()
 
@@ -873,7 +880,7 @@ class ChatTab(PanelTab):
         self._refresh_flow()
         self.rt.i18n.hook(self._retranslate_chat_bottom)
 
-        self._pump_chat()
+        self._pump_chat()      # idempotent: `ensure_loaded` has usually armed it already
 
     def _retranslate_chat_bottom(self) -> None:
         """Re-apply translatable text in the chat bottom bar after a language change."""
@@ -956,9 +963,15 @@ class ChatTab(PanelTab):
         return ""
 
     def _update_chat_target(self) -> None:
+        # The line is `build()`'s, and the pump now runs without one (#2418): a window
+        # that was never drawn has no variable to write, and a bare attribute here is an
+        # `AttributeError` on the tick that drains the reader.
+        var = getattr(self, "_chat_room_var", None)
+        if var is None:
+            return
         room = self._chat_room(self._active_chat_type())
         try:
-            self._chat_room_var.set(room or "—")
+            var.set(room or "—")
         except tk.TclError:
             pass
 
@@ -1650,7 +1663,7 @@ class ChatTab(PanelTab):
         # a second for as long as the panel is open.
         total = (self._chat_store.total() if self._chat_store is not None
                  else sum(len(v) for v in self._chat_msgs.values()))
-        self._chat_count_var.set(self.t("chat.count", n=total))
+        self._set_chat_count(total)
         # …and the flow strip on the same second (#1549): «идут ли данные ПРЯМО СЕЙЧАС»
         # is a question only a moving strip can answer.
         self._refresh_flow()

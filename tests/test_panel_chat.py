@@ -712,6 +712,23 @@ def test_the_chat_says_how_old_its_newest_message_is():
         game_clock.now_ms = was
 
 
+def test_the_reader_is_drained_by_a_panel_with_no_window():
+    """#2418: the pump was armed in `build()` — the method that DRAWS.
+
+    The live panel has no window, so nothing ever took a message off the reader's
+    queue: the ear heard, the child wrote its own file, and the panel filed nothing
+    into the store and showed nothing on the phone. The queue belongs to the state,
+    like the reader that fills it, so `ensure_loaded` arms it.
+    """
+    src = (_REPO / "panel" / "tabs" / "chat.py").read_text(encoding="utf-8")
+    loaded = src.split("def ensure_loaded")[1].split("def on_show")[0]
+    assert "self._pump_chat()" in loaded, "the queue is drained only where it is drawn"
+    # …and nothing the pump touches may be a widget that was never built.
+    assert "self._chat_count_var.set(" not in src, \
+        "the pump writes a variable that only build() makes"
+
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
