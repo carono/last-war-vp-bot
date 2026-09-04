@@ -58,6 +58,27 @@ def icon_file(icon: str) -> "str | None":
     return path if os.path.isfile(path) else None
 
 
+def raw_named(name: str) -> "str | None":
+    """A bare sprite name back into a path inside ``item/``, or ``None``.
+
+    :func:`file_named` resolves a composed CELL — an item picture inside its rarity
+    frame, which is what an inventory square is. A resource has no rarity and no frame:
+    the header of the game draws the picture on its own, so this serves the sprite
+    itself. Same three checks and for the same reason: the route is reachable from a
+    phone, so the name must be a plain name, carry the one suffix this folder holds, and
+    land INSIDE the folder.
+    """
+    clean = str(name or "").strip()
+    if not clean or clean != os.path.basename(clean) or clean.startswith("."):
+        return None
+    stem = clean[:-4] if clean.lower().endswith(".png") else clean
+    root = os.path.abspath(ITEM_DIR)
+    full = os.path.abspath(os.path.join(root, stem + ".png"))
+    if os.path.dirname(full) != root or not os.path.isfile(full):
+        return None
+    return full
+
+
 def frame_file(colour) -> "str | None":
     """The rarity frame for ``colour`` (1..6), or ``None``."""
     try:

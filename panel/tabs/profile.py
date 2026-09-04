@@ -29,7 +29,10 @@ from tkinter import ttk
 
 from ..runtime import reads
 from ..widgets import ScrollableFrame, font as ui_font
-from ._data import RESOURCE_GLYPHS, RESOURCE_ORDER, DataTab, _card, _group, _stringvar
+from urllib.parse import quote
+
+from ._data import (RESOURCE_GLYPHS, RESOURCE_ORDER, DataTab, _card, _group,
+                    _short, _stringvar)
 
 #: The scenario that answers «what does the game say about this warzone», and the
 #: variable its answer lands in. One ability, one file (`CLAUDE.md`).
@@ -336,13 +339,25 @@ class ProfileTab(DataTab):
             if row.get("per_hour"):
                 detail += " · " + self.t("web.ui.res.rate",
                                          rate=_group(row.get("per_hour")))
-            item = {"text": str(row.get("name") or ""), "detail": detail}
+            item = {"text": str(row.get("name") or ""), "detail": detail,
+                    # THE HEADER OF THE GAME, ON THIS CARD (#2418): a picture and a
+                    # short number, and the pair is the whole row. `short` is what the
+                    # pill shows; `detail` above is the exact figure, which the pill
+                    # carries as its title and the window still prints in full.
+                    "short": _short(row.get("count"))}
+            picture = str(row.get("icon") or "")
+            if picture:
+                item["icon"] = "/api/itemicon?name=" + quote(picture)
             # What one press of «Сбор ресурсов» would add — the game's own figure per
             # building, summed by what that building makes. Silent at zero.
             if row.get("pending"):
                 item["note"] = self.t("web.ui.res.pending", n=_group(row.get("pending")))
             items.append(item)
-        card = {"title": "web.ui.res.head", "items": items,
+        # `pills`: pairs of picture-and-number laid across the width and wrapped, the
+        # way the game's own header lays nine balances over three short rows. A
+        # front-end that does not know the layout draws the rows as it always did —
+        # every item still carries its `text` and `detail`.
+        card = {"title": "web.ui.res.head", "items": items, "layout": "pills",
                 "empty": "web.ui.res.empty", "flow": flow}
         if stock.get("watching"):
             card["note"] = "web.ui.res.live"

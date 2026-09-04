@@ -251,6 +251,8 @@ export interface ViewItem {
   detail_parts?: MarkedText
   note_parts?: MarkedText
   avatar?: string
+  /** The short form of the number a resource pill shows — `38.0M` (#2418). */
+  short?: string
   icon?: string
   pill?: string
   facts?: Fact[]
@@ -345,7 +347,7 @@ export interface ViewCard {
      `cards` is the card an errand is drawn as (`ui/ErrandCard.tsx`), for a card whose
      items have a FACE — a picture behind them, a name on one line, a switch in the
      corner and their presses on one row. */
-  layout?: 'rows' | 'tiles' | 'cards'
+  layout?: 'rows' | 'tiles' | 'cards' | 'pills'
   head?: string
   head_parts?: MarkedText
   empty?: string

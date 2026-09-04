@@ -1660,6 +1660,46 @@ body.modal-open {
    never a second sheet of its own (#2061). */
 .menu { display: flex; flex-direction: column; gap: 8px; }
 
+/* RESOURCE PILLS (#2418) — the shape of the game's own header: a picture and a short
+   number, pairs laid across the width and wrapped onto as many rows as they need. Nine
+   balances fit into three short rows there, and the measure was the same here: the card
+   drew one full-width row per resource with the figure spelled out to eleven characters.
+   `auto-fill` rather than a fixed count, so a phone gets three and a window gets as many
+   as fit; nothing is hidden and nothing scrolls sideways. */
+.pills {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 4px 6px;
+  margin-top: 4px;
+}
+.pill-res {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 8px 3px 4px;
+  border: 1px solid var(--card-edge);
+  border-radius: 999px;
+  background: var(--bg-soft);
+  font-size: 13px;
+  line-height: 18px;
+}
+.pill-res img { width: 20px; height: 20px; object-fit: contain; flex: 0 0 auto; }
+/* A resource the game names no picture for, or one whose sprite was never extracted on
+   this machine: its own initial, never another resource's art. */
+.pill-res .letter {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+.pill-res b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* THE PICKER IS ONE BUTTON INSIDE THE FIELD (#2418) — «одна кнопка прямо в поле
    сообщения». The row of three that used to stand above the box is gone and its 65 px
    went to the conversation. `.chattools` is kept as the shape of an icon in a bar; the

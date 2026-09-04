@@ -682,6 +682,10 @@ function Card({
   // so nothing here guesses from a title or a count.
   const tiled = card.layout === 'tiles'
   const carded = card.layout === 'cards'
+  /* PAIRS OF PICTURE-AND-NUMBER, LAID ACROSS AND WRAPPED (#2418) — the shape of the
+     game's own header, which fits nine balances into three short rows because none of
+     them is spelled out. The exact figure is the pill's title, so nothing is lost. */
+  const pilled = card.layout === 'pills'
   const page = tiled ? PAGE_TILES : PAGE_ITEMS
   const [shown, setShown] = useState(page)
   // A narrowed search starts from the top again: «показать ещё» over a list that has
@@ -764,7 +768,20 @@ function Card({
       {/* THE SORT, DIRECTLY OVER THE ROWS IT ORDERS (#2308) — small buttons, one per
           column, and a press flips that column's direction. */}
       {(card.sorts || []).length ? <SortBar sorts={card.sorts || []} screen={screen} after={after} /> : null}
-      {tiled ? (
+      {pilled ? (
+        <div className="pills">
+          {drawing.map((item, i) => (
+            <span className="pill-res" key={i} title={item.text + ' ' + (item.detail || '')}>
+              {item.icon ? (
+                <img src={item.icon} alt="" />
+              ) : (
+                <b className="letter">{(item.text || '?').slice(0, 1)}</b>
+              )}
+              <b>{item.short || item.detail}</b>
+            </span>
+          ))}
+        </div>
+      ) : tiled ? (
         <div className="minis">
           {drawing.map((item, i) => (
             <MiniItem key={i} item={item} now={now} screen={screen} after={after} />

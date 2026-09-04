@@ -96,6 +96,42 @@ RETRY_SEC = 15.0
 RECORD_SEP = " #|# "
 FIELD_SEP = ";;"
 
+#: Resource type -> the sprite the GAME names for it, read off the client's own config
+#: and kept in `tools/data/resource_icons.json` the way `errand_icons.json` is. Loaded
+#: once: it is a table of the game's, identical on every machine and for every profile.
+_ICONS: "dict | None" = None
+
+
+def _icon_for(type_id: int) -> str:
+    """The sprite name for this resource, or ``""`` when there is none to serve.
+
+    Two things have to be true: the game names a picture for the type, and that picture
+    was actually extracted on THIS machine (`tools/extract_item_icons.py`). Neither is
+    assumed — a resource with no sprite draws its own name, and never another
+    resource's art.
+    """
+    global _ICONS
+    if _ICONS is None:
+        _ICONS = {}
+        try:
+            import json
+            import os
+            here = os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))))
+            raw = os.path.join(here, "tools", "data", "resource_icons.json")
+            with open(raw, encoding="utf-8") as handle:
+                _ICONS = dict((json.load(handle) or {}).get("icons") or {})
+        except Exception:                # noqa: BLE001 — no map is no pictures
+            _ICONS = {}
+    stem = str(_ICONS.get(str(type_id)) or "")
+    if not stem:
+        return ""
+    try:
+        import item_icons
+        return stem if item_icons.raw_named(stem) else ""
+    except Exception:                    # noqa: BLE001 — nothing extracted, no picture
+        return ""
+
 
 def parse(answer: str) -> list:
     """The scenario's one line turned into rows. A malformed record is skipped.
@@ -121,6 +157,11 @@ def parse(answer: str) -> list:
             continue
         rows.append({"type": type_id, "count": count, "max": cap,
                      "per_hour": per_hour, "base": bool(base), "pending": pending,
+                     # THE GAME'S OWN PICTURE FOR THIS RESOURCE (#2418), or "" — the
+                     # sprite the client's own config names, resolved against what has
+                     # actually been extracted on THIS machine. Nothing stands in for a
+                     # missing one: a resource with no sprite shows its name.
+                     "icon": _icon_for(type_id),
                      "name": FIELD_SEP.join(parts[6:]).strip()})
     # BIGGEST FIRST, and it is a SORT rather than a filter: a resource the base does not
     # make is still a resource this account holds, and dropping it would be the panel
@@ -275,7 +316,15 @@ class BaseResources:
         # to the claim, for the same reason as the gate below: the refusal is a warning
         # line, and this poll would write one every 2.5 s for the length of an errand.
         try:
-            if self._rt.game.busy:
+            # …EXCEPT WHEN NOTHING HAS EVER BEEN READ (#2418). The bail below is there so
+            # a poll does not write a refusal line every 2.5 s while an errand holds the
+            # link — right for a card that already has numbers on it and is only going
+            # stale. It was wrong for a card that has NONE: on the live panel the link is
+            # held by timers and rallies almost continuously, so the first reading never
+            # got in and «запас базы» said «не прочитано» for two days. The first read is
+            # queued like any other play at DETACHED — below every errand — and waits its
+            # turn instead of being refused.
+            if self._rt.game.busy and self._at:
                 self._hold_until = now + RETRY_SEC
                 return
         except Exception:                # noqa: BLE001 — an unreadable link is not

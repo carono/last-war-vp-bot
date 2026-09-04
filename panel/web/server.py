@@ -488,6 +488,14 @@ def _make_handler(server: WebServer):
             """
             def resolve():
                 import item_icons
+                # A RESOURCE HAS NO FRAME (#2418). The header of the game draws the
+                # sprite on its own, so `name=` serves the picture itself out of
+                # `item/`; `cell=` is still the composed inventory square. Both names
+                # are resolved by the library rather than trusted — this route is
+                # reachable from a phone.
+                raw = _one(query.get("name"))
+                if raw:
+                    return item_icons.raw_named(raw)
                 return item_icons.file_named(_one(query.get("cell")))
 
             self._picture(query, resolve)

@@ -246,7 +246,7 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
         for card in view["cards"]:
             extra = set(card) - allowed_card
             assert not extra, f"{tab_id}: card has {sorted(extra)}"
-            assert card.get("layout", "rows") in ("rows", "tiles", "cards"), (
+            assert card.get("layout", "rows") in ("rows", "tiles", "cards", "pills"), (
                 f"{tab_id}: card layout {card.get('layout')!r}")
             for item in card.get("items") or ():
                 extra = set(item) - allowed_item

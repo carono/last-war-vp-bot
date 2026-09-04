@@ -74,6 +74,30 @@ def _int(value) -> int:
         return 0
 
 
+def _short(value) -> str:
+    """A big number the way the game's own header writes it: `1.5K`, `38.0M`, `2.7B`.
+
+    THE HEADER OF THE GAME IS THE MEASURE (#2418): «обрати внимание, как компактно они
+    расположены, мы должны так же вывести эту статистику». Nine balances fit across
+    three short rows there because none of them is spelled out — a nine-digit figure
+    with separators is eleven characters and cannot share a line with anything.
+
+    Under a thousand the number is written out: rounding «844» to «0.8K» would lose the
+    only digits that matter. The exact figure is never lost either — it travels beside
+    this as the full grouped number.
+    """
+    try:
+        number = int(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return _group(value)
+    sign = "-" if number < 0 else ""
+    number = abs(number)
+    for cut, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")):
+        if number >= cut:
+            return f"{sign}{number / cut:.1f}{suffix}"
+    return f"{sign}{number}"
+
+
 def _group(value) -> str:
     """A number with thousands separators; passes through non-numbers unchanged."""
     if value in (None, ""):
