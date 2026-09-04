@@ -2229,6 +2229,32 @@ def test_a_tile_is_the_place_it_draws_and_its_own_buttons_are_not():
         "a button on a tile would also press the tile it sits on"
 
 
+def test_a_message_is_one_line_and_not_four():
+    """#2418: «хочу такой же лаконичный интерфейс чата, много лишнего пространства».
+
+    A bubble used to stack a face-and-name row, the words, a full-width «Перевести»
+    button and a stamp — four rows for one sentence. Measured on a 390x844 phone:
+    95 px a message and five on screen. Each of the four is pinned here, because each
+    is a line somebody could put back without noticing what it costs:
+
+    * no per-message stamp — the clock is a separator between messages that are far
+      apart in time, and the exact minute is the bubble's `title`;
+    * the face is beside the bubble, not the first row inside it;
+    * a run from one person draws that person once (`joined`);
+    * the offer to translate is a glyph next to the bubble, never a row under it.
+    """
+    script = _front_end_source()
+    css = _css()
+    assert 'className="stamp muted small">{row.when}' not in script, \
+        "every message is carrying its own stamp row again"
+    assert "const CLOCK_GAP" in script and "function joined(" in script, \
+        "the clock is back on every message, or a run repeats its sender"
+    assert "title={row.when}" in script, "the exact minute of a message is unreachable"
+    assert ".msg > .chatface" in css, "the face went back inside the bubble"
+    assert ".msg .trbtn" in css and ".bubble .trbtn" not in css, \
+        "the translate offer is a row under the words again"
+
+
 def test_every_control_is_at_least_a_finger_wide():
     """44 CSS px, and the audit that measured it found the switches at 26."""
     css = _css()

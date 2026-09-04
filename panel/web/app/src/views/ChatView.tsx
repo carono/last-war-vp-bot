@@ -141,6 +141,29 @@ function sameDay(a: ChatRow, b: ChatRow | undefined): boolean {
   return !!b && a.day === b.day
 }
 
+/** How long a silence puts a clock between two messages, in seconds.
+ *
+ *  THE TIME IS A SEPARATOR, NOT A LINE ON EVERY MESSAGE (#2418). A stamp under each
+ *  bubble cost a whole row — 16 px of a 95 px message — to say the same minute five
+ *  times over. The game's own chat prints the clock once when the talk has paused and
+ *  nothing in between; the exact moment of a single message is still there, on the
+ *  bubble's `title`.
+ */
+const CLOCK_GAP = 300
+
+/** Is this message a continuation of the one above — same sender, no long pause?
+ *
+ *  A run of messages from one person repeats that person's face and name once, not on
+ *  every line. That is the other half of the density: the meta row is 20 px and a
+ *  five-message run paid it five times.
+ */
+function joined(a: ChatRow, b: ChatRow | undefined): boolean {
+  return (
+    !!b && sameDay(a, b) && !!a.uid && a.uid === b.uid && !!a.mine === !!b.mine &&
+    a.ts - b.ts < CLOCK_GAP
+  )
+}
+
 export function ChatView({
   screen,
   rooms,
@@ -795,70 +818,90 @@ export function ChatView({
             <div className="chatday">{t('chat.history_end')}</div>
           ) : null}
           {rows.length ? (
-            rows.map((row, i) => (
+            rows.map((row, i) => {
+              /* ONE MESSAGE IS ONE ROW, NOT FOUR (#2418): «хочу такой же лаконичный
+                 интерфейс чата, сейчас много лишнего пространства съедается». The
+                 bubble used to carry a face-and-name row, the words, a full-width
+                 «Перевести» button and a stamp — four stacked lines for one sentence,
+                 measured at 95 px on a 390x844 phone with five messages on screen. The
+                 face steps OUT of the bubble and stands beside it, a run from one
+                 person says who they are once, the clock is a separator rather than a
+                 line on every message, and the translation is the icon the game uses. */
+              const run = joined(row, rows[i - 1])
+              const newDay = row.day && !sameDay(row, rows[i - 1])
+              const gap = !newDay && i > 0 && row.ts - rows[i - 1].ts >= CLOCK_GAP
+              return (
               <div key={row.id + i}>
-                {row.day && !sameDay(row, rows[i - 1]) ? (
-                  <div className="chatday">{t(row.day)}</div>
-                ) : null}
-                <div
-                  id={'msg-' + row.id}
-                  className={
-                    'bubble' + (row.mine ? ' mine' : '') + (lit === row.id ? ' lit' : '')
-                  }
-                >
-                  {row.reply ? (
-                    <button className="quote" onClick={() => void goToQuoted(row.reply!.id)}>
-                      <span className="who">{row.reply.who || t('chat.reply.someone')}</span>
-                      <span className="said">{row.reply.text || t('chat.reply.gone')}</span>
-                    </button>
-                  ) : null}
-                  {!row.mine ? (
-                    <div className="who">
-                      <Face label={row.who} face={row.face} />
-                      {row.who}
-                      {row.alliance ? <span className="muted small"> [{row.alliance}]</span> : null}
-                    </div>
-                  ) : null}
-                  <div className="said">
-                    {asTr[row.id] && tr[row.id] ? (
-                      <span className="tr">{tr[row.id]}</span>
-                    ) : (
-                      (row.parts || []).map((part, k) =>
-                        part.t === 'img' ? (
-                          <img className="chat-sprite" key={k} src={part.v} alt="" />
-                        ) : (
-                          <span key={k}>
-                            <Marked text={part.v} parts={part.parts} />
-                          </span>
-                        ),
-                      )
-                    )}
-                  </div>
-                  {/* THE TRANSLATION IS A SECOND READING, never a replacement: the tap
-                      that shows it is the tap that puts the original back (#2418). Not
-                      offered on one's own message — the game does not offer it either. */}
-                  {!row.mine && row.tr && (row.seq || '') ? (
-                    <button
-                      className="trbtn"
-                      disabled={tring === row.id}
-                      onClick={() => void translate(row)}
+                {newDay ? <div className="chatday">{t(row.day)}</div> : null}
+                {gap ? <div className="chatday">{row.when}</div> : null}
+                <div className={'msg' + (row.mine ? ' mine' : '') + (run ? ' run' : '')}>
+                  {!row.mine && !run ? <Face label={row.who} face={row.face} /> : null}
+                  <div className="col">
+                    {!row.mine && !run ? (
+                      <div className="who">
+                        {row.who}
+                        {row.alliance ? <span className="muted small"> [{row.alliance}]</span> : null}
+                      </div>
+                    ) : null}
+                    <div className="line">
+                    <div
+                      id={'msg-' + row.id}
+                      title={row.when}
+                      className={
+                        'bubble' + (row.mine ? ' mine' : '') + (lit === row.id ? ' lit' : '')
+                      }
                     >
-                      {tring === row.id
-                        ? t('chat.translate.doing')
-                        : asTr[row.id]
-                          ? t('chat.translate.back')
-                          : t('chat.translate')}
-                    </button>
-                  ) : null}
-                  {row.photo ? (
-                    <button className="shot" onClick={() => setPhoto(row.photo?.big || row.photo?.small || '')}>
-                      <img src={row.photo.small} alt={t('chat.photo')} />
-                    </button>
-                  ) : null}
-                  <div className="stamp muted small">{row.when}</div>
+                      {row.reply ? (
+                        <button className="quote" onClick={() => void goToQuoted(row.reply!.id)}>
+                          <span className="who">{row.reply.who || t('chat.reply.someone')}</span>
+                          <span className="said">{row.reply.text || t('chat.reply.gone')}</span>
+                        </button>
+                      ) : null}
+                      <div className="said">
+                        {asTr[row.id] && tr[row.id] ? (
+                          <span className="tr">{tr[row.id]}</span>
+                        ) : (
+                          (row.parts || []).map((part, k) =>
+                            part.t === 'img' ? (
+                              <img className="chat-sprite" key={k} src={part.v} alt="" />
+                            ) : (
+                              <span key={k}>
+                                <Marked text={part.v} parts={part.parts} />
+                              </span>
+                            ),
+                          )
+                        )}
+                      </div>
+                      {row.photo ? (
+                        <button className="shot" onClick={() => setPhoto(row.photo?.big || row.photo?.small || '')}>
+                          <img src={row.photo.small} alt={t('chat.photo')} />
+                        </button>
+                      ) : null}
+                    </div>
+                    {/* THE TRANSLATION IS A SECOND READING, never a replacement: the
+                        tap that shows it is the tap that puts the original back. Not
+                        offered on one's own message — the game does not offer it
+                        either. It stands BESIDE the bubble, where the game puts its own
+                        corner mark: the word «Перевести» used to be a full line under
+                        every foreign message, and inside the bubble the glyph cut the
+                        first line in half and broke words across it. */}
+                    {!row.mine && row.tr && (row.seq || '') ? (
+                      <button
+                        className="trbtn"
+                        disabled={tring === row.id}
+                        title={asTr[row.id] ? t('chat.translate.back') : t('chat.translate')}
+                        aria-label={asTr[row.id] ? t('chat.translate.back') : t('chat.translate')}
+                        onClick={() => void translate(row)}
+                      >
+                        {tring === row.id ? '…' : asTr[row.id] ? '↩' : '⇄A'}
+                      </button>
+                    ) : null}
+                    </div>
+                  </div>
                 </div>
               </div>
-            ))
+              )
+            })
           ) : (
             <p className="muted small">{t('chat.empty')}</p>
           )}
