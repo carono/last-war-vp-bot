@@ -2798,5 +2798,6 @@
   "chat.translate.doing": "Перевожу…",
   "chat.translate.failed": "игра не перевела это сообщение",
   "chat.emoji": "Смайлы",
-  "chat.stickers": "Стикеры"
+  "chat.stickers": "Стикеры",
+  "chat.tools": "Действия чата"
 }

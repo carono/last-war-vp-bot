@@ -2798,5 +2798,6 @@
   "chat.translate.doing": "Đang dịch…",
   "chat.translate.failed": "trò chơi không dịch được tin nhắn này",
   "chat.emoji": "Biểu tượng",
-  "chat.stickers": "Nhãn dán"
+  "chat.stickers": "Nhãn dán",
+  "chat.tools": "Thao tác trò chuyện"
 }

@@ -920,6 +920,7 @@ export function ScreenPage({
           waiting={!!view.waiting}
           pollKey={pollKey}
           onBack={onBack}
+          tools={view.actions || []}
         />
       ) : view?.map?.kind === 'world' ? (
         <WorldMap screen={id} mode={map} onMode={onMap} />
@@ -997,7 +998,9 @@ export function ScreenPage({
           />
         ))
       )}
-      {(view?.actions || []).map((action) => (
+      {/* A CONVERSATION DRAWS ITS OWN (#2418): the chat's service presses live behind
+          the ⚙ in its bar, not as buttons standing under the messages. */}
+      {(ownHead ? [] : view?.actions || []).map((action) => (
         <div className="controls" key={action.id}>
           <PressButton action={action} screen={id} after={() => void draw(true)} />
         </div>

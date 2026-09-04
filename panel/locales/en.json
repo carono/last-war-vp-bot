@@ -2798,5 +2798,6 @@
   "chat.translate.doing": "Translating…",
   "chat.translate.failed": "the game did not translate this message",
   "chat.emoji": "Emoji",
-  "chat.stickers": "Stickers"
+  "chat.stickers": "Stickers",
+  "chat.tools": "Chat tools"
 }

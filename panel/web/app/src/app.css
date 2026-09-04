@@ -1653,7 +1653,14 @@ body.modal-open {
    its own, so it is the part that is cut with an ellipsis rather than the part that
    pushes a button onto a second line. */
 .chatbar .back { flex: 0 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+/* THE ⚙ SITS AT THE END OF THE ROW and never gives way: it is the only way to the
+   service presses now (#2418). */
+.chatbar .gear { flex: 0 0 auto; margin-left: auto; }
 .chatbar .room { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* WHAT IS BEHIND THE ⚙: a short column of presses inside THE modal (`ui/Modal.tsx`),
+   never a second sheet of its own (#2061). */
+.menu { display: flex; flex-direction: column; gap: 8px; }
 
 /* THE PICKERS, ON THE ROW ABOVE THE BOX (#2418). Square icons, left-aligned, one tap
    each: they act on the message being written, so they stand directly over it. */

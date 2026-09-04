@@ -2851,9 +2851,15 @@ def test_the_sprites_are_behind_two_buttons_in_the_one_modal():
     assert "const args: Record<string, unknown> = { type, room, text: typed }" in chat, \
         "a send no longer names its room"
     assert "args: { type, room, id }" in chat, "a sticker no longer names its room"
-    # THE ONE MODAL, never a second component (CLAUDE.md).
-    assert chat.count("<Modal") == 2 and "from '../ui/Modal'" in chat, \
+    # THE ONE MODAL, never a second component (CLAUDE.md). Three sheets use it now —
+    # the picker, a photograph opened full-size, and the ⚙ that holds the chat's own
+    # service presses (#2418) — and all three are the SAME component.
+    assert chat.count("<Modal") == 3 and "from '../ui/Modal'" in chat, \
         "the picker did not reuse the panel's one modal"
+    assert "className=\"go icon gear\"" in chat, \
+        "the service presses have no ⚙ to open them"
+    assert "chat.history.load" not in chat, \
+        "«Загрузить историю» is drawn as a button of its own again"
 
 
 def test_my_own_line_is_readable_in_both_palettes():

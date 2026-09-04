@@ -2798,5 +2798,6 @@
   "chat.translate.doing": "Çevriliyor…",
   "chat.translate.failed": "oyun bu mesajı çeviremedi",
   "chat.emoji": "Emojiler",
-  "chat.stickers": "Çıkartmalar"
+  "chat.stickers": "Çıkartmalar",
+  "chat.tools": "Sohbet işlemleri"
 }

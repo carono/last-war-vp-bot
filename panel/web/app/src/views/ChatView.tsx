@@ -41,7 +41,7 @@ import { Marked } from '../ui/Coord'
 import { Modal } from '../ui/Modal'
 import { pressWord } from '../ui/press'
 import { useToast } from '../ui/Toast'
-import type { ChatRoomTab, CoordPart, PressAnswer } from '../types'
+import type { ChatRoomTab, CoordPart, PressAnswer, ViewAction } from '../types'
 
 /** One piece of a message: words (possibly with places marked in them) or a sprite. */
 export interface ChatPart {
@@ -149,6 +149,7 @@ export function ChatView({
   waiting,
   pollKey,
   onBack,
+  tools,
 }: {
   screen: string
   rooms: ChatRoomTab[]
@@ -160,6 +161,8 @@ export function ChatView({
   pollKey: number
   /** The way out of the screen: the chat's own bar carries it, so there is one row. */
   onBack: () => void
+  /** The screen's own presses — «Загрузить историю», «Обновить комнаты» — behind ⚙. */
+  tools: ViewAction[]
 }) {
   const toast = useToast()
   const [type, setType] = useState('world')
@@ -204,6 +207,14 @@ export function ChatView({
   const [tr, setTr] = useState<Record<string, string>>({})
   const [asTr, setAsTr] = useState<Record<string, boolean>>({})
   const [tring, setTring] = useState('')
+  /* THE SERVICE PRESSES ARE BEHIND ⚙ (#2418): «кнопки загрузить историю и обновить
+     убирай, можно добавить кнопку шестеренки сверху с выпадайкой». They are things a
+     person does once in a while — folding what the client holds into the store, asking
+     the client for its room list — and they stood permanently under the conversation.
+     Reading older messages does NOT depend on them: a scroll to the top pages the store
+     and then asks the server by itself (`older` / `deeper`). */
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [doing, setDoing] = useState('')
   const pane = useRef<HTMLDivElement | null>(null)
   //: The message box, so a send that empties it puts it back to one line.
   const box = useRef<HTMLTextAreaElement | null>(null)
@@ -688,6 +699,16 @@ export function ChatView({
         {t('chat.list.open')}
       </button>
       <b className="room">{here ? named(here) : t(tabKey(type))}</b>
+      {tools.length ? (
+        <button
+          className="go icon gear"
+          title={t('chat.tools')}
+          aria-label={t('chat.tools')}
+          onClick={() => setToolsOpen(true)}
+        >
+          {'⚙'}
+        </button>
+      ) : null}
     </div>
   )
 
@@ -967,6 +988,40 @@ export function ChatView({
             {!(picker === 'emoji' ? sprites.emoji : sprites.stickers).length ? (
               <p className="muted small">{t('chat.picker.empty')}</p>
             ) : null}
+          </div>
+        </Modal>
+      ) : null}
+      {toolsOpen ? (
+        <Modal title={t('chat.tools')} onClose={() => setToolsOpen(false)}>
+          <div className="menu">
+            {tools.map((action) => (
+              <button
+                key={action.id}
+                className="go wide"
+                disabled={doing === action.id}
+                onClick={() => {
+                  setDoing(action.id)
+                  void (async () => {
+                    try {
+                      const answer = await post<PressAnswer>('/api/screen/press', {
+                        id: screen,
+                        action: action.id,
+                        args: action.args || {},
+                      })
+                      toast(pressWord(answer))
+                      if (answer && answer.ok) window.setTimeout(() => void draw(), 900)
+                    } catch {
+                      /* the tick says so */
+                    } finally {
+                      setDoing('')
+                      setToolsOpen(false)
+                    }
+                  })()
+                }}
+              >
+                {t(action.label)}
+              </button>
+            ))}
           </div>
         </Modal>
       ) : null}
