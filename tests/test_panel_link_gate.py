@@ -167,7 +167,15 @@ class _Scheduler:
 
 
 def _cfg(**seconds) -> dict:
+    """The named errands on, and every other row switched OFF explicitly.
+
+    Since #2390 an errand ships switched on, so the catalogue's own defaults are no
+    longer «nothing is running»: a gate test that inherited them would be measuring the
+    shipped list rather than the gate.
+    """
     cfg = timersmod.default_catalogue().default_config()
+    for block in cfg.values():
+        block["enabled"] = False
     for name, period in seconds.items():
         cfg[name] = {"enabled": True, "interval_sec": period}
     return cfg

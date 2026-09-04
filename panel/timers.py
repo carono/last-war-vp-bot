@@ -424,7 +424,10 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         interval_sec=21600,
         # A failure here is a client that was not answering; a few minutes is soon enough.
         retry_sec=300,
-        enabled=False,
+        # SWITCHED ON, and with no `enabled=` at all (#2390, #2395). The person asked for
+        # this one in those words — «включить, но раз в 6 часов» — and it can spend
+        # nothing: every one of its seven claims is free and gated on the server's own
+        # answer about today, so a day with nothing waiting sends no message at all.
         label_key="timers.item.collect_shop_freebies",
     ),
     Timer(

@@ -68,8 +68,17 @@ def _catalogue():
 
 
 def _cfg(**seconds) -> dict:
-    """Settings with the named timers on at the given period, the rest off."""
+    """Settings with the named timers on at the given period, and the rest OFF.
+
+    Every row is switched off explicitly rather than inherited from the catalogue.
+    Since #2390 a new errand SHIPS switched on, so `default_config()` is no longer a
+    quiet «nothing is running» — a test that asks «what came due» would otherwise be
+    answered with whatever the catalogue turns on this month, which is a fact about
+    the shipped list and not about the scheduler under test.
+    """
     cfg = _catalogue().default_config()
+    for name, block in cfg.items():
+        block["enabled"] = False
     for name, period in seconds.items():
         cfg[name] = {"enabled": True, "interval_sec": period}
     return cfg
@@ -267,7 +276,7 @@ def test_due_never_run_then_waits_out_its_period():
 def test_switched_off_is_never_due():
     """An unticked row does not fire, however long since it last ran."""
     cat = _catalogue()
-    cfg = cat.default_config()                # everything off
+    cfg = _cfg()                              # every row switched off explicitly
     stale = {name: {"last_run": 0.0} for name in cat.names()}
     assert cat.due_names(cfg, stale, time.time()) == []
 
@@ -1135,10 +1144,15 @@ def test_settings_are_re_derived_not_trusted():
     huge = cat.normalize_config({BASE: {"enabled": True, "interval_sec": 10 ** 9}})
     assert huge[BASE]["interval_sec"] == timersmod.MAX_INTERVAL_SEC, huge
 
-    # An old profile with no "timers" block: every timer present and off.
+    # A profile with no "timers" block: every timer present, and each one switched
+    # the way the CATALOGUE ships it. It used to be «present and off» for all of
+    # them; since #2390 an errand ships switched on unless its row says otherwise,
+    # so the answer here is the catalogue's own list rather than a blanket False —
+    # what is still pinned is that the block is derived and nothing is invented.
     empty = cat.normalize_config(None)
     assert set(empty) == set(cat.names()), empty
-    assert not any(item["enabled"] for item in empty.values()), empty
+    for timer in cat.timers:
+        assert empty[timer.name]["enabled"] is bool(timer.enabled), (timer.name, empty)
 
     # A profile that still carries a timer since deleted from the config: gone.
     stale = cat.normalize_config({"was_deleted": {"enabled": True}})
