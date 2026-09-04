@@ -103,6 +103,27 @@ if type(CM) == "table" and type(CM.onParseServerData) == "function" then
 else
   L("class-hook FAIL: Chat.Model.ChatMessage type="..type(CM))
 end
+-- ...AND WHAT WE SEND OURSELVES (#2418). `onParseServerData` is what the client runs
+-- for a message that ARRIVED; a message the player sends is put into the room by the
+-- client itself and never goes through it, so a person writing from the panel saw
+-- nothing until they pressed «Загрузить историю» and the backlog read found it. The
+-- room's own insert (`ChatRoomData.__addChatData`) is where EVERY message lands —
+-- incoming, outgoing and fetched history alike — so it is hooked as well. Duplicates
+-- are free: the store files on the message's own identity, so the same message seen
+-- twice adds one row.
+local RD = package.loaded["Chat.Model.ChatRoomData"]
+if type(RD) == "table" and type(RD.__addChatData) == "function" then
+  _G.__CR_ADD = _G.__CR_ADD or RD.__addChatData
+  local add = _G.__CR_ADD
+  RD.__addChatData = function(self, data, ...)
+    local r = {add(self, data, ...)}
+    if type(data) == "table" then pcall(_G.__CR_REC, data) end
+    return table.unpack(r)
+  end
+  L("room-hook on")
+else
+  L("room-hook FAIL: Chat.Model.ChatRoomData type="..type(RD))
+end
 L("chat_reader hooks installed; buf="..#_G.__CR_BUF)
 """
 

@@ -98,6 +98,12 @@ interface Contact {
   unread: number
 }
 
+/** The sprites behind the two buttons by the send box: what to write with, what to send. */
+interface Sprites {
+  emoji: { id: string; icon: string; token: string }[]
+  stickers: { id: string; name: string; icon: string }[]
+}
+
 /** How many private conversations the list shows before folding the rest away. */
 const PEOPLE_FOLD = 6
 
@@ -168,6 +174,11 @@ export function ChatView({
   const [open, setOpen] = useState(false)
   //: Are all the private conversations shown, or the newest handful?
   const [all, setAll] = useState(false)
+  //: Which picker is open — the emoji to write with, or the stickers to send — and what
+  //: came back for it. Fetched when it is opened: a chat nobody is decorating costs
+  //: nothing, and two hundred sprites are not something to carry on every draw.
+  const [picker, setPicker] = useState<'emoji' | 'sticker' | null>(null)
+  const [sprites, setSprites] = useState<Sprites>({ emoji: [], stickers: [] })
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<string | null>(null)
   const pane = useRef<HTMLDivElement | null>(null)
@@ -437,6 +448,38 @@ export function ChatView({
     [screen],
   )
 
+  /* THE PICKER IS A MODAL NOW (#2418), and it is THE modal — `ui/Modal.tsx`, the one
+     this panel has. It used to be two grids of two hundred sprites laid out under the
+     conversation, which is «огромные таблицы под чатом» and also what made the screen a
+     many-card one and put a pager over the chat. An emoji goes INTO the message; a
+     sticker is sent on the tap, because the game allows no text beside one. */
+  const openPicker = async (which: 'emoji' | 'sticker') => {
+    setPicker(which)
+    if (sprites.emoji.length || sprites.stickers.length) return
+    try {
+      setSprites(
+        await get<Sprites>('/api/screen/data?id=' + encodeURIComponent(screen) + '&kind=picker'),
+      )
+    } catch {
+      /* nothing extracted is an empty picker, which is what the window shows too */
+    }
+  }
+
+  const sendSticker = async (id: string) => {
+    setPicker(null)
+    try {
+      const answer = await post<PressAnswer>('/api/screen/press', {
+        id: screen,
+        action: 'sticker',
+        args: { type, room: room || undefined, id },
+      })
+      toast(pressWord(answer))
+      if (answer && answer.ok) window.setTimeout(() => void draw(), 900)
+    } catch {
+      /* the tick says so */
+    }
+  }
+
   const openThread = (contact: Contact) => {
     setRoom(contact.room)
     setRows([])
@@ -678,6 +721,12 @@ export function ChatView({
               if (e.key === 'Enter') void send('send')
             }}
           />
+          <button className="go icon" disabled={busy} title={t('chat.picker.emoji')} onClick={() => void openPicker('emoji')}>
+            {'🙂'}
+          </button>
+          <button className="go icon" disabled={busy} title={t('chat.picker.sticker')} onClick={() => void openPicker('sticker')}>
+            {'🏷'}
+          </button>
           <button className="go icon" disabled={busy} title={t('chat.send_coords')} onClick={() => void send('coords')}>
             {'📍'}
           </button>
@@ -686,6 +735,34 @@ export function ChatView({
           </button>
         </div>
       </div>
+      {picker ? (
+        <Modal
+          title={t(picker === 'emoji' ? 'chat.picker.emoji' : 'chat.picker.sticker')}
+          onClose={() => setPicker(null)}
+        >
+          <div className="sprites">
+            {(picker === 'emoji' ? sprites.emoji : sprites.stickers).map((one) => (
+              <button
+                key={one.id}
+                className="sprite"
+                onClick={() => {
+                  if (picker === 'emoji') {
+                    setText(text + ('token' in one ? one.token : ''))
+                    setPicker(null)
+                  } else {
+                    void sendSticker(one.id)
+                  }
+                }}
+              >
+                <img src={one.icon} alt="" />
+              </button>
+            ))}
+            {!(picker === 'emoji' ? sprites.emoji : sprites.stickers).length ? (
+              <p className="muted small">{t('chat.picker.empty')}</p>
+            ) : null}
+          </div>
+        </Modal>
+      ) : null}
       {photo ? (
         <Modal title={t('chat.photo')} onClose={() => setPhoto(null)}>
           <img className="shot-big" src={photo} alt="" />

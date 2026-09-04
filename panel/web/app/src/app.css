@@ -1722,11 +1722,36 @@ body.modal-open {
   margin-right: 0;
   margin-left: auto;
   border-color: var(--accent);
-  background: linear-gradient(180deg, #223049, #1a2333);
+  /* MY OWN LINE WAS UNREADABLE IN DAYLIGHT (#2418, «тёмный фон и тёмный текст»): the
+     background was two dark blues written out as hex, so the light palette put its dark
+     ink on them — measured at 1.17:1, which is no contrast at all. Mixed out of the
+     palette's OWN accent and card instead, so it darkens and lightens with everything
+     else: 11.1:1 at night, 13.3:1 by day. */
+  background: color-mix(in srgb, var(--accent) 18%, var(--card));
+  color: var(--ink);
 }
 .bubble .who { font-size: 12px; font-weight: 600; color: var(--accent); }
 .bubble .said { white-space: pre-wrap; }
 .bubble .stamp { display: block; text-align: right; font-size: 11px; }
+
+/* THE PICKER'S GRID, inside the one modal (#2418). It scrolls on its own so the sheet
+   never grows past the screen, and every sprite is a finger wide. */
+.sprites {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 6px;
+  max-height: 52dvh;
+  overflow-y: auto;
+}
+.sprite {
+  min-height: 52px;
+  padding: 4px;
+  border: 1px solid var(--card-edge);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  cursor: pointer;
+}
+.sprite img { width: 100%; height: 40px; object-fit: contain; }
 
 /* An emoji or a sticker is the picture it is on both front-ends, never a `[e:E006]`. */
 .chat-sprite { height: 20px; vertical-align: -4px; }

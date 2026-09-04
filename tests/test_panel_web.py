@@ -2830,6 +2830,42 @@ def test_the_chat_list_is_on_the_left_in_the_order_the_person_asked_for():
         "the wide screen does not put the list beside the conversation"
 
 
+def test_the_sprites_are_behind_two_buttons_in_the_one_modal():
+    """#2418: «огромные таблицы под чатом» became two buttons and the shared modal.
+
+    An emoji goes INTO the message, a sticker is sent on the tap — the game allows no
+    text beside one — and the sheet is `ui/Modal.tsx`, never a second one: the grids
+    also made the chat a many-card screen, which is what put a pager over the
+    conversation («убери пагинацию чатов»).
+    """
+    chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")
+    assert "openPicker('emoji')" in chat and "openPicker('sticker')" in chat, \
+        "the send box has no picker buttons"
+    assert "kind=picker" in chat, "the sprites are still carried on the screen itself"
+    assert "setText(text + ('token' in one ? one.token : ''))" in chat, \
+        "an emoji no longer goes into the message"
+    assert "void sendSticker(one.id)" in chat, "a sticker is no longer sent on the tap"
+    # THE ONE MODAL, never a second component (CLAUDE.md).
+    assert chat.count("<Modal") == 2 and "from '../ui/Modal'" in chat, \
+        "the picker did not reuse the panel's one modal"
+
+
+def test_my_own_line_is_readable_in_both_palettes():
+    """#2418: «пузырь моего сообщения не читаем, тёмный фон и тёмный текст».
+
+    Two dark blues written out as hex, so the light palette put its dark ink on them —
+    1.17:1, which is no contrast at all. Mixed out of the palette's own accent and card
+    instead, so it follows the theme: 11.1:1 at night, 13.3:1 by day.
+    """
+    css = _css()
+    block = css[css.index(".bubble.mine {"):]
+    block = block[: block.index("}")]
+    assert "linear-gradient" not in block and "#" not in block, \
+        "my own bubble still paints itself a colour of its own"
+    assert "color-mix(in srgb, var(--accent)" in block and "color: var(--ink)" in block, \
+        "my own bubble does not take its colours from the palette"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

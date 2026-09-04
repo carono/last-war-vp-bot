@@ -323,7 +323,13 @@ class ChatTab(PanelTab):
                      "prompt": "chat.send_coords.prompt", "args": {"type": chat_type}},
                 ]
             cards.append(card)
-        cards += self._web_picker_cards()
+        # THE PICKER IS NOT A PAIR OF GRIDS UNDER THE CHAT ANY MORE (#2418). The person:
+        # «эмодзи и стикеры сделаны огромными таблицами под чатом, сделай дополнительные
+        # кнопки, и в модалке сделай нужный выбор». Two hundred sprites laid out below
+        # the conversation also made the screen a many-card one, which is what put a
+        # PAGER over the chat — «убери пагинацию чатов». So they travel on their own
+        # reading (`web_data(kind="picker")`), drawn in the one modal this panel has,
+        # and the chat screen is left with no cards to page at all.
         # THE CHAT IS DRAWN, NOT LISTED (#2064). A conversation is not a card of rows:
         # it reads oldest-at-the-top with the box at the bottom, it opens on the newest
         # message, and scrolling up brings in older ones — «в игре именно такой
@@ -384,6 +390,26 @@ class ChatTab(PanelTab):
         if chosen in rooms:
             return chosen
         return rooms[0] if rooms else self.WEB_PICKER_DEFAULT
+
+    def _web_picker(self) -> dict:
+        """The sprites for the modal: the emoji to insert, the stickers to send.
+
+        The same catalogue the grids drew, without the grids: a phone asks for it when
+        somebody opens the picker, so a chat nobody is decorating costs nothing.
+        """
+        cards = self._web_picker_cards()
+        out = {"emoji": [], "stickers": []}
+        for card in cards:
+            items = card.get("items") or []
+            if card.get("title") == "chat.picker.emoji":
+                out["emoji"] = [{"id": str(i.get("text") or ""), "icon": i.get("icon"),
+                                 "token": "{e:%s}" % i.get("text")} for i in items]
+            else:
+                out["stickers"] = [{"id": str((i.get("actions") or [{}])[0]
+                                              .get("args", {}).get("id") or ""),
+                                    "name": str(i.get("text") or ""),
+                                    "icon": i.get("icon")} for i in items]
+        return out
 
     def _web_picker_cards(self) -> list:
         """The emoji grid and the sticker grid, as the phone draws them (#1976).
@@ -548,6 +574,8 @@ class ChatTab(PanelTab):
         Answered on an HTTP worker thread, so nothing here touches a widget.
         """
         args = args or {}
+        if kind == "picker":
+            return self._web_picker()
         if kind == "contacts":
             store = self._store_for_reading()
             if store is None:
