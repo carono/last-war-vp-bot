@@ -67,6 +67,7 @@ class X:
         self.sc = int(P.VirtualAllocEx(self.h, None, 0x400, 0x3000, 4))
         self._s = {}
         self._pinned = {}
+        self._chunk_arr, self._chunk_cap, self._chunk_bad = 0, 0, False
         print(f"pid={self.pid} SAFE_RIP=0x{self.sr:x}")
 
     #: BUSY_MARK — how the panel tells «the client is busy» from every other reason
@@ -322,6 +323,64 @@ class X:
             return "?"
         nm = self.hj(self.e["il2cpp_type_get_name"], [p], "typename")
         return D.cstr(self.h, nm) if nm else "?"
+
+    #: How big the reused chunk array starts. A chunk is a few hundred bytes to a few
+    #: kilobytes, so this is «bigger than anything ordinary» rather than a measurement.
+    CHUNK_ARR_MIN = 1 << 16
+
+    def il2_bytes_reused(self, data: bytes):
+        """The chunk's ``byte[]`` — ONE pinned array, refilled and re-lengthed per call.
+
+        The second of the three hijacks a chunk pays (§2.1 of
+        `docs/research/link-contention.md`). Allocating a managed array is a call into
+        the runtime, and a call into the runtime is 0.22-0.32 s of waiting for the
+        client's main thread to reach its safe park — for an object that is read once,
+        inside the very same injection, and never looked at again.
+
+        So the array is built once, pinned (rooted AND immovable, so the address stays
+        this array), and thereafter written through with plain process memory: the bytes
+        into its body, its LENGTH into the header field the managed side reads. Both are
+        writes, neither is a call. Shrinking a byte array's length this way is safe
+        because a byte array holds no references — the collector never walks its
+        contents, and its real size lives in the collector's own header, not in this
+        field.
+
+        Two things make it correct rather than merely fast, and both are checked rather
+        than assumed:
+
+        * **the length field is proved, not guessed.** A fresh array of a known size is
+          read back at `header - 8`; a build that does not answer with that size gets
+          the old per-call allocation and says so.
+        * **it may not be shared.** The whole of :meth:`lua_eval.LuaEval._send` runs
+          under the run lock, so the array is filled and consumed inside one injection —
+          nothing else can be halfway through reading it. A caller that would overlap
+          two chunks must use :meth:`il2_bytes_new`.
+        """
+        need = len(data)
+        if self._chunk_arr and need <= self._chunk_cap:
+            arr = self._chunk_arr
+        else:
+            if self._chunk_bad:
+                return self.il2_bytes_new(data)
+            cap = max(need * 2, self.CHUNK_ARR_MIN)
+            arr = self.il2_bytes_new(b"\x00" * cap)
+            pin = self.e.get("il2cpp_gchandle_new")
+            if not arr or not pin or not self.hj(pin, [arr, 1], "gchandle:pin-chunk"):
+                self._chunk_bad = True
+                print("[xlua] the chunk array could not be pinned — allocating one a call")
+                return self.il2_bytes_new(data)
+            got = D.rpm_safe(self.h, arr + self._arr_head - 8, 8)
+            if not got or D.u64(got, 0) != cap:
+                self._chunk_bad = True
+                print(f"[xlua] this build does not keep an array's length at header-8 "
+                      f"— allocating a chunk array a call")
+                return self.il2_bytes_new(data)
+            self._chunk_arr, self._chunk_cap = arr, cap
+        P.WriteProcessMemory(self.h, C.c_void_p(arr + self._arr_head), data, need,
+                             C.byref(C.c_size_t(0)))
+        P.WriteProcessMemory(self.h, C.c_void_p(arr + self._arr_head - 8),
+                             struct.pack("<Q", need), 8, C.byref(C.c_size_t(0)))
+        return arr
 
     def il2_bytes_new(self, data: bytes):
         """Create a managed ``byte[]`` holding `data` (runs on main).

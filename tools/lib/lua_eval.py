@@ -559,7 +559,9 @@ class LuaEval:
             s = self.x.il2_string_new(chunk)
             self.x.invoke(self.sd, self.mgr, [("ref", s)], "SafeDoString")
             return
-        arr = self.x.il2_bytes_new(self.enc.pack(chunk))
+        # One pinned array, refilled per call: allocating a managed one costs a
+        # whole hijack, and this whole method runs under the run lock (#2404).
+        arr = self.x.il2_bytes_reused(self.enc.pack(chunk))
         args = [("ref", arr)]
         if self.ds_pc >= 2:
             # The chunk NAME, and it never varies — so it is built once per attach
