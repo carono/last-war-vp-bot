@@ -264,3 +264,66 @@ Read the measurement in the order it puts them, largest first:
    interleaving at call granularity, not parallelism: a 137 s `radar_full_cycle` should
    not make a rally join wait, and that is worth having — but it is fairness, not
    throughput, and it is not what turns 52 % into single figures.
+
+## 7. The injection is three hijacks, and two of them were building rubbish
+
+§2.1 named the lever and did not pull it: an injection is 98 % waiting for the client's
+main thread to reach one exact address, an encrypted chunk pays **three** of those waits,
+and only one of them is the actual `DoString`. The other two build arguments:
+
+* `il2cpp_string_new("lw")` — the chunk NAME, the same two characters on every call the
+  panel has ever made;
+* `il2cpp_array_new(Byte, n)` — a `byte[]` that is filled, read once inside the very same
+  injection, and never looked at again.
+
+Both are now built ONCE per attach and rooted with a pinned GC handle
+(`tools/lib/xlua_route.py::il2_string_pinned`, `::il2_bytes_reused`). Pinned because a
+cached managed pointer is only a pointer while something forbids the collector moving or
+reclaiming the object; the handle is never freed, since the attach ends when the client
+does. Each call then writes the chunk's bytes into the array's body and its LENGTH into
+the header field the managed side reads — two process-memory writes, no call into the
+runtime. A byte array holds no references, so the collector never walks its contents and
+its real size lives in the collector's own header rather than in that field; the field's
+offset is PROVED against a fresh array rather than assumed, and a build that answers
+differently falls back to allocating one a call and says so in the log.
+
+Reusing the array is only safe because the whole of `lua_eval.LuaEval._send` runs under
+the run lock: the array is filled and consumed inside one injection, so nothing can be
+halfway through reading it. **A caller that means to overlap two chunks must use
+`il2_bytes_new`** — that is the one rule this optimisation adds.
+
+### What it moved, measured on the live panel the same hour
+
+| | before | after |
+| --- | ---: | ---: |
+| hijacks per call | 2.9–3.7 | **1.0** |
+| seconds per hijack | 0.24–0.32 | **0.015–0.057** |
+| park samples per hijack | 23–31 | **1.5–4.2** |
+| inject, per call | ~0.73 s | **~0.037 s** |
+| a call, end to end | 0.80–1.19 s | **0.054–0.130 s** |
+| wait for the run lock, per minute | 65–100 s | **0.03–0.22 s** |
+| `assist_secret_task` | 15 calls in 24 s | 16 calls in 4 s |
+
+**A tenfold cut out of a threefold change, and the extra factor is the interesting part.**
+Removing two hijacks can only remove two thirds of the injections; what also fell is the
+price of the one that remains — 27 park samples down to 2. The explanation the numbers
+support is a feedback loop the panel was driving itself: every sample SUSPENDS and resumes
+the game's main thread, three hijacks a call meant ~66 suspensions per call, and a main
+thread being interrupted that often does not reach its idle message-pump wait — which is
+the only address the gate accepts. Fewer hijacks, more idle, cheaper hijacks, fewer still.
+The control is in the log: a restart at 09:59 with the old code left the park samples at
+23–31, and the restart that shipped the first half took them to 1.7–3.0 within a minute.
+
+### What that does to the rest of this file
+
+Every number in §1–§4 was taken at ~1 s a call. At ~0.1 s a call:
+
+* **the queue is gone as a measured thing.** The run lock's `wait` was 53–71 % of a call
+  and is now 0.03–0.22 s per MINUTE. Nothing is standing behind anything.
+* **§5's atomic blocks stand unchanged.** They are correctness, not cost, and a cheaper
+  call makes the windows they protect no wider.
+* **moving the claim from the run to the call (§6.5) is now fairness only, and small.**
+  It was already «not what turns 52 % into single figures»; with the calls a tenth of
+  their price the case for it is a 137 s `radar_full_cycle` not making a rally join wait,
+  and that is worth deciding on its own merits rather than as a cure for a queue.
+* **the socket door (§4, §6.2) is still unexplained** and is still the next thing to open.
