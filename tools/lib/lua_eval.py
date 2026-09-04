@@ -562,7 +562,9 @@ class LuaEval:
         arr = self.x.il2_bytes_new(self.enc.pack(chunk))
         args = [("ref", arr)]
         if self.ds_pc >= 2:
-            args.append(("ref", self.x.il2_string_new("lw")))
+            # The chunk NAME, and it never varies — so it is built once per attach
+            # and pinned rather than hijacked for on every call (#2404).
+            args.append(("ref", self.x.il2_string_pinned("lw")))
         if self.ds_pc >= 3:
             args.append(("ref", 0))
         _ret, exc = self.x.invoke(self.ds_mi, self.luaenv, args, "DoString(bytes)")

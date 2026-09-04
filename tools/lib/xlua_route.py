@@ -66,6 +66,7 @@ class X:
         self.sr = self._learn_park()
         self.sc = int(P.VirtualAllocEx(self.h, None, 0x400, 0x3000, 4))
         self._s = {}
+        self._pinned = {}
         print(f"pid={self.pid} SAFE_RIP=0x{self.sr:x}")
 
     #: BUSY_MARK — how the panel tells «the client is busy» from every other reason
@@ -168,6 +169,37 @@ class X:
     def il2_string_new(self, text):
         """Create a managed System.String via il2cpp_string_new (runs on main)."""
         return self.hj(self.e["il2cpp_string_new"], [self.cstr(text)], "string_new")
+
+    def il2_string_pinned(self, text):
+        """The same managed string every time, built ONCE per attach and rooted.
+
+        A hijack is 0.22-0.32 s of the client's main thread (§2.1 of
+        `docs/research/link-contention.md`) and a chunk pays three of them; one is
+        always the same constant, the chunk name `DoString(byte[], string)` wants. So
+        it is built once and kept.
+
+        Keeping a managed pointer is only safe if something roots it: an object no
+        handle names may be collected, and the address would then be another object's
+        or nothing at all. `il2cpp_gchandle_new(obj, pinned=1)` does both jobs — it
+        roots the string for the life of the attach AND forbids the collector moving
+        it, so the pointer cached here stays this string. The handle is deliberately
+        never freed: the attach ends when the client does.
+
+        A client whose runtime refuses the handle gets the old behaviour — the string
+        is used for THIS call and not remembered, which is correct but not cheap.
+        """
+        got = self._pinned.get(text)
+        if got:
+            return got
+        s = self.il2_string_new(text)
+        if not s:
+            return s
+        pin = self.e.get("il2cpp_gchandle_new")
+        if not pin or not self.hj(pin, [s, 1], "gchandle:pin"):
+            print(f"[xlua] could not pin {text!r} — rebuilding it every call")
+            return s
+        self._pinned[text] = s
+        return s
 
     def gmfn(self, cls, name, argc):
         m = self.hj(self.e["il2cpp_class_get_method_from_name"],
