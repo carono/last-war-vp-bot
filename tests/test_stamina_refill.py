@@ -90,7 +90,9 @@ def test_remember_and_recall_survive_a_new_run():
             run = engine.Interpreter(ctx)
             for stmt in engine.parse_text("RECALL nothing_yet INTO seen\n"):
                 run._run_stmt(stmt)
-            assert ctx.vars["seen"] == "", "an unwritten fact must read as empty"
+            assert ctx.vars["seen"] == "0", (
+                "an unwritten fact must read as 0 — an empty string is refused by every "
+                "numeric condition, so the first run of a recipe would fail outright")
 
             ctx.vars["paid"] = "410"
             for stmt in engine.parse_text("REMEMBER stamina_refill_block FROM paid\n"):
@@ -110,7 +112,7 @@ def test_a_run_with_no_profile_remembers_nothing_and_does_not_crash():
     run = engine.Interpreter(ctx)
     run._run_stmt(engine.parse_text("REMEMBER x = 1\n")[0])
     run._run_stmt(engine.parse_text("RECALL x INTO y\n")[0])
-    assert ctx.vars["y"] == ""
+    assert ctx.vars["y"] == "0"
 
 
 if __name__ == "__main__":

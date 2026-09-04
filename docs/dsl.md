@@ -1147,13 +1147,13 @@ REMEMBER stamina_refill_block FROM refill_paid
 |---|---|
 | `REMEMBER <key> = <text>` | writes the literal text. A `{name}` in it is substituted when the FILE IS PARSED, like everywhere else |
 | `REMEMBER <key> FROM <var>` | writes what the script variable holds RIGHT NOW — which is the form nearly every real use wants, because a value a run has only just read cannot travel through `{name}` |
-| `RECALL <key> INTO <var>` | reads it back. Nothing written yet reads as the empty string, which every numeric condition treats as `0` |
+| `RECALL <key> INTO <var>` | reads it back. Nothing written yet reads as `"0"` — not the empty string, which the DSL's conditions refuse as non-numeric |
 
 - **It is a whole-run memory, not a log.** Everything remembered lives in one named row
   (`recipe_memory`), read and written whole — a blob rather than a table, by the rule in
   `CLAUDE.md`: no `WHERE`, no growth without bound, a handful of keys.
 - **A run with no profile behind it — from a shell — remembers nothing and says so**, and
-  a `RECALL` there reads empty. So a recipe's very first run and a recipe run from a
+  a `RECALL` there reads `"0"`. So a recipe's very first run and a recipe run from a
   shell take the same branch, and neither needs special-casing.
 - **What it is FOR is a refusal a person has to lift.** The first user is
   `actions/buy_stamina_refill.md`: the price of a diamond refill of march energy is

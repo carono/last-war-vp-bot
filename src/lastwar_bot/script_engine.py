@@ -3441,11 +3441,13 @@ class Interpreter:
     def _do_recall(self, stmt: RecallStmt) -> None:
         """Read what a `REMEMBER` of the same key left, into a script variable.
 
-        Nothing written yet — and a run with no profile — both read as the empty string,
-        which every numeric condition treats as `0`. So a recipe's first ever run and a
-        recipe run from a shell take the same branch, and neither has to be special-cased.
+        Nothing written yet — and a run with no profile — both read as `"0"`, and the
+        zero is deliberate rather than an empty string: the DSL's conditions REFUSE a
+        non-numeric variable («variable 'x' = '' is not numeric»), so an empty default
+        would fail the very first run of every recipe that recalls anything. Live, on the
+        first run of `buy_stamina_refill`, it did.
         """
-        value = str(self._memory().get(stmt.key, ""))
+        value = str(self._memory().get(stmt.key, "0"))
         self.ctx.vars[stmt.var] = value
         self._log(f"RECALL {stmt.key} -> {stmt.var} = {value or '—'}")
 
