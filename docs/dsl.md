@@ -742,10 +742,15 @@ READ_LUA (UIManager.Instance:GetStackTopWindow() and 1 or 0) INTO haswin
 
 **SEVERAL NAMES AFTER `INTO` READ SEVERAL VALUES IN ONE CALL, and a recipe that asks
 more than one question should.** A chunk reaches the game's Lua VM through a thread
-hijack that costs 0.5–1.0 s and cannot be divided, and the machine can make about 1.4 of
-them a second in total (`docs/research/link-contention.md`, #2404) — so four questions in
-four statements are four seconds of the whole panel's budget for four answers one
-expression could have returned together.
+hijack that cannot be divided, and every call also costs a settle and an answer read on
+top of it — measured at 0.054–0.130 s a call end to end, of which the injection itself is
+about 0.04 (`docs/research/link-contention.md`, §7, #2404). So four questions in four
+statements are four times that for four answers one expression could have returned
+together, and they are four turns of a client somebody else may want in between.
+
+The figure used to be a whole second a call and the advice has not changed with it: the
+cost per call is now mostly HARVEST — reading the answer back — which merging removes
+just as surely as it removed the hijacks.
 
 ```
 READ_LUA (DataCenter.__lw_rally_report or ""), (DataCenter.__lw_rally_todo or 0), (DataCenter.__lw_rally_kinds or "") INTO report, todo, kinds
