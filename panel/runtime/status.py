@@ -499,9 +499,15 @@ class StatusPoll:
         rt.recovery.kick_hold_sec = 60.0 * rt.settings.opt_int("kick_hold_min",
                                                                low=0, high=1440)
         deaf = health.reason in (profile_health.NO_TRAFFIC, profile_health.CLIENT_HUNG)
+        # …AND WHICH OF THE TWO (#2446). A wedged client cannot answer the confirmation
+        # below — it rides the same VM — so the recovery is told, and exempts it. Sharing
+        # one `deaf` flag is what left it waiting on «0 из 2» server probes from 00:41 to
+        # 06:43 on 2026-09-05 while nothing was ever sent.
+        hung = health.reason == profile_health.CLIENT_HUNG
         idle = game_link.idle_sec()
         self._act_on(rt.recovery.note(deaf, now, idle_sec=idle, kicked=kicked,
                                       running=getattr(found, "running", False),
+                                      hung=hung,
                                       talking=health.colour == profile_health.OK))
         # …AND THE ACTIVE QUESTION THE WHOLE MODEL RESTS ON (#1911): green is earned,
         # never assumed. Throttled inside the recovery, so at most one round trip every

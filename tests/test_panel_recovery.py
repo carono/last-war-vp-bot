@@ -165,14 +165,20 @@ def test_a_link_that_never_comes_back_is_retried_after_every_cooldown():
     schedule failed every errand against the same dead client.
     """
     r = _Recovery()
-    acts = [i for i in range(400)
+    acts = [i * 8 for i in range(2000)
             if (said := r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0))
             and said[0] == rec.ACT]
-    hours = 400 * 8 / 3600.0
-    assert r.restarts >= int(hours * 3600 / rec.COOLDOWN_SEC) - 1, (
-        f"{r.restarts} restarts in {hours:.1f} h at a {rec.COOLDOWN_SEC / 60:.0f} min "
-        f"cooldown — it gave up")
     assert len(acts) == r.restarts
+    # IT NEVER GIVES UP, and the gaps GROW (#2446). A flat ten minutes repeated an
+    # unhelpful cure six times an hour; the wait now costs more each time the cure
+    # changes nothing, and stops growing at the ceiling so a client is never abandoned.
+    assert r.restarts >= 5, f"{r.restarts} restarts in 4.4 h — it gave up"
+    gaps = [b - a for a, b in zip(acts, acts[1:])]
+    assert gaps == sorted(gaps), f"the wait did not grow: {gaps}"
+    # …plus the run of readings that has to rebuild after every wait — the gap between
+    # two acts is the cooldown AND the minute of `lost` the next one needs.
+    assert max(gaps) <= rec.COOLDOWN_MAX_SEC + rec.LOST_SPAN_SEC, (
+        f"past the ceiling: {gaps}")
 
 
 def test_nobody_is_thrown_out_of_a_game_they_are_playing():
@@ -1217,9 +1223,83 @@ def test_fruitless_restarts_are_counted_and_never_change_the_cure() -> None:
             said = r.note(LOST, now + i * 8, idle_sec=10_000.0)
             if said and said[0] in rec.RESTARTS:
                 cures.append("client")
-        now += rec.COOLDOWN_SEC + rec.PROBE_GAP_SEC * rec.PROBE_FAILS + 60
+        # THE WAIT IS ASKED, never assumed (#2446): it grows with every restart that
+        # changed nothing, which is exactly the run this case feeds it.
+        now += r.cooldown_sec() + rec.PROBE_GAP_SEC * rec.PROBE_FAILS + 60
     assert cures == ["client"] * (rec.FRUITLESS + 1), cures
     assert r.state(now)["fruitless"] >= rec.FRUITLESS, r.state(now)
+
+def test_a_wedged_client_is_restarted_without_a_probe_it_can_never_answer():
+    """THE SIX-HOUR NIGHT (#2446), and it is a deadlock between two correct rules.
+
+    Live on 2026-09-05 the client went `client-busy` at 00:41: nothing landed in its Lua
+    VM because its main thread never reached its park. That is `CLIENT_HUNG`, and it is
+    fed to this module as «deaf» on purpose — a wedged process is exactly what a restart
+    is for. It then hit the confirmation (#1910) and stopped there until morning:
+
+        пока НЕ перезапускаю: сокеты потеряны на 579 взглядах за 4682 с,
+        но проб сервера без ответа только 0 из 2
+
+    Nought, at 04:00, after four thousand seconds — because the probe is a scenario that
+    runs INSIDE the client's VM, and the caller only sends one while the plumbing is
+    `LANDING`. A hung client is `NOT_LANDING` by definition, so no probe was ever sent,
+    so none ever failed, so the count sat at `0 of 2` for ever. The panel was waiting for
+    an answer to a question it had structurally decided not to ask.
+
+    A hang is therefore exempt, exactly as a kick is: there is nothing to confirm. The
+    raw :class:`recovery.Recovery` is used, with no probe pump bolted on — that is the
+    whole point of the case.
+    """
+    r = rec.Recovery()
+    said = [r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0, hung=True)
+            for i in range(DEAF_READINGS)]
+    acts = [s for s in said if s and s[0] in rec.RESTARTS]
+    assert acts, f"a wedged client was never restarted: {[s for s in said if s]}"
+    assert acts[0][0] == rec.ACT_HUNG, acts
+    assert r.probe_state(1000.0)["fails"] == 0, "no probe can have answered"
+    # …and the line says WHICH attempt and how long the next wait is, because a person
+    # reading a repeated restart is asking exactly that.
+    assert acts[0][1]["n"] == 1 and acts[0][1]["again"] >= 1, acts[0]
+
+
+def test_a_hang_is_the_only_thing_exempt_from_the_confirmation():
+    """The exemption is narrow on purpose. `NO_TRAFFIC` — chunks land, the server is
+    silent — CAN be probed, and must still be, or #1910's night comes back: the socket
+    table said `lost` for hours while the server answered every question."""
+    r = rec.Recovery()
+    said = [r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0) for i in range(DEAF_READINGS)]
+    keys = [s[0] for s in said if s]
+    assert rec.HOLD_CONFIRM in keys, keys
+    assert not [k for k in keys if k in rec.RESTARTS], keys
+
+
+def test_a_wedged_client_is_still_not_taken_from_somebody_playing():
+    """The exemption is from the CONFIRMATION and from nothing else. A person at the
+    keyboard still wins for :data:`recovery.PLAYER_HOLD_MAX_SEC`, and then the client is
+    put back anyway — the bound #1888 added, which is what «пауза за игроком должна
+    кончаться» asks for. The signal is the client's own Windows session: no keyboard and
+    no mouse for :data:`recovery.PLAYER_QUIET_SEC`."""
+    r = rec.Recovery()
+    for i in range(20):
+        r.note(LOST, 1000.0 + i * 8, idle_sec=10.0, hung=True)
+    assert r.restarts == 0, "it closed a window somebody was using"
+    said = r.note(LOST, 1000.0 + rec.PLAYER_HOLD_MAX_SEC + 60, idle_sec=10.0, hung=True)
+    assert said and said[0] in rec.RESTARTS, said
+    assert said[0] == rec.ACT_BUSY, "the person is owed the reason the window closed"
+
+
+def test_every_act_has_a_line_and_a_place_in_the_sets():
+    """A key in none of the sets is announced and never performed — how `ACT_KICK` spent
+    a night being said (#1259). Pinned again because #2446 adds one."""
+    import json
+    from pathlib import Path
+
+    words = json.loads((Path(__file__).resolve().parent.parent / "panel" / "locales"
+                        / "en.json").read_text(encoding="utf-8"))
+    for key in sorted(rec.RESTARTS | rec.SAYINGS):
+        assert key in words, f"{key} has no line to say"
+    assert rec.ACT_HUNG in rec.RESTARTS and rec.ACT_HUNG not in rec.KICK_ACTS
+
 
 def _kicked_wait(r, now: float) -> int:
     """Arm a kick at `now` and return the wait it was given, in seconds.

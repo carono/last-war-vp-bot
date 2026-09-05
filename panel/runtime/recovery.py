@@ -233,6 +233,24 @@ STRIKE_GAP_SEC = 6.0
 #: anything touches it again.
 COOLDOWN_SEC = 600.0
 
+#: …AND HOW FAR THAT WAIT GROWS WHEN THE CURE KEEPS NOT WORKING (#2446).
+#:
+#: A flat ten minutes is right for the first attempt and wrong for the sixth: a client
+#: that has been put back five times and is still deaf is not going to be cured by a
+#: sixth relaunch inside the same ten minutes, and the log fills with acts instead of
+#: with the one fact worth reading — that the cure is not working. So the wait is
+#: :data:`COOLDOWN_SEC` multiplied by the number of restarts that changed nothing
+#: (`_fruitless`, which a single green reading wipes), and capped here. The FIRST wait
+#: is unchanged at ten minutes — one restart that has not yet had time to prove itself
+#: is not evidence of anything — and it is the second that starts costing: 10 → 10 → 20
+#: → 30 → 40 → 50 → 60 minutes and no further.
+#:
+#: The ceiling is an hour rather than «for ever» on purpose. Whatever is wrong may be
+#: outside the machine — a network, a server, a router that reboots at four — and a
+#: panel that has given up permanently is a panel somebody has to notice before the
+#: account plays again.
+COOLDOWN_MAX_SEC = 3600.0
+
 #: How recently somebody must have touched this machine for the client to be left alone.
 #:
 #: THE RESTART CLOSES THE WINDOW SOMEBODY MAY BE PLAYING IN. On 2026-08-06 it did: the
@@ -523,6 +541,18 @@ class Recovery:
             return 0
         return max(0, int(self._lost_since + PLAYER_HOLD_MAX_SEC - now))
 
+    def cooldown_sec(self) -> float:
+        """How long THIS client must be left alone after a restart (#2446).
+
+        :data:`COOLDOWN_SEC` while the cure is working, and one more helping of it for
+        every restart that changed nothing (`_fruitless`, wiped by a single green
+        reading), up to :data:`COOLDOWN_MAX_SEC`. A number rather than a constant so the
+        log line and the decision quote the same thing — «жду 10 мин» said six times in
+        an hour while the client is restarted six times is what a flat cooldown looks
+        like from outside, and it is indistinguishable from a panel doing nothing.
+        """
+        return min(COOLDOWN_SEC * max(1, self._fruitless), COOLDOWN_MAX_SEC)
+
     def state(self, now: float) -> dict:
         """What both front-ends draw: the run, the count, and the cooldown left.
 
@@ -601,7 +631,7 @@ class Recovery:
     def note(self, deaf: bool, now: float,
              idle_sec: "float | None" = None,
              kicked: bool = False, talking: bool = False,
-             running: bool = True) -> "tuple | None":
+             running: bool = True, hung: bool = False) -> "tuple | None":
         """Feed one verdict about the link. What to SAY and DO, or ``None`` for nothing.
 
         ``deaf`` is the amber the status poll made (#1911): there IS a client, chunks
@@ -634,6 +664,27 @@ class Recovery:
         A kick reported for a client that is not there is ignored: no process, nothing
         on screen, and therefore nothing that can be showing a modal. That reading
         belongs to the watchdog and two things must not relaunch one client.
+
+        **`hung` IS THE STATE THAT COST A NIGHT (#2446).** It is the caller's
+        `CLIENT_HUNG`: nothing lands in the client's Lua VM *and* the client's own main
+        thread never reaches its park, so it is not answering anybody — us, Windows or
+        the server. It arrives here as `deaf` like every other amber, and until #2446 it
+        then hit the confirmation below and stopped there **for ever**, because the
+        confirmation is a round trip THROUGH the very VM that is wedged: the caller only
+        sends a probe while the plumbing is `LANDING`, a hung client is `NOT_LANDING` by
+        definition, and a probe that is never sent is never a failed probe. Live on
+        2026-09-05 that read «проб сервера без ответа только 0 из 2» every five minutes
+        from 00:41 to 06:43 — six hours of a client nobody restarted, with the schedule
+        held the whole time.
+
+        So a hang is EXEMPT from the confirmation, exactly as a kick is and for the same
+        kind of reason: there is nothing to confirm. A kick is the game's own sentence; a
+        hang is a direct, positive reading of the process itself, taken from two places
+        at once and owing nothing to the socket table the confirmation exists to
+        second-guess. Every other gate is unchanged and still in front of it — the run of
+        five readings over a minute, the person at the keyboard, the kick's wait and the
+        cooldown, which now GROWS (:data:`COOLDOWN_MAX_SEC`) so that a cure which is not
+        working is repeated less and less rather than every ten minutes until morning.
         """
         kicked = bool(kicked)
         # A CLIENT THAT IS THERE AND NOT SHOWING THE MODAL is the account being ours
@@ -770,7 +821,8 @@ class Recovery:
             return (HOLD_KICK, {"mins": -(-left // 60)})
 
         since = now - self._last if self._last else None
-        if since is not None and since < COOLDOWN_SEC:
+        wait = self.cooldown_sec()
+        if since is not None and since < wait:
             # Waiting. Said ONCE per wait, not once a poll — but the wait is re-checked
             # every time, which is the whole of the bug that was here: `_held` used to
             # suppress the ACT as well, so a link that never came back was restarted
@@ -781,7 +833,8 @@ class Recovery:
             if self._held:
                 return None
             self._held = True
-            return (HOLD, {"mins": int((COOLDOWN_SEC - since) // 60) + 1})
+            return (HOLD, {"mins": int((wait - since) // 60) + 1,
+                           "n": self._restarts})
 
         # THERE IS ONE CURE NOW, AND SO THERE IS NOTHING TO ALTERNATE WITH (#1911).
         # This is where two fruitless client restarts used to move the blame onto the
@@ -798,7 +851,11 @@ class Recovery:
         # A KICK IS EXEMPT. There is nothing to confirm — the game has said in its own
         # words that the account is on another device (§5.3), and a probe would only ask
         # a client that is deliberately not being talked to.
-        if not kicked and self._probe_fails < PROBE_FAILS:
+        # …AND A HANG IS EXEMPT TOO (#2446), for the reason spelled out in the
+        # docstring: the confirmation travels through the client's Lua VM, and a wedged
+        # VM is precisely what `hung` means. Asking for it is asking a question that
+        # cannot be delivered and then refusing to act because no answer came back.
+        if not kicked and not hung and self._probe_fails < PROBE_FAILS:
             self._why = "confirm"
             self._probe_want = True
             if self._confirm_held and (now - self._confirm_at) < CONFIRM_SAY_SEC:
@@ -845,6 +902,16 @@ class Recovery:
             # session anybody is playing. Its own sentence: whoever was looking at that
             # window is owed the reason it closed.
             return (ACT_BUSY, {"mins": int(PLAYER_HOLD_MAX_SEC // 60)})
+        if hung:
+            # ITS OWN SENTENCE (#2446). «Сокеты потеряны» is an inference about a
+            # conversation; this is the process itself not answering, and a log that
+            # cannot tell the two apart cannot answer «почему он всю ночь стоял». It
+            # carries the attempt number and the next wait, because the one thing a
+            # person reading a repeated restart needs is whether it is repeating.
+            return (ACT_HUNG, {"secs": int(deaf_for), "looks": looks,
+                               "n": self._restarts,
+                               "again": int(self.cooldown_sec() // 60),
+                               "idle": int(idle_sec) if idle_sec is not None else -1})
         # ON WHAT BASIS, IN NUMBERS (#1910). It used to say «не слышен серверу 24 с»,
         # and the 24 was `STRIKES * 8` — arithmetic, not a measurement, over a poll that
         # jitters. Everything here was counted: how many independent looks, how long the
@@ -1273,6 +1340,13 @@ ACT_BUSY = "log.game.deaf_restart_busy"
 #: the one restart in this module that does not mean anything is broken: the client is
 #: fine, the server is shut, and the knock is how the panel finds out it has opened.
 ACT_STALLED = "log.game.stalled_restart"
+
+#: …AND THE WEDGED CLIENT (#2446). Its own key rather than a share of :data:`ACT`,
+#: because the evidence is not the same evidence: :data:`ACT` quotes failed server
+#: probes, and a hung client is the one case where there can never be any — the probe
+#: rides the VM that is wedged. Six hours of «0 из 2» is what sharing the sentence would
+#: have gone on looking like.
+ACT_HUNG = "log.game.hung_restart"
 #: …and the wait in front of it: the account is on another device, and it is being left
 #: there for :data:`KICK_HOLD_SEC` before anything is done about it (#1291). Said once
 #: per kick with the minutes left, and drawn as a countdown by both front-ends — a panel
@@ -1291,7 +1365,7 @@ SAY_BARREN = "log.game.barren"
 #: the ten-minute cooldown started), and nothing touched the client. Live that left it
 #: deaf from 22:48 to 23:07, when it finally died on its own and the process watchdog —
 #: the other half — picked it up. A third act is one line here and works everywhere.
-RESTARTS = frozenset({ACT, ACT_BUSY, ACT_KICK, ACT_STALLED})
+RESTARTS = frozenset({ACT, ACT_BUSY, ACT_KICK, ACT_STALLED, ACT_HUNG})
 
 #: …and the subset that means «this restart is because the account was TAKEN». Asked as a
 #: set for the same reason as above: `key == ACT` is what once left a kicked client
