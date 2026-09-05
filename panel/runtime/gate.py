@@ -75,6 +75,30 @@ FRESH_SEC = 30.0
 #: because the relaunch lock and this gate must never disagree about what a relaunch is.
 RELAUNCH_ACTIONS = frozenset({"launch_game", "restart_game", "recover_from_kick"})
 
+#: EVERYTHING THAT MAY RUN WHILE THE LIGHT IS NOT GREEN, and nothing else (#2446).
+#:
+#: The person's rule, in their own words: «никакие сценарии, таймеры, триггеры, ничего не
+#: должно работать, если статус не зелёный, исключение сценарии перезапуска». So this is
+#: the whole of the exception list, in one frozenset, because an exception that lives in
+#: three `if`s is an exception nobody can audit.
+#:
+#: It is :data:`RELAUNCH_ACTIONS` plus the SERVER PROBE, and the probe is not a courtesy:
+#: green is «the server answered», the answer comes from `read_server_info`, and that
+#: scenario goes through the same door as every other one. Leave it out and the gate is a
+#: trap with no handle on the inside — the light can never go green again because the one
+#: question that could turn it green is refused for the light not being green.
+RECOVERY_ACTIONS = RELAUNCH_ACTIONS | {"read_server_info"}
+
+#: …AND THE ONE THING THAT PASSES EVEN A SWITCHED-OFF PROFILE: closing the client.
+#:
+#: It is not a recovery, it is the opposite — but «Стоп всё» IS the switch being flipped
+#: off (`panel/runtime/panic.py`), and a gate that held the press would leave the client
+#: running for ever in a profile somebody had just switched off: the gate holding its own
+#: cure. Separate from :data:`RECOVERY_ACTIONS` because the two are checked on opposite
+#: sides of the switch — putting a client BACK must stay held by «профиль выключен»
+#: (#1393), and taking it away must not.
+LIFECYCLE_ACTIONS = frozenset({"quit_game"})
+
 
 class LinkGate:
     """One profile's «may anything run right now», and the two lines that say it changed."""
@@ -119,8 +143,20 @@ class LinkGate:
             return None
         if self._switched_off():
             return "timers.log.skip_off"
-        return ("timers.log.skip_maintenance" if self._maintenance()
+        if self._maintenance():
+            return "timers.log.skip_maintenance"
+        # …AND «ПОДЦЕПЛЕНЫ, НО СЕРВЕР МОЛЧИТ» IS ITS OWN SENTENCE (#2446). «Нет связи с
+        # игрой» would send somebody looking at the client, which is running perfectly.
+        return ("timers.log.skip_silent" if self._landing()
                 else "timers.log.skip_link")
+
+    def _landing(self) -> bool:
+        """Do chunks reach the client? Read off the light, never taken here."""
+        health = getattr(self.rt, "health", None)
+        try:
+            return getattr(health.current, "plumbing", "") == profile_health.LANDING
+        except Exception:                     # noqa: BLE001 — a reading, never the gate
+            return False
 
     def blocks(self, name: str = "", *, human: bool = False) -> str:
         """May this SCENARIO be played right now? ``""`` when it may.
@@ -138,23 +174,33 @@ class LinkGate:
         rather than a bool: a run that does not happen has to say so in the person's own
         words, and silent suppression is its own class of bug in this codebase (#1884).
 
-        ``human`` is the one exemption, and it is the same one the module docstring
-        already names: somebody standing at a button. It is passed explicitly by the
-        presses — a widget's command, a hotkey, `web_press`, the switch's own acts — and
-        defaults to FALSE everywhere else, so a path added tomorrow that nobody thought
-        about is held rather than let through.
+        ``human`` USED TO BE A BLANKET EXEMPTION and is not one any more (#2446). The
+        person's rule names manual runs explicitly — «ни таймеры, ни триггеры, ни ручные
+        прогоны» — and the reason is the same for a button as for a clock: a press into a
+        client the server is not hearing does nothing, takes the game claim while it does
+        it, and delays the restart that would fix the thing the person was pressing about.
+        What a press still gets is the RECOVERY family below, which is everything anybody
+        could usefully press in that state, plus the profile's own switch, which is not a
+        scenario at all.
         """
-        if human:
+        if name in LIFECYCLE_ACTIONS:
+            # Ahead of the switch on purpose — see :data:`LIFECYCLE_ACTIONS`.
             return ""
         if self.alive():
             return ""
         if self._switched_off():
             return "action.held.off"
-        if name in RELAUNCH_ACTIONS:
-            # THE CURE IS NOT HELD BY THE ILLNESS (:data:`RELAUNCH_ACTIONS`). The daemon
-            # is down or holding a client that has gone; putting a client back is what
-            # makes it live again, and it needs no game link to do it.
+        if name in RECOVERY_ACTIONS:
+            # THE CURE IS NOT HELD BY THE ILLNESS (:data:`RECOVERY_ACTIONS`). Putting the
+            # client back is what makes the link live again, and asking the server whether
+            # it is there is what turns the light green — neither can wait for the state
+            # it is there to end.
             return ""
+        if human:
+            # A PERSON IS OWED A DIFFERENT SENTENCE. They are standing at the button and
+            # deserve to be told the press was refused and why, rather than reading a line
+            # written for a timer that nobody is watching.
+            return "action.held.human"
         return "action.held.link"
 
     def relaunch_held(self) -> bool:
@@ -171,16 +217,29 @@ class LinkGate:
     def _read(self) -> bool:
         """The reading itself: the switch first, then the poll's verdict, then the link.
 
-        Deliberately «does a chunk LAND» and not «is something reachable» (#1911). The
-        panel holds the client itself now, so there is no port that can answer while
-        nothing behind it works — but there is still an attach that can have failed, and
-        an errand run through a link that lands nothing fails, is written down as a
-        failure and sits out its retry hold for nothing.
+        **GREEN, AND ONLY GREEN (#2446).** One definition, in one place, so that it
+        cannot drift: green is `profile_health.OK` — the panel drives the client AND the
+        game server answered. Amber in every one of its shapes (a kick, a deaf client,
+        a silent server, a wedged VM, maintenance) and red both hold this shut.
 
-        A SERVER THAT IS SILENT DOES NOT HOLD THIS GATE. That amber is the client's own
-        deafness, its cure is a restart, and refusing to press anything meanwhile is how
-        #1910 lost hours of banners to a socket reading that was simply wrong. What runs
-        against a deaf client fails visibly, which is the honest outcome.
+        THIS REVERSES WHAT WAS WRITTEN HERE, and the reversal is the person's, in their
+        words: «никакие сценарии, таймеры, триггеры, ничего не должно работать, если
+        статус не зелёный, исключение сценарии перезапуска». What stood here said the
+        opposite — that a silent server must NOT hold the gate, because #1910 lost hours
+        of banners to a socket reading that was simply wrong, and that «what runs against
+        a deaf client fails visibly, which is the honest outcome».
+
+        It is not honest, and the night of 2026-09-05 is the measurement. For 375 minutes
+        the server answered nothing and the panel went on starting errands into it: the
+        log filled with runs that looked like work, every one of them took the game claim
+        for its duration, and the recovery — which needs that same claim to put the
+        client back — queued behind them. A run that cannot possibly succeed is not
+        evidence, it is noise plus an obstacle.
+
+        #1910's reason expired with the reading it was about: the gate then rested on the
+        SOCKET TABLE, which could say `lost` for hours while the server answered every
+        probe. It rests on the probe's own answer now, so the failure mode it was written
+        against cannot happen — a server that answers IS green.
         """
         # THE SWITCH BEFORE ANYTHING ELSE (#1882). «Профиль работает» is what a person
         # decided; a link that happens to be warm is only what a machine is doing.
@@ -205,12 +264,28 @@ class LinkGate:
             # один раз».
             if getattr(health.current, "reason", "") == profile_health.MAINTENANCE:
                 return False
-            return getattr(health.current, "plumbing", "") == profile_health.LANDING
+            # THE ONE PLACE «GREEN» IS DEFINED for everything that runs by itself. It is
+            # `verdict`'s own colour, never a re-derivation of it here: a second opinion
+            # about the light is a second light.
+            return bool(getattr(health.current, "ok", False))
         # Nobody is polling this runtime (a tab launched on its own), the poll has died,
         # or something has just re-attached and the last verdict predates it. Ask the
         # link — an object in this process, so the answer costs nothing.
+        #
+        # IT IS HALF AN ANSWER AND IT IS THE SAFE HALF (#2446). `ready()` is «does a chunk
+        # land», which is a necessary condition for green and not a sufficient one: it
+        # cannot tell whether the SERVER is answering, because that costs a round trip and
+        # a gate asked in front of every errand may never be the thing that spends one. So
+        # a stale-verdict runtime is held unless the link itself is landing AND the
+        # recovery has an answer from the server inside its shelf life — the same fact the
+        # light is made of, read rather than re-taken.
         try:
-            return bool(self.rt.game.ready())
+            if not bool(self.rt.game.ready()):
+                return False
+            rec = getattr(self.rt, "recovery", None)
+            if rec is None:
+                return True                  # a runtime with no recovery has no light
+            return bool(rec.link_confirmed(time.time()))
         except Exception:                     # noqa: BLE001 — a reading, never the panel
             return False
 
@@ -283,7 +358,10 @@ class LinkGate:
         else:
             # …AND THE THIRD WAY (#1982): the server is shut. «Нет связи с игрой» would
             # send somebody looking for a fault in a panel that is working perfectly.
-            self._say("gate.log.maintenance" if self._maintenance() else "gate.log.held")
+            if self._maintenance():
+                self._say("gate.log.maintenance")
+            else:
+                self._say("gate.log.silent" if self._landing() else "gate.log.held")
 
     def _say(self, key: str) -> None:
         try:

@@ -103,19 +103,30 @@ class _Link:
 class _Light:
     """`ProfileHealth` as the gate sees it: one verdict and when it was made.
 
-    The gate asks ONE thing of it since #1911 — does a chunk reach the client — because
-    that is «может ли панель что-то нажать». A server that is silent is amber and does
-    NOT hold this gate: its cure is a restart, and refusing to press anything meanwhile
-    is how #1910 lost hours of banners to a socket reading that was simply wrong.
+    THE GATE ASKS FOR GREEN NOW, AND ONLY GREEN (#2446) — the person's rule: «никакие
+    сценарии, таймеры, триггеры, ничего не должно работать, если статус не зелёный,
+    исключение сценарии перезапуска». Green is `profile_health.OK`: the panel drives the
+    client AND the game server answered.
+
+    That reverses what stood here — «a server that is silent does NOT hold this gate» —
+    and the reversal is measured rather than preferred: on 2026-09-05 the server answered
+    nothing for 375 minutes while the panel started errands into it, each one taking the
+    game claim ahead of the restart that would have fixed it.
+
+    Built through the REAL :func:`profile_health.verdict`, so the test cannot grow a
+    second opinion about what green means.
     """
 
     def __init__(self, plumbing: str = profile_health.LANDING, at=None,
                  reason: str = profile_health.TRAFFIC) -> None:
-        self.current = types.SimpleNamespace(plumbing=plumbing, reason=reason)
-        self.read_at = time.time() if at is None else at
+        self.set(plumbing, at, reason)
 
     def set(self, plumbing: str, at=None, reason: str = profile_health.TRAFFIC) -> None:
-        self.current = types.SimpleNamespace(plumbing=plumbing, reason=reason)
+        self.current = profile_health.verdict(
+            running=True, plumbing=plumbing,
+            server=(profile_health.ANSWERING if reason == profile_health.TRAFFIC
+                    else profile_health.SILENT),
+            maintenance=reason == profile_health.MAINTENANCE)
         self.read_at = time.time() if at is None else at
 
 
@@ -506,16 +517,30 @@ def test_the_hold_names_which_of_the_two_it_is():
     assert rt.gate.blocks(BASE) == "action.held.off"
 
 
-def test_a_persons_press_is_never_held():
-    """The one exemption, and it is the module docstring's: somebody at a button.
+def test_a_persons_press_is_held_too_and_told_why():
+    """`human` WAS a blanket exemption and is not one any more (#2446).
 
-    Closing the client is the plainest case — it is what switching the profile OFF has
-    to do, and a gate that held it would be holding its own cure.
+    The person's rule names manual runs explicitly — «ни таймеры, ни триггеры, ни ручные
+    прогоны» — and the reason is the same for a button as for a clock: a press into a
+    client the server is not hearing does nothing, holds the game claim while it does
+    nothing, and delays the restart the person was pressing about. What a press keeps is
+    the recovery family, which is everything anybody could usefully press in that state.
+
+    It gets its OWN sentence: somebody standing at a button is owed a refusal written for
+    them rather than one written for a timer nobody is watching.
     """
     rt = _RT(up=False, plumbing=profile_health.NOT_LANDING)
-    assert rt.gate.blocks("quit_game", human=True) == ""
+    assert rt.gate.blocks("collect_resources", human=True) == "action.held.human"
+    assert rt.gate.blocks("restart_game", human=True) == ""
+    # …and the switch still outranks everything, with its own words.
     rt.power.set(False)
+    assert rt.gate.blocks("collect_resources", human=True) == "action.held.off"
+    assert rt.gate.blocks("restart_game", human=True) == "action.held.off"
+    # …EXCEPT CLOSING THE CLIENT, which is what switching off has to DO. A gate that
+    # held it would leave the client running for ever in a profile somebody had just
+    # switched off — the gate holding its own cure (`panel/runtime/panic.py`).
     assert rt.gate.blocks("quit_game", human=True) == ""
+    assert rt.gate.blocks("quit_game") == ""
 
 
 # --- helpers ----------------------------------------------------------------
@@ -576,11 +601,65 @@ def test_the_closed_door_is_said_ONCE_however_many_errands_ask():
     assert rt.said.count("gate.log.maintenance") == 1, rt.said
 
 
-def test_a_deaf_client_still_does_not_hold_the_gate():
-    """The narrowing has to stay narrow: `no_traffic` is a restart, not a wait (#1910)."""
+def test_a_deaf_client_holds_the_gate_shut():
+    """REVERSED BY #2446, and the reversal is the person's own rule.
+
+    What stood here was «`no_traffic` is a restart, not a wait» (#1910): chunks land, so
+    press away, and a run that fails against a deaf client is honest. It is not. On
+    2026-09-05 the server answered nothing for 375 minutes and the panel started errands
+    into it the whole time — a log full of runs that looked like work, each one holding
+    the game claim ahead of the restart that would have cured it.
+
+    #1910's reason expired with the reading it was about: the gate then rested on the
+    socket table, which could say `lost` while the server answered every probe. It rests
+    on the probe's own answer now, so «green» cannot be wrong in that direction.
+    """
     rt = _RT()
     rt.health.set(profile_health.LANDING, reason=profile_health.NO_TRAFFIC)
+    assert rt.gate.alive() is False
+    assert rt.gate.blocks("collect_resources") == "action.held.link"
+    assert rt.gate.reason() == "timers.log.skip_silent", rt.gate.reason()
+
+
+def test_only_the_restart_family_runs_while_the_light_is_not_green():
+    """The whole exception list, in the person's words: «исключение сценарии перезапуска».
+
+    The server probe is in it and is not a courtesy: green IS «the server answered», the
+    answer comes from `read_server_info`, and leaving it out makes the gate a trap with
+    no handle on the inside — the light could never go green again.
+    """
+    rt = _RT()
+    rt.health.set(profile_health.LANDING, reason=profile_health.NO_TRAFFIC)
+    for name in sorted(gatemod.RECOVERY_ACTIONS):
+        assert rt.gate.blocks(name) == "", name
+        assert rt.gate.blocks(name, human=True) == "", name
+    assert "read_server_info" in gatemod.RECOVERY_ACTIONS
+    for name in ("collect_resources", "heal_units", "join_rally", "auto_treasure"):
+        assert rt.gate.blocks(name) == "action.held.link", name
+
+
+def test_green_lets_everything_go_exactly_as_before():
+    """The other half of the rule: nothing is held while the status IS green."""
+    rt = _RT()
+    rt.health.set(profile_health.LANDING, reason=profile_health.TRAFFIC)
     assert rt.gate.alive() is True
+    for name in ("collect_resources", "heal_units", "read_server_info", "restart_game"):
+        assert rt.gate.blocks(name) == "", name
+        assert rt.gate.blocks(name, human=True) == "", name
+    assert rt.gate.reason() is None
+
+
+def test_a_kick_and_a_wedged_client_hold_it_too():
+    """Amber in every shape, not just the one that was easiest to name."""
+    for reason, plumbing in ((profile_health.KICKED, profile_health.LANDING),
+                             (profile_health.NOT_IN_GAME, profile_health.LANDING),
+                             (profile_health.CLIENT_HUNG, profile_health.NOT_LANDING),
+                             (profile_health.NO_CONNECTION, profile_health.NOT_LANDING)):
+        rt = _RT()
+        rt.health.set(plumbing, reason=reason)
+        assert rt.gate.alive() is False, reason
+        assert rt.gate.blocks("collect_resources") != "", reason
+        assert rt.gate.blocks("restart_game") == "", reason
 
 
 def _run_standalone() -> int:
