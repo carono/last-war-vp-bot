@@ -921,6 +921,16 @@ export function ChatView({
                         </button>
                       ) : null}
                     </div>
+                    {/* THE TIME IS ON EVERY MESSAGE, and it costs no line (#2418).
+                        The person: «в чате время сообщения добавь». It had come off
+                        with the tightening — a grey separator on a pause and the exact
+                        minute in the bubble's tooltip, neither of which a thumb reads.
+                        So it stands BESIDE the bubble, on the same row, the way the
+                        translate glyph does: a bubble is at least 34 px tall and this
+                        is 13, so a message with a clock is exactly as tall as one
+                        without. The separator stays — it says a pause happened, which
+                        a stamp on every line does not. */}
+                    <span className="stamp">{row.when}</span>
                     {/* THE TRANSLATION IS A SECOND READING, never a replacement: the
                         tap that shows it is the tap that puts the original back. Not
                         offered on one's own message — the game does not offer it

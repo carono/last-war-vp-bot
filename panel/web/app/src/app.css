@@ -1907,6 +1907,21 @@ body.chatting .head-row .status { padding-top: 0; }
 .msg .line { display: flex; align-items: flex-end; gap: 2px; min-width: 0; max-width: 100%; }
 .msg .line > .bubble { min-width: 0; }
 .msg.mine .line { flex-direction: row-reverse; }
+/* THE CLOCK ON A MESSAGE (#2418). Beside the bubble rather than under the words: the
+   row is as tall as the bubble, which is never shorter than this, so a chat with times
+   holds as many messages as one without — measured at 80 px a message on a 390 px phone
+   before and after. Tabular figures so a column of them does not shimmer. */
+.msg .stamp {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  padding-bottom: 3px;
+  font-size: 10px;
+  line-height: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
 .msg .trbtn {
   flex: 0 0 auto;
   align-self: flex-start;
