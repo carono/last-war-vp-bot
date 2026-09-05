@@ -360,7 +360,7 @@
   "log.game.link_ready": "el enlace con el juego estuvo listo {secs} s después de aparecer el cliente",
   "log.game.deaf_restart": "reinicio el cliente: sockets perdidos en {looks} miradas durante {secs}s · {fails} sondas al servidor sin respuesta (la última hace {probe_secs}s) · nadie en la máquina desde hace {idle}s",
   "log.game.deaf_restart_busy": "el servidor no oye al cliente y hay alguien en el equipo — reinicio de todos modos tras {mins} min",
-  "log.game.hung_restart": "el cliente está bloqueado — su hilo principal lleva {secs}s sin responder en {looks} miradas y no se puede ejecutar nada en él; reiniciando, intento {n}, el siguiente no antes de {again} min · nadie en la máquina desde hace {idle}s",
+  "log.game.hung_restart": "no se puede ejecutar nada en el cliente — {secs}s en {looks} miradas, ningún fragmento llega a él, así que tampoco se puede preguntar al servidor a través suyo; reiniciando, intento {n}, el siguiente no antes de {again} min · nadie en la máquina desde hace {idle}s",
   "log.game.deaf_hold": "no se oye al cliente, pero se reinició hace poco ({n} en total) — esperando {mins} min",
   "log.game.barren": "{n} tareas seguidas no pulsaron nada — puede que el cliente responda desde su memoria caducada",
   "log.game.deaf_busy": "no se oye al cliente, pero hay alguien en el equipo — sin tocarlo {mins} min",

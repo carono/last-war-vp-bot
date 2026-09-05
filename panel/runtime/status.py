@@ -499,15 +499,20 @@ class StatusPoll:
         rt.recovery.kick_hold_sec = 60.0 * rt.settings.opt_int("kick_hold_min",
                                                                low=0, high=1440)
         deaf = health.reason in (profile_health.NO_TRAFFIC, profile_health.CLIENT_HUNG)
-        # …AND WHICH OF THE TWO (#2446). A wedged client cannot answer the confirmation
-        # below — it rides the same VM — so the recovery is told, and exempts it. Sharing
-        # one `deaf` flag is what left it waiting on «0 из 2» server probes from 00:41 to
-        # 06:43 on 2026-09-05 while nothing was ever sent.
-        hung = health.reason == profile_health.CLIENT_HUNG
+        # …AND WHETHER THE CONFIRMATION CAN EVEN BE ASKED FOR (#2446). The probe below
+        # is a scenario that runs INSIDE the client's Lua VM and is only sent while the
+        # plumbing is `LANDING` — so on a client nothing reaches, no probe is ever sent,
+        # none ever fails, and the recovery waits on «0 из 2» for ever. It happens in two
+        # shapes and the live one was the second: `NOT_LANDING` (the main thread never
+        # reaches its park) and `PLUMBING_UNASKED` (never attached, so nothing has ever
+        # come back and there is no age to judge — which falls through `verdict` to
+        # `NO_TRAFFIC` and reads as an ordinary deaf client). From 00:41 to past 06:43 on
+        # 2026-09-05 that was six hours with the schedule held and no restart.
+        unprobeable = health.plumbing != profile_health.LANDING
         idle = game_link.idle_sec()
         self._act_on(rt.recovery.note(deaf, now, idle_sec=idle, kicked=kicked,
                                       running=getattr(found, "running", False),
-                                      hung=hung,
+                                      unprobeable=unprobeable,
                                       talking=health.colour == profile_health.OK))
         # …AND THE ACTIVE QUESTION THE WHOLE MODEL RESTS ON (#1911): green is earned,
         # never assumed. Throttled inside the recovery, so at most one round trip every

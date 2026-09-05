@@ -360,7 +360,7 @@
   "log.game.link_ready": "die Spielverbindung stand {secs} s nach dem Erscheinen des Clients",
   "log.game.deaf_restart": "starte den Client neu: Sockets bei {looks} Blicken über {secs}s verloren · {fails} Server-Proben ohne Antwort (letzte vor {probe_secs}s) · seit {idle}s niemand am Rechner",
   "log.game.deaf_restart_busy": "der Client ist für den Server nicht erreichbar und jemand sitzt am Rechner — nach {mins} Min trotzdem Neustart",
-  "log.game.hung_restart": "der Client hängt — sein Hauptthread antwortet seit {secs}s bei {looks} Blicken nicht und es lässt sich nichts darin ausführen; starte neu, Versuch {n}, nächster frühestens in {again} Min · niemand am Rechner seit {idle}s",
+  "log.game.hung_restart": "im Client lässt sich nichts ausführen — {secs}s bei {looks} Blicken, kein Chunk kommt an, also ist auch der Server darüber nicht zu fragen; starte neu, Versuch {n}, nächster frühestens in {again} Min · niemand am Rechner seit {idle}s",
   "log.game.deaf_hold": "der Client ist nicht erreichbar, wurde aber kürzlich neu gestartet (bisher {n}) — warte {mins} Min",
   "log.game.barren": "{n} Aufträge nacheinander haben nichts gedrückt — der Client antwortet womöglich aus seinem veralteten Speicher",
   "log.game.deaf_busy": "der Client ist nicht erreichbar, aber jemand sitzt am Rechner — noch {mins} Min unangetastet",

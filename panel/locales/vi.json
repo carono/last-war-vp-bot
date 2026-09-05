@@ -360,7 +360,7 @@
   "log.game.link_ready": "kết nối tới game sẵn sàng sau {secs} giây kể từ khi client xuất hiện",
   "log.game.deaf_restart": "khởi động lại client: socket mất qua {looks} lần nhìn trong {secs}s · {fails} lần dò máy chủ không hồi đáp (lần cuối {probe_secs}s trước) · không có ai ở máy suốt {idle}s",
   "log.game.deaf_restart_busy": "máy chủ không nghe thấy client và có người đang ở máy — vẫn khởi động lại sau {mins} phút",
-  "log.game.hung_restart": "client bị treo — luồng chính không phản hồi {secs} giây qua {looks} lần nhìn và không chạy được gì trong đó; đang khởi động lại, lần thử {n}, lần sau sớm nhất sau {again} phút · không có ai ở máy {idle} giây",
+  "log.game.hung_restart": "không chạy được gì trong client — {secs} giây qua {looks} lần nhìn, không mẩu lệnh nào tới được nó, nên cũng không hỏi được máy chủ qua nó; đang khởi động lại, lần thử {n}, lần sau sớm nhất sau {again} phút · không có ai ở máy {idle} giây",
   "log.game.deaf_hold": "không nghe thấy client, nhưng vừa khởi động lại (tổng {n}) — chờ {mins} phút",
   "log.game.barren": "{n} việc liên tiếp không bấm được gì — có thể client đang trả lời từ bộ nhớ cũ của nó",
   "log.game.deaf_busy": "không nghe thấy client, nhưng có người đang ở máy — để yên {mins} phút",

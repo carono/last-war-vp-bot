@@ -360,7 +360,7 @@
   "log.game.link_ready": "istemci göründükten {secs} sn sonra oyun bağlantısı hazırdı",
   "log.game.deaf_restart": "istemciyi yeniden başlatıyorum: {secs}s boyunca {looks} bakışta soketler kayıp · {fails} sunucu yoklaması yanıtsız (sonuncusu {probe_secs}s önce) · {idle}s makinenin başında kimse yok",
   "log.game.deaf_restart_busy": "istemci sunucuya ulaşamıyor ve makine başında biri var — {mins} dk sonra yine de yeniden başlatılıyor",
-  "log.game.hung_restart": "istemci takıldı — ana iş parçacığı {looks} bakışta {secs} sn yanıt vermiyor ve içinde hiçbir şey çalıştırılamıyor; yeniden başlatılıyor, {n}. deneme, sonraki en erken {again} dk sonra · {idle} sn'dir makinenin başında kimse yok",
+  "log.game.hung_restart": "istemcide hiçbir şey çalıştırılamıyor — {looks} bakışta {secs} sn boyunca ona hiçbir parça ulaşmıyor, dolayısıyla sunucu da onun üzerinden sorulamıyor; yeniden başlatılıyor, {n}. deneme, sonraki en erken {again} dk sonra · {idle} sn'dir makinenin başında kimse yok",
   "log.game.deaf_hold": "istemci duyulmuyor ama az önce yeniden başlatıldı (toplam {n}) — {mins} dk bekleniyor",
   "log.game.barren": "arka arkaya {n} görev hiçbir şeye basmadı — istemci kendi eski belleğinden yanıtlıyor olabilir",
   "log.game.deaf_busy": "istemci duyulmuyor ama makine başında biri var — {mins} dk dokunulmuyor",

@@ -631,7 +631,7 @@ class Recovery:
     def note(self, deaf: bool, now: float,
              idle_sec: "float | None" = None,
              kicked: bool = False, talking: bool = False,
-             running: bool = True, hung: bool = False) -> "tuple | None":
+             running: bool = True, unprobeable: bool = False) -> "tuple | None":
         """Feed one verdict about the link. What to SAY and DO, or ``None`` for nothing.
 
         ``deaf`` is the amber the status poll made (#1911): there IS a client, chunks
@@ -665,26 +665,42 @@ class Recovery:
         on screen, and therefore nothing that can be showing a modal. That reading
         belongs to the watchdog and two things must not relaunch one client.
 
-        **`hung` IS THE STATE THAT COST A NIGHT (#2446).** It is the caller's
-        `CLIENT_HUNG`: nothing lands in the client's Lua VM *and* the client's own main
-        thread never reaches its park, so it is not answering anybody — us, Windows or
-        the server. It arrives here as `deaf` like every other amber, and until #2446 it
-        then hit the confirmation below and stopped there **for ever**, because the
-        confirmation is a round trip THROUGH the very VM that is wedged: the caller only
-        sends a probe while the plumbing is `LANDING`, a hung client is `NOT_LANDING` by
-        definition, and a probe that is never sent is never a failed probe. Live on
-        2026-09-05 that read «проб сервера без ответа только 0 из 2» every five minutes
-        from 00:41 to 06:43 — six hours of a client nobody restarted, with the schedule
-        held the whole time.
+        **`unprobeable` IS THE STATE THAT COST A NIGHT (#2446), and it is a DEADLOCK
+        rather than a missing rule.** It means the caller could not get a chunk into the
+        client's Lua VM at all — its plumbing reading is anything but `LANDING`, which
+        covers both shapes this can take: a client whose main thread never reaches its
+        park (`CLIENT_HUNG`, `NOT_LANDING`) and one the panel has never managed to attach
+        to, so nothing has ever come back out of it and there is no age to judge
+        (`PLUMBING_UNASKED`). Both arrive here as `deaf` — the second by falling through
+        `profile_health.verdict` to `NO_TRAFFIC` — and both used to hit the confirmation
+        below and stop there **for ever**.
 
-        So a hang is EXEMPT from the confirmation, exactly as a kick is and for the same
-        kind of reason: there is nothing to confirm. A kick is the game's own sentence; a
-        hang is a direct, positive reading of the process itself, taken from two places
-        at once and owing nothing to the socket table the confirmation exists to
-        second-guess. Every other gate is unchanged and still in front of it — the run of
-        five readings over a minute, the person at the keyboard, the kick's wait and the
-        cooldown, which now GROWS (:data:`COOLDOWN_MAX_SEC`) so that a cure which is not
-        working is repeated less and less rather than every ten minutes until morning.
+        Because the confirmation is a round trip THROUGH the very VM that cannot be
+        reached. The caller only sends a probe while the plumbing is `LANDING`; a probe
+        that is never sent is never a failed probe; so the count sits at nought and the
+        cure is withheld waiting for an answer to a question the panel had structurally
+        decided not to ask. Live on 2026-09-05, `client-busy` from 00:41, and every five
+        minutes until past 06:43:
+
+            пока НЕ перезапускаю: сокеты потеряны на 579 взглядах за 4682 с,
+            но проб сервера без ответа только 0 из 2
+
+        Six hours, no restart, the schedule held throughout, and no other cure could take
+        it either: the process watchdog only reacts to a pid going away, and the
+        maintenance knock stands down on exactly this reading.
+
+        So it is EXEMPT from the confirmation, as a kick is and for the same kind of
+        reason: there is nothing to confirm. A kick is the game's own sentence; this is a
+        direct reading of our own end of the wire, and it owes nothing to the socket
+        table the confirmation exists to second-guess. **The exemption is narrow**: a
+        client whose chunks DO land and whose server is merely silent is still probed, or
+        #1910's night comes back — the sockets said `lost` for hours while the server
+        answered every question.
+
+        Every other gate is unchanged and still in front of it — the run of five readings
+        over a minute, the person at the keyboard, the kick's wait and the cooldown,
+        which now GROWS (:data:`COOLDOWN_MAX_SEC`) so that a cure which is not working is
+        repeated less and less rather than every ten minutes until morning.
         """
         kicked = bool(kicked)
         # A CLIENT THAT IS THERE AND NOT SHOWING THE MODAL is the account being ours
@@ -851,11 +867,12 @@ class Recovery:
         # A KICK IS EXEMPT. There is nothing to confirm — the game has said in its own
         # words that the account is on another device (§5.3), and a probe would only ask
         # a client that is deliberately not being talked to.
-        # …AND A HANG IS EXEMPT TOO (#2446), for the reason spelled out in the
-        # docstring: the confirmation travels through the client's Lua VM, and a wedged
-        # VM is precisely what `hung` means. Asking for it is asking a question that
-        # cannot be delivered and then refusing to act because no answer came back.
-        if not kicked and not hung and self._probe_fails < PROBE_FAILS:
+        # …AND A CLIENT WE CANNOT REACH AT ALL IS EXEMPT TOO (#2446), for the reason
+        # spelled out in the docstring: the confirmation travels THROUGH the client's Lua
+        # VM, and `unprobeable` is precisely «nothing gets into that VM». Asking for it is
+        # asking a question that cannot be delivered and then refusing to act because no
+        # answer came back.
+        if not kicked and not unprobeable and self._probe_fails < PROBE_FAILS:
             self._why = "confirm"
             self._probe_want = True
             if self._confirm_held and (now - self._confirm_at) < CONFIRM_SAY_SEC:
@@ -902,10 +919,10 @@ class Recovery:
             # session anybody is playing. Its own sentence: whoever was looking at that
             # window is owed the reason it closed.
             return (ACT_BUSY, {"mins": int(PLAYER_HOLD_MAX_SEC // 60)})
-        if hung:
-            # ITS OWN SENTENCE (#2446). «Сокеты потеряны» is an inference about a
-            # conversation; this is the process itself not answering, and a log that
-            # cannot tell the two apart cannot answer «почему он всю ночь стоял». It
+        if unprobeable:
+            # ITS OWN SENTENCE (#2446). :data:`ACT` quotes failed server probes, and
+            # this is the one case where there can never be any — so sharing the line
+            # would print «0 проб» beside a restart and read as the bug it fixes. It
             # carries the attempt number and the next wait, because the one thing a
             # person reading a repeated restart needs is whether it is repeating.
             return (ACT_HUNG, {"secs": int(deaf_for), "looks": looks,
@@ -1341,11 +1358,11 @@ ACT_BUSY = "log.game.deaf_restart_busy"
 #: fine, the server is shut, and the knock is how the panel finds out it has opened.
 ACT_STALLED = "log.game.stalled_restart"
 
-#: …AND THE WEDGED CLIENT (#2446). Its own key rather than a share of :data:`ACT`,
-#: because the evidence is not the same evidence: :data:`ACT` quotes failed server
-#: probes, and a hung client is the one case where there can never be any — the probe
-#: rides the VM that is wedged. Six hours of «0 из 2» is what sharing the sentence would
-#: have gone on looking like.
+#: …AND THE CLIENT NOTHING REACHES (#2446) — wedged, or never attached to at all. Its
+#: own key rather than a share of :data:`ACT`, because the evidence is not the same
+#: evidence: :data:`ACT` quotes failed server probes, and this is the one case where
+#: there can never be any — the probe rides the VM that cannot be reached. Six hours of
+#: «0 из 2» is what sharing the sentence would have gone on looking like.
 ACT_HUNG = "log.game.hung_restart"
 #: …and the wait in front of it: the account is on another device, and it is being left
 #: there for :data:`KICK_HOLD_SEC` before anything is done about it (#1291). Said once

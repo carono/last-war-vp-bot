@@ -360,7 +360,7 @@
   "log.game.link_ready": "la liaison avec le jeu était prête {secs} s après l'apparition du client",
   "log.game.deaf_restart": "je redémarre le client : sockets perdus sur {looks} regards en {secs}s · {fails} sondes serveur sans réponse (la dernière il y a {probe_secs}s) · personne à la machine depuis {idle}s",
   "log.game.deaf_restart_busy": "le client n'est plus entendu du serveur et quelqu'un est à la machine — redémarrage quand même après {mins} min",
-  "log.game.hung_restart": "le client est bloqué — son thread principal ne répond plus depuis {secs}s sur {looks} regards et rien ne peut y être exécuté ; redémarrage, tentative {n}, la suivante pas avant {again} min · personne devant la machine depuis {idle}s",
+  "log.game.hung_restart": "rien ne s'exécute dans le client — {secs}s sur {looks} regards, aucun morceau n'y arrive, donc le serveur ne peut pas non plus être interrogé par ce biais ; redémarrage, tentative {n}, la suivante pas avant {again} min · personne devant la machine depuis {idle}s",
   "log.game.deaf_hold": "le client n'est pas entendu, mais il vient d'être redémarré ({n} au total) — attente de {mins} min",
   "log.game.barren": "{n} tâches d'affilée n'ont rien pressé — le client répond peut-être depuis sa mémoire périmée",
   "log.game.deaf_busy": "le client n'est pas entendu, mais quelqu'un est à la machine — on n'y touche pas pendant {mins} min",

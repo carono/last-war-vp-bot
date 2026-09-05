@@ -360,7 +360,7 @@
   "log.game.link_ready": "połączenie z grą było gotowe {secs} s po pojawieniu się klienta",
   "log.game.deaf_restart": "restartuję klienta: gniazda utracone przy {looks} spojrzeniach w ciągu {secs}s · {fails} sond serwera bez odpowiedzi (ostatnia {probe_secs}s temu) · nikogo przy maszynie od {idle}s",
   "log.game.deaf_restart_busy": "serwer nie słyszy klienta, a ktoś jest przy komputerze — restartuję mimo to po {mins} min",
-  "log.game.hung_restart": "klient zawiesił się — jego główny wątek nie odpowiada od {secs}s w {looks} spojrzeniach i nic nie da się w nim uruchomić; restartuję, próba {n}, następna nie wcześniej niż za {again} min · nikogo przy komputerze od {idle}s",
+  "log.game.hung_restart": "w kliencie nic się nie wykonuje — {secs}s w {looks} spojrzeniach, żaden fragment do niego nie dociera, więc i serwera przez niego nie zapytasz; restartuję, próba {n}, następna nie wcześniej niż za {again} min · nikogo przy komputerze od {idle}s",
   "log.game.deaf_hold": "klient jest niesłyszalny, ale był niedawno restartowany (łącznie {n}) — czekam {mins} min",
   "log.game.barren": "{n} zleceń z rzędu niczego nie nacisnęło — klient może odpowiadać z własnej nieaktualnej pamięci",
   "log.game.deaf_busy": "klient jest niesłyszalny, ale ktoś jest przy komputerze — nie ruszam przez {mins} min",

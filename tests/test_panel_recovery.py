@@ -1232,10 +1232,10 @@ def test_fruitless_restarts_are_counted_and_never_change_the_cure() -> None:
 def test_a_wedged_client_is_restarted_without_a_probe_it_can_never_answer():
     """THE SIX-HOUR NIGHT (#2446), and it is a deadlock between two correct rules.
 
-    Live on 2026-09-05 the client went `client-busy` at 00:41: nothing landed in its Lua
-    VM because its main thread never reached its park. That is `CLIENT_HUNG`, and it is
-    fed to this module as «deaf» on purpose — a wedged process is exactly what a restart
-    is for. It then hit the confirmation (#1910) and stopped there until morning:
+    Live on 2026-09-05 the client went `client-busy` at 00:41: the panel could not attach
+    to it at all, so no chunk ever landed in its Lua VM. That reads as «deaf» here on
+    purpose — a client nothing reaches is exactly what a restart is for. It then hit the
+    confirmation (#1910) and stopped there until morning:
 
         пока НЕ перезапускаю: сокеты потеряны на 579 взглядах за 4682 с,
         но проб сервера без ответа только 0 из 2
@@ -1251,7 +1251,7 @@ def test_a_wedged_client_is_restarted_without_a_probe_it_can_never_answer():
     whole point of the case.
     """
     r = rec.Recovery()
-    said = [r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0, hung=True)
+    said = [r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0, unprobeable=True)
             for i in range(DEAF_READINGS)]
     acts = [s for s in said if s and s[0] in rec.RESTARTS]
     assert acts, f"a wedged client was never restarted: {[s for s in said if s]}"
@@ -1263,9 +1263,9 @@ def test_a_wedged_client_is_restarted_without_a_probe_it_can_never_answer():
 
 
 def test_a_hang_is_the_only_thing_exempt_from_the_confirmation():
-    """The exemption is narrow on purpose. `NO_TRAFFIC` — chunks land, the server is
-    silent — CAN be probed, and must still be, or #1910's night comes back: the socket
-    table said `lost` for hours while the server answered every question."""
+    """The exemption is narrow on purpose. A client whose chunks DO land and whose server
+    is merely silent CAN be probed, and must still be, or #1910's night comes back: the
+    socket table said `lost` for hours while the server answered every question."""
     r = rec.Recovery()
     said = [r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0) for i in range(DEAF_READINGS)]
     keys = [s[0] for s in said if s]
@@ -1281,9 +1281,9 @@ def test_a_wedged_client_is_still_not_taken_from_somebody_playing():
     no mouse for :data:`recovery.PLAYER_QUIET_SEC`."""
     r = rec.Recovery()
     for i in range(20):
-        r.note(LOST, 1000.0 + i * 8, idle_sec=10.0, hung=True)
+        r.note(LOST, 1000.0 + i * 8, idle_sec=10.0, unprobeable=True)
     assert r.restarts == 0, "it closed a window somebody was using"
-    said = r.note(LOST, 1000.0 + rec.PLAYER_HOLD_MAX_SEC + 60, idle_sec=10.0, hung=True)
+    said = r.note(LOST, 1000.0 + rec.PLAYER_HOLD_MAX_SEC + 60, idle_sec=10.0, unprobeable=True)
     assert said and said[0] in rec.RESTARTS, said
     assert said[0] == rec.ACT_BUSY, "the person is owed the reason the window closed"
 
@@ -1397,6 +1397,13 @@ def test_the_panel_stamps_the_kick_restart_with_the_clock_recovery_uses():
     stamp = re.search(r"note_kick_restart\((.*?)\)\s*$", source, re.M)
     assert stamp is not None, "the panel no longer stamps a kick restart"
     assert stamp.group(1).strip() == "time.time()", stamp.group(1)
+    #: …AND THE EXEMPTION IS TAKEN OFF THE PLUMBING, never off one reason id (#2446).
+    #: `CLIENT_HUNG` is only half of «nothing reaches this client»: the live case was
+    #: `PLUMBING_UNASKED` — never attached, so there is no traffic age to judge — which
+    #: `verdict` turns into an ordinary-looking `NO_TRAFFIC`. Testing the reason would
+    #: have fixed the half that did not happen.
+    assert "health.plumbing != profile_health.LANDING" in source, (
+        "the confirmation exemption no longer reads the plumbing")
     #: …and the act it hangs off is asked as a SET, never compared to one constant
     assert "recoverymod.KICK_ACTS" in source, "the kick act is not asked as a set"
 
