@@ -207,3 +207,37 @@ resolved client-side" rather than failing to parse.
   `roomId` prefix is the reliable discriminator meanwhile.
 - **Full `push.all.notice` id catalogue** — only a few templates seen; the rest
   need a longer capture or the client string table.
+
+## 7. The ear falls out silently — measured (#2418)
+
+The listener is one wrapper around `Chat.Model.ChatMessage:onParseServerData`, kept in
+the client's own Lua state. That state is rebuilt without warning — a relogin, a client
+restart, a scene the game reloads — and the wrapper goes with it. **Nothing raises.**
+The drain keeps succeeding against a buffer that is gone or forever empty, so the reader
+process stays alive, the panel goes on saying «слушаю», and the chat simply stops
+growing.
+
+Measured on the live panel, a single day of one profile:
+
+| what | number |
+|---|---|
+| messages filed in 24 h | 1938 |
+| stretches over 10 min with nothing filed | 14 |
+| total time in those stretches | 508 min |
+| the longest single hole | 217 min |
+
+Throughout the 217-minute hole the reader process was alive, its own note file recorded
+neither a failed install nor a failed drain, and the panel's status said the monitor was
+running. From the outside it is indistinguishable from a quiet chat, which is exactly
+what «чат не обновляется» was.
+
+**What answers it:** the drain now says whether the hook is still bound, in the round
+trip it was already making — `H=1` bound, `H=0` gone
+(`tools/lib/chat_records.py::HOOK_CHECK_LUA`). The install stashes what it bound
+(`_G.__CR_WRAP`, `_G.__CR_ADDWRAP`), so the check compares against the wrapper this tool
+put there rather than trusting a flag, and it re-takes the pristine method from the LIVE
+class table instead of a copy saved before the reload. A reader that hears `H=0` puts the
+hook back on the next round, and then reads the gap back out of the rooms the client is
+still holding — the same client-side copy `READ_CHAT` uses, which asks the server
+nothing. Nothing here is a new clock: the check rides the existing drain, and the gap
+read happens on a loss and at a start, never on a timer.

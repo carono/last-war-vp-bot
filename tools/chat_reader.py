@@ -91,13 +91,22 @@ if type(CM) == "table" and type(CM.onParseServerData) == "function" then
   -- `_G.__CR_REC` BY NAME rather than closing over it, so re-running the recorder
   -- chunk alone (which the backlog read does) updates what an already-installed
   -- hook records.
-  _G.__CR_ORIG = _G.__CR_ORIG or CM.onParseServerData
+  -- THE LIVE METHOD, NOT THE ONE SAVED A SESSION AGO (#2418). A Lua reload — a
+  -- relogin, a client restart, a scene the game rebuilds — puts a fresh function
+  -- here, and re-wrapping a stale copy would call a method belonging to a state
+  -- that is gone. So the pristine one is re-taken whenever what is bound is not
+  -- the wrapper this tool put there, and kept untouched when it is.
+  if CM.onParseServerData ~= _G.__CR_WRAP then
+    _G.__CR_ORIG = CM.onParseServerData
+  end
   local orig = _G.__CR_ORIG
   CM.onParseServerData = function(self, ...)
     local r = {orig(self, ...)}
     pcall(_G.__CR_REC, self)
     return table.unpack(r)
   end
+  -- WHAT WAS BOUND, so a later drain can tell whether it is still there (#2418).
+  _G.__CR_WRAP = CM.onParseServerData
   _G.__CR_CLASS_HOOKED = true
   L("class-hook on")
 else
@@ -113,13 +122,16 @@ end
 -- twice adds one row.
 local RD = package.loaded["Chat.Model.ChatRoomData"]
 if type(RD) == "table" and type(RD.__addChatData) == "function" then
-  _G.__CR_ADD = _G.__CR_ADD or RD.__addChatData
+  if RD.__addChatData ~= _G.__CR_ADDWRAP then
+    _G.__CR_ADD = RD.__addChatData
+  end
   local add = _G.__CR_ADD
   RD.__addChatData = function(self, data, ...)
     local r = {add(self, data, ...)}
     if type(data) == "table" then pcall(_G.__CR_REC, data) end
     return table.unpack(r)
   end
+  _G.__CR_ADDWRAP = RD.__addChatData
   L("room-hook on")
 else
   L("room-hook FAIL: Chat.Model.ChatRoomData type="..type(RD))
@@ -128,7 +140,7 @@ L("chat_reader hooks installed; buf="..#_G.__CR_BUF)
 """
 
 
-_DRAIN_LUA = chat_records.drain_lua()
+_DRAIN_LUA = chat_records.drain_lua(check_hook=True)
 
 
 _parse_record_line = chat_records.parse_record_line
@@ -199,7 +211,35 @@ def main() -> int:
             note(f"hook not installed ({exc}); retrying")
             return False
 
+    def _recover() -> bool:
+        """Read back what arrived while the ear was out, from the client's own rooms.
+
+        A hook the game dropped takes every message said until it is noticed with it —
+        up to one drain interval, and on the live panel it was hours. The client keeps
+        the newest few dozen of every room it is sitting in, so the gap is still there
+        to be read, and reading it asks the SERVER nothing: it is the copy the client
+        made when the messages arrived. Made once, on a loss, and never on a clock —
+        the records land in the same buffer this drains and are filed on their own
+        identity, so anything already stored costs one row nobody sees twice.
+        """
+        try:
+            ev.run(chat_records.record_lua()
+                   + chat_records.backlog_lua(sink="__CR_BUF"),
+                   marker=MARKER, settle=1.5)
+            return True
+        except Exception as exc:            # noqa: BLE001 -- a busy VM, not a bug
+            note(f"the gap was not read back ({exc})")
+            return False
+
     installed = _install()
+    #: Whether the NEXT install is putting a lost ear back rather than starting one.
+    lost = False
+    if installed and _recover():
+        # A READER THAT HAS JUST STARTED HAS A GAP TOO. The panel brings this process
+        # back after a client restart, a machine asleep, a link that went away — and
+        # everything said in between is in the client and in no store. One read, at
+        # the start, of what the client is already holding.
+        note("what the client was holding was read back")
 
     note(f"capturing for {args.seconds or '∞'}s")
 
@@ -214,6 +254,10 @@ def main() -> int:
                 installed = _install()
                 if not installed:
                     continue
+                if lost:
+                    lost = False
+                    if _recover():
+                        note("the gap was read back from the client's own rooms")
             try:
                 lines = ev.run(_DRAIN_LUA, marker=MARKER, settle=1.2)
             except Exception as exc:        # noqa: BLE001 -- a busy VM, not a bug
@@ -223,8 +267,20 @@ def main() -> int:
                 # it back before reading again.
                 note(f"drain failed ({exc}); waiting")
                 installed = False
+                lost = True
                 continue
             for ln in (lines or []):
+                # THE EAR ANSWERS FOR ITSELF (#2418). The drain says whether the hook
+                # is still bound, and a hook the game has dropped is put back on the
+                # next round rather than never: a client that reloaded its Lua state
+                # used to leave this process alive, draining an empty buffer in
+                # silence, for as long as the panel ran.
+                if ln.strip().startswith("H="):
+                    if ln.strip() != "H=1":
+                        note("hook gone (the game reloaded its Lua state); reinstalling")
+                        installed = False
+                        lost = True
+                    continue
                 rec = _parse_record_line(ln)
                 # Routable? Not an optimistic seqId-less echo of my own send? Both
                 # rules live beside the parser, so the backlog read applies the same

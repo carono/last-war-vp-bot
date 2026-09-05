@@ -474,7 +474,7 @@ def test_a_busy_game_does_not_end_the_recording():
     assert "installed = _install()" in src, "the hook is never installed"
     assert "except Exception as exc:        # noqa: BLE001 -- a busy VM, not a bug" in src, \
         "a drain that fails still ends the recording"
-    assert "installed = False\n                continue" in src, \
+    assert "installed = False\n                lost = True\n                continue" in src, \
         "a failed drain neither re-installs the hook nor waits for the next round"
 
 

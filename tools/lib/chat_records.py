@@ -146,9 +146,42 @@ _G.__SINK__ = {}   -- drained; keep the buffer small
 """
 
 
-def drain_lua(sink: str = "__CR_BUF", marker: str = MARKER) -> str:
-    """Drain one named global buffer. ``sink`` is a global NAME, not a value."""
-    return DRAIN_LUA.replace("__SINK__", sink).replace("__MARK__", marker)
+#: Is the ear still IN the game? (#2418)
+#:
+#: A drain that comes back empty says nothing about why. The hook lives in the client's
+#: own Lua state, and that state is rebuilt without warning — a relogin, a client
+#: restart, a scene the game reloads — which unbinds the wrapper and leaves the buffer
+#: gone or forever empty. The drain then succeeds, reports nothing, raises nothing, and
+#: the panel goes on saying «слушаю» over a chat that stopped growing hours ago. That is
+#: exactly what «чат не обновляется» was: measured on the live panel, one hole of 217
+#: minutes in a day with the reader process alive throughout and not one error logged.
+#:
+#: So the drain ANSWERS the question in the round trip it was already making: nothing is
+#: asked of the game that was not asked before, and a listener that has fallen out puts
+#: itself back within one interval. `H=1` is bound, `H=0` is not.
+HOOK_CHECK_LUA = r"""
+local CM = package.loaded["Chat.Model.ChatMessage"]
+local RD = package.loaded["Chat.Model.ChatRoomData"]
+local live = type(_G.__CR_REC) == "function"
+  and type(CM) == "table" and CM.onParseServerData == _G.__CR_WRAP
+-- The room hook is checked only when it was ever installed: a build without
+-- `ChatRoomData` is not a lost ear, and calling it one would reinstall for ever.
+if live and _G.__CR_ADDWRAP ~= nil then
+  live = type(RD) == "table" and RD.__addChatData == _G.__CR_ADDWRAP
+end
+L("H="..(live and "1" or "0"))
+"""
+
+
+def drain_lua(sink: str = "__CR_BUF", marker: str = MARKER,
+              check_hook: bool = False) -> str:
+    """Drain one named global buffer. ``sink`` is a global NAME, not a value.
+
+    ``check_hook`` adds one line saying whether the listener's hook is still bound —
+    for the reader child, which is the only caller that HAS one to lose.
+    """
+    body = DRAIN_LUA + (HOOK_CHECK_LUA if check_hook else "")
+    return body.replace("__SINK__", sink).replace("__MARK__", marker)
 
 
 #: The buffer the BACKLOG read fills. Deliberately not the listener's: the reader child
