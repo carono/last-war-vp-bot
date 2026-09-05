@@ -1722,6 +1722,10 @@ body.modal-open {
    is not drawn must not go on reserving its height. */
 body.chatting nav { display: none; }
 body.chatting { --navh: 0px; }
+/* …and the clearance the other screens keep under their last card goes with it: a
+   conversation ENDS in its own send box, which carries its own padding, so 14 px of a
+   phone were empty for a card that is not there (#2418, «растяни окно чата»). */
+body.chatting main { padding-bottom: 0; }
 
 /* …AND THE HEAD ABOVE IT IS ONE THIN LINE (#2418): «хочу такой же лаконичный интерфейс
    чата, сейчас много лишнего пространства съедается». The strip is drawn on every

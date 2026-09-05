@@ -2273,6 +2273,34 @@ def test_nothing_in_a_bubble_is_wider_than_the_bubble():
         "the bubble refuses to shrink inside its row again"
 
 
+def test_the_conversation_takes_the_whole_phone_and_reserves_nothing():
+    """#2418: «в чате, на мобильных устройствах есть пустое место в футере».
+
+    MEASURED at 390x844 before the fix: the send box ended 76 px above the bottom of the
+    screen and the page itself scrolled 12 px. Two causes, and each is pinned here.
+
+    * The bottom bar is not drawn while a conversation is open (`body.chatting nav`), so
+      its height is 0 — and `0 || 64` is 64. A fallback for an element that IS there,
+      applied to one that is measurably not, kept 64 px of the phone for furniture
+      nobody draws.
+    * `main` keeps a clearance under the last card of every other screen. A chat ends in
+      its own send box, so those pixels were empty AND overflowed the viewport.
+
+    After: the pane is 478 px instead of 404, 4 px are left under the box, and the page
+    does not scroll — with the keyboard up and after it closes.
+    """
+    script = _front_end_source()
+    assert "offsetHeight || 64" not in script and "|| 64)" not in script, \
+        "a hidden bottom bar reserves its height again — that is the 76 px gap"
+    assert "bar.offsetParent !== null" in script, \
+        "the bar is trusted rather than measured"
+    assert "paddingBottom" in script, \
+        "the page's own clearance under the box is unaccounted for again"
+    css = _css()
+    assert "body.chatting main { padding-bottom: 0; }" in css, \
+        "the chat page keeps the clearance meant for a card that is not there"
+
+
 def test_the_pane_is_the_grey_and_the_bubbles_are_the_paper():
     """#2418: «на пузыри сообщений обрати внимание, сделай по аналогии».
 

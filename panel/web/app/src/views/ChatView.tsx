@@ -128,6 +128,9 @@ function Face({ label, face }: { label: string; face?: string }) {
 /** How close to the bottom still counts as «reading the newest», in pixels. */
 const GLUE = 48
 
+/** The breathing room under the send box — the ONLY empty pixels the page keeps. */
+const GAP_PX = 6
+
 /** How tall the message box may grow before it scrolls instead — about five lines. */
 const GROW_MAX = 128
 
@@ -488,8 +491,23 @@ export function ChatView({
       const box = el.parentElement?.querySelector('.chatbox') as HTMLElement | null
       const bar = document.querySelector('nav') as HTMLElement | null
       const glue = atBottom()
+      /* A BAR THAT IS NOT DRAWN RESERVES NOTHING (#2418). The person: «в чате, на
+       * мобильных устройствах есть пустое место в футере, растяни окно чата». The
+       * bottom bar is hidden while a conversation is open (`body.chatting nav`), so its
+       * `offsetHeight` is 0 — and `0 || 64` is 64, which is how 64 px of the phone were
+       * kept for furniture nobody draws. Measured, never guessed: an element that is
+       * there is worth its own height and one that is not is worth nothing. The two
+       * fallbacks are gone with it — a box that has not been laid out yet is measured on
+       * the next pass, and inventing 56 px for it is the same mistake one line up. */
+      const barH = bar && bar.offsetParent !== null ? bar.offsetHeight : 0
+      /* …and the page's own clearance under the box counts too: `main` keeps 14 px for
+       * the screens that end in a card, and a conversation that ignored them was 12 px
+       * taller than the phone — the page itself scrolled, which is the one thing a chat
+       * must never do. Read, not written down: the stylesheet may change it. */
+      const main = el.closest('main') as HTMLElement | null
+      const padB = main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0
       const room =
-        seen - el.getBoundingClientRect().top - (box?.offsetHeight || 56) - (bar?.offsetHeight || 64) - 16
+        seen - el.getBoundingClientRect().top - (box?.offsetHeight || 0) - barH - padB - GAP_PX
       el.style.height = Math.max(160, Math.round(room)) + 'px'
       if (glue) el.scrollTop = el.scrollHeight
     }
