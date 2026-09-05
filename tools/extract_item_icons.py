@@ -56,11 +56,29 @@ SET_PREFIXES = {
 #: older duplicate the client no longer names, kept out on purpose.
 FRAME_STEM = "cfm_tongyong_daojukuang_"
 
+#: Sprites the panel needs that do NOT live in the item tree (#2418). A resource's
+#: picture is named on its own config row as `big_icon`, and two of them name nothing:
+#: the client draws those out of the common-UI atlas instead. The atlas sprites sit in
+#: the same directory as the rarity frames, so they are picked out by name the way the
+#: frames are — and written into `item/`, because that is the one folder
+#: `tools/lib/item_icons.py` serves a bare sprite name out of.
+#:
+#: Named one at a time on purpose: that directory holds several thousand sprites and
+#: this is a list of the ones the panel has a use for, not a second wildcard.
+COMMON_ITEM_SPRITES = ("Common_icon_electricity",)
+
 
 def _wanted(category: str, stem: str) -> bool:
     if category == "frame":
-        return stem.startswith(FRAME_STEM)
+        return stem.startswith(FRAME_STEM) or stem in COMMON_ITEM_SPRITES
     return True
+
+
+def _dest_cat(category: str, stem: str) -> str:
+    """Which folder a sprite is written into — see :data:`COMMON_ITEM_SPRITES`."""
+    if category == "frame" and stem in COMMON_ITEM_SPRITES:
+        return "item"
+    return category
 
 
 def main() -> int:
@@ -125,7 +143,7 @@ def main() -> int:
             cat = sprite_cats.get(name)
             if cat is None:
                 continue
-            dest = args.out / cat / f"{gameres_index.sanitize(name)}.png"
+            dest = args.out / _dest_cat(cat, name) / f"{gameres_index.sanitize(name)}.png"
             # The same sprite name can appear in more than one bundle (a dynamic atlas
             # rebuild leaves the old one behind). The first one wins and the rest are
             # skipped — unlike the hero extractor, which numbers them, because here the
@@ -138,6 +156,7 @@ def main() -> int:
             except Exception as exc:  # noqa: BLE001
                 print(f"  ! image failed for {name}: {exc}")
                 continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
             img.save(dest)
             saved[cat] += 1
             got_names.add(name)

@@ -1,5 +1,5 @@
 {
-  "_note": "Resource type -> the ItemIcons sprite the GAME names for it. Read off the live client's own config (DataCenter.ResourceTemplateManager.resourceTemplateDic): every template carries `icon` (an atlas name) and `big_icon` (a path under Assets/Main/Sprites/ItemIcons/). The stem of `big_icon` is what tools/extract_item_icons.py writes into results/item_icons/item, so it is what /api/itemicon can serve. Types whose only picture is a Common_icon_* atlas entry are absent on purpose: that atlas is not extracted, and a resource with no sprite draws its name rather than borrowing another resource's art.",
+  "_note": "Resource type -> the ItemIcons sprite the GAME names for it. Read off the live client's own config (DataCenter.ResourceTemplateManager.resourceTemplateDic): every template carries `icon` (an atlas name) and `big_icon` (a path under Assets/Main/Sprites/ItemIcons/). The stem of `big_icon` is what tools/extract_item_icons.py writes into results/item_icons/item, so it is what /api/itemicon can serve. A type whose row names no `big_icon` falls back to the common-UI sprite the client draws instead, and tools/extract_item_icons.py fetches those by name (COMMON_ITEM_SPRITES). Type 11 (water) is still absent and stays a letter: its `icon` names Common_icon_water, and no sprite of that name exists anywhere in the client's asset index — a resource with no sprite draws its own name rather than borrowing another resource's art.",
   "icons": {
     "1": "itemIron",
     "2": "itemCoin",
@@ -7,6 +7,7 @@
     "13": "lyt_s6_mogu_icon",
     "14": "itemBread",
     "15": "item406",
-    "23": "Mjc_icon_shiyou"
+    "23": "Mjc_icon_shiyou",
+    "12": "Common_icon_electricity"
   }
 }

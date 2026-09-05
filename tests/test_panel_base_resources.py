@@ -394,5 +394,49 @@ def test_a_refusal_backs_off_to_a_ceiling_and_never_gives_up():
     assert stock._refusals == 0, "a success did not clear the backoff"
 
 
+def test_every_named_sprite_is_a_bare_name_and_a_missing_one_draws_a_letter():
+    """#2418: «картинки ресурсов не прогружаются».
+
+    The map is what the route is asked for, and the route resolves a BARE sprite name
+    inside one folder (`item_icons.raw_named`). A path or a suffix in it is a 404 that
+    looks exactly like «not extracted», which is the shape the live bug had.
+
+    The other half is honesty about what cannot be drawn: a type whose picture was never
+    extracted on this machine answers `""` and the pill draws the resource's own letter.
+    Water is the standing example — its config names no `big_icon` at all and no sprite
+    of the name it falls back to exists anywhere in the client's index — and it must
+    never borrow another resource's art.
+    """
+    import json
+    import os
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, "tools", "data", "resource_icons.json"),
+              encoding="utf-8") as handle:
+        icons = (json.load(handle) or {}).get("icons") or {}
+    assert icons, "the map is empty"
+    for type_id, stem in icons.items():
+        assert str(type_id).isdigit(), type_id
+        assert stem == os.path.basename(stem), f"{stem} is a path, not a sprite name"
+        assert not stem.lower().endswith(".png"), f"{stem} carries a suffix"
+    assert len(set(icons.values())) == len(icons), \
+        "two resources share one picture — one of them is wearing the other's art"
+    # …and a stem nothing was extracted for is no picture rather than a broken link.
+    res._ICONS = None
+    saved = sys.modules.get("item_icons")
+    class _Nothing:
+        @staticmethod
+        def raw_named(_name):
+            return None
+    sys.modules["item_icons"] = _Nothing
+    try:
+        assert res._icon_for(next(iter(icons))) == ""
+    finally:
+        if saved is not None:
+            sys.modules["item_icons"] = saved
+        else:
+            sys.modules.pop("item_icons", None)
+        res._ICONS = None
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())
