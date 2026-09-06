@@ -174,6 +174,33 @@ The wire shapes were read **without sending a byte**, with the `NewEmpty` + reco
 `sfsObj` trick: two of the three put nothing on the wire, and the decoration one asks its
 param for `id` twice and puts a single `PutInt id`.
 
+### The recharge page's free reward does NOT come to an empty send (#2579, measured)
+
+Proven against the BAG rather than against a reply, which is the whole lesson of #2585.
+
+* The gate is genuinely open: `GetIsCanReceiveFreeReward` answers `true` for type `1`
+  alone, `GetFreeRewardIdByType(1)` = a live reward row, and the stamp in
+  `freeRewardInfoDic[1]` is from the PREVIOUS game day — so today's has not been taken.
+* The reward is two items, one each (read out of the `reward` table row).
+* `collect_shop_freebies` fires the branch and sends
+  `MsgDefines.BuyFreeWeeklyPackage` — and the wire name is right,
+  `receive.week.free.reward`, checked against `MsgDefines` live.
+* **Nothing happens.** Both item counts were identical before and after two scheduled
+  runs and one by hand, the gate stayed `1` and the stamp did not move. A send with
+  `{type = 1}` in the body was tried once and changed nothing either.
+
+What is known about where it goes wrong: `RechargeManager` has **no sender of its own** —
+its nineteen methods are `GetFreeRewardIdByType`, `GetIsCanReceiveFreeReward` and
+`UpdateFreeRewardInfo` plus getters — so the client sends this from the recharge PAGE's
+own controller. That is the same shape as two things already known here: the alliance gift
+list and the arms-race calendar are both empty until the window asks the server for them.
+The next thing to try is therefore **asking for the page first** and claiming after, not
+another guess at the payload.
+
+Until that is done the branch stays as it is: it costs one message a run, it spends
+nothing, and the errand's own summary already says «страница пополнения: ждёт», so the
+claim is visibly outstanding rather than silently believed.
+
 ### `E000000` is a REFUSAL, not an «all clear»
 
 The decoration claim came back `{errorCode=E000000}` and it was read here at first as
