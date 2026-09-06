@@ -395,16 +395,13 @@ ARMS_FREE_MINUTES_MAX = 20000
 ARMS_SQUAD_KEY = "arms_squad"
 ARMS_SQUAD_DEFAULT = 1
 
-#: WHICH RALLY BUDGET THE DRONE PHASE SPENDS OUT OF (#2051/#2055). The run raises boss
-#: banners, so it comes out of the elite group's own daily cap — the person's number,
-#: kept in `panel/rally_limits.py` and counted there. The arms race never gets an
-#: allowance of its own: an event that quietly overspends the day's rallies is exactly
-#: what the caps exist to stop, and a phase that therefore scores nothing is the RIGHT
-#: outcome rather than a bug.
-ARMS_RALLY_KIND = "doom_elite"
-#: What «no cap at all» is handed over as. A number rather than «unlimited», because the
-#: recipe counts down from it — and the stamina ceiling bites long before this does.
-ARMS_RALLIES_UNCAPPED = 99
+#: THE DRONE PHASE HAS NO RALLY ALLOWANCE, AND MUST NOT BE GIVEN ONE (#2574). It used to
+#: spend out of the elite group's daily cap in `panel/rally_limits.py`; that book counts
+#: JOINS — how many of somebody else's banners the «rally_auto_join» trigger may take
+#: today — and this phase RAISES banners instead. The person's words: «Автостяги с
+#: дроном никак не связаны, на стяги, что мы создаем лимитов нет». The game charges a
+#: raise in stamina and caps it nowhere, so the run's ceilings are the stamina, the
+#: phase's top chest and the squad, and nothing here hands it a number.
 
 
 def arms_stamina_of(value) -> int:

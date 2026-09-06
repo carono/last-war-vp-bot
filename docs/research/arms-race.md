@@ -120,12 +120,17 @@ read live yet**, and the recipe refuses to loop if the build answers 0: a ceilin
 «300 stamina» over a spend the game prices at nothing is a ceiling that cannot bite, and
 a run that discovered that by looping would be a run raising unbounded banners.
 
-**And it never gets a rally allowance of its own.** The rallies a day is worth are the
-person's own caps, per monster group, counted in `panel/rally_limits.py` (#2051/#2055).
-The arms race spends OUT OF those: the panel hands the recipe what is left, `0` raises
-nothing, and a drone phase that therefore scores nothing is the right outcome rather
-than a bug. An event that quietly overspent the day's rallies is exactly what the caps
-exist to stop.
+**And it has NO rally allowance at all — the join caps are not its ceiling (#2574).**
+It spent out of the elite group's daily cap until then, and that was wrong twice over.
+The per-kind numbers in `panel/rally_limits.py` are a budget for JOINING somebody else's
+banner (the «rally_auto_join» trigger, counted per join); this phase RAISES banners, the
+account creates the march itself, the game charges it in stamina and caps it nowhere.
+The person's words: «Автостяги с дроном никак не связаны, на стяги, что мы создаем
+лимитов нет». Measured cost of the mistake: on 2026-09-05 at 14:01 UTC a drone run
+halted with «no rally allowance was handed over» while the account had stamina, a free
+squad and an unscored chest — refused by a ceiling that was never about it, and the
+same book was being emptied by auto-join at up to 14 banners in three minutes. The
+recipe's ceilings are the stamina, the top chest and the squad.
 
 ## The game keeps NO history of a phase, and that is why the panel books one (#2579)
 
@@ -177,10 +182,10 @@ What changed:
   against the phase's own `stage_end_time`, so a new phase resets it and a second run
   inside one finds what the first spent;
 * the chests are claimed after every round, not only at the start of the next run;
-* and the banners are written into the DAY's rally book by the panel
-  (`Schedule.register_report` → `panel/tabs/events/tab.py::arms_report`), because the
-  allowance `arms_rallies` hands over would otherwise be handed over whole again on
-  every return of the squad.
+* and the banners the phase raised are remembered between its runs by the panel
+  (`Schedule.register_report` → `panel/tabs/events/tab.py::arms_report`), which is what
+  «Стягов за окно» draws. They are NOT written into the join book: that book counts
+  joins, and a raise is not a join (#2574).
 
 No wire trigger was added. `push.world.march.del` is the push that would carry «a march
 ended», and it is not only ours — the world stream carries other players' marches in
@@ -206,8 +211,8 @@ check the game itself answers and it survives the rules changing under it.
   phase's top chest or the allowance the person gave, whichever comes first, and never
   in diamonds.
 * `actions/arms_race_drone.md` — the `120004` phase: raise rallies up to the stamina
-  ceiling, the day's remaining rally allowance, the phase's top chest, or the squad
-  coming off the board, whichever comes first.
+  ceiling, the phase's top chest, or the squad coming off the board, whichever comes
+  first. No join allowance is asked for or spent.
 
 ## The other three phases: the ceilings, and what the client would not give up
 

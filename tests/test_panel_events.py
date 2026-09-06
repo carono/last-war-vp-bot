@@ -1107,8 +1107,8 @@ def test_the_arms_switch_is_one_value_drawn_in_two_places():
     assert tab.arms_args()["free_minutes"] == 600
 
 
-def test_the_drone_phase_is_raised_and_never_past_the_days_rally_caps():
-    """«Тратим только стягами» — and the day's own caps are what bounds it (#2065)."""
+def test_the_drone_phase_is_raised_and_owes_the_join_book_nothing():
+    """«На стяги, что мы создаем, лимитов нет» — the join caps are not its ceiling."""
     drone = ARMS_HERO_PHASE.replace("event=120000", "event=120004")
     tab = _tab(arms=drone)
     card = _card(tab, "events.group.arms")
@@ -1118,12 +1118,12 @@ def test_the_drone_phase_is_raised_and_never_past_the_days_rally_caps():
     assert press[0]["confirm"] == "events.arms.raise.confirm"
     assert tab.web_press("phase_arms", {}) == {"ok": True}
     assert tab.rt.played == [modelmod.ARMS_DRONE_ACTION]
-    # …and it was played WITH the ceilings, because the recipe raises nothing without
-    # them: a rally allowance that could not be read is handed over as ZERO, never as
-    # «no ceiling» (there is no rally tab behind this fake runtime).
+    # …and it was played WITH its own ceilings — the stamina one among them — and with
+    # NO rally allowance at all: raising a banner is not joining one, so the day's
+    # per-kind join caps have nothing to say about this phase (#2574).
     args = tab.rt.args[0]
     assert args["stamina"] == modelmod.ARMS_STAMINA_DEFAULT
-    assert args["rallies"] == 0
+    assert "rallies" not in args
     assert args["drone"] == 1
 
 
@@ -1144,9 +1144,11 @@ def test_the_drone_recipe_holds_its_own_ceilings():
     text = (Path(__file__).resolve().parents[1] / "src" / "lastwar_bot" / "actions"
             / "arms_race_drone.md").read_text(encoding="utf-8")
     assert "ARGS stamina = 300" in text
-    assert "ARGS rallies = 0" in text
-    # No allowance means no banner — silence is a refusal, never a licence.
-    assert "IF rallies == 0" in text and "STOP" in text
+    # …and no join allowance among them: the recipe RAISES banners, and the game caps a
+    # raise nowhere (#2574). A ceiling that was never about it refused a live phase once.
+    assert "ARGS rallies" not in text
+    assert "{rallies}" not in text
+    assert "the day rally allowance is spent" not in text
     # The phase kind is checked, and the price is ASKED rather than written down.
     assert "IF arms_event != 120004" in text
     assert "GetCostStaminaByTargetType" in text
