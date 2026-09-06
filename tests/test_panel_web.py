@@ -2927,6 +2927,25 @@ def test_the_poll_survives_a_phone_being_locked():
         "the visibility listener no longer moves the state the poll hangs off"
 
 
+def test_a_screen_poll_never_rewinds_a_scroll_made_while_it_was_in_flight():
+    """#2593: the old pre-request snapshot rewound every drag made during the fetch."""
+    screen = (_APP_SRC / "views" / "ScreenView.tsx").read_text(encoding="utf-8")
+    request = screen[screen.index("const draw = useCallback"):screen.index("useEffect(() => {", screen.index("const draw = useCallback"))]
+    assert request.index("await get<View>") < request.index("window.scrollY"), \
+        "the poll still snapshots scroll before the network wait"
+    assert "useLayoutEffect" in screen and "Math.abs(window.scrollY - want) > 2" in screen, \
+        "a DOM shrink is restored before paint, or an unchanged list is still moved"
+
+
+def test_a_pending_screen_press_keeps_its_button_locked_past_the_http_reply():
+    """#2593: local busy closes the gap until the tab reports the confirmed landing."""
+    screen = (_APP_SRC / "views" / "ScreenView.tsx").read_text(encoding="utf-8")
+    assert "disabled={busy || !!action.disabled}" in screen
+    assert "pending = !!answer.pending" in screen
+    assert "if (!pending) setBusy(false)" in screen
+    assert "if (action.disabled === false) setBusy(false)" in screen
+
+
 def test_the_chat_screen_says_how_old_it_is():
     """A conversation with no age on it reads as fresh (#2418)."""
     chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")

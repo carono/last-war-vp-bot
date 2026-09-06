@@ -32,6 +32,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -345,6 +346,72 @@ def test_the_panel_jumps_in_one_call_and_never_reads_the_server_first():
     assert len(calls) == 1, [c["chunk"][:60] for c in calls]
     assert "curServerId" in calls[0]["chunk"], calls[0]["chunk"]
     assert calls[0]["early"] is True, calls[0]
+
+
+def test_a_named_jump_is_released_only_after_the_server_confirms_it():
+    """The callback says ARRIVED, not merely that GotoWorldPos was invoked (#2593)."""
+    try:
+        import panel.runtime.link as daemonmod
+    except Exception as exc:                          # noqa: BLE001
+        print(f"       (skipped: the panel runtime does not import here — {exc})")
+        return
+
+    class _Client:
+        port = 47999
+        token = ""
+
+        def __init__(self):
+            self.answers = ["ACT jump=10,20 srv=902", "ACT curserver=901",
+                            "ACT curserver=902"]
+
+        def run(self, *_a, **_k):
+            return [self.answers.pop(0)]
+
+        def acquire(self, *_a, **_k):
+            return "token"
+
+        def release(self):
+            return True
+
+    class _Log:
+        def put(self, *_a, **_k): pass
+        def say(self, *_a, **_k): pass
+
+    landed = []
+    link = daemonmod.GameLink(port=lambda: 47999, log=_Log(), cwd=str(ROOT))
+    link.client = _Client()
+    link.ready = lambda fresh=False: True
+    old_wait = daemonmod.JUMP_CONFIRM_WAIT
+    daemonmod.JUMP_CONFIRM_WAIT = 0
+    try:
+        assert link.jump(10, 20, 902, on_done=landed.append)
+        for _ in range(200):
+            if landed:
+                break
+            time.sleep(0.01)
+    finally:
+        daemonmod.JUMP_CONFIRM_WAIT = old_wait
+    assert landed == [{"ok": True, "server": 902, "reason": ""}], landed
+
+
+def test_a_failed_server_read_is_not_false_proof_of_a_home_jump():
+    """The legacy home fallback must not confirm a move nobody observed (#2593)."""
+    try:
+        import panel.runtime.link as daemonmod
+    except Exception as exc:                          # noqa: BLE001
+        print(f"       (skipped: the panel runtime does not import here — {exc})")
+        return
+
+    link = daemonmod.GameLink(port=lambda: 47999,
+                              log=types.SimpleNamespace(say=lambda *_a, **_k: None),
+                              cwd=str(ROOT))
+    link.client = types.SimpleNamespace(run=lambda *_a, **_k: [])
+    old_wait = daemonmod.JUMP_CONFIRM_WAIT
+    daemonmod.JUMP_CONFIRM_WAIT = 0
+    try:
+        assert link.landed_on(int(daemonmod.DEFAULT_SERVER)) == 0
+    finally:
+        daemonmod.JUMP_CONFIRM_WAIT = old_wait
 
 
 # -- the panel's most frequent read stops being paid for by the clock ------------

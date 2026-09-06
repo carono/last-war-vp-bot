@@ -275,6 +275,14 @@ def test_the_route_carries_the_header() -> None:
     assert '"header": rt.header.state()' in source
 
 
+def test_a_panel_made_jump_is_the_event_that_refreshes_the_header() -> None:
+    """The server in the global header follows a confirmed move, never a timer (#2593)."""
+    source = (_REPO / "panel" / "runtime" / "host.py").read_text(encoding="utf-8")
+    assert "self.game.on_moved = self.header.mark_stale" in source
+    link = (_REPO / "panel" / "runtime" / "link.py").read_text(encoding="utf-8")
+    assert 'if answer.get("ok"):' in link and "_call(self.on_moved, None)" in link
+
+
 def test_the_scenario_exists_and_the_panel_writes_no_lua_for_it() -> None:
     recipe = (_REPO / "src" / "lastwar_bot" / "actions" / "read_player_place.md")
     assert recipe.exists(), "the ability is a scenario (CLAUDE.md)"
