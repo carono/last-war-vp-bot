@@ -819,6 +819,35 @@ This `WHILE`/`READ_LUA` shape is how you spend *exactly* the banked attempts and
 count must gate the loop. The engine API behind the alliance-science calls is in
 `docs/research/alliance-tech-donate.md`.
 
+### `PARK <var> INTO <a.lua.name>`
+
+The other half of `READ_LUA`: it puts what a script variable holds **right now** into a
+plain Lua name inside the game VM.
+
+```
+RECALL truck_rob_blacklist INTO blacklist
+PARK blacklist INTO DataCenter.LWMyStationDataManager.__lw_rob_black
+```
+
+Why it has to exist: `{name}` is substituted when the file is **parsed**, so a value a run
+has only just learnt — off `RECALL`, off an earlier `READ_LUA`, out of a previous step —
+cannot travel into a `LUA` chunk that way. Every «park the rule where the presses can read
+it» line in `actions/*.md` writes a LITERAL for that reason, and a recipe that has to hand
+the game something it just read had no way at all.
+
+- **The target is a NAME, never an expression.** Dotted identifiers only
+  (`A.b.c_d`) — no calls, no indexing, no arithmetic. A recipe cannot smuggle a chunk
+  through it.
+- **The value is always written as a STRING**, whatever it looks like. The game side reads
+  it back with the same `+ 0` it uses for every other value it did not write itself, and a
+  number that arrives quoted is far less trouble than a list of ids that arrives half
+  parsed.
+- The text is escaped on the way in, because it usually comes out of a profile's own
+  database and one stray quotation mark would otherwise be a Lua chunk of somebody's
+  choosing.
+- A missing variable parks the empty string rather than failing: a recipe's first ever run
+  and a run with no profile behind it take the same branch.
+
 ### `GAME WORLD` / `GAME CITY`
 
 Switch the scene: `WORLD` renders the map, `CITY` returns to the home base. Wraps

@@ -568,6 +568,23 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         enabled=False,
         label_key="timers.item.send_trucks",
     ),
+    Timer(
+        name="rob_trucks",
+        scenario=("rob_trucks",),
+        # FOUR HOURS, not a day. The allowance is a daily one, like the dispatch above,
+        # but what this errand spends it on is a BOARD that turns over: the trucks other
+        # players have on the road arrive and are taken by somebody else within the hour,
+        # and a run that finds nothing weak enough is a run that should look again before
+        # tomorrow. It is cheap when the board has nothing on it — one window, one read.
+        interval_sec=14400,
+        # A failure here is a client that was not answering: the board does not open and
+        # the run says so without pressing anything.
+        retry_sec=1800,
+        # The rule, spelled out where both front-ends can reach it rather than left to the
+        # recipe's own `ARGS` — the lesson of #2022. These ARE the recipe's defaults.
+        args={"min_level": 31, "quality": 10, "margin": 5, "squad": 1},
+        label_key="timers.item.rob_trucks",
+    ),
     # «ВЫПОЛНИТЬ ЗАДАНИЯ РАДАРА» IS NOT A ROW HERE ANY MORE (#2061) — the person's
     # words: «из таймеров убери таймер выполнить задания радара, который просто полностью
     # собирает задания, перенеси в чеклист». It claims what the board has ripened and runs

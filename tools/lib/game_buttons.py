@@ -384,6 +384,32 @@ BUTTONS: dict[str, Button] = {
         wait=2.5, label="Send the chosen trucks out",
         relay=("trk_send",),
     ),
+    # --- the trade station -> robbing somebody else's truck (#2591) ------------
+    # A DIFFERENT tab of the same event from the four above: those are our own fleet,
+    # these are the trucks other players have on the road. The board is read whole and
+    # the press is built by hand — the game's own `TryAttackTrain` cannot be called from
+    # outside, see `lua_actions.truck_rob_press` for the four reasons.
+    "open_truck_targets": Button(
+        lua=_lua_actions.truck_rob_open(),
+        # The board arrives from the server: opening the window sends `train.list` and
+        # the rows are only there when it comes back. Reading sooner sees an empty board
+        # and decides there is nothing to rob.
+        wait=6.0, label="Open the board of trucks to rob",
+    ),
+    "close_truck_targets": Button(
+        lua=_lua_actions.truck_rob_close(),
+        wait=0.4, label="Close the board of trucks",
+    ),
+    "scan_truck_targets": Button(
+        lua=_lua_actions.truck_rob_scan(),
+        wait=0.5, label="Read the board, the day's count and our own strength",
+    ),
+    "rob_truck": Button(
+        lua=_lua_actions.truck_rob_press(),
+        # The robbery is instant — no march leaves the base — but the counter behind it
+        # only moves when the server has answered.
+        wait=3.0, label="Rob the safest truck the rule allows",
+    ),
     "truck_reward_refresh": Button(
         lua=_lua_actions.truck_reward_refresh(),
         wait=0.6, label="Read the truck's load",

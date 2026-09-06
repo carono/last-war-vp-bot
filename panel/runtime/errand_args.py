@@ -201,6 +201,22 @@ SPEC: dict = {
         _num("diamond_cap", "errand.arg.trucks.diamond_cap", low=0, high=100000,
              hint_key="errand.arg.trucks.diamond_cap.hint"),
     ),
+    # ROBBING SOMEBODY ELSE'S TRUCK (#2591). Every one of these decides whether troops
+    # come home: the rarity worth taking, the level below which a load is not worth a
+    # fight, and how much weaker than us an escort has to be before the run will touch it.
+    "rob_trucks": (
+        _choice("quality", "errand.arg.rob.quality",
+                ((10, "errand.arg.rob.quality.sleigh"),
+                 (5, "errand.arg.rob.quality.ur"),
+                 (0, "errand.arg.rob.quality.any")),
+                hint_key="errand.arg.rob.quality.hint"),
+        _num("min_level", "errand.arg.rob.min_level", low=1, high=99,
+             hint_key="errand.arg.rob.min_level.hint"),
+        _num("margin", "errand.arg.rob.margin", low=0, high=90,
+             hint_key="errand.arg.rob.margin.hint"),
+        _num("squad", "errand.arg.rob.squad", low=1, high=4,
+             hint_key="errand.arg.rob.squad.hint"),
+    ),
     "play_frontline_breakthrough": (
         _num("rounds", "errand.arg.frontline.rounds", low=1, high=20),
     ),

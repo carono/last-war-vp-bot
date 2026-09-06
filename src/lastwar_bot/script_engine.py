@@ -254,6 +254,19 @@ _REMEMBER_FROM_RE = re.compile(
 _RECALL_RE = re.compile(
     r"^RECALL\s+([A-Za-z_][\w.\-]*)\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE)
 
+# PARK <var> INTO <a.lua.name>
+# The missing half of `READ_LUA`. A `{name}` is substituted when the file is PARSED
+# (above), so a value a run has only just READ — off `RECALL`, off the game, out of an
+# earlier step — cannot travel into a `LUA` chunk that way, and a recipe that has to hand
+# the game something it just learnt had no way to do it. This writes the script variable's
+# current text into a plain Lua name, which is what every «park the rule where the presses
+# can read it» line in `actions/*.md` already does with a literal.
+#
+# The target is deliberately a NAME and never an expression: dotted identifiers only, so
+# a recipe cannot smuggle a call or an index through it.
+_PARK_RE = re.compile(
+    r"^PARK\s+([A-Za-z_]\w*)\s+INTO\s+([A-Za-z_][\w.]*)\s*$", re.IGNORECASE)
+
 # ---- Game-VM primitives (Lua daemon bridge) --------------------------------
 # These drive the game through its own Lua VM (the warm daemon, tools/lua_daemon.py),
 # not through pixels — so they need no hwnd. See docs/dsl.md "Game primitives".
@@ -515,6 +528,13 @@ class TapStmt(_Stmt):
 class LuaStmt(_Stmt):
     """Run one raw Lua chunk in the game VM (verbatim rest-of-line). No return value."""
     chunk: str
+
+
+@dataclass(slots=True)
+class ParkStmt(_Stmt):
+    """Write what a script variable holds right now into a Lua name in the game VM."""
+    var: str
+    target: str
 
 
 @dataclass(slots=True)
@@ -1125,6 +1145,11 @@ def _parse_one(lines, i, indent):
             names=names,
         ), i + 1
 
+    m = _PARK_RE.match(text)
+    if m:
+        return ParkStmt(
+            text=text, line_no=ln, var=m.group(1), target=m.group(2)), i + 1
+
     m = _LUA_RE.match(text)
     if m:
         return LuaStmt(text=text, line_no=ln, chunk=m.group(1).strip()), i + 1
@@ -1686,6 +1711,9 @@ class Interpreter:
             case LuaStmt():
                 self._require_link(stmt)
                 self._do_lua(stmt)
+            case ParkStmt():
+                self._require_link(stmt)
+                self._do_park(stmt)
             # Gated with the SENDS, not with the reads: it asks the server for the
             # duel's ranking before reading it, so a deaf link makes it read whatever
             # the client happened to be holding and call it this week. Kept above
@@ -2879,6 +2907,29 @@ class Interpreter:
             if "ERR:" in ln:
                 self._log(f"LUA error: {ln.split('lua=', 1)[-1]}")
         self._log(f"LUA {stmt.chunk[:80]}{'…' if len(stmt.chunk) > 80 else ''}")
+
+    def _do_park(self, stmt: ParkStmt) -> None:
+        """Put what a script variable holds right now into a Lua name.
+
+        Everything is written as a STRING, whatever it looks like: the game side reads it
+        back with the same `+ 0` it uses for every other value it did not write itself,
+        and a number that arrives quoted is far less trouble than a list of ids that
+        arrives half-parsed. The value is escaped rather than trusted — it comes out of a
+        profile's own database, and one stray quotation mark in it would otherwise be a
+        Lua chunk of somebody's choosing.
+        """
+        value = str(self.ctx.vars.get(stmt.var, ""))
+        literal = (value.replace("\\", "\\\\").replace('"', '\\"')
+                   .replace("\n", "\\n").replace("\r", ""))
+        chunk = (
+            'local ok,err=pcall(function() %s = "%s" end) '
+            'CS.UnityEngine.Debug.LogError("ACT park="..(ok and "ok" or ("ERR:"..tostring(err))))'
+            % (stmt.target, literal)
+        )
+        for ln in self._run_lua(chunk):
+            if "ERR:" in ln:
+                self._log(f"PARK error: {ln.split('park=', 1)[-1]}")
+        self._log(f"PARK {stmt.var} -> {stmt.target} = {value or '—'}")
 
     def _do_read_lua(self, stmt: ReadLuaStmt) -> None:
         """Evaluate a Lua expression and store its value in ctx.vars[stmt.var].

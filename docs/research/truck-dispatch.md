@@ -178,3 +178,85 @@ already ranked by rarity, so the truck that goes is the best one standing, and t
 is the window's own first formation — the strongest the person has arranged. Four trucks
 ticked at once spend four formations, including the weak ones, which is what the operator
 asked to be able to avoid.
+
+## Robbing somebody else's truck (#2591)
+
+The other tab of the same event. `train.list` fills a board of trucks other players have
+on the road; `train.attack` robs one; the game caps it at `MAX_DAILY_LOOT_COUNT` = 4 a
+day and counts what has gone with `LWMyStationDataManager:GetRobCount()` (the field
+behind it is `todayRobCount`). `IsTruckRobCountUsedUp()` is the same fact as a boolean,
+and `GET_MAX_LOOT_PER_TRUCK` = 2 is how many times ONE truck may be robbed in total, by
+anybody.
+
+### The board
+
+`UIManager.Instance:OpenWindow(UIWindowNames.UILWTrainList)` and then
+`window.View:GetTrainsByTab(2)` — tab 1 is our own fleet, tab 2 the targets. Fifteen rows
+at a time, refilled from the server by `train.list`. What a row carries, of the fields the
+rule uses:
+
+| field | what it is |
+|---|---|
+| `uuid` | the truck. **A STRING**, and `%d` will format it while `PutLong` refuses it |
+| `serverId` | the warzone it belongs to — one of `matchServers`, ours plus three |
+| `ownerId` / `ownerLv` / `name` | the player |
+| `quality` | 1..5 for N..UR, and **10 with `isSpecialURQuality` for the Reindeer Sleigh Ride** |
+| `power` | the escort guarding it, server-side, the number the rule is judged on |
+| `completeness` | how far along its road it is |
+| `maxLootPerTrain` | 3 |
+
+### The frame, and the four dead ends in front of it
+
+`SFSNetwork.SendMessage(MsgDefines.AttackTrain, uuid, heroInfo, serverId, 0, squadNo)`,
+where `heroInfo` is an `SFSArray` of one `SFSObject` per hero — `PutLong('heroUuid', …)`
+and `PutInt('index', …)`. Proven live: `GetRobCount()` 0 → 1, then 2, then 3.
+
+The four fields were read off `Net.Msgs.Railway.AttackTrainMessage:OnCreate` with a
+recording proxy in place of `sfsObj` (the trick this file's neighbour
+`alliance-train.md` describes): `PutLong uuid` from argument 1, `PutSFSArray heroInfo`
+from 2, `PutInt serverId` from 3 and `PutInt squadNo` from 5. Argument 4 is written
+nowhere and goes out as 0.
+
+Everything that looks like a shortcut to that frame is not one, and each cost an hour:
+
+1. **`LWMyStationDataManager:TryAttackTrain(trainData, n, formation)` throws** —
+   `SFSDataSerializer.lua:43: bad argument #2 to 'pack' (number expected, got table)`.
+   The hook on `SendMessage` shows it forwarding five arguments with a TABLE where the
+   uuid goes, so whatever the client calls it with, it is not a truck's own data table.
+2. **`FormationToSFSObject(formation)` is not the `heroInfo`.** It hands back an
+   `SFSArray` of 33 entries whose `heroUuid` sits under the LONG tag holding a STRING,
+   and the packer refuses it with the same message. An EMPTY `SFSArray.New()` packs and
+   sends, which is how the two were told apart.
+3. **`trainData.uuid` is a string** (above). `pick.uuid + 0` is the fix, and without it
+   the failure reads `…got string` — indistinguishable from a server refusal if the
+   error is swallowed.
+4. **`GetRobFormation()` / `GetAttackFormationByIndex(i)`** are the right formations —
+   `f.heroes` is `heroUuid -> slot`, which is exactly what the array wants — but they
+   have to be walked by hand.
+
+### Our own strength, which the client will not compute
+
+`ArmyFormationDataManager:GetFormationPowerByUuid` answers **0** for every formation on
+the account, by uuid or by index, and there is no `*BattlePower` method anywhere in
+`DataCenter` (31 managers carry a `Power` method; none of them prices a squad). Two
+readings do exist:
+
+* **the server's own**, off one of OUR trucks while it is on the road:
+  `GetMyTrainList()[i].power` against `squadNo`, in the same units as a target's `power`.
+  Measured: 60 077 576 for squad 1;
+* **the heroes added up** — `HeroDataManager:GetHeroByUuid(uuid).power` over
+  `f.heroes`. Measured: 39 797 903 for the same squad, so about two thirds of the
+  server's number. Lower, which makes a rule judged on it stricter rather than looser.
+
+`lua_actions.truck_rob_scan` prefers the first and falls back to the second, and parks
+which one answered so the recipe can say it.
+
+### What is still not measured
+
+**Whether a LOST robbery moves the daily counter.** Every robbery run so far has been
+won, so the recipe's judgement — the counter moved, therefore it worked — has only been
+seen from the winning side. `TruckStateType{Safe=1, Robed=2, DefendSuccess=3}` says the
+game knows the difference; `train.record.list` with `type=2` came back with no rows for
+the robber, so the record book is not obviously where to read it. Finding out costs a
+deliberate defeat, which costs troops, so it is a question for the person rather than a
+probe to run.
