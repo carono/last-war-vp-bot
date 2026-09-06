@@ -767,8 +767,8 @@ nav {
   bottom: 0;
   z-index: 10;
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  grid-template-columns: repeat(5, minmax(0, 80px));
+  justify-content: center;
   gap: 2px;
   padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
   background: color-mix(in srgb, var(--bg) 92%, transparent);
@@ -778,21 +778,41 @@ nav {
 
 nav .nav {
   min-height: 52px;
-  /* A LABEL IS A WORD, whatever the rule above says about game strings: five tabs on a
-     360 px phone put «Состояние» on two lines and cut it mid-word. The bar shrinks the
-     type instead — the same five words, one line each, at every width. */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   overflow-wrap: normal;
   white-space: nowrap;
-  font-size: clamp(11px, 3.1vw, 13px);
   padding: 0 2px;
   border: 0;
   border-radius: 12px;
   background: transparent;
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
 }
-nav .nav.on { color: var(--ink); background: var(--bg-soft); }
+nav .nav-icon {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+nav .nav.on { color: var(--accent); background: var(--bg-soft); }
+nav .nav.on::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
 
 /* -- the two things said out of turn -------------------------------------------- */
 

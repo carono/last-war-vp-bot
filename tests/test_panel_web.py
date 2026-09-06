@@ -2318,11 +2318,17 @@ def test_the_map_and_chat_are_bottom_buttons_and_chat_still_hides_the_bar():
     assert nav.index("id: 'map'") < nav.index("id: 'chat'") < nav.index("id: 'more'")
     assert "(entry.screen ? screen === entry.screen" in app, \
         "the map and chat buttons have no active state"
+    assert '<NavIcon id={entry.id} />' in app and 'className="nav-label"' in app
+    assert "aria-label={t(entry.key)}" in app, "an icon button has no accessible name"
+    assert "stroke-width: 1.8" in _css(), "the footer icons are not one outline family"
     css = _css()
-    assert "grid-auto-columns: 1fr" in css, "the five buttons do not share the row"
+    assert "grid-template-columns: repeat(5, minmax(0, 80px))" in css, \
+        "the five buttons either overflow a phone or stretch across a wide screen"
     # 390 - 12 px horizontal padding - 4 * 2 px gaps = 370 px for the five labels.
     assert "padding: 6px 6px" in css and "gap: 2px" in css
     assert "white-space: nowrap" in css, "a footer label may wrap"
+    assert "min-height: 52px" in css, "a footer target is shorter than 44 px"
+    assert "nav .nav.on::after" in css, "the active destination has no position mark"
     assert "body.chatting nav { display: none; }" in css, "chat shows the footer again"
 
 

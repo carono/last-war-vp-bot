@@ -46,6 +46,19 @@ const NAV: { id: string; key: string; view: ViewName; screen?: string }[] = [
   { id: 'more', key: 'web.ui.nav.more', view: 'more' },
 ]
 
+/* One small outline family, drawn here so navigation never depends on game artwork or
+ * a downloaded icon font. Every mark uses the same 24 px box, round joins and weight. */
+function NavIcon({ id }: { id: string }) {
+  const paths: Record<string, React.ReactNode> = {
+    state: <><path d="M4 13h4l2-6 4 10 2-4h4" /><path d="M5 4h14v16H5z" /></>,
+    timers: <><circle cx="12" cy="13" r="8" /><path d="M12 9v4l3 2M9 3h6" /></>,
+    map: <><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3zM9 3v15M15 6v15" /></>,
+    chat: <path d="M4 5h16v11H9l-5 4z" />,
+    more: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
+  }
+  return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[id]}</svg>
+}
+
 /* Which screen the scenarios live under — the window's own tab id, so a rename there is
  * a rename here rather than a list that quietly stops matching. */
 const DEVELOP_SCREEN = 'develop'
@@ -569,12 +582,14 @@ function Panel() {
         {NAV.map((entry) => (
           <button
             key={entry.id}
+            aria-label={t(entry.key)}
             className={'nav' + ((entry.screen ? screen === entry.screen
                                               : view === entry.view && !screen) ? ' on' : '')}
             onClick={() => leave({ ...route, view: entry.view, screen: entry.screen || null,
                                    part: 0, map: 'model' })}
           >
-            {t(entry.key)}
+            <NavIcon id={entry.id} />
+            <span className="nav-label">{t(entry.key)}</span>
           </button>
         ))}
       </nav>
