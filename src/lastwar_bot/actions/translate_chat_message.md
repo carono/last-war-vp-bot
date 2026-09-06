@@ -23,6 +23,14 @@
 #              the client still working or an error it reported
 #   tr_text    the translation, hex-encoded utf-8 — empty when there is none
 #   tr_lang    the language the client translated INTO (its own setting)
+#
+# SHARE — THE CHAT MUST NEVER BE THE REASON THE FARM WAITED (#2594). This recipe
+# asks the client's own translator and waits for it, with no window open, so it keeps the
+# client only for the moments it is actually talking to the game: between two
+# statements, and between the polls of its own WAIT, it hands the link back to
+# whoever is waiting. The person's rule, in their words: «Чат должен всегда работать
+# в отдельном потоке и его действия ничего не должны блокировать».
+SHARE
 ARGS room =
 ARGS seq =
 LUA (function() local I = package.loaded["Chat.ChatInterface"] local mgr = I and I.getRoomMgr and I.getRoomMgr() local d = mgr and mgr.roomDatas and mgr.roomDatas["{room}"] _G.__LW_TR = nil if not d then return end for _, m in ipairs(d:GetMsgs() or {}) do if tostring(m.seqId) == "{seq}" then _G.__LW_TR = m end end local m = _G.__LW_TR if not m then return end local ok, show = pcall(function() return m:isShowTranslateBtn() end) if ok and show == false then return end local M = package.loaded["Chat.ChatManager2"] pcall(function() M.Instance.Ctrl:OnChatTranslate(m) end) end)()

@@ -26,5 +26,13 @@
 # `limit` is per ROOM: the newest that many of each. A room the client holds nothing for
 # (every private conversation nobody has opened this session) is skipped rather than
 # counted as empty — it is not «no history», it is history the client has not asked for.
+#
+# SHARE — THE CHAT MUST NEVER BE THE REASON THE FARM WAITED (#2594). This recipe
+# reads the copy the client already holds and opens nothing, so it keeps the
+# client only for the moments it is actually talking to the game: between two
+# statements, and between the polls of its own WAIT, it hands the link back to
+# whoever is waiting. The person's rule, in their words: «Чат должен всегда работать
+# в отдельном потоке и его действия ничего не должны блокировать».
+SHARE
 ARGS limit = 40
 READ_CHAT LIMIT {limit} INTO chat

@@ -316,6 +316,7 @@ class PanelRuntime:
                                     gate=lambda name, human: self.gate.blocks(
                                         name, human=human))
         self._schedule = None           # built on first ask (see the property below)
+        self._chat_out = None       # …and the chat's own outgoing lane (#2594)
         self._squads = None             # …and so is the squad reader
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
         self._banners = None            # …and what it heard about the banners out
@@ -384,6 +385,21 @@ class PanelRuntime:
             return
         if moved:
             self.log.say("panel", "log.store.imported", name="players", count=moved)
+
+    @property
+    def chat_out(self):
+        """The chat's outgoing lane — a queue and a thread of its own (#2594).
+
+        Built on first ask, like the schedule, and for the same reason: a panel where
+        nobody has typed anything owns no thread for it. What it buys is the promise the
+        person asked for in so many words — a message that could not go this second waits
+        its turn instead of vanishing with the text that was typed
+        (`panel/runtime/chat_outbox.py`).
+        """
+        if self._chat_out is None:
+            from .chat_outbox import ChatOutbox
+            self._chat_out = ChatOutbox(self)
+        return self._chat_out
 
     @property
     def schedule(self):

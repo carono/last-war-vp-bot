@@ -36,10 +36,13 @@ const LOG_KEEP = 400 //  lines held for a phone that has been open all evening
  * both are pages INSIDE «Разработка» (`panel/tabs/develop.py`, `PAGES` = log / busy /
  * scenarios / sniff), and the phone now groups them the same way — under the develop
  * screen, whole. */
-const NAV: { id: ViewName; key: string }[] = [
-  { id: 'state', key: 'web.ui.nav.state' },
-  { id: 'timers', key: 'web.ui.nav.timers' },
-  { id: 'more', key: 'web.ui.nav.more' },
+const NAV: { id: string; key: string; view: ViewName; screen?: string }[] = [
+  { id: 'state', key: 'web.ui.nav.state', view: 'state' },
+  { id: 'timers', key: 'web.ui.nav.timers', view: 'timers' },
+  /* The map is a first-class destination but remains the existing `worldview` screen:
+     no second API surface and no second map state (#2593). */
+  { id: 'map', key: 'web.ui.nav.map', view: 'more', screen: 'worldview' },
+  { id: 'more', key: 'web.ui.nav.more', view: 'more' },
 ]
 
 /* Which screen the scenarios live under — the window's own tab id, so a rename there is
@@ -570,8 +573,10 @@ function Panel() {
         {NAV.map((entry) => (
           <button
             key={entry.id}
-            className={'nav' + (view === entry.id && !screen ? ' on' : '')}
-            onClick={() => leave({ ...route, view: entry.id, screen: null, part: 0, map: 'model' })}
+            className={'nav' + ((entry.screen ? screen === entry.screen
+                                              : view === entry.view && !screen) ? ' on' : '')}
+            onClick={() => leave({ ...route, view: entry.view, screen: entry.screen || null,
+                                   part: 0, map: 'model' })}
           >
             {t(entry.key)}
           </button>

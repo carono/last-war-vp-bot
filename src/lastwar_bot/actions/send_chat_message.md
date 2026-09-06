@@ -37,6 +37,14 @@
 # ChatEmojiTemplateManager:TrySendSticker, and a pin through the chat connection's own
 # share command (__sendToRoom drops the attachment). The reverse-engineering is written
 # up in docs/research/chat-send.md and docs/research/chat-coord-share.md.
+#
+# SHARE — THE CHAT MUST NEVER BE THE REASON THE FARM WAITED (#2594). This recipe
+# hands the message to the client's own sender, with no window open, so it keeps the
+# client only for the moments it is actually talking to the game: between two
+# statements, and between the polls of its own WAIT, it hands the link back to
+# whoever is waiting. The person's rule, in their words: «Чат должен всегда работать
+# в отдельном потоке и его действия ничего не должны блокировать».
+SHARE
 ARGS room =
 ARGS to =
 ARGS text =

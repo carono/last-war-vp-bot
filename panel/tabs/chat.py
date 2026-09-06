@@ -1057,8 +1057,8 @@ class ChatTab(PanelTab):
         def work() -> None:
             found: dict = {}
             try:
-                outcome = self.rt.actions.play("read_chat_rooms", {},
-                                               human=True, tag="chat")
+                outcome = self.rt.play_now("read_chat_rooms", {},
+                                           human=True, tag="chat")
                 got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
                 found = self._parse_rooms(str(got.get("rooms") or ""))
             except Exception as exc:            # noqa: BLE001 — a failed read, not a dead tab
@@ -1342,7 +1342,17 @@ class ChatTab(PanelTab):
 
         A press, therefore at `claims.HUMAN`: a reply that waited out a collect run
         would be a reply nobody sends from the panel. Nothing here sits on the Tk
-        thread — `play_async` hands the run to a worker and answers at once.
+        thread — the lane below takes it on a thread of its own and answers at once.
+
+        AND IT IS QUEUED RATHER THAN ATTEMPTED (#2594). It used to be one
+        `play_async(..., human=True)` from this line, which answered `False` when
+        something else was driving the client — and by then the box had already been
+        cleared, so **the message ceased to exist**: eight of them in the 55 hours
+        measured on this account's log. `rt.chat_out` is the fix and the whole of it:
+        the message is handed to the chat's own lane, which keeps asking for up to
+        `chat_outbox.HOLD_SEC` and says in the log which end it reached. `True` here
+        therefore means «accepted», not «gone» — and that is the honest word, because
+        this thread cannot know whether the client is free this second.
         """
         room = room or self._chat_room(self._active_chat_type())
         if not room:
@@ -1350,8 +1360,7 @@ class ChatTab(PanelTab):
             self.say("chat", "chat.no_room")
             return False
         self.say("chat", "chat.sending", room=room, what=what)
-        return bool(self.rt.play_async("send_chat_message", dict(args, room=room),
-                                       tag="chat", human=True))
+        return bool(self.rt.chat_out.send(dict(args), what, room))
 
     def _chat_send_text(self) -> None:
         text = self._chat_msg_var.get().strip()
@@ -2081,9 +2090,9 @@ class ChatTab(PanelTab):
             uid = self._resolve_char_uid()
             records: list = []
             try:
-                outcome = self.rt.actions.play("read_chat_history",
-                                               {"limit": self.BACKLOG_LIMIT},
-                                               human=True, tag="chat")
+                outcome = self.rt.play_now("read_chat_history",
+                                           {"limit": self.BACKLOG_LIMIT},
+                                           human=True, tag="chat")
                 got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
                 raw = got.get("chat") or "[]"
                 parsed = json.loads(raw) if isinstance(raw, str) else raw
@@ -2195,9 +2204,9 @@ class ChatTab(PanelTab):
     def _tr_batch(self, room: str, seqs: list) -> None:
         """One round trip: ask the game for all of these, file what came back."""
         try:
-            outcome = self.rt.actions.play("translate_chat_batch",
-                                           {"room": room, "seqs": ",".join(seqs)},
-                                           human=False, tag="chat")
+            outcome = self.rt.play_now("translate_chat_batch",
+                                       {"room": room, "seqs": ",".join(seqs)},
+                                       human=False, tag="chat")
             got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
             lang = str(got.get("tr_lang") or "")
             done = str(got.get("tr_done") or "")
@@ -2243,9 +2252,9 @@ class ChatTab(PanelTab):
         if held:
             return {"ok": True, "text": held[0], "lang": held[1]}
         try:
-            outcome = self.rt.actions.play("translate_chat_message",
-                                           {"room": room, "seq": seq},
-                                           human=True, tag="chat")
+            outcome = self.rt.play_now("translate_chat_message",
+                                       {"room": room, "seq": seq},
+                                       human=True, tag="chat")
         except Exception as exc:               # noqa: BLE001 — a failed press, not a dead tab
             self.post(lambda: self.say("chat", "log.error", error=exc))
             return {"ok": False, "reason": "chat.translate.failed"}
@@ -2308,9 +2317,9 @@ class ChatTab(PanelTab):
             # into a minute of reading.
             limit = min(self.DEEP_CEILING,
                         max(self.DEEP_LIMIT, self._deep_hold.get(room, 0) + 200))
-            outcome = self.rt.actions.play("fetch_chat_history",
-                                           {"room": room, "limit": limit},
-                                           human=True, tag="chat")
+            outcome = self.rt.play_now("fetch_chat_history",
+                                       {"room": room, "limit": limit},
+                                       human=True, tag="chat")
             got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
             ended = str(got.get("history_end") or "0") in ("1", "1.0")
             # WHAT THE SERVER SENT FOR THIS ROOM, counted by the CLIENT's own per-room

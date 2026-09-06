@@ -33,6 +33,14 @@
 #   chat          the same JSON array `READ_CHAT` always answers with — the newest
 #                 `limit` of EVERY room the client holds, the freshly fetched ones
 #                 among them, oldest first
+#
+# SHARE — THE CHAT MUST NEVER BE THE REASON THE FARM WAITED (#2594). This recipe
+# asks the server and waits for the reply, with no window open, so it keeps the
+# client only for the moments it is actually talking to the game: between two
+# statements, and between the polls of its own WAIT, it hands the link back to
+# whoever is waiting. The person's rule, in their words: «Чат должен всегда работать
+# в отдельном потоке и его действия ничего не должны блокировать».
+SHARE
 ARGS room =
 ARGS limit = 400
 READ_LUA (function() local I = package.loaded["Chat.ChatInterface"] local mgr = I and I.getRoomMgr and I.getRoomMgr() local d = mgr and mgr.roomDatas and mgr.roomDatas["{room}"] if not d then return -1 end return #(d:GetMsgs()) end)() INTO held_before

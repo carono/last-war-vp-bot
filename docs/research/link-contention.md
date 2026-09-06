@@ -358,3 +358,54 @@ guard». So the honest order of work is the operator's own third point: **name t
 blocks in the recipes first** (a marker the interpreter reads, so a run cannot park inside
 one), and only then let ordinary runs step aside. That is a decision, not a tidy-up, and
 it is left to the person.
+
+## 8. The chat was the largest unclaimed caller of all (#2594)
+
+§3 measured that a third of the traffic ignores the claim. This is who most of it was,
+and what it cost. Measured off one profile's own `panel.log`, **2026-09-03 19:53 →
+2026-09-06 23:35** (3.16 days), before the change:
+
+| ability | runs | median | p90 | max | link held |
+|---|---|---|---|---|---|
+| `translate_chat_batch` | 1538 | 5 s | 11 s | **127 s** | 11 071 s |
+| `read_chat_history` | 7 | 8 s | 12 s | 12 s | 50 s |
+| `read_chat_rooms` | 47 | 0 s | 1 s | 20 s | 33 s |
+| `fetch_chat_history` | 5 | 5 s | 6 s | 6 s | 27 s |
+| `translate_chat_message` | 10 | 4 s | 5 s | 5 s | 41 s |
+| `send_chat_message` | 10 | 2 s | 3 s | 3 s | 19 s |
+| **chat, all of it** | **1617** | | | | **11 241 s** |
+
+11 241 s of 112 033 s of all scenario time — **10.0 %** of everything the panel played,
+for an ability whose own work is one call, one wait and two reads. `translate_chat_batch`
+is nominally a 3-second recipe; its median was 5 s and its p90 11 s.
+
+The gap is entirely contention, and it had three separate authors:
+
+1. **No claim at all.** The tab reached the game through `rt.actions.play(...)`, which
+   takes the FOREGROUND claim (for a vision recipe) and no game claim whatever. So the
+   chat's calls interleaved into a timer's run, using whatever lease token the runtime
+   held — and the two took the lease off each other. **16** runs in the window ended
+   «lease lost — it expired or was taken by default/timer», and the regain hook's 90-second
+   ceiling is where the 127-second maximum comes from.
+2. **No `SHARE`.** What the chat DID hold, it held across its own `WAIT 3` — the game's
+   translator thinking — which by §7's own argument is the biggest remaining kind of
+   idle exclusive.
+3. **A press that gave up.** `play_async` refuses outright when the holder is of equal
+   rank, so a person's typed line was DROPPED: **8** «занят» in four minutes on
+   2026-09-06 for one message, while `default/web` held the client at `HUMAN`.
+
+…and a fourth that was not contention at all: **61** chat runs in the window were turned
+away by #2446's gate («статус не зелёный»), which is «чат молчит, пока фарм чинится».
+
+**What was done.** All six recipes declare `SHARE`; the five readings go through
+`PanelRuntime.play_now` — `play_async` with the thread taken out, so the same gate, the
+same relaunch lock and the same reserve/lease dance apply and the Outcome comes back in
+the caller's own hand; a person's press of a sharing recipe is no longer demoted to
+`claims.SHARED`; a sharing run queues behind an equal instead of dying; and the gate has
+a chat exception, narrow to «the panel still reaches the client»
+(`panel/runtime/gate.py::CHAT_ACTIONS`). Pinned by `tests/test_panel_chat_thread.py`.
+
+**This is also the first ordinary — non-detached — caller to get the step-aside hook**,
+and it is legal under §5 for the reason §5 gives: no chat recipe opens a window, and none
+of them is an atomic series. `translate_chat_batch` parks between its ask and its read,
+and the answer waits for it in `_G.__LW_TRB` in the client's own Lua state.

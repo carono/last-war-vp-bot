@@ -89,6 +89,36 @@ RELAUNCH_ACTIONS = frozenset({"launch_game", "restart_game", "recover_from_kick"
 #: question that could turn it green is refused for the light not being green.
 RECOVERY_ACTIONS = RELAUNCH_ACTIONS | {"read_server_info"}
 
+#: …AND THE CHAT, WHICH RUNS WHENEVER THE PANEL CAN STILL REACH THE CLIENT (#2594).
+#:
+#: The person's rule, in their own words: «Чат должен всегда работать в отдельном потоке
+#: и его действия ничего не должны блокировать и сам он не зависит от работы сценариев
+#: панели». «Не зависит от сценариев панели» and «нельзя, пока свет не зелёный» cannot
+#: both be true, so this is the decision, written down rather than left to be inferred:
+#: **the chat is an exception to #2446, on the same terms as a recovery scenario, and
+#: only while chunks still LAND in the client.**
+#:
+#: WHY IT IS DEFENSIBLE, given what #2446 measured. The reason the gate closed on amber
+#: was that a run which cannot succeed is «noise plus an obstacle»: it looked like work,
+#: it took the game claim for its whole duration, and the recovery queued behind it.
+#: Neither half is true of the chat since this same change:
+#:
+#: * It is not an obstacle. Every chat recipe declares `SHARE`, so it holds the client
+#:   only between its own calls and steps aside for ANY waiter — the recovery included.
+#: * It is not noise. Four of the six ask the SERVER nothing at all: the rooms, the held
+#:   history and both translations are read out of the copy the client itself is holding,
+#:   and they answer perfectly while the server is silent. That is precisely the state in
+#:   which a person most wants to read what the alliance is saying.
+#:
+#: WHAT IT IS STILL HELD BY, and this is the narrow part. `_landing()` — the panel drives
+#: the client — is required. A chat run against a client the panel cannot reach has
+#: nothing to read and nowhere to send, so it would be exactly the noise #2446 removed.
+#: And the profile's own switch is checked ahead of this: «профиль выключен» means the
+#: account is not playing, chat included.
+CHAT_ACTIONS = frozenset({"read_chat_rooms", "read_chat_history", "fetch_chat_history",
+                          "send_chat_message", "translate_chat_batch",
+                          "translate_chat_message"})
+
 #: …AND THE ONE THING THAT PASSES EVEN A SWITCHED-OFF PROFILE: closing the client.
 #:
 #: It is not a recovery, it is the opposite — but «Стоп всё» IS the switch being flipped
@@ -195,6 +225,12 @@ class LinkGate:
             # client back is what makes the link live again, and asking the server whether
             # it is there is what turns the light green — neither can wait for the state
             # it is there to end.
+            return ""
+        if name in CHAT_ACTIONS and self._landing():
+            # THE CHAT IS NOT HELD BY A SILENT SERVER (:data:`CHAT_ACTIONS`, #2594). It
+            # shares the client rather than holding it, and most of what it does is read
+            # out of the client's own copy — so it is neither the obstacle nor the noise
+            # #2446 closed this gate against.
             return ""
         if human:
             # A PERSON IS OWED A DIFFERENT SENTENCE. They are standing at the button and
