@@ -1197,5 +1197,37 @@ def test_auto_translation_is_off_by_default_and_never_asks_on_a_clock():
     assert recipe.count("\nWAIT ") == 1, "a batch waits once, not once per message"
 
 
+def test_the_age_over_a_conversation_is_that_conversation_s():
+    """#2418: «протухшее без возраста выглядит как свежее» — and so does a stale room
+    under somebody else's fresh one.
+
+    Measured live on the panel: «Мировой» whose newest message was 14 minutes old was
+    drawn «10 с назад», because the screen's `silent` is the age of the newest message
+    in ANY room and a busy season group had just spoken. So the page of one room carries
+    the age of what is ON it, judged on the game's clock, and the front-end says that
+    over the conversation — `silent` is only the fallback for a page with no messages.
+
+    The page ABOVE must not touch it: paging up would otherwise report the age of
+    yesterday's messages as the age of the conversation.
+    """
+    src = (_REPO / "panel" / "tabs" / "chat.py").read_text(encoding="utf-8")
+    page = src.split("def web_data")[1].split("\n    #: A store opened for READING")[0]
+    assert '"age": self._age_of(rows[-1].get("ts")) if rows else None' in page, \
+        "a page of one room no longer says how old it is"
+    aged = src.split("def _age_of")[1].split("\n    def ")[0]
+    assert "game_clock.now_ms()" in aged, "the age is judged on the machine's clock"
+
+    view = (_REPO / "panel" / "web" / "app" / "src" / "views"
+            / "ChatView.tsx").read_text(encoding="utf-8")
+    assert "const [roomAge, setRoomAge]" in view, "the phone dropped the room's own age"
+    assert view.count("setRoomAge(") == 2, \
+        "the age is set somewhere other than the first draw and the poll"
+    older = view.split("const older = useCallback")[1].split("const deeper")[0]
+    assert "setRoomAge" not in older, "paging up reports the age of the page above"
+    said = view.split("const state = (")[1].split("\n  )")[0]
+    assert "roomAge !== null" in said and "span(roomAge)" in said, \
+        "the line over the conversation is not the conversation's own age"
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())

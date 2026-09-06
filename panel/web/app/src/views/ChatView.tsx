@@ -87,6 +87,8 @@ interface Page {
   server?: boolean
   /** The room such an ask would name — a channel does not name its own. */
   deep_room?: string
+  /** Seconds since the newest message ON THIS PAGE was said, on the game's clock. */
+  age?: number | null
 }
 
 /** What the deep read answers with (`chat.py::_ask_server_for_older`). */
@@ -205,6 +207,13 @@ export function ChatView({
   //: such an ask would name. Both come off the page the panel just served.
   const [server, setServer] = useState(false)
   const [deepRoom, setDeepRoom] = useState('')
+  /* HOW OLD THE OPEN CONVERSATION IS (#2418). The screen's `silent` is the age of the
+     newest message in ANY room — it answers «is the ear alive», and over one room it
+     lies: measured live, «Мировой» with a 14-minute-old last message was drawn «10 с
+     назад» because a busy season group had just spoken. So the page carries its own
+     age and that is what is said above it; `silent` is the fallback for a page that
+     has no messages at all. */
+  const [roomAge, setRoomAge] = useState<number | null>(null)
   //: The ask is in the game right now — a round trip, so it is shown rather than
   //: hidden: the button says it and stays disabled until the answer lands.
   const [deep, setDeep] = useState(false)
@@ -326,6 +335,7 @@ export function ChatView({
       setMore(!!page.more)
       setServer(!!page.server)
       setDeepRoom(String(page.deep_room || ''))
+      setRoomAge(typeof page.age === 'number' ? page.age : null)
     } catch {
       /* the tick says so */
     }
@@ -382,6 +392,7 @@ export function ChatView({
       try {
         const page = await get<Page>(link())
         const fresh = page.rows || []
+        setRoomAge(typeof page.age === 'number' ? page.age : null)
         setRows((prev) => {
           if (!prev.length) return fresh
           const seen = new Set(prev.map((r) => r.id))
@@ -788,9 +799,11 @@ export function ChatView({
         ? t('chat.ear.off')
         : waiting
           ? t('chat.ear.waiting')
-          : silent !== null
-            ? t('chat.silent', { span: span(silent) })
-            : ''}
+          : roomAge !== null
+            ? t('chat.silent', { span: span(roomAge) })
+            : silent !== null
+              ? t('chat.silent', { span: span(silent) })
+              : ''}
     </p>
   )
 

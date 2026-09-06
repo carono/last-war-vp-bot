@@ -397,6 +397,31 @@ class ChatTab(PanelTab):
             return None
         return max(0.0, now - newest)
 
+    @staticmethod
+    def _age_of(ts: float) -> "float | None":
+        """Seconds since one message was said, on the GAME's clock, or ``None``.
+
+        THE AGE OVER A CONVERSATION IS THAT CONVERSATION'S (#2418). `_chat_silence` is
+        the age of the newest message in ANY room — the right answer to «is the ear
+        alive» and the wrong one over an open room: measured live, «Мировой» whose last
+        message was 14 minutes old was drawn «10 с назад» because a busy season group
+        had just spoken. A stale conversation looking fresh is the exact reading this
+        line exists to prevent, so a page carries the age of what is ON it.
+        """
+        import game_clock
+
+        try:
+            said = float(ts or 0.0)
+        except Exception:                      # noqa: BLE001 — a bad stamp is no stamp
+            return None
+        if not said:
+            return None
+        try:
+            now = game_clock.now_ms() / 1000.0
+        except Exception:                      # noqa: BLE001 — no game, no judgement
+            return None
+        return max(0.0, now - said)
+
     def _web_picker(self) -> dict:
         """The sprites for the modal: the emoji to write with, the stickers to send.
 
@@ -603,6 +628,9 @@ class ChatTab(PanelTab):
         asked = room or (str(rows[-1].get("room_id") or "").strip() if rows else "")
         return {"rows": [self._web_row(r) for r in rows], "more": more,
                 "room": room, "type": chat_type,
+                # HOW OLD THIS CONVERSATION IS (#2418) — see `_age_of`. The screen's
+                # own `silent` answers for the EAR; this answers for what is on screen.
+                "age": self._age_of(rows[-1].get("ts")) if rows else None,
                 "server": bool(asked) and asked not in self._history_end,
                 "deep_room": asked}
 
