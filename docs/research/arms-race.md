@@ -127,6 +127,44 @@ nothing, and a drone phase that therefore scores nothing is the right outcome ra
 than a bug. An event that quietly overspent the day's rallies is exactly what the caps
 exist to stop.
 
+## The drone phase is worked to its END, and the wake-up is the march's own clock (#2574)
+
+Measured on the live account, seven consecutive drone phases: **seven runs, one per
+phase, and four of the seven raised nothing at all.** The person's report — «1 или 2
+стяга за 4 часа события» — is what that looks like from the game.
+
+The cause is two rules meeting. `arms_race_drone` stopped as soon as the squad was
+not free, and the squad is not free from the moment the first banner goes out; and
+`perform_arms_race` books its next turn on the PHASE BORDER, because that is the right
+answer for the five phases whose work is done in one pass. So the phase raised one
+banner in its first minute and slept for four hours.
+
+What changed:
+
+* the run no longer stops when the squad is out. It says WHICH gate refused — the gate
+  answers a word now, not a boolean — and leaves in `next_run_in` the seconds to the
+  **nearest march this account has out** (`WorldMarchDataManager:GetOwnerMarches()`,
+  each march's own `endTime`) plus 30 s. That is the «отряд вернулся» event, read off
+  the clock the server already handed over rather than watched for with a poll;
+* the booking is capped at the phase border, which the caller hands down as
+  `phase_left`. A return that lands after the phase is over books nothing;
+* `next_run_in` is 0 — the border stands — when there is nothing left to gain: every
+  chest scored, the day's allowance spent, the stamina ceiling reached, the phase gone;
+* the **stamina ceiling became the PHASE's** rather than one run's. A per-run 300 over
+  however many runs a phase now has is not a ceiling; the purse is parked in the VM
+  against the phase's own `stage_end_time`, so a new phase resets it and a second run
+  inside one finds what the first spent;
+* the chests are claimed after every round, not only at the start of the next run;
+* and the banners are written into the DAY's rally book by the panel
+  (`Schedule.register_report` → `panel/tabs/events/tab.py::arms_report`), because the
+  allowance `arms_rallies` hands over would otherwise be handed over whole again on
+  every return of the squad.
+
+No wire trigger was added. `push.world.march.del` is the push that would carry «a march
+ended», and it is not only ours — the world stream carries other players' marches in
+view, and a wire trigger has no cooldown — so the same event is taken from the clock the
+client already holds instead.
+
 ## The rules arrive for the current phase only — so judge by the score MOVING
 
 There is no way to ask what the phase after next will pay, and what paid yesterday is

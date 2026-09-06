@@ -68,6 +68,10 @@
 #   squad / level / target — which squad raises the drone phase's banners and what it
 #            looks for. They travel straight through to actions/create_rally.md.
 #
+# `phase_left` is not an argument of this file: it is the border this run has just read,
+# handed down to the drone recipe as a variable so its own booking can never overshoot
+# the phase (`CLAUDE.md`, a sub-recipe reads the caller's variables).
+#
 # The reading is actions/read_arms_race.md; the research is docs/research/arms-race.md.
 
 ARGS hero = 1
@@ -96,7 +100,7 @@ CALL claim_arms_chests
 # When the phase ends, in seconds from now — the border the next turn is booked on. The
 # `+30` is slack: a turn that lands ON the border reads whichever of the two phases the
 # server happens to have switched to, and half a minute late reads the new one for sure.
-READ_LUA (function() local __v0 = (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end return math.floor((d.event_id or 0) + 0) end)() local __v1 = (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) if now <= 0 then return 0 end local ends = math.floor((d.stage_end_time or 0) + 0) if ends <= now then return 0 end return (ends - now) + 30 end)() return __v0, __v1 end)() INTO arms_event, next_run_in
+READ_LUA (function() local __v0 = (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end return math.floor((d.event_id or 0) + 0) end)() local __v1 = (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) if now <= 0 then return 0 end local ends = math.floor((d.stage_end_time or 0) + 0) if ends <= now then return 0 end return (ends - now) + 30 end)() return __v0, __v1, __v1 end)() INTO arms_event, next_run_in, phase_left
 
 IF arms_event == 0
     LOG "arms race: the game would not say which phase is running — nothing done, and no border to book"
@@ -106,8 +110,17 @@ IF arms_event == 120004
     IF drone == 0
         LOG "arms race: the drone phase is running and raising is switched off — coming back in {next_run_in} s"
         STOP "drone phase, raising off"
+    # THE ONE BRANCH THAT MAY BOOK ITS OWN TURN SOONER (#2574). The drone phase is
+    # worked to its end rather than once: a banner takes the squad away for minutes and
+    # the phase lasts four hours, so `arms_race_drone` overwrites `next_run_in` with the
+    # seconds until the squad is home again — capped at the border `phase_left` carries.
+    # It leaves 0 there when there is nothing left to gain, and then the border stands.
     CALL arms_race_drone
-    LOG "arms race: drone phase done — coming back in {next_run_in} s, on the phase border"
+    # AND THE CHESTS THE BANNERS JUST PAID FOR (#2574). The phase is worked to its end,
+    # so the chests are taken at the end of every round of it rather than only at the
+    # start of the next run — which, when the next run is the border, is four hours late.
+    CALL claim_arms_chests
+    LOG "arms race: drone phase — coming back in {next_run_in} s"
     STOP "drone phase done"
 
 IF arms_event != 120000

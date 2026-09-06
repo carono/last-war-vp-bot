@@ -129,6 +129,7 @@ class EventsTab(PanelTab):
     #: restores the saved block before the lines below run, and the restore reaches for
     #: these two. A tab that has never been drawn has no widgets, so ``None`` is the
     #: honest answer at that moment rather than an attribute error (#2065).
+    _arms_counted = 0
     _arms_speedup_var = None
     _arms_speedup = modelmod.ARMS_SPEEDUP_DEFAULT
     _arms_minutes = modelmod.ARMS_MINUTES_DEFAULT
@@ -290,6 +291,9 @@ class EventsTab(PanelTab):
         self._arms_free_minutes = modelmod.ARMS_FREE_MINUTES_DEFAULT
         self._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
         self._arms_args_registered = False
+        #: How many banners of the CURRENT drone phase have already been
+        #: written into the day's rally book (`arms_report`).
+        self._arms_counted = 0
         self._register_arms_args()
         #: …and the same for the hunt, which became an errand of its own in #2408.
         self._golden_args_registered = False
@@ -348,6 +352,12 @@ class EventsTab(PanelTab):
         if schedule is None or not hasattr(schedule, "register_args"):
             return                              # a tab opened on its own
         schedule.register_args(modelmod.ARMS_ERRAND, self.arms_args)
+        # AND WHAT THE RUN SPENT, WRITTEN INTO THE DAY'S BOOK (#2574). The drone phase
+        # is worked to its end now — many runs, not one — so the banners it raises have
+        # to fall out of the same daily budget `arms_rallies` reads, or the allowance
+        # would be handed over whole again on every return of the squad and the ceiling
+        # the person set would mean nothing. The recipe counts; this writes it down.
+        schedule.register_report(modelmod.ARMS_ERRAND, self.arms_report)
         self._arms_args_registered = True
 
     def _register_golden_args(self) -> None:
@@ -394,6 +404,60 @@ class EventsTab(PanelTab):
                 "stamina": self.arms_stamina(),
                 "rallies": self.arms_rallies(),
                 "squad": self.arms_squad()}
+
+    def arms_report(self, ctx) -> None:
+        """Count the banners the finished arms run raised into the DAY's rally book.
+
+        The recipe leaves the phase's tally in `arms_drone_made` — its own count of the
+        banners that actually went out, judged against the game's score rather than
+        against a send that returns cleanly either way. It is the PHASE's number and
+        this is called once per run, so what is written down is the DIFFERENCE since the
+        last run of the same phase; a fresh phase resets the recipe's purse and the
+        remembered mark goes with it.
+
+        Nothing here gates anything. The gate is `arms_rallies`, which reads this book
+        the next time the errand fires.
+        """
+        made = 0
+        try:
+            made = int(float(str((getattr(ctx, "vars", None) or {})
+                                 .get("arms_drone_made") or 0)))
+        except (TypeError, ValueError):
+            return
+        if made < 0:
+            made = 0
+        if made < self._arms_counted:       # a new phase — the purse was reset
+            self._arms_counted = 0
+        fresh = made - self._arms_counted
+        self._arms_counted = made
+        if fresh <= 0:
+            return
+        try:
+            from ..rally import limits as rallygate
+            _limits, counts = rallygate.read(self.rt)
+            for _ in range(fresh):
+                counts = rallygate.record(self.rt, counts, modelmod.ARMS_RALLY_KIND)
+        except Exception as exc:            # noqa: BLE001 — a tally, never the run
+            self.rt.dbg("events").warning("arms rallies not counted: %s", exc)
+
+    def arms_rallies_today(self) -> str:
+        """«Стягов сегодня» for both front-ends — what the day's book says, `used / cap`.
+
+        The row exists because the log could answer «сколько стягов подняли за окно» and
+        neither front-end could (#2574), and because the commonest reason a drone phase
+        scores nothing is this number sitting at its ceiling — which used to read as a
+        run that did nothing for no stated reason.
+        """
+        try:
+            from ..rally import limits as rallygate
+            limits, counts = rallygate.read(self.rt)
+            used = counts.count_for(modelmod.ARMS_RALLY_KIND)
+            cap = limits.limit_for(modelmod.ARMS_RALLY_KIND)
+        except Exception:                    # noqa: BLE001 — a reading, never the run
+            return "—"
+        if cap <= 0:
+            return str(used)
+        return "%d / %d" % (used, cap)
 
     def arms_rallies(self) -> int:
         """How many rallies the day's budget still leaves the drone phase.
@@ -1748,6 +1812,7 @@ class EventsTab(PanelTab):
         self._row(rows, "events.arms.points", modelmod.arms_points(state), grey)
         self._row(rows, "events.arms.chests", modelmod.arms_chests(state), grey)
         self._row(rows, "events.arms.day_chests", modelmod.arms_day_chests(state), grey)
+        self._row(rows, "events.arms.rallies", self.arms_rallies_today(), grey)
         self._row(rows, "events.arms.day",
                   "—" if state.done is None else "%d / 6" % state.done, grey)
         if state.state == modelmod.OPEN:
@@ -2216,6 +2281,7 @@ class EventsTab(PanelTab):
             {"label": "events.arms.chests", "value": modelmod.arms_chests(arms)},
             {"label": "events.arms.day_chests",
              "value": modelmod.arms_day_chests(arms)},
+            {"label": "events.arms.rallies", "value": self.arms_rallies_today()},
             {"label": "events.arms.day",
              "value": ("—" if arms.done is None else "%d / 6" % arms.done)},
             # HOW OLD THIS CARD IS, and its own age rather than the board's (#2393).

@@ -2635,6 +2635,7 @@
   "events.arms.points": "Puan",
   "events.arms.chests": "Alınan sandıklar",
   "events.arms.day_chests": "Günün sandıkları alındı",
+  "events.arms.rallies": "Bugünkü toplanmalar",
   "events.arms.day": "Bugün tamamlanan aşama",
   "events.arms.read": "Okundu",
   "events.arms.until": "Aşamanın bitmesine",
