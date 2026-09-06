@@ -37,7 +37,17 @@
 # nothing while gifts were waiting FAILS in words instead of writing a cheerful line
 # into the log (#2585).
 #
+# IT TOUCHES NO WINDOW, so it says `SHARE` and steps aside for anything that wants the
+# client — the old version could not, because it opened the gift section and pressed into
+# it. The two waits here are waits for a SERVER REPLY, and a reply lands in the client's
+# own data whether or not we are holding the link, so the seven seconds this run lasts
+# cost the rest of the panel nothing. The value it parks (`__lw_algift_before`) is read
+# only by this run and nothing else in the bot claims a gift, so a neighbour cutting in
+# between the park and the claim cannot make the count lie.
+#
 # The reverse engineering is docs/research/alliance-gift-collection.md.
+
+SHARE
 
 # Two readings, defined once so the steps below are one call each. `seen` counts the
 # gift records the client holds AT ALL — a claimed gift stays in the list, so
@@ -83,4 +93,6 @@ READ_LUA (((tonumber(DataCenter.__lw_algift_before) or 0) > 0 and (tonumber(Data
 IF gift_stuck == 1
     FAIL "the alliance gifts were not claimed — {gift_ord} ordinary and {gift_prem} premium are still waiting"
 
+# `gift_took` is also what the panel writes into the day's book — «собрано сегодня» on
+# the card is GIFTS and not runs (`panel/runtime/gift_book.py`).
 LOG "alliance gifts: took {gift_took}, still waiting {gift_left}"

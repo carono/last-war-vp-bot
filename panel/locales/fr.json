@@ -2856,7 +2856,7 @@
   "timers.item.work_alliance_star": "« Étoile d'alliance » : aimer toutes les étoiles, prendre les deux coffres",
   "timers.item.work_alliance_star.short": "Étoile d'alliance",
   "triggers.item.alliance_star_ceremony": "Aimer les étoiles de l'alliance dès l'annonce de la cérémonie",
-  "timers.stat.alliance_gifts": "en attente : {n} · ordinaires {ord} · premium {prem}",
+  "timers.stat.alliance_gifts": "en attente : {n} · ordinaires {ord} · premium {prem} · pris aujourd'hui : {today}",
   "timers.stat.alliance_star": "j'aime : {n} sur {all} · coffres : {chests} sur {boxes}",
   "timers.stat.alliance_star_closed": "pas de cérémonie en ce moment",
   "errand.arg.alliance_star.emoji": "Réaction",

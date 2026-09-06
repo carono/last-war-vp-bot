@@ -52,6 +52,9 @@ class _Store:
         self.asked.append(name)
         return self.blobs.get(name)
 
+    def blob_set(self, name: str, value) -> None:
+        self.blobs[name] = value
+
 
 class _Profiles:
     def __init__(self, root: Path) -> None:
@@ -496,7 +499,7 @@ def test_the_alliance_chests_say_what_is_waiting_and_a_dash_is_not_a_zero():
     rt = _rt(daily={"algift_ord": 6, "algift_prem": 45}, daily_age=4.0)
     assert statsmod.of(rt, "collect_alliance_gifts") == {
         "key": "timers.stat.alliance_gifts",
-        "fmt": {"n": 51, "ord": 6, "prem": 45}, "age": 4.0}
+        "fmt": {"n": 51, "ord": 6, "prem": 45, "today": 0}, "age": 4.0}
     # A client nobody has asked for the list holds no gift records at all, and the
     # reading answers a dash. A dash is «nobody knows» and must never be drawn as
     # «подарков нет»: the row falls back on what the panel itself knows.
@@ -504,6 +507,35 @@ def test_the_alliance_chests_say_what_is_waiting_and_a_dash_is_not_a_zero():
     assert statsmod._alliance_gifts(rt) is None
     assert statsmod.of(rt, "collect_alliance_gifts")["key"] != \
         "timers.stat.alliance_gifts"
+
+
+def test_the_day_of_gifts_is_gifts_and_not_runs_and_yesterdays_book_is_no_book():
+    """«собрано сегодня» counts GIFTS, off the run's own before/after (#2588)."""
+    from panel.runtime import gift_book
+
+    rt = _rt(daily={"algift_ord": 0, "algift_prem": 3}, daily_age=1.0)
+    day = gift_book._day()
+
+    class _Ctx:
+        vars = {"gift_took": 46}
+
+    gift_book.note(rt, _Ctx())
+    gift_book.note(rt, _Ctx())
+    assert gift_book.today(rt) == 92
+    assert statsmod.of(rt, "collect_alliance_gifts")["fmt"]["today"] == 92
+
+    # A run that says nothing about what it took writes nothing at all — the book is the
+    # recipe's own number or it is silence, never a guess from «it ran».
+    class _Silent:
+        vars = {}
+
+    gift_book.note(rt, _Silent())
+    assert gift_book.today(rt) == 92
+
+    # …and the day is the SERVER's: yesterday's book answers «nothing today» rather than
+    # yesterday's number, exactly as the arms book does.
+    rt.store.blobs[gift_book.BLOB] = {"day": day + "-yesterday", "took": 40, "runs": 1}
+    assert gift_book.today(rt) == 0
 
 
 def test_the_weekly_ceremony_says_its_likes_and_its_two_chests():

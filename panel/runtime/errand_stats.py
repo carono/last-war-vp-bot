@@ -533,18 +533,23 @@ def _alliance_gifts(rt) -> "dict | None":
     """«ждут: 51 · обычных 6 · премиальных 45» — the alliance chests, off the one reading.
 
     Two more fields of the chunk «Таймеры» already asks for (#2588), so the line costs
-    the game nothing. They are a dash — and a dash is `None` here — until somebody has
+    the game nothing, and the day's take beside them off the panel's own book. They are a dash — and a dash is `None` here — until somebody has
     asked the server for the gift list at all: a client that has never asked holds no
     gift records, and a «0 подарков» over that is the one lie this line exists to
     prevent. `collect_alliance_gifts` does the asking, and the server's own
     `push.alliance.reward.new` keeps the counts up to date afterwards.
     """
+    from . import gift_book
     values, age = _daily(rt)
     if "algift_ord" not in values or "algift_prem" not in values:
         return None
     ordinary, premium = _int(values.get("algift_ord")), _int(values.get("algift_prem"))
     return {"key": "timers.stat.alliance_gifts",
-            "fmt": {"n": ordinary + premium, "ord": ordinary, "prem": premium},
+            "fmt": {"n": ordinary + premium, "ord": ordinary, "prem": premium,
+                    # …and what the DAY took, which is gifts and not runs: the recipe
+                    # counts the unclaimed gifts before and after its claim, and the
+                    # book keeps the difference (`panel/runtime/gift_book.py`).
+                    "today": gift_book.today(rt)},
             "age": age}
 
 

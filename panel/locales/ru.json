@@ -2856,7 +2856,7 @@
   "timers.item.work_alliance_star": "«Звезда альянса»: лайки всем и оба сундука",
   "timers.item.work_alliance_star.short": "«Звезда альянса»",
   "triggers.item.alliance_star_ceremony": "Ставить лайки звёздам альянса, когда объявлена церемония",
-  "timers.stat.alliance_gifts": "ждут: {n} · обычных {ord} · премиальных {prem}",
+  "timers.stat.alliance_gifts": "ждут: {n} · обычных {ord} · премиальных {prem} · собрано сегодня: {today}",
   "timers.stat.alliance_star": "лайков: {n} из {all} · сундуков: {chests} из {boxes}",
   "timers.stat.alliance_star_closed": "сейчас не проводится",
   "errand.arg.alliance_star.emoji": "Реакция",

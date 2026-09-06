@@ -389,6 +389,12 @@ class PanelRuntime:
         if self._schedule is None:
             from .schedule import Schedule
             self._schedule = Schedule(self)
+            # …and the one errand whose day-book has no tab to wire it (#2588): the
+            # alliance gifts. Registering a report hook costs nothing until a run of
+            # that errand finishes, and it is what lets the card say «собрано сегодня»
+            # about GIFTS rather than about runs.
+            from . import gift_book
+            gift_book.wire(self)
         return self._schedule
 
     @schedule.setter

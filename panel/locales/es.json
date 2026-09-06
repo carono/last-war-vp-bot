@@ -2856,7 +2856,7 @@
   "timers.item.work_alliance_star": "«Estrella de la alianza»: dar me gusta a todas y coger los dos cofres",
   "timers.item.work_alliance_star.short": "Estrella de la alianza",
   "triggers.item.alliance_star_ceremony": "Dar me gusta a las estrellas cuando se anuncie la ceremonia",
-  "timers.stat.alliance_gifts": "esperando: {n} · normales {ord} · premium {prem}",
+  "timers.stat.alliance_gifts": "esperando: {n} · normales {ord} · premium {prem} · recogidos hoy: {today}",
   "timers.stat.alliance_star": "me gusta: {n} de {all} · cofres: {chests} de {boxes}",
   "timers.stat.alliance_star_closed": "ahora no se celebra",
   "errand.arg.alliance_star.emoji": "Reacción",

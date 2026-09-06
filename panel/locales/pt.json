@@ -2856,7 +2856,7 @@
   "timers.item.work_alliance_star": "«Estrela da aliança»: curtir todas e pegar os dois baús",
   "timers.item.work_alliance_star.short": "Estrela da aliança",
   "triggers.item.alliance_star_ceremony": "Curtir as estrelas da aliança quando a cerimónia for anunciada",
-  "timers.stat.alliance_gifts": "aguardando: {n} · comuns {ord} · premium {prem}",
+  "timers.stat.alliance_gifts": "aguardando: {n} · comuns {ord} · premium {prem} · recebidos hoje: {today}",
   "timers.stat.alliance_star": "curtidas: {n} de {all} · baús: {chests} de {boxes}",
   "timers.stat.alliance_star_closed": "não está a decorrer agora",
   "errand.arg.alliance_star.emoji": "Reação",

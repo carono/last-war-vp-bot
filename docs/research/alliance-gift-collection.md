@@ -158,3 +158,16 @@ The recipe therefore asks, counts, claims only a chest with something in it, and
 proves the run by the counter rather than by the send (#2585). The two counts also
 ride on the checklist reading as `algift_ord` / `algift_prem`, so «Подарки альянса»
 draws a live line and no new question reaches the game.
+
+### «Собрано сегодня» is the run's own arithmetic
+
+The game answers what is WAITING and nothing about what was taken: a claimed gift keeps
+its place in `giftInfoList` with `receiveState` flipped, and nothing carries a date. So
+the day's take is the recipe's own before-minus-after (`gift_took`), written into a row
+of `blobs` (`alliance_gifts_day`) by a report hook on the finished run
+(`panel/runtime/gift_book.py`). The key is the SERVER's day, like the arms book, so a
+book from yesterday answers «nothing today».
+
+The recipe declares `SHARE`: it touches no window now, and its two waits are waits for a
+server reply — which lands in the client's own data whether or not the link is held.
+
