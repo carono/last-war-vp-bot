@@ -302,15 +302,25 @@ def test_the_route_carries_the_header() -> None:
 
 
 def test_a_panel_made_jump_is_the_event_that_refreshes_the_header() -> None:
-    """The server in the global header follows a confirmed move, never a timer (#2593)."""
+    """A confirmed move installs its own server before completion, never by a timer."""
     source = (_REPO / "panel" / "runtime" / "host.py").read_text(encoding="utf-8")
-    assert "self.game.on_moved = self.header.mark_stale" in source
+    assert "self.game.on_moved = self.header.confirm_server" in source
     # …and the free-link read SUBSCRIBES rather than owning the hook (#2593): the shell
     # assigns `on_settled` for its own status strip a moment later, so an assignment here
     # was deleted again in every panel that has a window.
     assert "self.game.add_settled(self.header.on_settled)" in source
     link = (_REPO / "panel" / "runtime" / "link.py").read_text(encoding="utf-8")
-    assert 'if answer.get("ok"):' in link and "_call(self.on_moved, None)" in link
+    assert 'if answer.get("ok"):' in link
+    assert '_call(self.on_moved, answer.get("server"))' in link
+
+
+def test_a_confirmed_server_is_visible_without_another_read() -> None:
+    clock = _Clock()
+    header = _header(_Runtime(_Store()), clock)
+    header.confirm_server(904)
+    state = header.state()
+    assert state["server"] == 904 and state["age"] == 0, state
+    assert header._where_want is False, "the confirmed answer booked a redundant read"
 
 
 def test_the_scenario_exists_and_the_panel_writes_no_lua_for_it() -> None:

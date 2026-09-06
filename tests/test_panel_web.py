@@ -2977,6 +2977,20 @@ def test_a_pending_screen_press_keeps_its_button_locked_past_the_http_reply():
     assert "if (action.disabled === false) setBusy(false)" in screen
 
 
+def test_a_server_jump_updates_the_header_in_the_render_that_unlocks_it():
+    """#2593: zero frames may show the old server beside an enabled jump button."""
+    screen = (_APP_SRC / "views" / "ScreenView.tsx").read_text(encoding="utf-8")
+    draw = screen[screen.index("const draw = useCallback"):screen.index("useEffect(() => {", screen.index("const draw = useCallback"))]
+    assert draw.index("onServer(answer.header_server)") < draw.index("setView(answer)"), \
+        "the unlock is rendered before the confirmed server reaches the header"
+    app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
+    assert "onServer={confirmHeaderServer}" in app
+    assert "header: { ...(current.header || {}), server, age: 0 }" in app
+    tab = (_REPO / "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
+    landed = tab[tab.index("    def _jump_landed"):tab.index("    def _goto_coord")]
+    assert landed.index("self._jump_header_server =") < landed.index("self._jump_busy = 0")
+
+
 def test_the_chat_screen_says_how_old_it_is():
     """A conversation with no age on it reads as fresh (#2418)."""
     chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")

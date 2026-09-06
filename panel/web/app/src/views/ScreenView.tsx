@@ -842,6 +842,7 @@ export function ScreenPage({
   onPart,
   map,
   onMap,
+  onServer,
 }: {
   id: string
   onBack: () => void
@@ -852,6 +853,8 @@ export function ScreenPage({
   /** Which picture the map draws, when this screen has one (#2018, #2050). */
   map: 'model' | 'live'
   onMap: (map: 'model' | 'live') => void
+  /** Install a confirmed landing in the global strip before this render unlocks it. */
+  onServer: (server: number) => void
 }) {
   const [view, setView] = useState<View | null>(null)
   const [needle, setNeedle] = useState('')
@@ -876,12 +879,13 @@ export function ScreenPage({
       try {
         const answer = await get<View>('/api/screen?id=' + encodeURIComponent(id))
         held.current = keep ? window.scrollY : 0
+        if (answer.header_server) onServer(answer.header_server)
         setView(answer)
       } catch {
         /* the tick says so */
       }
     },
-    [id],
+    [id, onServer],
   )
 
   useEffect(() => {

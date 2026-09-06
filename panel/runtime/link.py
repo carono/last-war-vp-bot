@@ -1117,7 +1117,11 @@ class GameLink:
             # taken (`panel/runtime/header.py::mark_stale`): the panel itself walked the
             # client, so it knows — nobody had to ask.
             if answer.get("ok"):
-                _call(self.on_moved, None)
+                # The landing already carries the confirmed warzone. Hand that FACT to
+                # the header before the caller is told the jump is done; making the
+                # header ask the game again left the phone's button released beside the
+                # old number until an unrelated state tick (#2593).
+                _call(self.on_moved, answer.get("server"))
             _call(on_done, answer)
 
         threading.Thread(target=work, daemon=True).start()

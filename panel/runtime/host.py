@@ -283,7 +283,7 @@ class PanelRuntime:
         # the header its reading is out of date (#2593). An event, not a clock: the strip
         # says which warzone the client is looking at, and it used to keep saying the old
         # one until something else happened to re-read it.
-        self.game.on_moved = self.header.mark_stale
+        self.game.on_moved = self.header.confirm_server
         # The first header look often collides with the boot errands. Their RELEASE is
         # the event that retries it at the first real gap; waiting for another lucky
         # `/api/state` request left a green panel saying «game not read yet» (#2593).

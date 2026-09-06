@@ -418,6 +418,8 @@ export interface Screen {
 export interface ScreenView {
   title?: string
   now?: number
+  /** Warzone from the same confirmed jump that released this screen's button. */
+  header_server?: number
   cards?: ViewCard[]
   actions?: ViewAction[]
   /* A SCREEN THAT IS DRAWN RATHER THAN LISTED (#2018). The tab says what kind of

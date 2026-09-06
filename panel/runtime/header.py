@@ -232,6 +232,25 @@ class StatusHeader:
         return out
 
     # -- being told it moved ---------------------------------------------------
+    def confirm_server(self, server) -> None:
+        """Install the warzone a completed jump already confirmed.
+
+        This runs synchronously in the link's completion chain, before the jump button
+        is released. It is not a read and books no read: asking the game for a fact the
+        landing answer already contains creates exactly the stale-header gap this door
+        closes (#2593).
+        """
+        try:
+            server = int(server or 0)
+        except (TypeError, ValueError):
+            return
+        if server <= 0:
+            return
+        self._where["server"] = server
+        self._where_at = self._clock()
+        self._where_want = False
+        self._where_hold = 0.0
+
     def mark_stale(self, place: bool = True, who: bool = False) -> None:
         """Somebody knows the reading is out of date — take it again on the next look.
 

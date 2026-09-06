@@ -504,6 +504,7 @@ class SecretTasksTab(PanelTab):
         # same «ok». So the number is what the card's button is disabled by, and the note
         # is the sentence under it — already translated, because it is drawn as a value.
         self._jump_busy = 0
+        self._jump_header_server = 0
         self._jump_note = ""
         self._ticking = False
         # uuid (str) -> row record. The record carries the task data, its countdown
@@ -2441,16 +2442,21 @@ class SecretTasksTab(PanelTab):
         dictionary walk. A failure is a SENTENCE and never a silent unlock — «кнопка
         вернулась» is exactly the state the person could not tell from success.
         """
-        self._jump_busy = 0
         if answer.get("ok"):
+            # Copied from the SAME confirmed landing that updated StatusHeader, before
+            # `_jump_busy` falls. The next screen answer therefore carries the new
+            # header number in the very render that releases the phone button (#2593).
+            self._jump_header_server = int(answer.get("server") or where)
             self._jump_note = self.t("secrettasks.picker.jump.done", srv=where)
             self.say("coord", "log.picker.jumped", srv=where)
+            self._jump_busy = 0
             return
         why = str(answer.get("reason") or "")
         self._jump_note = self.t("secrettasks.picker.jump.failed", srv=where,
                                  why=self.t(why) if why else "—")
         self.say("coord", "log.picker.jump_failed", srv=where,
                  why=self.t(why) if why else "—")
+        self._jump_busy = 0
 
     def _goto_coord(self) -> None:
         """«Перейти»: the three boxes, validated, then the same jump as everything else."""
@@ -4958,6 +4964,8 @@ class SecretTasksTab(PanelTab):
                     getattr(self, page).web_flow() if page else None)
             if said:
                 card["flow"] = said
+        if self._jump_header_server:
+            screen["header_server"] = self._jump_header_server
         return screen
 
     def _order_fields(self, order: str) -> list:

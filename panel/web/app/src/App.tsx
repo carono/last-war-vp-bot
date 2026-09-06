@@ -273,6 +273,16 @@ function Panel() {
   const routeRef = useRef<Route>(route)
   routeRef.current = route
 
+  /* The screen that releases a confirmed server jump carries that same confirmation.
+   * React batches this write with its new button state, so no painted frame can contain
+   * an enabled button and the old server number (#2593). */
+  const confirmHeaderServer = useCallback((server: number) => {
+    setState((current) => current ? {
+      ...current,
+      header: { ...(current.header || {}), server, age: 0 },
+    } : current)
+  }, [])
+
   /* A line that says something went wrong reaches the person with the page in a pocket —
    * that is the whole point of a remote control. Nothing is pushed from the server: the
    * browser's own notification, raised by the poll that found the line. */
@@ -516,6 +526,7 @@ function Panel() {
               onPart={(n) => leave({ ...route, part: n })}
               map={route.map}
               onMap={(mode) => leave({ ...route, map: mode }, true)}
+              onServer={confirmHeaderServer}
               onBack={() => leave({ ...route, screen: null, part: 0, map: 'model' })}
             />
             {screen === DEVELOP_SCREEN ? (
