@@ -193,6 +193,32 @@ def test_a_busy_link_or_a_shut_gate_asks_nothing() -> None:
     assert rt.played == [], rt.played
 
 
+def test_the_first_free_link_event_fills_a_header_starved_by_boot_errands() -> None:
+    """Green can stay busy; release, not a lucky HTTP poll, wakes the first read (#2593)."""
+    rt, clock = _Runtime(), _Clock()
+    rt.game.busy = True
+    rt.answers[headermod.WHERE_ACTION] = _Outcome(player_place="world;;;;0;;902;;901")
+    head = _header(rt, clock)
+    assert head.state()["age"] == -1 and rt.played == []
+    rt.game.busy = False
+    head.on_settled()
+    state = head.state()
+    assert state["server"] == 902 and state["age"] == 0, state
+
+
+def test_a_lost_header_reservation_can_never_hold_the_reading_for_ever() -> None:
+    """A started play whose callback vanished is retried after the short ceiling (#2593)."""
+    rt, clock = _Runtime(), _Clock()
+    head = _header(rt, clock)
+    head.state()                         # accepted, but this harness returns no outcomes
+    assert head.state()["reading"] is True
+    rt.played.clear()
+    clock.now += headermod.READ_LOST_SEC + 0.1
+    head.on_settled()
+    assert [name for name, *_ in rt.played] == [headermod.WHERE_ACTION,
+                                                headermod.WHO_ACTION], rt.played
+
+
 def test_a_client_that_answered_nothing_keeps_the_last_place_and_ages_it() -> None:
     rt, clock = _Runtime(), _Clock()
     rt.answers[headermod.WHERE_ACTION] = _Outcome(player_place="world;;;;0;;935;;935")
@@ -279,6 +305,7 @@ def test_a_panel_made_jump_is_the_event_that_refreshes_the_header() -> None:
     """The server in the global header follows a confirmed move, never a timer (#2593)."""
     source = (_REPO / "panel" / "runtime" / "host.py").read_text(encoding="utf-8")
     assert "self.game.on_moved = self.header.mark_stale" in source
+    assert "self.game.on_settled = self.header.on_settled" in source
     link = (_REPO / "panel" / "runtime" / "link.py").read_text(encoding="utf-8")
     assert 'if answer.get("ok"):' in link and "_call(self.on_moved, None)" in link
 

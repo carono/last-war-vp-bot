@@ -39,10 +39,11 @@ with the person, the honest strip is one reading with its age on it, and
 :meth:`StatusHeader.mark_stale` is the door that signal will come through when there is
 one. Nothing in the panel may call it on a timer.
 
-DEMAND-DRIVEN, NOT A CLOCK. Nothing ticks here. :meth:`state` is what the route calls, so
-a panel nobody is looking at reads nothing at all, and a page that is opened is served
-what is in memory at once — a route that waited for the game would block it for a fifth
-of a second.
+DEMAND-DRIVEN, NOT A CLOCK. Nothing ticks here. :meth:`state` is what first raises the
+demand, and :meth:`on_settled` spends it when a busy boot errand releases the link. A
+panel nobody is looking at therefore reads nothing at all, while a page that looked once
+cannot be starved by a continuously busy green client. The route itself is still served
+from memory at once — waiting for the game there would block it for a fifth of a second.
 
 BOTH PLAYS GO IN AT :data:`~panel.runtime.claims.DETACHED`, below every ordinary errand,
 for the same reason the stock's does: a header is a page being looked at, and no line of
@@ -94,6 +95,12 @@ FIELD_SEP = ";;"
 #: — and it stops the moment there is something to show. A reading that exists is never
 #: re-taken by a clock (`CLAUDE.md`, «Читаем один раз, дальше слушаем»).
 RETRY_SEC = 15.0
+
+#: A header read is two short Lua questions (measured 167–219 ms). If its result never
+#: reaches us, the in-flight bit is not evidence for ever: after this ceiling the next
+#: free-link event may book it again. This is the same lost-reservation rule as the
+#: resource reading; it is recovery from a missing callback, not a refresh clock.
+READ_LOST_SEC = 30.0
 
 #: The scenes `read_player_place.md` can name. Anything else is drawn as unknown.
 SCENES = ("city", "world", "pve")
@@ -171,6 +178,8 @@ class StatusHeader:
         self._where_at = 0.0
         self._who_reading = False        # a play is in flight
         self._where_reading = False
+        self._who_reading_at = 0.0
+        self._where_reading_at = 0.0
         self._who_hold = 0.0             # a refusal backs off until then
         self._where_hold = 0.0
         # «THIS WANTS READING» — set at birth and by :meth:`mark_stale`, cleared by a
@@ -239,6 +248,15 @@ class StatusHeader:
             self._who_want = True
             self._who_hold = 0.0
 
+    def on_settled(self) -> None:
+        """A game run just released the link: spend the first free gap on the header.
+
+        This is the missing half of demand-driven reading. `/api/state` may look while
+        every boot errand has the link and be refused forever; release is the event that
+        proves it is free. No timer and no extra game poll is introduced.
+        """
+        self._maybe_read(self._clock())
+
     # -- what was known before this panel started ------------------------------
     def _seed(self) -> None:
         """The last card this account was read with, before the game is asked (#2075).
@@ -287,17 +305,27 @@ class StatusHeader:
         none may be added: the retry below is for a reading that never ARRIVED, not for
         one that got old.
         """
+        # A callback can be lost when a worker loses its lease or its UI hand-off during
+        # shutdown. Its boolean is a reservation, not a permanent fact: let it expire.
+        if (self._where_reading and self._where_reading_at
+                and now - self._where_reading_at >= READ_LOST_SEC):
+            self._where_reading = False
+        if (self._who_reading and self._who_reading_at
+                and now - self._who_reading_at >= READ_LOST_SEC):
+            self._who_reading = False
         want_where = self._where_want and not self._where_reading and now >= self._where_hold
         want_who = self._who_want and not self._who_reading and now >= self._who_hold
         if not (want_where or want_who) or not self._may_play():
             return
         if want_where:
             self._where_reading = True
+            self._where_reading_at = now
             if not self._play(WHERE_ACTION, self._from_where):
                 self._where_reading = False
                 self._where_hold = now + RETRY_SEC
         if want_who:
             self._who_reading = True
+            self._who_reading_at = now
             if not self._play(WHO_ACTION, self._from_who):
                 self._who_reading = False
                 self._who_hold = now + RETRY_SEC
@@ -348,6 +376,7 @@ class StatusHeader:
         and the one thing a strip of dashes could not say.
         """
         self._where_reading = False
+        self._where_reading_at = 0.0
         got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
         place = parse_place(got.get(WHERE_VARIABLE, ""))
         if not place:
@@ -362,6 +391,7 @@ class StatusHeader:
 
     def _from_who(self, outcome) -> None:
         self._who_reading = False
+        self._who_reading_at = 0.0
         got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
         who = parse_who(got.get(WHO_VARIABLE, ""))
         if not who:
