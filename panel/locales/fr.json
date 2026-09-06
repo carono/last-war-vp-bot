@@ -2812,6 +2812,7 @@
   "timers.item.attack_golden_zombies": "Zombies dorés : les frapper l'un après l'autre jusqu'à épuisement de l'énergie",
   "timers.item.attack_golden_zombies.short": "Zombies dorés",
   "timers.stat.golden": "de quoi faire {n} attaques · {today} aujourd'hui",
+  "timers.stat.arms": "coffres aujourd'hui : {n} · phases : {phases}",
   "timers.stat.trucks_send": "envois restants : {n} sur {all} · prêts : {ready}",
   "timers.stat.gifts_waiting": "cadeaux en attente : {n} · aujourd'hui : {today}",
   "timers.stat.recruit_waiting": "survivants en attente : {n} · aujourd'hui : {today}",

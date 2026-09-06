@@ -93,6 +93,7 @@ and the person's words were «карточку перезапуска игры �
 | `apply_ministry_interior` | whether a post is held, and how many applications took today | the same reading (`ministry_post`) + the panel's own record | yes |
 | `do_radar_tasks`, `do_radar_marches`, `radar_full_cycle` | room on the board and errands needing no march | the same reading (`radar_free`, `radar_helpable`) | yes |
 | `mail_gifts` | attachments still waiting in the Mail | the same reading | yes |
+| `perform_arms_race` | chests the day has paid, and the phases behind the «i» | the day's own book (`panel/runtime/arms_book.py`), written when a reading lands | yes, the newest entry's |
 | `resource_tracker` | the pile standing uncollected | the stock cache | yes |
 | `explorer_chests` | chests the keys buy, with the purse beside it | the same reading | yes |
 | anything else that is a TIMER | how many times it ran today | `timers_last_run.json`, the panel's own record | «today» — no clock |

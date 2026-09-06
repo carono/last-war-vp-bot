@@ -120,6 +120,24 @@ export interface ErrandStat {
   age?: number | null
 }
 
+/* ONE PHASE OF «Гонка вооружений», for the sheet behind the card's «i» (#2579).
+ *
+ * The person asked for it in these words: «при нажатии на i, выводим иконками каждый час
+ * события за сегодня и сколько там собрано сундуков в каждом часе». `label` is a locale
+ * KEY — a phase the server invents tomorrow says so in words rather than putting a bare
+ * number where a key belongs — `clock` is the window in the reader's own time, `chests`
+ * is how many of its three were taken and `null` where nobody read that phase while it
+ * was running (which is NOT the same as none), and `icon` is a link to the game's own
+ * picture, empty where this machine has none. */
+export interface ArmsPhase {
+  stage?: number
+  label: string
+  clock?: string
+  chests?: number | null
+  all?: number
+  icon?: string
+}
+
 export interface TimerRow {
   name: string
   title: string
@@ -156,6 +174,10 @@ export interface TimerRow {
   /** Where the card crops that cover — a CSS vertical position, e.g. `"45%"` (#2340). */
   focus?: string
   stat?: ErrandStat | null
+  /* THE DAY, PHASE BY PHASE (#2579) — sent for «Гонка вооружений» alone, and only once
+     the day's book has something in it. Every other errand sends nothing and the sheet
+     grows no section. */
+  phases?: ArmsPhase[]
 }
 
 export interface TriggerRow {

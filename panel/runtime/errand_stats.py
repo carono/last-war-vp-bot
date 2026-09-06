@@ -501,6 +501,26 @@ def _radar(rt) -> "dict | None":
                     "help": _int(values.get("radar_helpable"))}, "age": age}
 
 
+def _arms_chests(rt) -> "dict | None":
+    """«Сундуков сегодня: 9 · фаз: 3» — what «Гонка вооружений» has paid today.
+
+    Off the day's own book (`panel/runtime/arms_book.py`), which is the panel writing
+    down what the GAME said while each phase was running: the client keeps no history of
+    a phase that has ended, so this is the only free answer there is — and it is free,
+    because every entry in it was an answer that had already arrived.
+
+    A book with nothing in it draws no line rather than a zero: «0 сундуков» over a day
+    nobody has read is «мы не смотрели», and the two must not look the same.
+    """
+    from . import arms_book
+
+    chests, seen, age = arms_book.total(rt)
+    if not seen:
+        return None
+    return {"key": "timers.stat.arms",
+            "fmt": {"n": chests, "phases": seen}, "age": age}
+
+
 #: Errand name -> what to draw under its block. An errand that is not here draws
 #: nothing, and that is a deliberate answer rather than a gap to be filled in with a
 #: poll: see the module docstring, and the survey in `docs/research/errand-stats.md`.
@@ -550,6 +570,9 @@ PROVIDERS: dict = {
     "radar_full_cycle": _radar,
     "ghost_recon_alliance": _ghost_steals,
     "mail_gifts": _from_daily("timers.stat.mail", "mail_gifts"),
+    # …and the arms race, whose day the panel books itself because the game forgets a
+    # phase the moment it ends (#2579).
+    "perform_arms_race": _arms_chests,
     # …the listener that watches the same pile the errand collects, and the one that
     # watches the same chests.
     "resource_tracker": _pending_resources,

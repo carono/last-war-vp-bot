@@ -2812,6 +2812,7 @@
   "timers.item.attack_golden_zombies": "Zombi dorati: colpirli uno dopo l'altro finché c'è energia",
   "timers.item.attack_golden_zombies.short": "Zombi dorati",
   "timers.stat.golden": "basta per {n} attacchi · oggi {today}",
+  "timers.stat.arms": "forzieri oggi: {n} · fasi: {phases}",
   "timers.stat.trucks_send": "invii rimasti: {n} su {all} · pronti: {ready}",
   "timers.stat.gifts_waiting": "regali in attesa: {n} · oggi: {today}",
   "timers.stat.recruit_waiting": "sopravvissuti in attesa: {n} · oggi: {today}",

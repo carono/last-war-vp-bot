@@ -2812,6 +2812,7 @@
   "timers.item.attack_golden_zombies": "Altın zombiler: enerji bitene kadar birbiri ardına vur",
   "timers.item.attack_golden_zombies.short": "Altın zombiler",
   "timers.stat.golden": "{n} saldırıya yeter · bugün {today}",
+  "timers.stat.arms": "bugünkü sandık: {n} · aşama: {phases}",
   "timers.stat.trucks_send": "kalan sevkiyat: {n} / {all} · hazır: {ready}",
   "timers.stat.gifts_waiting": "bekleyen hediye: {n} · bugün: {today}",
   "timers.stat.recruit_waiting": "bekleyen hayatta kalan: {n} · bugün: {today}",

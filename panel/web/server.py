@@ -418,6 +418,9 @@ def _make_handler(server: WebServer):
             if path == "/api/errandicon":
                 self._errandicon(query)
                 return
+            if path == "/api/armsicon":
+                self._armsicon(query)
+                return
             if path == "/api/monstericon":
                 self._monstericon(query)
                 return
@@ -619,6 +622,21 @@ def _make_handler(server: WebServer):
                 import hero_icons_map
 
                 return hero_icons_map.file_named(_one(query.get("icon")))
+
+            self._picture(query, resolve)
+
+        def _armsicon(self, query: dict) -> None:
+            """Serve one phase's picture of «Гонка вооружений», out of `results/arms_icons`.
+
+            The sixth of the same shape and for the same reasons (#2579): the pictures are
+            the game's own art extracted onto THIS machine, they are identical for every
+            profile, and the name is checked by `arms_icons.file_named` rather than
+            trusted. A machine that has not run the extractor answers 404 for every one of
+            them and the sheet draws its rows with no picture.
+            """
+            def resolve():
+                import arms_icons
+                return arms_icons.file_named(_one(query.get("icon")))
 
             self._picture(query, resolve)
 

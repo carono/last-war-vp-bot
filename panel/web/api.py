@@ -808,6 +808,13 @@ class WebApi:
                 # bought with a question to the game; an errand nobody can answer for
                 # free simply has no line (`panel/runtime/errand_stats.py`).
                 "stat": statsmod.of(rt, timer.name),
+                # …AND THE DAY BROKEN UP BY PHASE, for the ONE row that has such a thing
+                # (#2579). The person asked for it behind the «i»: «выводим иконками
+                # каждый час события за сегодня и сколько там собрано сундуков в каждом
+                # часе». Empty for every other errand, and empty here too until the day's
+                # book has something in it — so the sheet grows a section rather than
+                # showing an empty table.
+                **self._arms_phases(rt, timer.name),
                 # …and the picture drawn for its card (#2019, #2340), as a NAME the
                 # phone fetches once off `/api/errandicon` — a picture inside the view
                 # would be tens of kilobytes on every poll of the page.
@@ -825,6 +832,50 @@ class WebApi:
         return {"timers": rows, "profile": self._name_of(rt),
                 "running": bool(getattr(schedule.timers, "running", False)),
                 "time": time.time()}
+
+    @staticmethod
+    def _arms_phases(rt, name: str) -> dict:
+        """`{"phases": [...]}` for «Гонка вооружений», `{}` for everything else (#2579).
+
+        Each row is one of the day's six windows: its kind as a locale KEY (a phase the
+        server invents tomorrow says so in words rather than putting a bare number where
+        a key belongs), its hours, how many of its three chests were taken, and the LINK
+        to the game's own picture for it — empty where this machine has no such picture,
+        and then the phone draws the row without one rather than borrowing another
+        phase's.
+
+        Nothing here asks the game: the book is what the panel already wrote down when a
+        reading landed (`panel/runtime/arms_book.py`) and the calendar is what the
+        «События» tab already holds.
+        """
+        if name != "perform_arms_race":
+            return {}
+        try:
+            from ..runtime import arms_book, arms_art
+            from ..tabs.events import model as eventsmod
+
+            calendar = ()
+            tab = rt.tabs.get("events") if rt.tabs is not None else None
+            if tab is not None:
+                calendar = tab.arms().phases
+            rows = arms_book.phases(rt, calendar)
+        except Exception:                # noqa: BLE001 — a sheet, never the page
+            return {}
+        if not rows:
+            return {}
+        out = []
+        for row in rows:
+            kind = row.get("kind")
+            out.append({"stage": row.get("stage"),
+                        "label": (eventsmod.ARMS_KINDS.get(kind)
+                                  or "events.arms.kind.other"),
+                        "clock": (eventsmod.arms_phase_clock(row.get("start"),
+                                                             row.get("end"))
+                                  if row.get("end") else ""),
+                        "chests": row.get("chests"),
+                        "all": row.get("all"),
+                        "icon": arms_art.name_for(kind)})
+        return {"phases": out}
 
     def _timer_title(self, rt, timer) -> str:
         """What the row is CALLED — short, because it is a card's head (#2061)."""

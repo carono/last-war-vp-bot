@@ -1,20 +1,20 @@
-"""Extract the sprites the timers page draws beside each errand (#2019).
+"""Extract the phase pictures «Гонка вооружений» draws behind its «i» (#2579).
 
-The third extractor of the same shape as ``extract_hero_icons.py`` and
-``extract_chat_assets.py``, and for the same reason: the pictures are the GAME's own
+The sixth extractor of the same shape as ``extract_monster_icons.py`` and
+``extract_errand_icons.py``, and for the same reason: the pictures are the GAME's own
 art, they are pulled out of the client's cached bundles on the machine that owns the
 game, and they land in ``results/`` — which is git-ignored, so nobody's install ships
 anywhere.
 
-WHAT IT TAKES. Exactly the stems named in ``tools/data/errand_icons.json`` (the map the
-panel reads: errand -> sprite stem), plus anything given with ``--extra`` — which is how
-the map was chosen in the first place: pull a shortlist, look at it, keep what depicts
-the thing.
+WHAT IT TAKES. Exactly the stems named in ``tools/data/arms_icons.json`` (the map the
+panel reads: the phase's own kind id -> sprite stem), plus anything given with
+``--extra`` — which is how the map was chosen in the first place: pull the event's whole
+art folder, look at it, keep only the pictures that unmistakably depict the phase.
 
 Run with the Windows Python that can see both the install and the bundle cache::
 
-    /mnt/c/Python312/python.exe tools/extract_errand_icons.py
-    /mnt/c/Python312/python.exe tools/extract_errand_icons.py --extra cfm_zhujiemian_qizi
+    /mnt/c/Python312/python.exe tools/extract_arms_icons.py
+    /mnt/c/Python312/python.exe tools/extract_arms_icons.py --extra cfm_zhujiemian_qizi
 
 Nothing here knows where the game is: ``tools/lib/game_paths.py`` answers that, so a
 machine that keeps its bundles on another drive needs no edit here (`CLAUDE.md`).
@@ -75,7 +75,7 @@ PREFIXES = {
     "armstex": "Assets/Main/TextureEx/UIPersonalArms",
 }
 
-MAP_PATH = os.path.join(_HERE, "data", "errand_icons.json")
+MAP_PATH = os.path.join(_HERE, "data", "arms_icons.json")
 
 #: The longest side a saved picture may have. The errands' own sprites are 40–120 px; a
 #: building's rendered art is nearly a thousand, and the card that draws it is 150 px
@@ -103,7 +103,7 @@ def main(argv=None) -> int:
     ap.add_argument("--gameres", type=Path, default=Path(game_paths.gameres()))
     ap.add_argument("--cache", type=Path, default=Path(game_paths.asset_cache()))
     ap.add_argument("--out", type=Path,
-                    default=Path(_HERE).parent / "results" / "errand_icons")
+                    default=Path(_HERE).parent / "results" / "arms_icons")
     ap.add_argument("--extra", default="",
                     help="comma-separated sprite stems to pull as well (exploration)")
     args = ap.parse_args(argv)

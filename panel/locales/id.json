@@ -2812,6 +2812,7 @@
   "timers.item.attack_golden_zombies": "Zombi emas: hantam satu per satu sampai energi habis",
   "timers.item.attack_golden_zombies.short": "Zombi emas",
   "timers.stat.golden": "cukup untuk {n} serangan · hari ini {today}",
+  "timers.stat.arms": "peti hari ini: {n} · fase: {phases}",
   "timers.stat.trucks_send": "pengiriman tersisa: {n} dari {all} · siap: {ready}",
   "timers.stat.gifts_waiting": "hadiah menunggu: {n} · hari ini: {today}",
   "timers.stat.recruit_waiting": "penyintas menunggu: {n} · hari ini: {today}",

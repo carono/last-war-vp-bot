@@ -2812,6 +2812,7 @@
   "timers.item.attack_golden_zombies": "Złote zombie: bić jedno po drugim, aż skończy się energia",
   "timers.item.attack_golden_zombies.short": "Złote zombie",
   "timers.stat.golden": "starczy na {n} ataków · dziś {today}",
+  "timers.stat.arms": "skrzynie dziś: {n} · fazy: {phases}",
   "timers.stat.trucks_send": "pozostałe wysyłki: {n} z {all} · gotowe: {ready}",
   "timers.stat.gifts_waiting": "prezenty czekają: {n} · dziś: {today}",
   "timers.stat.recruit_waiting": "ocalali czekają: {n} · dziś: {today}",

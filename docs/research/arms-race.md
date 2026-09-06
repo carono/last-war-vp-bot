@@ -127,6 +127,28 @@ nothing, and a drone phase that therefore scores nothing is the right outcome ra
 than a bug. An event that quietly overspent the day's rallies is exactly what the caps
 exist to stop.
 
+## The game keeps NO history of a phase, and that is why the panel books one (#2579)
+
+Asked of the live client, so it is measured rather than assumed. `dataDict` carries:
+
+* `score_rewards[1..3]` — the CURRENT phase's three boxes, each with the server's own
+  `receive` flag;
+* `day_rewards[1..3]` — the day's own ladder, the same way;
+* `claimStatus`, keyed `<day>_<stage>` — and its value is a **flag**, not a count. Read
+  live mid-afternoon on day 7 it was `{7_0: 1, 7_1: 1, 7_2: 1, 7_3: 1, 7_4: 0, 7_5: 0}`:
+  one per phase already finished, zero for the two still to come.
+
+Nothing else per phase exists. `M.rewards` and `M.scoreGroupDict` are empty on a
+panel-driven client, the calendar rows carry only the kind and the two borders, and a
+phase that has ended is simply gone. **So «сколько сундуков собрано в каждом часе»
+cannot be asked — it can only have been WRITTEN DOWN while each phase was the current
+one**, which is `panel/runtime/arms_book.py`: every arms reading that lands (the
+four-hourly errand's and the person's own «Обновить») is one entry, and no question is
+asked to fill it. A phase nobody read while it ran is a dash on the card, never a zero.
+
+The day is the SERVER's, keyed by `game_day.day_key` exactly as the rally counts are, so
+a book from yesterday answers «nothing today».
+
 ## The drone phase is worked to its END, and the wake-up is the march's own clock (#2574)
 
 Measured on the live account, seven consecutive drone phases: **seven runs, one per

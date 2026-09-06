@@ -1,0 +1,21 @@
+{
+  "_comment": [
+    "Which of the GAME's own sprites stands for which phase of «Гонка вооружений» (#2579).",
+    "The key is the phase's own kind id as the server states it (`event_id`); the value is",
+    "the client's file name, extracted by tools/extract_arms_icons.py into",
+    "results/arms_icons/ (git-ignored — the art never leaves the machine that owns the",
+    "game). A phase that is not named here draws no picture at all, which is the honest",
+    "answer: a wrong icon is worse than none.",
+    "THE DRONE PHASE (120004) IS DELIBERATELY ABSENT. The event's own art folder holds six",
+    "pictures and four of them are unmistakable — the hero portrait, the base building, the",
+    "soldier and the research globe. The remaining two (a mech, a garage) could be the",
+    "drone's or could be a season's own phase, and a picture that is probably right is the",
+    "one thing this map may not hold."
+  ],
+  "icons": {
+    "120000": "lrb_gerenjunbei_yingxiongshengji",
+    "120001": "lrb_gerenjunbei_jianzhu",
+    "120002": "lrb_gerenjunbei_shibing",
+    "120003": "lrb_gerenjunbei_keji"
+  }
+}

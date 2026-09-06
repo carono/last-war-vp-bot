@@ -2812,6 +2812,7 @@
   "timers.item.attack_golden_zombies": "Золотые зомби: бить одного за другим, пока не кончится энергия",
   "timers.item.attack_golden_zombies.short": "Золотые зомби",
   "timers.stat.golden": "хватит на {n} атак · сегодня {today}",
+  "timers.stat.arms": "сундуков сегодня: {n} · фаз: {phases}",
   "timers.stat.trucks_send": "отправок осталось: {n} из {all} · готовы: {ready}",
   "timers.stat.gifts_waiting": "подарков ждёт: {n} · сегодня: {today}",
   "timers.stat.recruit_waiting": "выживших ждёт: {n} · сегодня: {today}",

@@ -2812,6 +2812,7 @@
   "timers.item.attack_golden_zombies": "Zumbis dourados: atacar um após o outro até acabar a energia",
   "timers.item.attack_golden_zombies.short": "Zumbis dourados",
   "timers.stat.golden": "dá para {n} ataques · hoje {today}",
+  "timers.stat.arms": "baús hoje: {n} · fases: {phases}",
   "timers.stat.trucks_send": "envios restantes: {n} de {all} · prontos: {ready}",
   "timers.stat.gifts_waiting": "presentes à espera: {n} · hoje: {today}",
   "timers.stat.recruit_waiting": "sobreviventes à espera: {n} · hoje: {today}",

@@ -2812,6 +2812,7 @@
   "timers.item.attack_golden_zombies": "Goldene Zombies: einen nach dem anderen jagen, bis die Energie aufgebraucht ist",
   "timers.item.attack_golden_zombies.short": "Goldene Zombies",
   "timers.stat.golden": "reicht für {n} Angriffe · heute {today}",
+  "timers.stat.arms": "Truhen heute: {n} · Phasen: {phases}",
   "timers.stat.trucks_send": "verbleibende Fahrten: {n} von {all} · bereit: {ready}",
   "timers.stat.gifts_waiting": "wartende Geschenke: {n} · heute: {today}",
   "timers.stat.recruit_waiting": "wartende Überlebende: {n} · heute: {today}",

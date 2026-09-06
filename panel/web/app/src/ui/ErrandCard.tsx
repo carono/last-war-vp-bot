@@ -1,7 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { span, t } from '../i18n'
 import { Modal } from './Modal'
-import type { ErrandStat } from '../types'
+import type { ArmsPhase, ErrandStat } from '../types'
 
 /* THE CARD EVERY SELF-RUNNING THING IS DRAWN AS — and since #2119 every LIST is too.
  *
@@ -35,9 +35,14 @@ import type { ErrandStat } from '../types'
  * the person asked for. It is not deleted — a schedule readable nowhere else would be a
  * fact lost — it moves under the «i», which is why the mark is drawn now even for an
  * errand that has no sentence of its own. */
-export function useAbout(title: string, about?: string, extra?: ReactNode) {
+/* …and since #2579 it may also hold a TABLE — the day of «Гонка вооружений», phase by
+ * phase with the game's own picture beside each. It is handed in separately from
+ * `extra`, which is a line of prose and is wrapped in a `<p>`: a list inside a paragraph
+ * is not markup a browser is obliged to keep in one piece. */
+export function useAbout(title: string, about?: string, extra?: ReactNode,
+                         foot?: ReactNode) {
   const [open, setOpen] = useState(false)
-  if (!about && !extra) return { button: null, panel: null }
+  if (!about && !extra && !foot) return { button: null, panel: null }
   return {
     button: (
       <button
@@ -53,6 +58,7 @@ export function useAbout(title: string, about?: string, extra?: ReactNode) {
       <Modal title={title} onClose={() => setOpen(false)}>
         {extra ? <p className="muted small">{extra}</p> : null}
         {about ? <p>{about}</p> : null}
+        {foot}
       </Modal>
     ) : null,
   }
@@ -165,6 +171,41 @@ export function Stat({ stat }: { stat?: ErrandStat | null }) {
  * They are never both wanted anyway: a reading answers «стоит ли запускать», and while
  * the errand is already on its way that question has been answered. One line, one
  * height, whatever the card is doing. */
+/* THE DAY OF «Гонка вооружений», PHASE BY PHASE (#2579).
+ *
+ * The person's words: «при нажатии на i, выводим иконками каждый час события за сегодня
+ * и сколько там собрано сундуков в каждом часе». One row per window of the day: the
+ * game's own picture for the phase, what it is called, when it ran, and how many of its
+ * three chests were taken.
+ *
+ * A DASH IS NOT A ZERO. A phase nobody read while it was running has `chests: null` —
+ * the client keeps no history of a phase that ended, so «мы не смотрели» is the truth
+ * and «0 собрано» would be a lie about a phase that may well have paid all three.
+ *
+ * A PHASE WITH NO PICTURE DRAWS NONE. The panel sends an empty `icon` where this machine
+ * has no sprite for that kind, and the row is then words alone — never another phase's
+ * picture standing in for it. */
+function Phases({ rows }: { rows: ArmsPhase[] }) {
+  return (
+    <div className="phases">
+      {rows.map((row, i) => (
+        <div className="phase" key={row.stage ?? i}>
+          {row.icon ? <img src={row.icon} alt="" loading="lazy" /> : <i className="blank" />}
+          <span className="name">{t(row.label)}</span>
+          {row.clock ? <span className="muted small">{row.clock}</span> : null}
+          <b>
+            {row.chests === null || row.chests === undefined
+              ? '—'
+              : row.all
+                ? row.chests + ' / ' + row.all
+                : String(row.chests)}
+          </b>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function Reading({ stat, queued }: { stat?: ErrandStat | null; queued?: boolean }) {
   if (queued) {
     return (
@@ -201,6 +242,7 @@ export function ErrandCard({
   pill,
   state,
   stat,
+  phases,
   switchNode,
   acts,
   sheets,
@@ -231,6 +273,10 @@ export function ErrandCard({
   /** What this row is DOING, already in the panel's words — data, never a key (#2068). */
   state?: string
   stat?: ErrandStat | null
+  /** THE DAY BROKEN UP BY PHASE (#2579), drawn in the sheet behind the «i». Sent for
+   *  «Гонка вооружений» alone; every other card leaves it out and the sheet is what it
+   *  always was. */
+  phases?: ArmsPhase[]
   /** The one switch this card is about, drawn in the top-right corner. */
   switchNode?: ReactNode
   /** The row of signs at the bottom: «⚙», «▶», a press of the list's own. */
@@ -242,7 +288,8 @@ export function ErrandCard({
    *  register of players — leaves it alone and keeps them. */
   factsInSheet?: boolean
 }) {
-  const info = useAbout(title, about, factsInSheet ? facts : undefined)
+  const info = useAbout(title, about, factsInSheet ? facts : undefined,
+                        phases && phases.length ? <Phases rows={phases} /> : undefined)
   /* THE «i» LEADS THE NAME ON A COVER CARD (#2340) — the person's words: «кнопку i
      ставим перед названием и переделываем в иконку». On a card whose picture is a
      sprite it stays where it has been since #2061, first in the row of signs: the two

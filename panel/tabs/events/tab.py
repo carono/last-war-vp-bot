@@ -440,6 +440,28 @@ class EventsTab(PanelTab):
         except Exception as exc:            # noqa: BLE001 — a tally, never the run
             self.rt.dbg("events").warning("arms rallies not counted: %s", exc)
 
+    def _arms_book(self) -> None:
+        """Keep this reading's phase in the day's chest book (#2579). Never raises.
+
+        The book is the panel's own record of what the GAME said, not a count of
+        presses: `taken` is the server's `receive` flag on each of the phase's three
+        boxes, and the day's ladder beside it. A reading that could not be parsed writes
+        nothing at all — an unreadable client must not be able to zero the day.
+        """
+        try:
+            from ...runtime import arms_book
+            state = self.arms()
+            if state.stage is None:
+                return
+            arms_book.record(self.rt, state.stage, state.kind,
+                             sum(1 for v in state.taken if v),
+                             ladder=sum(1 for v in state.day_taken if v))
+        except Exception as exc:            # noqa: BLE001 — a tally, never the run
+            try:
+                self.rt.dbg("events").warning("arms chests not booked: %s", exc)
+            except Exception:               # noqa: BLE001
+                pass
+
     def arms_window_rallies(self) -> str:
         """«Стягов за окно» — the banners the CURRENT drone phase has raised.
 
@@ -1028,6 +1050,12 @@ class EventsTab(PanelTab):
         calendar = modelmod.arms_calendar(values.get(modelmod.ARMS_DAY_VARIABLE))
         if calendar:
             self._arms_cal = calendar
+        # …AND WHAT THIS PHASE HAS PAID, WRITTEN INTO THE DAY'S BOOK (#2579). The game
+        # keeps no history of it — a phase that ended an hour ago is gone from the
+        # client — so the card on «Таймеры» can only say «сколько сундуков за день» if
+        # the panel writes down what the game said while each phase was the current one.
+        # This is that, and it costs nothing: the answer has already arrived.
+        self._arms_book()
 
     def _arms_done(self) -> None:
         self._arms_busy = False

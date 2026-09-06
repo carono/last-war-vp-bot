@@ -2812,6 +2812,7 @@
   "timers.item.attack_golden_zombies": "Golden zombies: hunt them one after another until the energy runs out",
   "timers.item.attack_golden_zombies.short": "Golden zombies",
   "timers.stat.golden": "{n} attacks left · {today} today",
+  "timers.stat.arms": "chests today: {n} · phases: {phases}",
   "timers.stat.trucks_send": "dispatches left: {n} of {all} · ready: {ready}",
   "timers.stat.gifts_waiting": "gift bearers waiting: {n} · today: {today}",
   "timers.stat.recruit_waiting": "survivors waiting: {n} · today: {today}",
