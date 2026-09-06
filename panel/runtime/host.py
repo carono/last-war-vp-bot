@@ -279,6 +279,11 @@ class PanelRuntime:
             # …and whose link this is, so every claim it takes is filed under the
             # profile and a refusal names the profile holding the client (#1226).
             name=lambda: self.profiles.active)
+        # A JUMP IS THE ONE MOVE THE PANEL ITSELF MAKES, so it is the one that can TELL
+        # the header its reading is out of date (#2593). An event, not a clock: the strip
+        # says which warzone the client is looking at, and it used to keep saying the old
+        # one until something else happened to re-read it.
+        self.game.on_moved = self.header.mark_stale
         self.actions = ActionRunner(log=self.log, target=self.game_target,
                                     activity=self.activity,
                                     interrupts=self.interrupts,

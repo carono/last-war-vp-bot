@@ -262,6 +262,12 @@ export interface ViewAction {
      arrives a second late every time (#1976). */
   confirm?: string
   confirm_fmt?: Record<string, unknown>
+  /* A PRESS THAT IS ALREADY RUNNING, said by the tab rather than by this button (#2593).
+     The button's own `busy` lasts only as long as the request; a jump to another warzone
+     takes seconds after that, and the person pressed it again because nothing on the
+     page said so. The tab holds the state and sends it here, so every copy of the button
+     on the card goes dead — not only the one that was tapped. */
+  disabled?: boolean
 }
 
 export interface ViewItem {

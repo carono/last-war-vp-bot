@@ -497,6 +497,14 @@ class SecretTasksTab(PanelTab):
         # «none left», and the cards say which.
         self._budgets: dict = {}
         self._budgets_busy = False
+        # WHICH WARZONE A JUMP IS IN FLIGHT TO, and what the last one came to (#2593).
+        # The person's report was «жму перейти, на странице ничего не происходит… иногда
+        # приходится кликать по несколько раз»: the press answered «ok» the instant a
+        # worker was started, and a press REFUSED because the link was busy answered the
+        # same «ok». So the number is what the card's button is disabled by, and the note
+        # is the sentence under it — already translated, because it is drawn as a value.
+        self._jump_busy = 0
+        self._jump_note = ""
         self._ticking = False
         # uuid (str) -> row record. The record carries the task data, its countdown
         # StringVar and the row's frame, so a tick can update the timer in place and a
@@ -2287,7 +2295,7 @@ class SecretTasksTab(PanelTab):
         except tk.TclError:
             pass
 
-    def _jump(self, x: int, y: int, server) -> None:
+    def _jump(self, x: int, y: int, server, on_done=None) -> None:
         """The one way this tab walks the camera anywhere. Remembers where it went.
 
         ``server`` may be None — the runtime then jumps on whatever server the client is
@@ -2300,7 +2308,9 @@ class SecretTasksTab(PanelTab):
         coordinate clicked in the log, and the box that caused it looked like a display
         preference. The box is about the LAP now, and only the lap.
         """
-        if not self.rt.game.jump(x, y, server):
+        if not self.rt.game.jump(x, y, server, on_done=on_done):
+            # …and `on_done` has already been told WHY by the link itself, so nothing is
+            # said twice and nothing is left waiting on a press that never started.
             return
         self._remember_jump(x, y, server)
         # …AND THE BOX FOLLOWS THE CAMERA (#1280). It is what «Обойти карту» walks now,
@@ -2398,7 +2408,7 @@ class SecretTasksTab(PanelTab):
             self._prime_own_server()
         return own
 
-    def jump_to_server(self, server) -> None:
+    def jump_to_server(self, server, on_done=None) -> None:
         """Go to that warzone — the click a cell of the grid (or of the phone) makes.
 
         The coordinates are the ones the tab's own boxes are holding, so «the same tile
@@ -2418,7 +2428,26 @@ class SecretTasksTab(PanelTab):
         if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
             x, y = str(MAP_MIDDLE), str(MAP_MIDDLE)
         self.say("coord", "log.picker.jump", srv=where)
-        self._jump(int(x), int(y), where)
+        self._jump(int(x), int(y), where, on_done=on_done)
+
+    def _jump_landed(self, where: int, answer: dict) -> None:
+        """The link finished walking the camera — release the button and say what happened.
+
+        Called from the link's own worker (`GameLink.jump`), so nothing here touches Tk:
+        the two attributes are read by `web_view`, which runs on the web thread and is a
+        dictionary walk. A failure is a SENTENCE and never a silent unlock — «кнопка
+        вернулась» is exactly the state the person could not tell from success.
+        """
+        self._jump_busy = 0
+        if answer.get("ok"):
+            self._jump_note = self.t("secrettasks.picker.jump.done", srv=where)
+            self.say("coord", "log.picker.jumped", srv=where)
+            return
+        why = str(answer.get("reason") or "")
+        self._jump_note = self.t("secrettasks.picker.jump.failed", srv=where,
+                                 why=self.t(why) if why else "—")
+        self.say("coord", "log.picker.jump_failed", srv=where,
+                 why=self.t(why) if why else "—")
 
     def _goto_coord(self) -> None:
         """«Перейти»: the three boxes, validated, then the same jump as everything else."""
@@ -5077,11 +5106,19 @@ class SecretTasksTab(PanelTab):
         phone that showed the cells without the rule would be showing a different screen
         from the window's, which is the one thing neither front-end is allowed to do.
         """
+        # WHAT THE LAST PRESS CAME TO, in words, above the warzones (#2593). A toast is
+        # gone in three seconds and a jump takes longer than that, so the answer has to
+        # live on the card: «переходим на N…», then either the arrival or the reason it
+        # did not happen. Never silence, which is what the person actually reported.
+        going = getattr(self, "_jump_busy", 0)
+        state = (self.t("secrettasks.picker.jump.going", srv=going)
+                 if going else getattr(self, "_jump_note", ""))
+        rows = [{"label": "secrettasks.picker.jump.label", "value": state}] if state else []
         view = self.picker_view()
-        rows = view["rows"]
+        cells = view["rows"]
         tally = {"day": 0, "post": 0, "plain": 0, "unknown": 0}
         items = []
-        for row in rows:
+        for row in cells:
             tally[row["state"]] = tally.get(row["state"], 0) + 1
             items.append({"text": str(row["server"]),
                           "facts": [{"label": "servers.secret.source",
@@ -5089,11 +5126,20 @@ class SecretTasksTab(PanelTab):
                                     {"label": "servers.col.secret_until",
                                      "value": row["until"]}],
                           "pill": row["state_key"],
+                          # THE BUTTON IS THE STATE OF THE JUMP (#2593). While one is in
+                          # flight every «Перейти» on the card is dead and the one being
+                          # walked to says «Переходим…», so a second press cannot be made
+                          # at all — the five-a-day robberies are not what this spends,
+                          # but a camera sent twice is two cross-server loads and the
+                          # second one wins.
                           "actions": [{"id": "jump_server",
-                                       "label": "secrettasks.picker.go",
+                                       "label": ("secrettasks.picker.going"
+                                                 if going == row["server"]
+                                                 else "secrettasks.picker.go"),
+                                       "disabled": bool(going),
                                        "args": {"server": row["server"]}}]})
         return {"title": "secrettasks.picker.title",
-                "rows": [{"label": "secrettasks.picker.slice.label",
+                "rows": rows + [{"label": "secrettasks.picker.slice.label",
                           "value": view["slice"]},
                          {"label": "servers.secret.state.day", "value": str(tally["day"])},
                          {"label": "servers.secret.state.post",
@@ -5195,15 +5241,25 @@ class SecretTasksTab(PanelTab):
             return {"ok": True}
         if action == "jump_server":
             # A cell of the star-day grid (#1467) — the same press the window's magnifier
-            # makes, through the same `jump_to_server`.
+            # makes, through the same `jump_to_server`. What is NEW is that it answers for
+            # the whole jump rather than for having started one (#2593): the number below
+            # disables every «Перейти» on the card until the link says where the camera
+            # ended up, and a press arriving while one is in flight is refused in words
+            # instead of quietly walking the camera a second time.
             try:
                 where = int(args.get("server") or args.get("text") or 0)
             except (TypeError, ValueError):
                 return {"ok": False, "reason": "secrettasks.picker.bad_server"}
             if where <= 0:
                 return {"ok": False, "reason": "secrettasks.picker.bad_server"}
-            self.post(lambda: self.jump_to_server(where))
-            return {"ok": True}
+            if self._jump_busy:
+                return {"ok": False, "reason": "secrettasks.picker.jumping",
+                        "fmt": {"srv": self._jump_busy}}
+            self._jump_busy = where
+            self._jump_note = ""
+            self.post(lambda: self.jump_to_server(
+                where, on_done=lambda answer, srv=where: self._jump_landed(srv, answer)))
+            return {"ok": True, "pending": True}
         if action == "show_spent":
             self.post(self._toggle_show_spent)
             return {"ok": True}

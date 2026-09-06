@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { get, post } from '../api'
 import { t, when } from '../i18n'
 import { pressWord } from '../ui/press'
@@ -34,11 +34,18 @@ function PressButton({
 }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  /* A pending press outlives its HTTP request. The next screen answer changes
+     `disabled` to true, and the answer after the confirmed landing changes it back;
+     only that second edge releases the local lock that closed the request-to-poll gap. */
+  useEffect(() => {
+    if (action.disabled === false) setBusy(false)
+  }, [action.disabled])
   return (
     <button
       className="go"
-      disabled={busy}
+      disabled={busy || !!action.disabled}
       onClick={async () => {
+        let pending = false
         let args = action.args || {}
         /* A press that DELETES asks first, in the panel's own sentence — the same one
          * the window's message box asks in (#1976). Only where the tab said so: an
@@ -63,10 +70,12 @@ function PressButton({
             args,
           })
           toast(pressWord(answer))
+          pending = !!answer.pending
           // The tab reads on its own thread, so the result is a moment behind the press.
-          window.setTimeout(after, 900)
+          if (pending) after()
+          else window.setTimeout(after, 900)
         } finally {
-          setBusy(false)
+          if (!pending) setBusy(false)
         }
       }}
     >
@@ -854,13 +863,20 @@ export function ScreenPage({
    * half of «очень редко обновляются». The panel side is a dictionary walk over what
    * the tab already holds (`web_view` reads nothing), so a re-read costs one small
    * request. */
+  /* WHERE THE PAGE IS SCROLLED TO, READ WHEN THE ANSWER LANDS — NOT WHEN IT WAS ASKED
+   * FOR (#2593). This used to take the position BEFORE the fetch and put it back after
+   * the re-render, which on a poll every 2.5 s meant every scroll made during those
+   * ~100 ms was undone: the person's report was «меня постоянно дергается экран, скроллит
+   * то вверх то вниз», and a thumb dragging through a poll is exactly that. React
+   * updates the DOM in place and does not move the scroll by itself, so the only thing
+   * worth restoring is a position the BROWSER clamped — a card that got shorter — and
+   * that is the one case the layout effect below covers. */
   const draw = useCallback(
     async (keep: boolean) => {
-      const at = keep ? window.scrollY : 0
       try {
         const answer = await get<View>('/api/screen?id=' + encodeURIComponent(id))
+        held.current = keep ? window.scrollY : 0
         setView(answer)
-        held.current = at
       } catch {
         /* the tick says so */
       }
@@ -878,8 +894,13 @@ export function ScreenPage({
      
   }, [pollKey])
 
-  useEffect(() => {
-    if (held.current) window.scrollTo(0, held.current)
+  /* A LAYOUT effect, and only when the browser actually moved us: it runs after the DOM
+   * is written and before the paint, so a page that shrank is put back without a flash,
+   * and a page that stayed the same height is not touched at all. The 2 px is the
+   * rounding a zoomed viewport reports, not a tolerance for real scrolling. */
+  useLayoutEffect(() => {
+    const want = held.current
+    if (want && Math.abs(window.scrollY - want) > 2) window.scrollTo(0, want)
   }, [view])
 
   /* A SCREEN THAT IS DRAWN sends its cards all the same, so a front-end that does not

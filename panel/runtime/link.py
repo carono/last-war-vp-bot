@@ -62,6 +62,24 @@ from . import lua_service
 #: The server a jump falls back to when the game cannot say which one it is on.
 DEFAULT_SERVER = str(lua_actions.HOME_SERVER)
 
+#: How many times a jump asks the client «which warzone are you on» before giving up on
+#: seeing its target, and how long it waits between two of those (#2593). Measured live
+#: on a same-warzone jump: the answer is already right on the first read; a cross-server
+#: one loads the other world and wants the second. Three is the ceiling, not the cost.
+JUMP_CONFIRM_TRIES = 3
+JUMP_CONFIRM_WAIT = 1.0
+
+
+def _call(hook, argument) -> None:
+    """Run a caller's hook without ever letting it break the run that called it."""
+    if hook is None:
+        return
+    try:
+        hook() if argument is None else hook(argument)
+    except Exception:                                 # noqa: BLE001 — a caller's own
+        pass                                          #   callback is never the link
+
+
 # How long a lease is held without being renewed. Every chunk an action runs renews it,
 # so this only ever fires for a holder that died mid-action.
 LEASE_TTL_SEC = 120
@@ -113,6 +131,11 @@ class GameLink:
         #: "an action has just let go of the game" — the shell re-reads its status strip
         #: there. A tab launched on its own has no strip and leaves it a no-op.
         self.on_settled = on_settled or (lambda: None)
+        #: "the camera has just been walked somewhere else" — the runtime hangs the
+        #: header's `mark_stale` here (#2593), so the strip along the top re-reads WHERE
+        #: the player is standing on an event rather than on a clock. A link nobody
+        #: wired leaves it a no-op.
+        self.on_moved = (lambda: None)
         self._dbg = debug
         #: What this link is doing, for the strip along the bottom of the window.
         self._activity = activity if activity is not None else Activity()
@@ -905,7 +928,42 @@ class GameLink:
             self._log.say("server", "log.server.read_failed", error=exc)
         return DEFAULT_SERVER
 
-    def jump(self, x: int, y: int, server, quiet: bool = False) -> bool:
+    def landed_on(self, target: "int | None"):
+        """Which warzone the camera actually ENDED UP on, or ``None`` when none was asked.
+
+        The proof a jump arrived, and the reason `jump` can answer «done» instead of
+        «sent» (#2593). The chunk's own `ACT jump=… srv=` line says what was ASKED FOR,
+        not where the client is standing: `GotoWorldPos` tweens, and a cross-server jump
+        loads the other world first, so a press that reported success off that line was
+        reporting that a message had left.
+
+        Read inside the claim the jump is already holding, so nothing else walks into the
+        VM between the move and the check, and at most :data:`JUMP_CONFIRM_TRIES` times —
+        this is one press confirming ITSELF, never a background poll.
+        """
+        if target is None:
+            return None
+        got = 0
+        for attempt in range(JUMP_CONFIRM_TRIES):
+            try:
+                # Do not use ``current_server()`` here: its historical fallback is the
+                # home warzone, which is useful to old callers but would turn a failed
+                # read into false proof that a jump HOME had arrived.
+                got = 0
+                for line in self.client.run(lua_actions.current_server(), marker="ACT",
+                                            settle=0.5, early=True):
+                    if "curserver=" in line:
+                        got = int(line.split("curserver=")[1].split()[0])
+                        break
+            except (TypeError, ValueError, IndexError):
+                got = 0
+            if got == target:
+                return got
+            if attempt + 1 < JUMP_CONFIRM_TRIES:
+                time.sleep(JUMP_CONFIRM_WAIT)
+        return got
+
+    def jump(self, x: int, y: int, server, quiet: bool = False, on_done=None) -> bool:
         """Jump the camera to a tile, on a worker thread. Serialised with every action.
 
         The claim is the ordinary one, so a coordinate clicked in the log and a timer
@@ -932,42 +990,64 @@ class GameLink:
         Returns whether the jump was STARTED — ``False`` means the claim was taken by
         something else. The sweep uses that to keep its place instead of losing the
         waypoint it was refused on.
+
+        ``on_done`` is called with what the jump CAME TO, once, from whichever thread
+        finished it — ``{"ok": bool, "server": int | None, "reason": str}`` (#2593). It
+        is what lets a press block its own button until the camera has actually arrived:
+        the return value above only says a worker was started, which is why a refused
+        claim looked exactly like a jump that worked, and why the person pressed «Перейти»
+        several times. A refusal calls it too, and never a second time.
         """
         if not self.claim():
             if not quiet:
                 self._log.say("panel", "busy")
+            _call(on_done, {"ok": False, "server": None, "reason": "busy"})
             return False
 
         def work() -> None:
             handle = self._activity.begin("activity.game.jump", x=x, y=y)
+            answer = {"ok": False, "server": None, "reason": "log.error"}
             try:
                 # …and a link nothing lands through is not one to jump through
                 # either. The poll's own reading first, an attach only if it is not
                 # working (#1911).
                 if not self.ready() and not self.ensure():
                     self._log.say("coord", "log.no_link")
-                    return
-                # ONE trip to the VM, not two. A coordinate with no server used to be
-                # answered by reading `current_server()` first — a whole call, and its
-                # settle, in front of a jump the game itself does the instant it is
-                # asked. The chunk resolves it now (`lua_actions.jump_to_coord`), and
-                # the line it logs says which server it landed on (#1230).
-                target = int(server) if server is not None else None
-                if not quiet:
-                    self._log.say("coord", "log.coord.jumping",
-                                  where=coords.fmt(x, y, target))
-                for line in self.client.run(
-                        lua_actions.jump_to_coord(x, y, target),
-                        marker="ACT", settle=1.6, early=True):
-                    self._log.put(f"[coord] {line}")
-                if not quiet:
-                    self._log.say("coord", "log.done")
+                    answer = {"ok": False, "server": None, "reason": "log.no_link"}
+                else:
+                    # ONE trip to the VM, not two. A coordinate with no server used to be
+                    # answered by reading `current_server()` first — a whole call, and its
+                    # settle, in front of a jump the game itself does the instant it is
+                    # asked. The chunk resolves it now (`lua_actions.jump_to_coord`), and
+                    # the line it logs says which server it landed on (#1230).
+                    target = int(server) if server is not None else None
+                    if not quiet:
+                        self._log.say("coord", "log.coord.jumping",
+                                      where=coords.fmt(x, y, target))
+                    for line in self.client.run(
+                            lua_actions.jump_to_coord(x, y, target),
+                            marker="ACT", settle=1.6, early=True):
+                        self._log.put(f"[coord] {line}")
+                    landed = self.landed_on(target)
+                    arrived = target is None or landed == target
+                    answer = {"ok": arrived, "server": landed,
+                              "reason": "" if arrived else "log.coord.not_landed"}
+                    if not quiet:
+                        self._log.say("coord", "log.done")
             except Exception as exc:                  # noqa: BLE001
                 self._log.say("coord", "log.error", error=exc)
+                answer = {"ok": False, "server": None, "reason": str(exc)}
             finally:
                 self._activity.end(handle)
                 self.release()
                 self.on_settled()
+            # THE CAMERA MOVED, SO WHAT THE HEADER IS SHOWING IS OUT OF DATE (#2593). An
+            # EVENT and never a clock, which is the only way a second reading is ever
+            # taken (`panel/runtime/header.py::mark_stale`): the panel itself walked the
+            # client, so it knows — nobody had to ask.
+            if answer.get("ok"):
+                _call(self.on_moved, None)
+            _call(on_done, answer)
 
         threading.Thread(target=work, daemon=True).start()
         return True

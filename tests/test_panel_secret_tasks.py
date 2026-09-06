@@ -4809,7 +4809,7 @@ def test_a_jump_writes_the_server_it_went_to_into_the_box():
     tab.coord_srv_var = _Var("300")
     tab._jump_hist, tab._jump_hist_combo = [], None
     tab.rt = types.SimpleNamespace(
-        game=types.SimpleNamespace(jump=lambda x, y, srv: True),
+        game=types.SimpleNamespace(jump=lambda x, y, srv, on_done=None: True),
         settings=types.SimpleNamespace(changed=lambda: None))
 
     tab._jump(10, 20, 971)
@@ -4820,9 +4820,51 @@ def test_a_jump_writes_the_server_it_went_to_into_the_box():
     assert tab.coord_srv_var.get() == "971"
 
     # A refused jump writes nothing either.
-    tab.rt.game = types.SimpleNamespace(jump=lambda x, y, srv: False)
+    tab.rt.game = types.SimpleNamespace(jump=lambda x, y, srv, on_done=None: False)
     tab._jump(12, 22, 534)
     assert tab.coord_srv_var.get() == "971"
+
+
+def test_a_jump_to_a_warzone_holds_its_button_until_the_camera_got_there():
+    """#2593, the person's words: «жму перейти, на странице ничего не происходит, я не
+    знаю, функция отработала или нет… приходится по несколько раз кликать».
+
+    The press used to answer «ok» for having STARTED a worker — and a press refused
+    because the link was busy answered «ok» just the same. So: the card's buttons go dead
+    while one is in flight, a second press is refused in words, and the button comes back
+    only when the link says where the camera ended up.
+    """
+    import types
+    tab = object.__new__(st.SecretTasksTab)
+    tab._jump_busy, tab._jump_note = 0, ""
+    tab.pieces = None
+    sent = []
+    tab.post = lambda call: call()
+    tab.rt = types.SimpleNamespace(t=lambda key, **fmt: key,
+                                   say=lambda tag, key, **fmt: None)
+    tab.t = lambda key, **fmt: key
+    tab.say = lambda tag, key, **fmt: None
+    tab.jump_to_server = lambda where, on_done=None: sent.append((where, on_done))
+
+    answer = st.SecretTasksTab.web_press(tab, "jump_server", {"server": 971})
+    assert answer == {"ok": True, "pending": True}
+    assert tab._jump_busy == 971
+
+    # …and the second press does not reach the game at all.
+    again = st.SecretTasksTab.web_press(tab, "jump_server", {"server": 534})
+    assert again["ok"] is False and again["reason"] == "secrettasks.picker.jumping"
+    assert len(sent) == 1
+
+    # The link says it arrived: the button is free again and the card says so.
+    sent[0][1]({"ok": True, "server": 971})
+    assert tab._jump_busy == 0
+    assert tab._jump_note == "secrettasks.picker.jump.done"
+
+    # …and a refusal is a SENTENCE, never a button that quietly comes back.
+    st.SecretTasksTab.web_press(tab, "jump_server", {"server": 534})
+    sent[1][1]({"ok": False, "server": 971, "reason": "busy"})
+    assert tab._jump_busy == 0
+    assert tab._jump_note == "secrettasks.picker.jump.failed"
 
 
 def test_the_two_sniffers_have_two_independent_switches():
