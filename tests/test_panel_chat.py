@@ -1229,5 +1229,34 @@ def test_the_age_over_a_conversation_is_that_conversation_s():
         "the line over the conversation is not the conversation's own age"
 
 
+def test_a_photograph_the_client_never_fetched_is_said_not_swallowed():
+    """#2418: «в чате изображения не грузятся» — and the bubble was EMPTY.
+
+    Measured live on this desktop: the client's download tree holds `LocalImages`
+    (14 008 files) and `NewsCenterPhotos` (123) and **no chat-photo cache at all** —
+    `ChatPhotos` does not exist, so `/api/chatsprite?photo=…` answered 404 for every
+    one of the 29 photo messages in the store while a sprite answered 200. The bytes
+    arrive only when the game's own chat window draws the item, and the URL builder is
+    unreachable from Lua (`device` is nil, so `getCustomPicUrl` raises).
+
+    Until that is answered, the message must SAY there is a picture: the token is
+    stripped whatever happens, so a picture-only message came out as a blank bubble —
+    a failure with nothing on screen to explain it.
+    """
+    src = (_REPO / "panel" / "tabs" / "chat.py").read_text(encoding="utf-8")
+    parts = src.split("def _web_parts")[1].split("\n    def ")[0]
+    assert '"missing": True' in parts, "an uncached photo is silently swallowed again"
+
+    view = (_REPO / "panel" / "web" / "app" / "src" / "views"
+            / "ChatView.tsx").read_text(encoding="utf-8")
+    assert "row.photo?.missing" in view and "chat.photo.missing" in view, \
+        "the phone draws nothing where a photograph is missing"
+
+    import json as _json
+    for path in sorted((_REPO / "panel" / "locales").glob("*.json")):
+        words = _json.loads(path.read_text(encoding="utf-8"))
+        assert "chat.photo.missing" in words, f"{path.name} has no chat.photo.missing"
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())

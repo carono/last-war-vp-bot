@@ -69,7 +69,7 @@ export interface ChatRow {
   mine: boolean
   room: string
   parts: ChatPart[]
-  photo?: { small: string; big: string } | null
+  photo?: { small: string; big: string; missing?: boolean } | null
   /** What this message answers, when it answers something: the quote the game draws,
    *  and the id of the row it names (#2418). */
   reply?: { id: string; who: string; text: string } | null
@@ -928,7 +928,15 @@ export function ChatView({
                           )
                         )}
                       </div>
-                      {row.photo ? (
+                      {/* A PHOTOGRAPH THIS MACHINE HAS NOT GOT IS SAID (#2418): the
+                          token is stripped either way, so a picture-only message used
+                          to arrive as an empty bubble. The client downloads a chat
+                          photo when its own chat window draws it, and this one never
+                          opens that window — so the line says what is missing rather
+                          than leaving a blank. */}
+                      {row.photo?.missing ? (
+                        <p className="muted small">{t('chat.photo.missing')}</p>
+                      ) : row.photo ? (
                         <button className="shot" onClick={() => setPhoto(row.photo?.big || row.photo?.small || '')}>
                           <img src={row.photo.small} alt={t('chat.photo')} />
                         </button>

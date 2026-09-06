@@ -112,6 +112,7 @@
   "chat.no_room": "не знаю, куда писать — в этой вкладке ещё нет сообщений",
   "chat.nothing_typed": "нечего отправлять — поле пустое",
   "chat.photo": "🖼 фото",
+  "chat.photo.missing": "🖼 фото — клиент его не скачивал",
   "chat.picker.empty": "иконки не извлечены — запусти tools/extract_chat_assets.py",
   "chat.picker.send_sticker": "Отправить",
   "chat.picker.room": "Отправлять в",

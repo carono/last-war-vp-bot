@@ -815,6 +815,17 @@ class ChatTab(PanelTab):
             if small:
                 photo = {"small": small,
                          "big": chat_assets.photo_link(uid, m.group(1), big=True)}
+            else:
+                # A PHOTOGRAPH THE CLIENT NEVER FETCHED IS SAID, NOT SWALLOWED (#2418).
+                # The token was stripped whatever happened, so a message that is only a
+                # picture came out as an EMPTY bubble — «изображения не грузятся» with
+                # nothing on screen to explain it. Measured live: this client's download
+                # tree has no chat-photo cache at all (`ChatPhotos` does not exist), the
+                # bytes arrive only when the game's own chat window draws the item, and
+                # the URL builder is unreachable from Lua (`device` is nil, so
+                # `getCustomPicUrl` raises). Until that is answered, the bubble says
+                # there is a picture here and that this machine has not got it.
+                photo = {"small": "", "big": "", "missing": True}
             text = (text[:m.start()] + text[m.end():]).strip()
         parts = []
         for kind, value in chat_assets.segments(text):

@@ -112,6 +112,7 @@
   "chat.no_room": "không có chỗ để viết — thẻ này chưa nhận tin nhắn nào",
   "chat.nothing_typed": "không có gì để gửi — ô trống",
   "chat.photo": "🖼 ảnh",
+  "chat.photo.missing": "🖼 ảnh — máy khách chưa từng tải về",
   "chat.picker.empty": "chưa trích xuất biểu tượng nào — hãy chạy tools/extract_chat_assets.py",
   "chat.picker.send_sticker": "Gửi",
   "chat.picker.room": "Gửi tới",

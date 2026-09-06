@@ -112,6 +112,7 @@
   "chat.no_room": "yazacak yer yok — bu sekmeye henüz hiç ileti gelmedi",
   "chat.nothing_typed": "gönderilecek bir şey yok — kutu boş",
   "chat.photo": "🖼 fotoğraf",
+  "chat.photo.missing": "🖼 fotoğraf — istemci onu hiç indirmedi",
   "chat.picker.empty": "hiç simge çıkarılmamış — tools/extract_chat_assets.py çalıştır",
   "chat.picker.send_sticker": "Gönder",
   "chat.picker.room": "Gönderilecek yer",

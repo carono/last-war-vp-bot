@@ -112,6 +112,7 @@
   "chat.no_room": "nulle part où écrire — cet onglet n'a encore reçu aucun message",
   "chat.nothing_typed": "rien à envoyer — le champ est vide",
   "chat.photo": "🖼 photo",
+  "chat.photo.missing": "🖼 photo — le client ne l'a jamais téléchargée",
   "chat.picker.empty": "aucune icône extraite — lance tools/extract_chat_assets.py",
   "chat.picker.send_sticker": "Envoyer",
   "chat.picker.room": "Envoyer dans",

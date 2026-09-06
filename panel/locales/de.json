@@ -112,6 +112,7 @@
   "chat.no_room": "nirgendwohin zu schreiben — dieser Reiter hat noch keine Nachrichten gesehen",
   "chat.nothing_typed": "nichts zu senden — das Feld ist leer",
   "chat.photo": "🖼 Foto",
+  "chat.photo.missing": "🖼 Foto — der Client hat es nie heruntergeladen",
   "chat.picker.empty": "keine Symbole entpackt — führe tools/extract_chat_assets.py aus",
   "chat.picker.send_sticker": "Senden",
   "chat.picker.room": "Senden an",

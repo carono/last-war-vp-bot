@@ -112,6 +112,7 @@
   "chat.no_room": "non c'è dove scrivere — questa scheda non ha ancora ricevuto messaggi",
   "chat.nothing_typed": "niente da inviare — il campo è vuoto",
   "chat.photo": "🖼 foto",
+  "chat.photo.missing": "🖼 foto — il client non l'ha mai scaricata",
   "chat.picker.empty": "nessuna icona estratta — esegui tools/extract_chat_assets.py",
   "chat.picker.send_sticker": "Invia",
   "chat.picker.room": "Invia in",

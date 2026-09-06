@@ -112,6 +112,7 @@
   "chat.no_room": "nie ma gdzie pisać — ta karta nie dostała jeszcze żadnej wiadomości",
   "chat.nothing_typed": "nie ma czego wysłać — pole jest puste",
   "chat.photo": "🖼 zdjęcie",
+  "chat.photo.missing": "🖼 zdjęcie — klient nigdy go nie pobrał",
   "chat.picker.empty": "nie wypakowano żadnych ikon — uruchom tools/extract_chat_assets.py",
   "chat.picker.send_sticker": "Wyślij",
   "chat.picker.room": "Wyślij do",
