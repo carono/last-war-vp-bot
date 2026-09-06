@@ -2308,16 +2308,19 @@ def test_the_conversation_takes_the_whole_phone_and_reserves_nothing():
         "the chat page keeps the clearance meant for a card that is not there"
 
 
-def test_the_map_is_the_fourth_bottom_button_and_chat_still_hides_the_bar():
-    """#2593: 390 px gives four equal 93 px cells; chat deliberately keeps none."""
+def test_the_map_and_chat_are_bottom_buttons_and_chat_still_hides_the_bar():
+    """#2593: five one-line cells fit 390 px; open chat deliberately keeps none."""
     app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
     nav = app[app.index("const NAV"):app.index("const DEVELOP_SCREEN")]
-    assert nav.count(" id: '") == 4, "the footer does not have exactly four destinations"
+    assert nav.count(" id: '") == 5, "the footer does not have exactly five destinations"
     assert "key: 'web.ui.nav.map'" in nav and "screen: 'worldview'" in nav
-    assert "(entry.screen ? screen === entry.screen" in app, "the map button has no active state"
+    assert "key: 'tab.chat'" in nav and "screen: 'chat'" in nav
+    assert nav.index("id: 'map'") < nav.index("id: 'chat'") < nav.index("id: 'more'")
+    assert "(entry.screen ? screen === entry.screen" in app, \
+        "the map and chat buttons have no active state"
     css = _css()
-    assert "grid-auto-columns: 1fr" in css, "the four buttons are not equal columns"
-    # 390 - 12 px horizontal padding - 3 * 2 px gaps = 372; / 4 = 93 px each.
+    assert "grid-auto-columns: 1fr" in css, "the five buttons do not share the row"
+    # 390 - 12 px horizontal padding - 4 * 2 px gaps = 370 px for the five labels.
     assert "padding: 6px 6px" in css and "gap: 2px" in css
     assert "white-space: nowrap" in css, "a footer label may wrap"
     assert "body.chatting nav { display: none; }" in css, "chat shows the footer again"

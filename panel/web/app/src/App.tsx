@@ -42,6 +42,7 @@ const NAV: { id: string; key: string; view: ViewName; screen?: string }[] = [
   /* The map is a first-class destination but remains the existing `worldview` screen:
      no second API surface and no second map state (#2593). */
   { id: 'map', key: 'web.ui.nav.map', view: 'more', screen: 'worldview' },
+  { id: 'chat', key: 'tab.chat', view: 'more', screen: 'chat' },
   { id: 'more', key: 'web.ui.nav.more', view: 'more' },
 ]
 
