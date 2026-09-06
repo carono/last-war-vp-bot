@@ -566,12 +566,23 @@ class HeadlessPanel:
         way up. `module="panel.headless"` because a panel that had no window must not come
         back with one: this process may be running in a session with no desktop at all.
         """
+        # WHAT COMES BACK IS WHAT IS OPEN NOW, NOT WHAT THE COMMAND LINE ASKED FOR
+        # (#2578). `relaunch` replays this process's own argv, and `open` gives argv
+        # priority over the standing list — so a panel started as `--profile a` that
+        # later opened `b` from the phone came back holding only `a`, and `b` was left
+        # closed with nothing anywhere saying it had been dropped. Live on 2026-09-06 a
+        # restart meant to deliver one profile's fix took the other account off the game
+        # until somebody noticed. Read BEFORE the shutdown, which is what closes them.
+        argv = [arg for name in [s.name for s in self.workspace.sessions]
+                for arg in ("--profile", name)]
+        if not self._web:
+            argv.append("--no-web")
         try:
             self.shutdown(why=autostartmod.RESTARTING)
         except Exception:                     # noqa: BLE001 — a tab that fails to stop
             print("panel: restart shutdown failed", file=sys.stderr)  # must not strand it
         try:
-            updatesmod.relaunch(module="panel.headless")
+            updatesmod.relaunch(module="panel.headless", argv=argv)
         except Exception as exc:              # noqa: BLE001
             print(f"panel: relaunch failed: {exc}", file=sys.stderr)
         self._stop.set()

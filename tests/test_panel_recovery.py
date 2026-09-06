@@ -113,6 +113,11 @@ def _deaf(r, n, t0=1000.0, step=8.0):
 #: :data:`recovery.LOST_SPAN_SEC`, and eight seconds a look is the poll's own rate.
 DEAF_READINGS = max(rec.STRIKES, int(rec.LOST_SPAN_SEC // 8) + 2)
 
+#: …and the same for a client NOTHING reaches, which waits longer on purpose (#2578):
+#: that branch has no confirmation behind it, and a minute of «no chunk lands» is also
+#: what a client that is still LOADING looks like.
+HUNG_READINGS = max(rec.STRIKES, int(rec.HUNG_SPAN_SEC // 8) + 2)
+
 
 def test_one_bad_reading_is_not_a_reason():
     """A reconnecting client has, for a moment, exactly the sockets of a dead one."""
@@ -1252,7 +1257,7 @@ def test_a_wedged_client_is_restarted_without_a_probe_it_can_never_answer():
     """
     r = rec.Recovery()
     said = [r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0, unprobeable=True)
-            for i in range(DEAF_READINGS)]
+            for i in range(HUNG_READINGS)]
     acts = [s for s in said if s and s[0] in rec.RESTARTS]
     assert acts, f"a wedged client was never restarted: {[s for s in said if s]}"
     assert acts[0][0] == rec.ACT_HUNG, acts
@@ -1260,6 +1265,51 @@ def test_a_wedged_client_is_restarted_without_a_probe_it_can_never_answer():
     # …and the line says WHICH attempt and how long the next wait is, because a person
     # reading a repeated restart is asking exactly that.
     assert acts[0][1]["n"] == 1 and acts[0][1]["again"] >= 1, acts[0]
+
+
+def test_a_client_that_is_still_loading_is_not_restarted_under_it(): 
+    """A minute of «nothing enters the VM» is a LOADING client, not a wedged one (#2578).
+
+    The branch that ends in `ACT_HUNG` is the one branch with no second opinion behind
+    it: the confirmation travels through the very VM that cannot be reached, so it is
+    skipped and the run is the whole of the evidence. Under the old minute that was the
+    same minute an ordinary deaf client gets — and a second account's client, measured
+    live on 2026-09-06, needs 307 s from the launcher to the game server answering. The
+    panel killed it five times at 65 s, each time four fifths of the way up.
+
+    So: nothing at a minute, and nothing at four — and the restart still arrives, which
+    the test above pins from the other side.
+    """
+    r = rec.Recovery()
+    said = [r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0, unprobeable=True)
+            for i in range(DEAF_READINGS)]
+    acts = [s for s in said if s and s[0] in rec.RESTARTS]
+    assert not acts, f"a client that had been loading for a minute was killed: {acts}"
+
+    measured = 307.0                          # the live cold start this number is for
+    said = [r.note(LOST, 1000.0 + measured + i * 8, idle_sec=9999.0, unprobeable=True)
+            for i in range(6)]
+    acts = [s for s in said if s and s[0] in rec.RESTARTS]
+    assert not acts, \
+        f"the measured cold start does not fit inside the patience: {acts}"
+    assert rec.HUNG_SPAN_SEC > measured, \
+        "the patience was set flush against the measurement, with no room at all"
+
+
+def test_a_deaf_client_keeps_its_shorter_minute():
+    """The longer wait is for the UNREACHABLE branch and nothing else.
+
+    A client whose sockets went is answered by the probe — a question, not a guess — so
+    widening its patience would only delay a restart the panel can already justify. If
+    this ever starts failing because the two spans were unified, that is #1910's night
+    coming back through the other door.
+    """
+    assert rec.LOST_SPAN_SEC < rec.HUNG_SPAN_SEC, \
+        "the ordinary deaf client was given the wedged one's patience"
+    r = rec.Recovery()
+    said = [r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0) for i in range(DEAF_READINGS)]
+    assert rec.HOLD_CONFIRM in [s[0] for s in said if s], \
+        "the ordinary branch stopped reaching its confirmation"
 
 
 def test_a_hang_is_the_only_thing_exempt_from_the_confirmation():

@@ -173,6 +173,26 @@ STRIKES = 5
 #: rather than multiplied out of the poll interval.
 LOST_SPAN_SEC = 60.0
 
+#: …AND THE SAME QUESTION FOR A CLIENT NOTHING REACHES AT ALL (#2578). The branch that
+#: ends in :data:`ACT_HUNG` is the ONE branch with no second opinion behind it: the
+#: confirmation rides the client's own Lua VM, and `unprobeable` means precisely that
+#: nothing gets into that VM, so the probe is skipped and the minute above is the whole
+#: of the evidence. A minute is not enough, because it is also what a client that is
+#: still LOADING looks like from outside — nothing enters its VM either, for exactly the
+#: same reason and with exactly the same readings.
+#:
+#: Measured live on 2026-09-06, a second account's client on a machine already running
+#: one: 307 s from the launcher spawning it to the game server answering, its working
+#: set climbing 74 → 1027 MB the whole way. The old minute fired at 65 s, five times over,
+#: and every one of those restarts killed a client that was four fifths of the way up.
+#: Ten minutes is that measurement with room to spare rather than a number chosen to
+#: clear it — a slower disk, a bigger patch or a colder cache all land inside it, and a
+#: client that is genuinely wedged is still put back inside the same quarter hour.
+#:
+#: NOT a licence to widen the ordinary branch: a client whose SOCKETS went is answered by
+#: the probe, which is a question and not a guess, and it keeps its minute.
+HUNG_SPAN_SEC = 600.0
+
 #: HOW MANY SERVER PROBES MUST FAIL before a client is called deaf (#1910).
 #:
 #: The second, independent family of evidence, and the one that is active rather than
@@ -775,7 +795,12 @@ class Recovery:
         # eight seconds). A kick keeps its own shorter run: it is the game's own words,
         # not an inference off a cached socket table.
         deaf_for = (now - self._lost_since) if self._lost_since else 0.0
-        long_enough = self._run >= STRIKES and deaf_for >= LOST_SPAN_SEC
+        # …and the span depends on WHICH evidence this is (#2578). A client nothing
+        # reaches has no confirmation coming — the probe travels through the VM that
+        # cannot be reached — so this run is the only thing standing between a loading
+        # client and a restart. See :data:`HUNG_SPAN_SEC`.
+        span = HUNG_SPAN_SEC if unprobeable else LOST_SPAN_SEC
+        long_enough = self._run >= STRIKES and deaf_for >= span
         if not long_enough and self._kick_run < KICK_STRIKES:
             return None
 
