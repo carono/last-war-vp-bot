@@ -1013,11 +1013,13 @@ class GameLink:
             viewed, home, other = self.landing()
             if other:
                 # Somewhere that is not home. The client will not name WHICH while it is
-                # there, so a foreign target is answered by the fact of being away.
-                if home != target:
-                    return (True, viewed or target)
+                # there, so being away confirms the MOVE but must never manufacture its
+                # NUMBER from the request. Only an exact viewed answer may update the
+                # global header (#2593).
+                if home != target and viewed == target:
+                    return (True, viewed)
             elif viewed == target or (home and home == target):
-                return (True, viewed or target)
+                return (True, target)
             if attempt + 1 < JUMP_CONFIRM_TRIES:
                 time.sleep(JUMP_CONFIRM_WAIT)
         return (False, viewed)
@@ -1101,7 +1103,7 @@ class GameLink:
                             marker="ACT", settle=1.6, early=True):
                         self._log.put(f"[coord] {line}")
                     arrived, landed = self.landed_on(target)
-                    answer = {"ok": arrived, "server": landed or target,
+                    answer = {"ok": arrived, "server": landed,
                               "reason": "" if arrived else "log.coord.not_landed"}
                     if not quiet:
                         self._log.say("coord", "log.done")
@@ -1116,7 +1118,7 @@ class GameLink:
             # EVENT and never a clock, which is the only way a second reading is ever
             # taken (`panel/runtime/header.py::mark_stale`): the panel itself walked the
             # client, so it knows — nobody had to ask.
-            if answer.get("ok"):
+            if answer.get("ok") and answer.get("server"):
                 # The landing already carries the confirmed warzone. Hand that FACT to
                 # the header before the caller is told the jump is done; making the
                 # header ask the game again left the phone's button released beside the

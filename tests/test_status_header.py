@@ -35,6 +35,7 @@ if str(_REPO) not in sys.path:
 
 from panel.runtime import claims                    # noqa: E402
 from panel.runtime import header as headermod       # noqa: E402
+from panel.runtime import link as linkmod           # noqa: E402
 
 
 class _Link:
@@ -310,8 +311,9 @@ def test_a_panel_made_jump_is_the_event_that_refreshes_the_header() -> None:
     # was deleted again in every panel that has a window.
     assert "self.game.add_settled(self.header.on_settled)" in source
     link = (_REPO / "panel" / "runtime" / "link.py").read_text(encoding="utf-8")
-    assert 'if answer.get("ok"):' in link
+    assert 'if answer.get("ok") and answer.get("server"):' in link
     assert '_call(self.on_moved, answer.get("server"))' in link
+    assert '"server": landed,' in link and '"server": landed or target' not in link
 
 
 def test_a_confirmed_server_is_visible_without_another_read() -> None:
@@ -321,6 +323,25 @@ def test_a_confirmed_server_is_visible_without_another_read() -> None:
     state = header.state()
     assert state["server"] == 904 and state["age"] == 0, state
     assert header._where_want is False, "the confirmed answer booked a redundant read"
+
+
+def test_being_somewhere_else_never_confirms_the_requested_server() -> None:
+    """An away flag without the exact number is retried, then honestly times out."""
+    link = object.__new__(linkmod.GameLink)
+    answers = [(777, 935, True), (777, 935, True)]
+    link.landing = lambda: answers.pop(0)
+    tries, wait = linkmod.JUMP_CONFIRM_TRIES, linkmod.JUMP_CONFIRM_WAIT
+    linkmod.JUMP_CONFIRM_TRIES, linkmod.JUMP_CONFIRM_WAIT = 2, 0
+    try:
+        assert link.landed_on(934) == (False, 777)
+    finally:
+        linkmod.JUMP_CONFIRM_TRIES, linkmod.JUMP_CONFIRM_WAIT = tries, wait
+
+
+def test_only_the_exact_foreign_number_confirms_a_server_jump() -> None:
+    link = object.__new__(linkmod.GameLink)
+    link.landing = lambda: (934, 935, True)
+    assert link.landed_on(934) == (True, 934)
 
 
 def test_the_scenario_exists_and_the_panel_writes_no_lua_for_it() -> None:

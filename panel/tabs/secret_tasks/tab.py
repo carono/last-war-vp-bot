@@ -2446,7 +2446,9 @@ class SecretTasksTab(PanelTab):
             # Copied from the SAME confirmed landing that updated StatusHeader, before
             # `_jump_busy` falls. The next screen answer therefore carries the new
             # header number in the very render that releases the phone button (#2593).
-            self._jump_header_server = int(answer.get("server") or where)
+            confirmed = int(answer.get("server") or 0)
+            if confirmed > 0:
+                self._jump_header_server = confirmed
             self._jump_note = self.t("secrettasks.picker.jump.done", srv=where)
             self.say("coord", "log.picker.jumped", srv=where)
             self._jump_busy = 0

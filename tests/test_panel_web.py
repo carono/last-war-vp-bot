@@ -2989,6 +2989,11 @@ def test_a_server_jump_updates_the_header_in_the_render_that_unlocks_it():
     tab = (_REPO / "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
     landed = tab[tab.index("    def _jump_landed"):tab.index("    def _goto_coord")]
     assert landed.index("self._jump_header_server =") < landed.index("self._jump_busy = 0")
+    assert 'answer.get("server") or where' not in landed, \
+        "a missing confirmation number is replaced with the requested server"
+    assert 'if confirmed > 0:' in landed
+    assert 'self._jump_note = self.t("secrettasks.picker.jump.failed"' in landed, \
+        "a failed or timed-out jump has no honest error line"
 
 
 def test_the_chat_screen_says_how_old_it_is():

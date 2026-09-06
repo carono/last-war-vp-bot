@@ -4836,7 +4836,7 @@ def test_a_jump_to_a_warzone_holds_its_button_until_the_camera_got_there():
     """
     import types
     tab = object.__new__(st.SecretTasksTab)
-    tab._jump_busy, tab._jump_note = 0, ""
+    tab._jump_busy, tab._jump_note, tab._jump_header_server = 0, "", 935
     tab.pieces = None
     sent = []
     tab.post = lambda call: call()
@@ -4859,12 +4859,20 @@ def test_a_jump_to_a_warzone_holds_its_button_until_the_camera_got_there():
     sent[0][1]({"ok": True, "server": 971})
     assert tab._jump_busy == 0
     assert tab._jump_note == "secrettasks.picker.jump.done"
+    assert tab._jump_header_server == 971
 
     # …and a refusal is a SENTENCE, never a button that quietly comes back.
     st.SecretTasksTab.web_press(tab, "jump_server", {"server": 534})
     sent[1][1]({"ok": False, "server": 971, "reason": "busy"})
     assert tab._jump_busy == 0
     assert tab._jump_note == "secrettasks.picker.jump.failed"
+    assert tab._jump_header_server == 971, "a refused jump changed the header server"
+
+    # A success verdict without an exact number must not substitute the requested one.
+    st.SecretTasksTab.web_press(tab, "jump_server", {"server": 612})
+    sent[2][1]({"ok": True, "server": 0})
+    assert tab._jump_busy == 0
+    assert tab._jump_header_server == 971, "the requested server was shown as a fact"
 
 
 def test_the_two_sniffers_have_two_independent_switches():
