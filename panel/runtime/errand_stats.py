@@ -14,10 +14,14 @@ own database, a checkpoint a capture child writes anyway, or a cache another pag
 and the wire keeps up to date. Nothing plays a scenario, nothing touches the link, and
 nothing subscribes — `BaseResources.cached` exists for precisely that reason.
 
-WHAT AN ERRAND WITHOUT A FREE ANSWER GETS: nothing at all. A blank is honest; a number
-bought with a round trip is not, and a number that is quietly hours old is worse than
-both. So a stat travels WITH ITS AGE and the phone draws it, and an errand nobody can
-answer for free is listed in the task's own report instead of being given a poll.
+WHAT AN ERRAND WITHOUT A FREE ANSWER GETS: the truth, in words. A number bought with a
+round trip is not honest, and one that is quietly hours old is worse still — so a stat
+travels WITH ITS AGE and the phone draws it. What changed in #2579 is only that the
+blank became a SENTENCE: a row with no reading falls back on the panel's own count of
+today's runs, and one that has not even that says «живого показания нет». An empty line
+under a card cannot be told from a card whose reading is broken, and the person asked for
+cards that show work is happening — «карточки должны быть живыми, чтобы было видно, что
+работа идет». Still nothing here asks the game.
 
 WHAT A PROVIDER RETURNS::
 
@@ -311,18 +315,6 @@ def _from_daily(key: str, field: str, *extra):
     return provider
 
 
-def _visitors(rt) -> "dict | None":
-    """Guests at the gate — the recruit queue and the gift queue are one line.
-
-    Two errands draw it and they spend the same queue readings, so «сколько ждёт» is one
-    number a person acts on rather than two they have to add up.
-    """
-    values, age = _daily(rt)
-    if "recruit_pending" not in values and "gifts_pending" not in values:
-        return None
-    total = _int(values.get("recruit_pending")) + _int(values.get("gifts_pending"))
-    return {"key": "timers.stat.visitors", "fmt": {"n": total}, "age": age}
-
 def _golden_hunt(rt) -> "dict | None":
     """«412 атак · 6 сегодня» — what the energy still buys, and what today has spent.
 
@@ -344,6 +336,171 @@ def _golden_hunt(rt) -> "dict | None":
                     "today": _int(today.get("attacks"))}}
 
 
+def _runs_today(rt, errand: str) -> "dict | None":
+    """«Сегодня: 3 раза» — the panel's own record of its own schedule (#2579).
+
+    THE LAST FREE ANSWER THERE IS, and the reason it exists: the person asked for cards
+    that show work is happening — «карточки должны быть живыми, чтобы было видно, что
+    работа идет» — and a dozen errands have nothing the game will count for us. What the
+    panel does know, without asking anything, is how many times it ran the errand since
+    the SERVER's midnight, because it writes that down as it goes (`panel/timers.py`,
+    `LastRunStore.mark_run`).
+
+    It is deliberately weaker than the readings above and always loses to them: «сколько
+    осталось» is what a person acts on, «сколько раз запускали» is only proof the row is
+    alive. A row that is not a timer at all — a listener, a standing order — has no such
+    record and gets `None`, which the caller turns into the honest line.
+    """
+    try:
+        schedule = rt.schedule
+        if errand not in {t.name for t in schedule.timer_catalogue}:
+            return None
+        runs = int(schedule.store.runs_today(errand))
+    except Exception:                    # noqa: BLE001 — a reading, never the page
+        return None
+    if runs <= 0:
+        return {"key": "timers.stat.today_none", "fmt": {}, "age": None}
+    return {"key": "timers.stat.today", "fmt": {"n": runs}, "age": None}
+
+
+def _with_today(rt, errand: str, stat: "dict | None") -> "dict | None":
+    """Put today's run count into a line that has a `{today}` slot for it."""
+    if stat is None:
+        return None
+    try:
+        runs = int(rt.schedule.store.runs_today(errand))
+    except Exception:                    # noqa: BLE001
+        runs = 0
+    stat["fmt"]["today"] = runs
+    return stat
+
+
+def _trucks_send(rt) -> "dict | None":
+    """«2 из 4 · 1 готов» — dispatches left today and the trucks standing ready.
+
+    The person asked for this row by name: «отправка грузовиков, нужно написать, сколько
+    осталось рейсов, сколько в пути». What the client answers for free is the two halves
+    of the quota and how many trucks could go out RIGHT NOW (`trucks_idle`) — the
+    difference between the two is what is on the road, and it is drawn as «готовы» rather
+    than «в пути» because that is the number the reading actually is.
+    """
+    values, age = _daily(rt)
+    if "trucks_send_left" not in values or "trucks_send_cap" not in values:
+        return None
+    fmt = {"n": _int(values.get("trucks_send_left")),
+           "all": _int(values.get("trucks_send_cap"))}
+    if "trucks_idle" not in values:
+        return {"key": "timers.stat.trucks_out", "fmt": fmt, "age": age}
+    fmt["ready"] = _int(values.get("trucks_idle"))
+    return {"key": "timers.stat.trucks_send", "fmt": fmt, "age": age}
+
+
+def _gifts_waiting(rt) -> "dict | None":
+    """«Подарки выжившего»: guests bearing one, and how many runs took them today.
+
+    Split from `recruit_survivors` in #2579 — the two used to share one number, and the
+    person asked each card for its own: «Подарки выжившего, нужно писать, сколько
+    выживших ждет, сколько сегодня собрали. Сбор выживших аналогично.»
+    """
+    values, age = _daily(rt)
+    if "gifts_pending" not in values:
+        return None
+    return _with_today(rt, "collect_visitor_gifts",
+                       {"key": "timers.stat.gifts_waiting",
+                        "fmt": {"n": _int(values.get("gifts_pending"))}, "age": age})
+
+
+def _recruit_waiting(rt) -> "dict | None":
+    """«Сбор выживших»: survivors standing in the queues, and today's runs."""
+    values, age = _daily(rt)
+    if "recruit_pending" not in values:
+        return None
+    return _with_today(rt, "recruit_survivors",
+                       {"key": "timers.stat.recruit_waiting",
+                        "fmt": {"n": _int(values.get("recruit_pending"))}, "age": age})
+
+
+def _ministry(rt) -> "dict | None":
+    """«Министр сейчас · сегодня 2» — the post held, and how often it was won today.
+
+    «Министр внутренних дел, сколько раз был министром сегодня» has no counter in the
+    game: what there is, is the post held right now (`ministry_post`) and the panel's own
+    record of the applications that went through since the reset — a run of this errand
+    only succeeds when the application took (`actions/apply_ministry_interior.md`), so
+    the count is exactly «сколько раз был министром сегодня».
+    """
+    values, age = _daily(rt)
+    if "ministry_post" not in values:
+        return _runs_today(rt, "apply_ministry_interior")
+    key = ("timers.stat.ministry_held" if _int(values.get("ministry_post")) > 0
+           else "timers.stat.ministry_free")
+    return _with_today(rt, "apply_ministry_interior",
+                       {"key": key, "fmt": {}, "age": age})
+
+
+def _tavern(rt) -> "dict | None":
+    """«Бесплатных: 2 · сегодня 1» — pulls waiting, and runs that took them today."""
+    values, age = _daily(rt)
+    if "tavern_free" not in values:
+        return _runs_today(rt, "tavern_free_pull")
+    return _with_today(rt, "tavern_free_pull",
+                       {"key": "timers.stat.tavern",
+                        "fmt": {"n": _int(values.get("tavern_free"))}, "age": age})
+
+
+def _steals(rt) -> "dict | None":
+    """«Осталось 3 из 5 · взято 2» — the day's secret-task robberies.
+
+    «Секретки за день, сколько осталось, сколько собрал», and both halves come out of the
+    one reading: the cap the game states and what is left of it.
+    """
+    values, age = _daily(rt)
+    if "steal_left" not in values or "steal_cap" not in values:
+        return None
+    left, cap = _int(values.get("steal_left")), _int(values.get("steal_cap"))
+    return {"key": "timers.stat.steals",
+            "fmt": {"n": left, "all": cap, "done": max(0, cap - left)}, "age": age}
+
+
+def _ghost_steals(rt) -> "dict | None":
+    """The ghost quota while the event is on, and «сегодня не проводится» when it is not.
+
+    A number over a shut event is worse than no line: «Операция Призрак» runs one day a
+    week, and its two counts mean nothing on the other six (`read_daily_checklist.md`).
+    """
+    values, age = _daily(rt)
+    if "ghost_open" not in values:
+        return None
+    if not _int(values.get("ghost_open")):
+        return {"key": "timers.stat.ghost_closed", "fmt": {}, "age": age}
+    if "ghost_left" not in values or "ghost_cap" not in values:
+        return None
+    left, cap = _int(values.get("ghost_left")), _int(values.get("ghost_cap"))
+    return {"key": "timers.stat.steals",
+            "fmt": {"n": left, "all": cap, "done": max(0, cap - left)}, "age": age}
+
+
+def _hospital(rt) -> "dict | None":
+    """Wounded waiting, or a finished heal standing uncollected — one line for both."""
+    values, age = _daily(rt)
+    if "wounded" not in values:
+        return None
+    hurt = _int(values.get("wounded"))
+    if not hurt and _int(values.get("healed_ready")):
+        return {"key": "timers.stat.healed", "fmt": {}, "age": age}
+    return {"key": "timers.stat.wounded", "fmt": {"n": hurt}, "age": age}
+
+
+def _radar(rt) -> "dict | None":
+    """«Мест: 3 · помочь: 2» — room on the board and the errands needing no march."""
+    values, age = _daily(rt)
+    if "radar_free" not in values and "radar_helpable" not in values:
+        return None
+    return {"key": "timers.stat.radar",
+            "fmt": {"n": _int(values.get("radar_free")),
+                    "help": _int(values.get("radar_helpable"))}, "age": age}
+
+
 #: Errand name -> what to draw under its block. An errand that is not here draws
 #: nothing, and that is a deliberate answer rather than a gap to be filled in with a
 #: poll: see the module docstring, and the survey in `docs/research/errand-stats.md`.
@@ -354,7 +511,10 @@ PROVIDERS: dict = {
     "firework_collect": _fireworks_taken,
     "firework_watch": _fireworks_taken,
     "secret_autoloot": _secret_targets,
-    "secret_tasks_day": _secret_targets,
+    # «Секретки за день» is the QUOTA rather than the map (#2579): what the day has left
+    # of the five and what has already been taken. The ★ autoloot keeps the list, because
+    # that is the question that row is about.
+    "secret_tasks_day": _steals,
     # «Автопомощь» spends the SAME list — it helps the starred tasks the ★ list
     # holds, so the line under it answers the same question.
     "secret_autoassist": _secret_targets,
@@ -364,13 +524,13 @@ PROVIDERS: dict = {
     # is the one that was asked for; the rest answer out of the same chunk and cost
     # nothing more than it does.
     "collect_truck_resources": _from_daily("timers.stat.trucks", "trucks_ready"),
-    "send_trucks": _from_daily("timers.stat.trucks_out", "trucks_send_left",
-                               ("all", "trucks_send_cap")),
+    "send_trucks": _trucks_send,
     "alliance_help": _from_daily("timers.stat.help", "help_waiting"),
     "donate_alliance_tech": _from_daily("timers.stat.donate", "donate_left"),
     "upgrade_decorations": _from_daily("timers.stat.decor", "decorations"),
-    "collect_visitor_gifts": _visitors,
-    "recruit_survivors": _visitors,
+    # …and the two that used to SHARE a number and now each have their own (#2579).
+    "collect_visitor_gifts": _gifts_waiting,
+    "recruit_survivors": _recruit_waiting,
     # …and the explorer's chests (#2381), which ride on the same reading: how many
     # chests the keys buy right now, with the purse beside it. Both are a dash while
     # the activity is not running, and a dash draws nothing rather than a zero.
@@ -379,15 +539,43 @@ PROVIDERS: dict = {
     # …and the golden hunt (#2408), which became a row of its own when the person could
     # not find its card: «Не, делаем в таймерах, туда суём её, как обычную карточку».
     "attack_golden_zombies": _golden_hunt,
+    # …and the rows #2579 gave a line to, every one of them off the SAME reading the
+    # eight above ride on or off the panel's own record — not one new question.
+    "heal_units": _hospital,
+    "occupation_skills": _from_daily("timers.stat.skills", "skills_ready"),
+    "apply_ministry_interior": _ministry,
+    "tavern_free_pull": _tavern,
+    "do_radar_tasks": _radar,
+    "do_radar_marches": _radar,
+    "radar_full_cycle": _radar,
+    "ghost_recon_alliance": _ghost_steals,
+    "mail_gifts": _from_daily("timers.stat.mail", "mail_gifts"),
+    # …the listener that watches the same pile the errand collects, and the one that
+    # watches the same chests.
+    "resource_tracker": _pending_resources,
+    "explorer_chests": _from_daily("timers.stat.explorer_chests",
+                                   "explorer_chests", ("keys", "explorer_keys")),
 }
 
 
 def of(rt, errand: str) -> "dict | None":
-    """The line under one errand's block, or `None` when there is nothing free to say."""
+    """The line under one errand's block — and never a blank one (#2579).
+
+    Three answers, strongest first, because the person asked that every card say
+    something: what the errand is FOR right now, else how many times the panel ran it
+    today, else — for a listener or a standing order, which keep no such record — the
+    honest sentence that there is nothing free to say. None of the three costs a question
+    to the game, which is the rule this module exists to obey.
+    """
     provider = PROVIDERS.get(errand)
-    if provider is None:
-        return None
-    try:
-        return provider(rt)
-    except Exception:                    # noqa: BLE001 — one line, never the page
-        return None
+    if provider is not None:
+        try:
+            stat = provider(rt)
+        except Exception:                # noqa: BLE001 — one line, never the page
+            stat = None
+        if stat is not None:
+            return stat
+    runs = _runs_today(rt, errand)
+    if runs is not None:
+        return runs
+    return {"key": "timers.stat.none", "fmt": {}, "age": None}

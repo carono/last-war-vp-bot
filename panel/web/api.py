@@ -753,6 +753,8 @@ class WebApi:
         running = {getattr(run, "name", "") for run in rt.interrupts.running()}
         rows = []
         for timer in catalogue:
+            if timer.name in HIDDEN_TIMERS:
+                continue
             item = config.get(timer.name) or {}
             state, when = timersmod.last_attempt(records, timer.name)
             rows.append({
@@ -2408,6 +2410,14 @@ SHORT_SUFFIX = ".short"
 #: it, `/api/triggers/set` still answers for it, and the tab draws the schedule's own
 #: switch rather than a second copy.
 MOVED_TRIGGERS = frozenset({"rally_monitor"})
+
+#: Errands whose card is NOT drawn on «Таймеры», because the same thing is already a
+#: press on another screen (#2579). «Перезапуск игры» is the one: «Состояние» has the
+#: client's three lifecycle buttons, and the person's words about the card here were
+#: «карточку перезапуска игры скрыть, это дубль на основной странице». The row itself is
+#: untouched — the schedule still owns it, it still fires, and `/api/timers/set` still
+#: answers for it — so nothing is lost but the second drawing of it.
+HIDDEN_TIMERS = frozenset({"restart_game"})
 
 
 def _short(rt, label_key: str) -> str:

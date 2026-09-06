@@ -1770,6 +1770,29 @@ def save_catalogue(catalogue: Catalogue, path: str | None = None) -> None:
         _write_json(where, rows)
 
 
+def day_key(when: float | None = None) -> str:
+    """The GAME's day a run belongs to — «сегодня», as the server counts it (#2579).
+
+    The same rule and the same fallback as `panel/rally_limits.py::_today` and
+    `panel/runtime/firework_wire.py::_day`: a daily tally turns over at the WARZONE's
+    midnight, and this PC's clock is not reliably in the same minute as the game's
+    (`tools/lib/game_clock.py`). A machine with no tools path and no game falls back on
+    its own date, which is wrong by at most a couple of hours and never by a day.
+    """
+    import datetime
+    try:
+        import game_clock                     # lazy: tools/lib is on the panel's path
+        import game_day
+        stamp = game_clock.now_ms() if when is None else game_day.to_game_ms(when)
+    except Exception:                         # noqa: BLE001 — no tools path, no game
+        stamp = None
+    if not stamp:
+        base = datetime.datetime.utcfromtimestamp(when) if when else \
+            datetime.datetime.utcnow()
+        return base.date().isoformat()
+    return game_day.day_key(stamp)
+
+
 class LastRunStore:
     """When each timer last ran, kept next to the profile it belongs to.
 
@@ -1824,6 +1847,23 @@ class LastRunStore:
         with self._lock:
             return float((self._data.get(name) or {}).get("last_run") or 0.0)
 
+    def runs_today(self, name: str, when: float | None = None) -> int:
+        """Successful runs of this errand on the GAME's current day — 0 for none.
+
+        A stale count is never handed out: a record left over from yesterday answers 0
+        rather than yesterday's number, so a card cannot say «сегодня 5» over a panel
+        that has done nothing since the reset.
+        """
+        today = day_key(when)
+        with self._lock:
+            rec = self._data.get(name) or {}
+            if rec.get("run_day") != today:
+                return 0
+            try:
+                return max(0, int(rec.get("runs_today") or 0))
+            except (TypeError, ValueError):
+                return 0
+
     def take_unfinished(self) -> list[str]:
         """Names whose attempt was still open when this file was read, once.
 
@@ -1861,7 +1901,17 @@ class LastRunStore:
         done = float(when if when is not None else time.time())
         with self._lock:
             began = float((self._data.get(name) or {}).get("started_at") or 0.0)
+        # HOW MANY TIMES TODAY (#2579). The card on «Таймеры» has to show that work is
+        # happening, and for an errand the game will not count for us — «сколько раз был
+        # министром сегодня», «сколько бесплатных наймов забрали» — the panel's own
+        # record of its own schedule is the only free answer there is. It costs nothing:
+        # this file is rewritten on every mark anyway, and no question reaches the game.
+        today = day_key(done)
+        with self._lock:
+            rec = self._data.get(name) or {}
+            runs = int(rec.get("runs_today") or 0) if rec.get("run_day") == today else 0
         self._update(name, {"last_run": done, "failed_at": 0.0, "started_at": 0.0,
+                            "run_day": today, "runs_today": runs + 1,
                             "began_at": began if began and began <= done else done})
 
     def mark_failed(self, name: str, when: float | None = None) -> None:

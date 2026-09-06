@@ -35,6 +35,38 @@ The reading taken is `read_daily_checklist.md` WHOLE rather than the truck alone
 the cost of a play is the round trip and not the work inside it — so the approved cost
 buys the truck and gives eight more lines away for nothing.
 
+## Every card says something now (#2579)
+
+The person asked for the other half of the other half: «карточки должны быть живыми,
+чтобы было видно, что работа идет», with seven rows named one by one. Nothing about the
+rule above changed — no new poll, no new clock, no reading that was not already being
+taken — and three things were added instead:
+
+1. **Four more fields in the ONE granted reading.** `read_daily_checklist.md` is a single
+   round trip whose cost is the trip and not the work inside it, so `tavern_free`,
+   `radar_free`, `radar_helpable` and `ministry_post` are four more `put(...)` lines in a
+   chunk that was already being asked for. They cost nothing measurable and they answer
+   four cards that had been listed as blind below.
+2. **The panel's own record of its own runs.** `LastRunStore` writes down how many times
+   each errand succeeded since the SERVER's midnight (`panel/timers.py`, `run_day` /
+   `runs_today`). It is not a reading at all — the file is rewritten on every mark
+   anyway — and it is what answers «сколько раз был министром сегодня», which the game
+   keeps no counter for.
+3. **A blank is now a SENTENCE.** `of()` never returns `None`: a row with no reading and
+   no record says «живого показания нет». The blindness is still the deliverable — it is
+   just said out loud, because an empty line under a card is indistinguishable from a
+   card whose reading is broken.
+
+The order is strict and it matters: a real reading always wins, the day's count is the
+consolation, and the sentence is the last resort. «Сколько осталось» is what a person
+acts on; «сколько раз запускали» is only proof the row is alive.
+
+**One card is not drawn at all**: «Перезапуск игры» (`HIDDEN_TIMERS` in
+`panel/web/api.py`). «Состояние» already carries the client's three lifecycle presses,
+and the person's words were «карточку перезапуска игры скрыть, это дубль на основной
+странице». The row itself is untouched — the schedule owns it, it still fires, and
+`/api/timers/set` still answers for it.
+
 ## What is free today
 
 | Errand | Line | Where it comes from | Age |
@@ -51,7 +83,20 @@ buys the truck and gives eight more lines away for nothing.
 | `alliance_help` | how many are waiting for help | the same reading | yes |
 | `donate_alliance_tech` | donations left of the 30 | the same reading | yes |
 | `upgrade_decorations` | upgrade steps banked | the same reading | yes |
-| `collect_visitor_gifts`, `recruit_survivors` | guests at the gate (both queues, one number) | the same reading | yes |
+| `collect_visitor_gifts` | gift bearers waiting, and runs today | the same reading | yes |
+| `recruit_survivors` | survivors waiting, and runs today | the same reading | yes |
+| `heal_units` | wounded, or a finished heal standing uncollected | the same reading | yes |
+| `occupation_skills` | profession skills off cooldown | the same reading | yes |
+| `secret_tasks_day` | robberies left of the day's cap, and how many were taken | the same reading | yes |
+| `ghost_recon_alliance` | the same two halves — or «сегодня не проводится» on the six days it is dark | the same reading | yes |
+| `tavern_free_pull` | free pulls the banners are offering, and runs today | the same reading (`tavern_free`, #2579) | yes |
+| `apply_ministry_interior` | whether a post is held, and how many applications took today | the same reading (`ministry_post`) + the panel's own record | yes |
+| `do_radar_tasks`, `do_radar_marches`, `radar_full_cycle` | room on the board and errands needing no march | the same reading (`radar_free`, `radar_helpable`) | yes |
+| `mail_gifts` | attachments still waiting in the Mail | the same reading | yes |
+| `resource_tracker` | the pile standing uncollected | the stock cache | yes |
+| `explorer_chests` | chests the keys buy, with the purse beside it | the same reading | yes |
+| anything else that is a TIMER | how many times it ran today | `timers_last_run.json`, the panel's own record | «today» — no clock |
+| anything else at all | «живого показания нет» | — | — |
 
 «Ripe» is the three clauses both robbers already apply — finished, not expired, not ours
 and not taken, a loot slot free. The LEVEL rule is deliberately not applied: that is the
@@ -60,19 +105,17 @@ answers «есть ли вообще что брать».
 
 ## Where we are blind, and what each would cost
 
-Nothing below has a line, and none of them got one:
+Nothing below has a READING, and none of them got one — since #2579 they draw the
+panel's own count of today's runs instead, or the sentence saying there is nothing:
 
 | Errand | What a person would want | Why it is not free |
 |---|---|---|
 | `collect_alliance_gifts` | gifts uncollected | a per-type reading; the tab reads it only when opened |
 | `alliance_train_board` | is a conductor appointed | the events card reads it on demand; nothing writes it down |
 | `exchange_treasure_pieces`, `piece_exchange` | offers on the board | the board is read when the page is opened; no store |
-| `do_radar_tasks`, `do_radar_marches`, `radar_full_cycle` | free radar slots | `RadarCenterDataManager` — a live read |
-| `tavern_free_pull` | is the free pull up | a client timer, read on demand |
 | `attack_codename_daily` | attacks left today | the manager is empty until asked (`docs/research/codename.md`) |
-| `apply_ministry_interior` | is the post free | a live read |
 | `sweep_star_servers` | zones whose star day is today | not derivable from the launch date — see the section below |
-| `restart_game`, `session_kick`, `inventory_refresh`, `leaderboard_collect`, `secret_task_share`, `ghost_recon_alliance` | — | nothing a number would add |
+| `session_kick`, `inventory_refresh`, `leaderboard_collect`, `secret_task_share` | — | nothing a number would add; they are listeners, so they have no run count either and say «живого показания нет» |
 
 ## The star day: the launch-date formula does NOT reproduce our observations
 

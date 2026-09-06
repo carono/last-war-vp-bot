@@ -90,15 +90,36 @@ class _Daily:
         self.looks += 1
 
 
+class _Schedule:
+    """The panel's own record of its own runs — no game, no clock, one dict (#2579)."""
+
+    class _Timer:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    def __init__(self, runs=None, timers=None) -> None:
+        self._runs = dict(runs or {})
+        names = timers if timers is not None else list(self._runs)
+        self.timer_catalogue = [self._Timer(n) for n in names]
+        self.store = self
+
+    def runs_today(self, name: str, when=None) -> int:
+        return int(self._runs.get(name, 0))
+
+
 class _Rt:
     """Just enough runtime: a store, a profile's files, and the two caches."""
 
     def __init__(self, root: Path, blobs=None, rows=(), age=1.5, daily=None,
-                 daily_age=8.0) -> None:
+                 daily_age=8.0, runs=None, timers=None) -> None:
         self.store = _Store(blobs)
         self.profiles = _Profiles(root)
         self.resources = _Resources(rows, age)
         self.daily_reads = _Daily(daily, daily_age)
+        # …and the schedule, which since #2579 is where «сколько раз сегодня» comes from.
+        # `None` is the ordinary case in these tests and it is not an error: a provider
+        # that cannot reach a schedule loses the count, never the line.
+        self.schedule = _Schedule(runs, timers)
 
     # The two doors a stat must never find: playing anything, or taking the link.
     def play_async(self, *a, **k):
@@ -161,9 +182,9 @@ def test_the_pile_waiting_to_be_collected_is_the_sum_of_the_buildings():
 def test_a_stock_nobody_has_read_says_nothing_rather_than_zero():
     """`age` of -1 is «never read» — a line saying «+0 ждёт сбора» would be a lie."""
     rt = _rt(rows=[], age=-1)
-    assert statsmod.of(rt, "collect_base_resources") is None
+    assert statsmod.of(rt, "collect_base_resources") == {"key": "timers.stat.none", "fmt": {}, "age": None}
     rt = _rt(rows=[{"pending": 0}], age=3.0)
-    assert statsmod.of(rt, "collect_base_resources") is None
+    assert statsmod.of(rt, "collect_base_resources") == {"key": "timers.stat.none", "fmt": {}, "age": None}
 
 
 def test_a_days_tally_carries_no_age():
@@ -241,22 +262,26 @@ def test_the_treasure_line_comes_off_the_checkpoint_with_its_age():
     assert stat["key"] == "timers.stat.chests" and stat["fmt"] == {"n": 2}
     assert stat["age"] is not None and stat["age"] < 60
 
-    # With no capture ever run there is no file, and therefore no line.
-    assert statsmod.of(_rt(), "treasure_auto") is None
+    # With no capture ever run there is no file, and therefore no COUNT — the row
+    # says so in words instead (#2579), because a card that says nothing at all is what
+    # the person could not tell from a card that is broken.
+    assert statsmod.of(_rt(), "treasure_auto") == {"key": "timers.stat.none", "fmt": {}, "age": None}
 
 
-def test_an_errand_nobody_can_answer_for_free_has_no_line():
-    """The blank is the deliverable: it says «мы слепы», and a poll would hide that.
+def test_an_errand_nobody_can_answer_for_free_says_so_in_words():
+    """The blindness is still the deliverable — it is just no longer a BLANK (#2579).
 
-    These are the ones no reading the panel takes can answer — not even the checklist's
-    (#2019): the tavern's free pull, «Кодовое имя», the radar board, the ministry.
+    A poll would hide it and none was written; what changed is that «нечего показать» is
+    now SAID. The person asked for cards that show work is happening, and a card with an
+    empty line under it is indistinguishable from one whose reading is broken.
+
+    These are the ones no reading the panel takes can answer, not even the checklist's:
+    the alliance gift box, «Кодовое имя», the listener that watches for a kick.
     """
     rt = _rt()
-    for errand in ("restart_game", "tavern_free_pull", "collect_alliance_gifts",
-                   "attack_codename_daily", "do_radar_tasks", "session_kick",
-                   "apply_ministry_interior"):
+    for errand in ("collect_alliance_gifts", "attack_codename_daily", "session_kick"):
         assert errand not in statsmod.PROVIDERS
-        assert statsmod.of(rt, errand) is None
+        assert statsmod.of(rt, errand) == {"key": "timers.stat.none", "fmt": {}, "age": None}
 
 
 def test_a_provider_that_throws_costs_the_line_and_nothing_else():
@@ -266,7 +291,7 @@ def test_a_provider_that_throws_costs_the_line_and_nothing_else():
 
     rt = _rt()
     rt.store = _Boom()
-    assert statsmod.of(rt, "rally_auto_join") is None
+    assert statsmod.of(rt, "rally_auto_join") == {"key": "timers.stat.none", "fmt": {}, "age": None}
 
 
 
@@ -284,16 +309,21 @@ def test_the_eight_lines_that_ride_on_one_reading():
     assert statsmod.of(rt, "alliance_help")["fmt"] == {"n": 7}
     assert statsmod.of(rt, "donate_alliance_tech")["fmt"] == {"n": 17}
     assert statsmod.of(rt, "upgrade_decorations")["fmt"] == {"n": 5}
-    # The two queues are one number a person acts on, not two to add up.
-    assert statsmod.of(rt, "collect_visitor_gifts")["fmt"] == {"n": 3}
-    assert statsmod.of(rt, "recruit_survivors")["fmt"] == {"n": 3}
+    # …AND THE TWO QUEUES ARE TWO ROWS AGAIN (#2579). They shared one number — the
+    # gate's whole crowd — and the person asked each card for its own: «Подарки
+    # выжившего … сколько выживших ждет … Сбор выживших аналогично». `today` is the
+    # panel's own record of its own runs, 0 on a runtime with no schedule.
+    assert statsmod.of(rt, "collect_visitor_gifts")["fmt"] == {"n": 2, "today": 0}
+    assert statsmod.of(rt, "recruit_survivors")["fmt"] == {"n": 1, "today": 0}
 
 
-def test_a_reading_never_taken_draws_no_line():
-    assert statsmod.of(_rt(daily={}, daily_age=-1), "collect_truck_resources") is None
-    # …and a client that would not answer that one field is not a zero either.
+def test_a_reading_never_taken_draws_no_number():
+    assert statsmod.of(_rt(daily={}, daily_age=-1),
+                       "collect_truck_resources") == {"key": "timers.stat.none", "fmt": {}, "age": None}
+    # …and a client that would not answer that one field is not a zero either: the row
+    # says «нечего показать», never «0 грузовиков ждёт».
     rt = _rt(daily={"help_waiting": 1}, daily_age=4.0)
-    assert statsmod.of(rt, "collect_truck_resources") is None
+    assert statsmod.of(rt, "collect_truck_resources") == {"key": "timers.stat.none", "fmt": {}, "age": None}
 
 
 def test_the_reading_is_booked_by_a_look_and_by_nothing_else():
@@ -402,10 +432,104 @@ def test_every_row_the_phone_draws_carries_its_picture_and_its_line():
     # same card, so the reading is rendered once and handed in three times. It used to
     # be three renderings, and the count that checked for them went on passing at 1 for
     # two releases — so the thing counted is what actually differs now.
-    assert card.count("<Stat stat=") == 2, (
+    assert card.count("<Reading stat=") == 2, (
         "the reading is drawn once per shape — in the body, or in the foot of a cover")
+    assert card.count("<Stat stat=") == 1, "…and one renderer behind both of them"
     assert view.count("stat={row.stat}") == 3, "a timer, a listener and an order each"
     assert "timers.stat.age" in card, "the age is drawn beside the number"
+
+
+# ---------------------------------------------------------------------------
+# every card says something (#2579)
+# ---------------------------------------------------------------------------
+def test_the_day_count_is_the_last_answer_and_never_the_first():
+    """A row with a real reading keeps it; one without falls back on the panel's own."""
+    rt = _rt(daily={"help_waiting": 7}, daily_age=3.0,
+             runs={"alliance_help": 4, "collect_alliance_gifts": 2},
+             timers=["collect_alliance_gifts"])
+    # «alliance_help» has a reading of its own, so the count does not get in front of it.
+    assert statsmod.of(rt, "alliance_help") == {
+        "key": "timers.stat.help", "fmt": {"n": 7}, "age": 3.0}
+    # …and the gift box, which nothing can answer, says how often it ran today instead.
+    assert statsmod.of(rt, "collect_alliance_gifts") == {
+        "key": "timers.stat.today", "fmt": {"n": 2}, "age": None}
+
+
+def test_a_timer_that_has_not_run_today_says_so_and_a_listener_says_it_differently():
+    """«Сегодня ещё не запускалось» is a timer's answer; a listener keeps no record."""
+    rt = _rt(timers=["collect_alliance_gifts"])
+    assert statsmod.of(rt, "collect_alliance_gifts") == {
+        "key": "timers.stat.today_none", "fmt": {}, "age": None}
+    assert statsmod.of(rt, "session_kick") == {
+        "key": "timers.stat.none", "fmt": {}, "age": None}
+
+
+def test_the_day_count_is_no_older_than_today():
+    """It carries no age on purpose: «сегодня» is the whole truth about when it is from."""
+    rt = _rt(runs={"restart_game": 3}, timers=["restart_game"])
+    assert statsmod.of(rt, "restart_game")["age"] is None
+
+
+def test_the_trucks_say_what_is_left_and_what_is_standing_ready():
+    """«сколько осталось рейсов, сколько в пути» — both halves off the one reading."""
+    rt = _rt(daily={"trucks_send_left": 2, "trucks_send_cap": 4, "trucks_idle": 1},
+             daily_age=5.0)
+    assert statsmod.of(rt, "send_trucks") == {
+        "key": "timers.stat.trucks_send", "fmt": {"n": 2, "all": 4, "ready": 1},
+        "age": 5.0}
+    # A client that would not answer the third field keeps the two it did.
+    rt = _rt(daily={"trucks_send_left": 2, "trucks_send_cap": 4}, daily_age=5.0)
+    assert statsmod.of(rt, "send_trucks")["key"] == "timers.stat.trucks_out"
+
+
+def test_the_days_secret_tasks_are_the_quota_and_not_the_map():
+    """«сколько осталось, сколько собрал» — and the ★ autoloot keeps the tile list."""
+    rt = _rt(daily={"steal_left": 3, "steal_cap": 5}, daily_age=2.0)
+    assert statsmod.of(rt, "secret_tasks_day") == {
+        "key": "timers.stat.steals", "fmt": {"n": 3, "all": 5, "done": 2}, "age": 2.0}
+
+
+def test_a_shut_event_says_it_is_shut_rather_than_showing_a_quota():
+    """The ghost quota means nothing on the six days «Операция Призрак» is not on."""
+    rt = _rt(daily={"ghost_open": 0, "ghost_left": 5, "ghost_cap": 5}, daily_age=1.0)
+    assert statsmod.of(rt, "ghost_recon_alliance")["key"] == "timers.stat.ghost_closed"
+    rt = _rt(daily={"ghost_open": 1, "ghost_left": 4, "ghost_cap": 5}, daily_age=1.0)
+    assert statsmod.of(rt, "ghost_recon_alliance")["fmt"] == {"n": 4, "all": 5, "done": 1}
+
+
+def test_the_ministry_counts_the_applications_that_actually_took():
+    """A run only succeeds when the post was granted, so the count is «был министром»."""
+    rt = _rt(daily={"ministry_post": 10007}, daily_age=6.0,
+             runs={"apply_ministry_interior": 2},
+             timers=["apply_ministry_interior"])
+    assert statsmod.of(rt, "apply_ministry_interior") == {
+        "key": "timers.stat.ministry_held", "fmt": {"today": 2}, "age": 6.0}
+    rt = _rt(daily={"ministry_post": 0}, daily_age=6.0,
+             timers=["apply_ministry_interior"])
+    assert statsmod.of(rt, "apply_ministry_interior")["key"] == \
+        "timers.stat.ministry_free"
+
+
+def test_the_four_new_fields_are_read_by_the_one_reading():
+    """The tavern, the radar and the ministry ride on the chunk that was granted (#2019).
+
+    Not one of them is a reading of its own: they are `put(...)` lines inside the same
+    round trip the truck's bubble already pays for, which is the whole reason they were
+    free to add.
+    """
+    text = (_REPO / "src" / "lastwar_bot" / "actions"
+            / "read_daily_checklist.md").read_text(encoding="utf-8")
+    for field in ("tavern_free", "radar_free", "radar_helpable", "ministry_post"):
+        assert "put('%s'" % field in text, field
+    body = [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    assert len(body) == 1 and body[0].startswith("READ_LUA "), "still ONE round trip"
+
+
+def test_the_restart_card_is_not_drawn_among_the_errands():
+    """«Состояние» already has the press — the second drawing was the person's complaint."""
+    api = (_REPO / "panel" / "web" / "api.py").read_text(encoding="utf-8")
+    assert 'HIDDEN_TIMERS = frozenset({"restart_game"})' in api
+    assert "if timer.name in HIDDEN_TIMERS:" in api
 
 
 def _run_standalone() -> int:

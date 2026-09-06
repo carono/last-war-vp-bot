@@ -10226,6 +10226,40 @@ def recruit_state() -> str:
     )
 
 
+def tavern_free_pulls() -> str:
+    """Lua *expression* -> how many free pulls the tavern is offering RIGHT NOW.
+
+    Every hero banner the client is currently showing carries a free pull on a clock of
+    its own, and the survivors' banner carries one more (docs/research/recruit-draw.md
+    §3), so the answer is how many banners answer yes to their OWN `CanFreeRecruit()` —
+    the client's gate, called and never re-implemented, exactly as
+    `actions/tavern_free_pull.md` calls it before each pull it takes.
+
+    `nil` — a dash, never a zero — when no banner answers at all. A client that is not
+    logged in says «no free pull» to every question with a perfectly straight face
+    (#1227), and drawn as a zero that reads as «сегодня всё забрано».
+    """
+    return ("(function() local M = DataCenter.LotteryDataManager "
+            "if M == nil then return nil end "
+            "local seen, free = 0, 0 "
+            "pcall(function() for _, id in pairs(M.curRecruitIdList or {}) do "
+            "local v = nil "
+            "pcall(function() v = M:GetLotteryDataById(id) end) "
+            "if v == nil then pcall(function() "
+            "v = M:GetLotteryDataById(tostring(id)) end) end "
+            "if v ~= nil then seen = seen + 1 "
+            "local ok = false "
+            "pcall(function() ok = v:CanFreeRecruit() and true or false end) "
+            "if ok then free = free + 1 end end end end) "
+            "local wl = nil pcall(function() "
+            "wl = DataCenter.WorkerLotteryDataManager:GetWorkerLotteryData() end) "
+            "if wl ~= nil then seen = seen + 1 "
+            "local ok = false "
+            "pcall(function() ok = wl:CanFreeRecruit() and true or false end) "
+            "if ok then free = free + 1 end end "
+            "if seen == 0 then return nil end return free end)()")
+
+
 def recruit_draw() -> str:
     """Pull on the banner parked in ``DataCenter.__lw_recruit_*`` — one message, no window.
 
