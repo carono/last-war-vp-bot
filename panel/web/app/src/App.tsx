@@ -3,7 +3,7 @@ import { get, ping, post, setProfile, Unauthorised } from './api'
 import { useRoute, type Route, type ViewName } from './route'
 import { loadWords, span, t, type Words } from './i18n'
 import { Modal } from './ui/Modal'
-import { ToastHost, useToast } from './ui/Toast'
+import { ToastHost } from './ui/Toast'
 import { applyTheme, isTheme, type Theme } from './ui/theme'
 import { ActionsView } from './views/ActionsView'
 import { LoginView } from './views/LoginView'
@@ -100,7 +100,6 @@ function AccountSheet({
   onOpen: (name: string) => void
   onClose: () => void
 }) {
-  const toast = useToast()
   return (
     <Modal title={t('web.ui.accounts')} onClose={onClose}>
       <div className="accounts">
@@ -113,10 +112,6 @@ function AccountSheet({
               if (!account.open) {
                 onOpen(account.name)
                 return
-              }
-              // The light's own sentence, said on the way — the chips' one gift, kept.
-              if (account.tip?.length || account.text) {
-                toast((account.tip || [account.text || '']).join(' · '))
               }
               onPick(account.name)
             }}

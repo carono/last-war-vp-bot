@@ -2428,8 +2428,13 @@ def test_the_page_carries_one_switcher_and_it_is_the_account_face():
     # THE SHEET IS THE ONE MODAL (#2061, «модалки да, переиспользуем»), never a second.
     assert "<Modal title={t('web.ui.accounts')}" in app, \
         "the account list is not drawn in the shared modal"
-    # …and it still switches, still explains the light, and still lists the closed ones.
+    # …and it still switches and still lists the closed ones. The light's explanation
+    # belongs to the persistent «Game and link» card, not to a transient toast that
+    # interrupts every profile switch (#2593).
     assert "onPick(account.name)" in app, "a row no longer switches to that account"
+    account_sheet = app[app.index("function AccountSheet("):app.index("function StatusStrip(")]
+    assert "useToast()" not in account_sheet and "toast(" not in account_sheet, \
+        "switching an account still raises the client-data toast"
     # …AND THE PICK WRITES THE ADDRESS (#2050): the account is in the route, so a reload
     # comes back to the same one. It goes through `switchProfile`, which is the only
     # thing on this page allowed to move between accounts, and that goes through `leave`
@@ -2439,7 +2444,9 @@ def test_the_page_carries_one_switcher_and_it_is_the_account_face():
         "the account pick does not go through the one mover"
     assert "const switchProfile = useCallback(" in app and "leave({ profile: name" in app, \
         "switching an account no longer writes it into the address"
-    assert "account.tip" in app, "the light's own sentence was lost with the chips"
+    state_view = (_APP_SRC / "views" / "StateView.tsx").read_text(encoding="utf-8")
+    assert "state.link.shared" in state_view and "'web.ui.link.shared'" in state_view, \
+        "the shared-client warning was lost instead of staying in Game and link"
     assert "onOpen(account.name)" in app, "a closed profile cannot be opened from the list"
     css = _css()
     assert "select.picker" not in css, "the picker's rule outlived the picker"
