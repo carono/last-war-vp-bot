@@ -221,8 +221,15 @@ def test_merge_new_appends_the_missing_builtins_switched_off():
     assert grown.names()[0] == "alliance_help"          # the old entry stays first
     # everything the built-in list ships is now on the list…
     assert set(grown.names()) >= {t.name for t in triggersmod.DEFAULT_TRIGGERS}
-    # …and every newcomer arrives opt-in, so a start cannot begin acting on its own
-    assert all(grown.by_name(name).enabled is False for name in added)
+    # …and every newcomer arrives EXACTLY AS IT SHIPS. That used to mean «switched
+    # off, so a start cannot begin acting on its own»; since #2390 it means whatever
+    # the built-in row says, because a new ability ships switched on and the rows
+    # written under the old rule keep their explicit `enabled=False`. What must never
+    # happen is the adoption deciding for itself — a switch flipped by an update is
+    # the panel changing an account's behaviour with nobody asking for it.
+    ships = {t.name: t.enabled for t in triggersmod.DEFAULT_TRIGGERS}
+    for name in added:
+        assert grown.by_name(name).enabled is ships[name]
 
 
 def test_a_stored_check_never_outlives_the_code_that_wrote_it():

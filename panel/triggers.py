@@ -796,6 +796,24 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.alliance_train_board",
     ),
     Trigger(
+        name="alliance_star_ceremony",
+        # THE MOMENT THE CEREMONY EXISTS. «Звезда альянса» is held once a week and the
+        # server announces it — `push.alliance.star.ceremony.info` — so the likes go out
+        # when the board appears instead of at whatever hour a clock happened to point
+        # at (`CLAUDE.md`, «Read once, then LISTEN»). The Sunday errand beside it is the
+        # safety net for a panel that was shut when the push went past.
+        #
+        # Every gate is in the recipe and every one of them is the SERVER's own flag: no
+        # ceremony, a star that already carries our like, a chest already claimed. So a
+        # push heard twice costs one round trip and a sentence. Nothing it does can
+        # spend anything: a like is free and the two chests are paid out of a week that
+        # has already been played, which is why it ships switched on (#2390).
+        kind=KIND_WIRE,
+        event_pattern="push.alliance.star.ceremony.info",
+        scenario=("work_alliance_star",),
+        label_key="triggers.item.alliance_star_ceremony",
+    ),
+    Trigger(
         name="explorer_chests",
         # THE ONE MOMENT THE KEYS CAN ARRIVE (#2381). «Ключ исследователя» is paid out by
         # our OWN finished secret tasks and by nothing else, so a chest becomes openable

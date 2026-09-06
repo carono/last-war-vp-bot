@@ -776,6 +776,27 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.play_frontline_breakthrough",
     ),
     Timer(
+        name="work_alliance_star",
+        scenario=("work_alliance_star",),
+        # SUNDAY, and named as a weekday for the same reason «Прорыв обороны» is: the
+        # ceremony is held once a week and a period would drift off the day it belongs
+        # to. The recipe's own first question is «is there a ceremony right now», so a
+        # Sunday that fires before the ceremony opens costs one round trip and says so.
+        weekdays=(7,),
+        # What the row falls back to if its days are ever cleared, and never consulted
+        # while they are set.
+        interval_sec=7 * DAY_SEC,
+        # An hour. A run FAILS when the client is not answering; the ceremony itself
+        # opening later in the day is a clean success that pressed nothing, so the retry
+        # is for a dead client rather than for a shut event.
+        retry_sec=3600,
+        # NO `enabled=` ON PURPOSE (#2390): a new ability ships switched on. Nothing
+        # here can spend anything — a like is free and the two chests are paid out of
+        # the week that has already been played.
+        args={"emoji": 1},
+        label_key="timers.item.work_alliance_star",
+    ),
+    Timer(
         name="work_alert_tower",
         scenario=("work_alert_tower",),
         # AN HOUR, and the row rarely uses it: the training march is four hours long and

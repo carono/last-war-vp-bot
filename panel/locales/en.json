@@ -2852,5 +2852,11 @@
   "web.ui.accounts.closed": "closed",
   "web.ui.accounts.pick": "Pick an account",
   "web.ui.accounts.unread": "never read",
-  "chat.picker.open": "Emoji and stickers"
+  "chat.picker.open": "Emoji and stickers",
+  "timers.item.work_alliance_star": "«Alliance Star»: like every star, take both chests",
+  "triggers.item.alliance_star_ceremony": "Like the alliance stars when the ceremony is announced",
+  "timers.stat.alliance_star": "likes: {n} of {all} · chests: {chests} of {boxes}",
+  "timers.stat.alliance_star_closed": "no ceremony right now",
+  "errand.arg.alliance_star.emoji": "Reaction",
+  "errand.arg.alliance_star.emoji.hint": "Which of the five ceremony reactions the like is given with. The chest counts likes, not faces."
 }

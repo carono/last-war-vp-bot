@@ -2852,5 +2852,11 @@
   "web.ui.accounts.closed": "fechado",
   "web.ui.accounts.pick": "Escolher conta",
   "web.ui.accounts.unread": "nunca lido",
-  "chat.picker.open": "Emojis e figurinhas"
+  "chat.picker.open": "Emojis e figurinhas",
+  "timers.item.work_alliance_star": "«Estrela da aliança»: curtir todas e pegar os dois baús",
+  "triggers.item.alliance_star_ceremony": "Curtir as estrelas da aliança quando a cerimónia for anunciada",
+  "timers.stat.alliance_star": "curtidas: {n} de {all} · baús: {chests} de {boxes}",
+  "timers.stat.alliance_star_closed": "não está a decorrer agora",
+  "errand.arg.alliance_star.emoji": "Reação",
+  "errand.arg.alliance_star.emoji.hint": "Com qual das cinco reações da cerimónia a curtida é dada. O baú conta curtidas, não caras."
 }

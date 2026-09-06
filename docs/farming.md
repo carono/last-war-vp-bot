@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **37%** — 70 of 187
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 71 of 188
 
-🟩 70 done · 🟨 86 partly · 🟥 31 not automated
+🟩 71 done · 🟨 86 partly · 🟥 31 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -146,6 +146,14 @@ minister hands out" — the recording shows it is the profession tree, not a pos
   score. Three were played end to end in a live run; the row itself ships switched off,
   so it only starts once the person ticks it. A day the event is not open for the account
   is said plainly and tried again later in the day instead of being ground at.
+- ✅ Alliance Star («Звезда альянса», the weekly ceremony) — one press likes every star of
+  the week and takes both chests the likes pay: the one for liking and the one for taking
+  part. Fourteen stars in a live run, all liked in one go, and both chests claimed; a
+  second press on the same day says every star already has our like and that the chests
+  are gone, and presses nothing. Nothing is spent — a like is free and the chests come out
+  of a week that has already been played. It runs by itself two ways: the moment the game
+  announces the ceremony, and as a Sunday row if the panel was shut when the announcement
+  went past. Its card says «лайков поставлено N из M · сундуков забрано K из 2».
 
 ### Arms Race
 

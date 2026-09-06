@@ -489,6 +489,27 @@ def test_the_days_secret_tasks_are_the_quota_and_not_the_map():
         "key": "timers.stat.steals", "fmt": {"n": 3, "all": 5, "done": 2}, "age": 2.0}
 
 
+def test_the_weekly_ceremony_says_its_likes_and_its_two_chests():
+    """«лайков 14 из 14 · сундуков 2 из 2» — both halves off the one reading (#2584)."""
+    rt = _rt(daily={"alstar_open": 1, "alstar_stars": 14, "alstar_liked": 14,
+                    "alstar_chests": 2}, daily_age=3.0)
+    assert statsmod.of(rt, "work_alliance_star") == {
+        "key": "timers.stat.alliance_star",
+        "fmt": {"n": 14, "all": 14, "chests": 2, "boxes": 2}, "age": 3.0}
+    # A week with no ceremony says so in words: a «0 из 0» on the other six days reads
+    # as a broken card rather than as a shut event.
+    rt = _rt(daily={"alstar_open": 0}, daily_age=1.0)
+    assert statsmod.of(rt, "work_alliance_star")["key"] == \
+        "timers.stat.alliance_star_closed"
+    # …and a client that was never told about a ceremony at all answers a dash, which
+    # is no reading rather than a zero — the row falls back on what the panel itself
+    # knows (#2579), and says neither «0 из 0» nor «не проводится».
+    rt = _rt(daily={}, daily_age=1.0)
+    assert statsmod._alliance_star(rt) is None
+    assert statsmod.of(rt, "work_alliance_star")["key"] not in (
+        "timers.stat.alliance_star", "timers.stat.alliance_star_closed")
+
+
 def test_a_shut_event_says_it_is_shut_rather_than_showing_a_quota():
     """The ghost quota means nothing on the six days «Операция Призрак» is not on."""
     rt = _rt(daily={"ghost_open": 0, "ghost_left": 5, "ghost_cap": 5}, daily_age=1.0)

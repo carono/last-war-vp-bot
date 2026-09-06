@@ -501,6 +501,34 @@ def _radar(rt) -> "dict | None":
                     "help": _int(values.get("radar_helpable"))}, "age": age}
 
 
+def _alliance_star(rt) -> "dict | None":
+    """«Лайков 14 из 14 · сундуков 2 из 2» — the week's ceremony, off the one reading.
+
+    Four more fields in the chunk «Таймеры» already asks for (#2584), so the card costs
+    the game nothing: whether a ceremony is running, how many stars are on its board, how
+    many of them carry a like of ours, and how many of the two chests have been taken.
+
+    A ceremony that is not running says so in words — the event is held one day a week
+    and a «0 из 0» on the other six reads as a broken card rather than as a shut event,
+    which is the same distinction `_ghost_steals` makes. A client that has never been
+    told about a ceremony at all answers a dash, and a dash is `None` here: the row then
+    falls back on the panel's own count of today's runs.
+    """
+    values, age = _daily(rt)
+    if "alstar_open" not in values:
+        return None
+    if not _int(values.get("alstar_open")):
+        return {"key": "timers.stat.alliance_star_closed", "fmt": {}, "age": age}
+    if "alstar_stars" not in values:
+        return None
+    return {"key": "timers.stat.alliance_star",
+            "fmt": {"n": _int(values.get("alstar_liked")),
+                    "all": _int(values.get("alstar_stars")),
+                    "chests": _int(values.get("alstar_chests")),
+                    "boxes": 2},
+            "age": age}
+
+
 def _arms_chests(rt) -> "dict | None":
     """«Сундуков сегодня: 9 · фаз: 3» — what «Гонка вооружений» has paid today.
 
@@ -573,6 +601,9 @@ PROVIDERS: dict = {
     # …and the arms race, whose day the panel books itself because the game forgets a
     # phase the moment it ends (#2579).
     "perform_arms_race": _arms_chests,
+    # …and the week's ceremony (#2584), whose two numbers ride on the same reading.
+    "work_alliance_star": _alliance_star,
+    "alliance_star_ceremony": _alliance_star,
     # …the listener that watches the same pile the errand collects, and the one that
     # watches the same chests.
     "resource_tracker": _pending_resources,

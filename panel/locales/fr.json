@@ -2852,5 +2852,11 @@
   "web.ui.accounts.closed": "fermé",
   "web.ui.accounts.pick": "Choisir un compte",
   "web.ui.accounts.unread": "jamais lu",
-  "chat.picker.open": "Émojis et autocollants"
+  "chat.picker.open": "Émojis et autocollants",
+  "timers.item.work_alliance_star": "« Étoile d'alliance » : aimer toutes les étoiles, prendre les deux coffres",
+  "triggers.item.alliance_star_ceremony": "Aimer les étoiles de l'alliance dès l'annonce de la cérémonie",
+  "timers.stat.alliance_star": "j'aime : {n} sur {all} · coffres : {chests} sur {boxes}",
+  "timers.stat.alliance_star_closed": "pas de cérémonie en ce moment",
+  "errand.arg.alliance_star.emoji": "Réaction",
+  "errand.arg.alliance_star.emoji.hint": "Avec laquelle des cinq réactions de la cérémonie le j'aime est donné. Le coffre compte les j'aime, pas les visages."
 }

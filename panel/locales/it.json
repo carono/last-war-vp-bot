@@ -2852,5 +2852,11 @@
   "web.ui.accounts.closed": "chiuso",
   "web.ui.accounts.pick": "Scegli un account",
   "web.ui.accounts.unread": "mai letto",
-  "chat.picker.open": "Emoji e adesivi"
+  "chat.picker.open": "Emoji e adesivi",
+  "timers.item.work_alliance_star": "«Stella dell'alleanza»: mettere mi piace a tutte e prendere i due forzieri",
+  "triggers.item.alliance_star_ceremony": "Mettere mi piace alle stelle quando la cerimonia viene annunciata",
+  "timers.stat.alliance_star": "mi piace: {n} su {all} · forzieri: {chests} su {boxes}",
+  "timers.stat.alliance_star_closed": "al momento non si tiene",
+  "errand.arg.alliance_star.emoji": "Reazione",
+  "errand.arg.alliance_star.emoji.hint": "Con quale delle cinque reazioni della cerimonia viene messo il mi piace. Il forziere conta i mi piace, non le faccine."
 }

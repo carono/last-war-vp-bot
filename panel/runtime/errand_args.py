@@ -140,6 +140,28 @@ SPEC: dict = {
         _flag("chests", "errand.arg.heal.chests",
               hint_key="errand.arg.heal.chests.hint"),
     ),
+    # THE ALERT TOWER (#2084). The errand claims what the training march finished,
+    # pays the tasks that ask for something out of the bag, and spends the day's one
+    # start. Each of those is a decision about somebody's own account — the handover
+    # spends items — so all three are switches rather than a rule written into the
+    # recipe, and they are drawn on «Вышка оповещения» as well as here.
+    # THE WEEK'S CEREMONY (#2584). One knob, and it is cosmetic on purpose: the chest
+    # counts LIKES and not faces, so which of the five ceremony reactions goes out is
+    # the person's taste and nothing else. Everything that could be a rule here is the
+    # server's own flag instead — a star already liked, a chest already claimed — and
+    # a rule this recipe kept would be a second copy of the server's answer.
+    "work_alliance_star": (
+        _num("emoji", "errand.arg.alliance_star.emoji", low=1, high=5,
+             hint_key="errand.arg.alliance_star.emoji.hint"),
+    ),
+    "work_alert_tower": (
+        _flag("give_goods", "alerttower.give_goods",
+              hint_key="alerttower.give_goods.hint"),
+        _flag("start_run", "alerttower.start_run",
+              hint_key="alerttower.start_run.hint"),
+        _flag("take_box", "alerttower.take_box",
+              hint_key="alerttower.take_box.hint"),
+    ),
     # WHAT THE SHOP GIVES FOR NOTHING (#2395). Four claims, and each is a decision
     # about somebody's own account rather than a rule: the daily free gift of the
     # week-card page, the daily reward of the week and month cards already bought, the

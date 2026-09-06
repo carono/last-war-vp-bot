@@ -2852,5 +2852,11 @@
   "web.ui.accounts.closed": "zamknięty",
   "web.ui.accounts.pick": "Wybierz konto",
   "web.ui.accounts.unread": "nigdy nie czytane",
-  "chat.picker.open": "Emotki i naklejki"
+  "chat.picker.open": "Emotki i naklejki",
+  "timers.item.work_alliance_star": "«Gwiazda sojuszu»: polub wszystkie i odbierz dwie skrzynie",
+  "triggers.item.alliance_star_ceremony": "Polub gwiazdy sojuszu, gdy ceremonia zostanie ogłoszona",
+  "timers.stat.alliance_star": "polubienia: {n} z {all} · skrzynie: {chests} z {boxes}",
+  "timers.stat.alliance_star_closed": "teraz się nie odbywa",
+  "errand.arg.alliance_star.emoji": "Reakcja",
+  "errand.arg.alliance_star.emoji.hint": "Którą z pięciu reakcji ceremonii dodawane jest polubienie. Skrzynia liczy polubienia, nie buźki."
 }

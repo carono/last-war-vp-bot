@@ -2852,5 +2852,11 @@
   "web.ui.accounts.closed": "geschlossen",
   "web.ui.accounts.pick": "Konto wählen",
   "web.ui.accounts.unread": "nie gelesen",
-  "chat.picker.open": "Emojis und Sticker"
+  "chat.picker.open": "Emojis und Sticker",
+  "timers.item.work_alliance_star": "«Allianzstern»: alle Sterne liken, beide Truhen holen",
+  "triggers.item.alliance_star_ceremony": "Allianzsterne liken, sobald die Zeremonie angekündigt ist",
+  "timers.stat.alliance_star": "Likes: {n} von {all} · Truhen: {chests} von {boxes}",
+  "timers.stat.alliance_star_closed": "findet gerade nicht statt",
+  "errand.arg.alliance_star.emoji": "Reaktion",
+  "errand.arg.alliance_star.emoji.hint": "Mit welcher der fünf Zeremonie-Reaktionen das Like vergeben wird. Die Truhe zählt Likes, nicht Gesichter."
 }
