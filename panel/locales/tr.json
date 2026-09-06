@@ -2330,6 +2330,7 @@
   "log.link.attach_failed": "istemci ele alınamadı: {error}",
   "log.link.attach_busy": "istemci meşgul — panel {minutes} dakikadır onu devralamıyor; zamanlama bekliyor",
   "log.link.attach_stuck": "istemci hâlâ devralınamıyor — {minutes} dakikadır: {error}",
+  "log.link.attach_stuck_quiet": "istemci hâlâ tutulamıyor — {minutes} dakikadır",
   "log.link.session_failed": "diğer Windows oturumundaki istemciye ulaşılamadı: {error}",
   "log.link.session_silent": "diğer Windows oturumu {port} portunda yanıt vermiyor",
   "log.link.port_taken": "{port} portu başka bir şey tarafından tutuluyor — alt araçlar bu profile ulaşamıyor",

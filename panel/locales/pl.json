@@ -2330,6 +2330,7 @@
   "log.link.attach_failed": "nie udało się przejąć klienta: {error}",
   "log.link.attach_busy": "klient jest zajęty — panel nie może go przejąć od {minutes} min; harmonogram czeka",
   "log.link.attach_stuck": "nadal nie da się przejąć klienta — od {minutes} min: {error}",
+  "log.link.attach_stuck_quiet": "wciąż nie da się uchwycić klienta — już {minutes} min",
   "log.link.session_failed": "nie można dosięgnąć klienta w drugiej sesji Windows: {error}",
   "log.link.session_silent": "druga sesja Windows nie odpowiada na porcie {port}",
   "log.link.port_taken": "port {port} jest zajęty — narzędzia potomne nie dosięgną tego profilu",

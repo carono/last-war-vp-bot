@@ -2330,6 +2330,7 @@
   "log.link.attach_failed": "non è stato possibile agganciare il client: {error}",
   "log.link.attach_busy": "il client è occupato — il pannello non riesce a prenderlo da {minutes} min; la pianificazione attende",
   "log.link.attach_stuck": "il client resta non agganciabile — da {minutes} min: {error}",
+  "log.link.attach_stuck_quiet": "il client resta irraggiungibile — già da {minutes} min",
   "log.link.session_failed": "impossibile raggiungere il client nell'altra sessione di Windows: {error}",
   "log.link.session_silent": "l'altra sessione di Windows non risponde sulla porta {port}",
   "log.link.port_taken": "la porta {port} è occupata: gli strumenti figli non raggiungono questo profilo",

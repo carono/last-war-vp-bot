@@ -504,9 +504,22 @@ class GameLink:
                 return
             self._said_at = now
             mins = max(1, int((now - (since or at)) // 60))
-            busy = self.BUSY_MARK in str(fmt.get("error") or "")
-            self._log.say("link", "log.link.attach_busy" if busy
-                          else "log.link.attach_stuck", minutes=mins, **fmt)
+            reason = str(fmt.get("error") or "")
+            busy = self.BUSY_MARK in reason
+            # THE REPEAT LINE IS BUILT FROM A DIFFERENT KEY THAN THE FIRST ONE, so it
+            # needs what THAT key names and nothing else (#2578). `log.link.attach_stuck`
+            # wants an `{error}`, and one of the three callers above has none to give —
+            # `session_silent` carries a port. Handing the key a `fmt` without `error`
+            # made the whole line fall back to its own template, so the person read
+            # «уже {minutes} мин: {error}» for hours: not merely ugly, it is the one line
+            # that was supposed to say HOW LONG the client had been out of reach.
+            if busy:
+                self._log.say("link", "log.link.attach_busy", minutes=mins)
+            elif reason:
+                self._log.say("link", "log.link.attach_stuck",
+                              minutes=mins, error=reason)
+            else:
+                self._log.say("link", "log.link.attach_stuck_quiet", minutes=mins)
             return
         self._said_fail, self._said_at, self._fail_since = fingerprint, now, now
         self._log.say("link", key, **fmt)

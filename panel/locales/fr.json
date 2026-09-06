@@ -2330,6 +2330,7 @@
   "log.link.attach_failed": "impossible de prendre le client en main : {error}",
   "log.link.attach_busy": "le client est occupé — le panneau n'arrive pas à le prendre depuis {minutes} min ; le planning attend",
   "log.link.attach_stuck": "toujours impossible de prendre le client — depuis {minutes} min : {error}",
+  "log.link.attach_stuck_quiet": "toujours impossible de saisir le client — depuis {minutes} min",
   "log.link.session_failed": "impossible d'atteindre le client dans l'autre session Windows : {error}",
   "log.link.session_silent": "l'autre session Windows ne répond pas sur le port {port}",
   "log.link.port_taken": "le port {port} est pris — les outils enfants n'atteignent pas ce profil",

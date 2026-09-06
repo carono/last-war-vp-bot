@@ -144,6 +144,42 @@ def test_coming_back_forgets_the_clock():
         "a link that came back and failed again reported the OLD outage's duration"
 
 
+def test_a_repeat_with_no_reason_still_says_how_long():
+    """A caller with no `{error}` to give gets a key that does not ask for one (#2578).
+
+    `session_silent` carries a port, not an error, and the repeat is built from a
+    DIFFERENT key — one whose text names an error. Handing it a `fmt` without one made
+    the whole line fall back to its own template, so the live panel printed
+    «уже {minutes} мин: {error}» once a minute for hours: the one line that was meant
+    to say how long the client had been out of reach said nothing at all.
+    """
+    import json
+    import pathlib as _pathlib
+
+    link = _link()
+    _at(link, 1000.0)
+    link._say_failure("silent", "log.link.session_silent", port=40000)
+    _at(link, 1130.0)
+    link._say_failure("silent", "log.link.session_silent", port=40000)
+
+    key, fmt = link._log.said[-1]
+    assert key == "log.link.attach_stuck_quiet", \
+        f"a reasonless repeat asked for a key that names an error: {key}"
+    assert fmt.get("minutes") == 2, f"the repeat lost how long it has been: {fmt}"
+
+    root = _pathlib.Path(__file__).resolve().parents[1] / "panel" / "locales"
+    missing = []
+    for path in sorted(root.glob("*.json")):
+        text = json.loads(path.read_text(encoding="utf-8")).get(key)
+        if not text:
+            missing.append(path.stem)
+            continue
+        assert "{minutes}" in text, f"{path.stem}: {key} lost its minutes"
+        assert "{error}" not in text, \
+            f"{path.stem}: {key} asks for an error the caller has not got"
+    assert not missing, f"{key} is missing from: {', '.join(missing)}"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

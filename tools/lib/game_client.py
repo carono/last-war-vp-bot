@@ -63,9 +63,26 @@ _POLL_SEC = 3.0
 
 #: How long a LAUNCHER may be up before a start treats it as stuck rather than busy.
 #: An ordinary cold start — the launcher updating itself, then spawning the game — is
-#: one to two minutes, so five is comfortably past «still working» and well short of a
-#: morning spent down. `LW_LAUNCHER_STALE_SEC` moves it.
-LAUNCHER_STALE_SEC = 300.0
+#: one to two minutes. A cold start that has to DOWNLOAD a build is not: it is tens of
+#: minutes, and for as long as it runs the launcher is up with no client, which is the
+#: exact shape this limit calls stuck.
+#:
+#: IT USED TO BE 300, THE SAME NUMBER AS `START_TIMEOUT_SEC`, AND THAT COLLISION WAS A
+#: LOOP THE PANEL COULD NOT LEAVE (#2578). A start waits `START_TIMEOUT_SEC` for the
+#: client, gives up saying «the launcher may still be updating», and leaves it running —
+#: correctly. The next attempt then finds that same launcher aged `START_TIMEOUT_SEC`,
+#: which is `>=` this limit, calls it stuck and ends it. Measured live on 2026-09-06 on
+#: a second account's session: 288 relaunches in a day, twelve an hour for fifteen
+#: hours, every one of them killing the update that would have ended the outage.
+#:
+#: So the two numbers must never meet again, and `launcher_stale_sec` holds that floor
+#: whatever is configured. `LW_LAUNCHER_STALE_SEC` moves the value above it.
+LAUNCHER_STALE_SEC = 1800.0
+
+#: The floor `launcher_stale_sec` will not go under, as a multiple of the start timeout.
+#: Two is the smallest number that leaves a launcher alive through one whole wait AND
+#: the one after it, which is what «the launcher may still be updating» promised.
+LAUNCHER_STALE_FLOOR_X = 2.0
 
 # Windows: no console window for the taskkill fallback.
 _NO_WINDOW = 0x08000000
@@ -401,11 +418,19 @@ def launcher_exe() -> str:
 
 
 def launcher_stale_sec() -> float:
-    """`LW_LAUNCHER_STALE_SEC`, or the default. Read per call, like every other path."""
+    """`LW_LAUNCHER_STALE_SEC`, or the default. Read per call, like every other path.
+
+    Never below `START_TIMEOUT_SEC * LAUNCHER_STALE_FLOOR_X`, whatever is configured.
+    A limit at or under the start timeout makes the next attempt end the very launcher
+    the previous one decided to leave alone, and the panel then relaunches for ever
+    without the update ever finishing (#2578). The floor is not a preference a machine
+    gets to set: it is the invariant that keeps the two waits from cancelling out.
+    """
     try:
-        return float(os.environ.get("LW_LAUNCHER_STALE_SEC") or LAUNCHER_STALE_SEC)
+        value = float(os.environ.get("LW_LAUNCHER_STALE_SEC") or LAUNCHER_STALE_SEC)
     except (TypeError, ValueError):
-        return LAUNCHER_STALE_SEC
+        value = LAUNCHER_STALE_SEC
+    return max(value, float(START_TIMEOUT_SEC) * LAUNCHER_STALE_FLOOR_X)
 
 
 def launcher_pids(session: "int | None" = None) -> list:
@@ -553,6 +578,23 @@ def _start_in_session(user: str, launcher: "str | None", timeout: float,
     # a stuck launcher there refuses the SYSTEM hop's start exactly as it refuses ours.
     clear_stale_launchers(session=session, user=user, log=say)
 
+    # AND A LAUNCHER THAT SURVIVED THAT IS ONE TO WAIT FOR, NOT TO RACE (#2578). It is
+    # young, so it is working — updating the game, most likely, which is the one job
+    # that takes longer than a person's patience. The launcher is single-instance, so
+    # starting a second one over it cannot do anything at all: the new process writes
+    # «Launcher is already running» into its own log and exits, and the only trace here
+    # was a line saying a start had happened. Falling through to the wait below is the
+    # honest version of the same intent — the recipe's job is «the client is up».
+    still = []
+    try:
+        still = launcher_pids(session)
+    except Exception as exc:                 # noqa: BLE001 — no enumeration on this box
+        say(f"could not look for a launcher already at work: {exc}")
+    if still:
+        say(f"a launcher is already at work in {user}'s session (pid {still[0]}) — "
+            f"waiting for its client instead of starting a second one")
+        return _wait_for_client(session, user, game_exe, timeout, say)
+
     _tools_on_path()
     import rdp_instance                       # noqa: PLC0415 — Windows-only
 
@@ -583,6 +625,17 @@ def _start_in_session(user: str, launcher: "str | None", timeout: float,
                                           timeout=SYSTEM_HOP_TIMEOUT_SEC)
     say(f"session_launch rc={rc}: {' '.join(text.split())[-200:]}")
 
+    return _wait_for_client(session, user, game_exe, timeout, say)
+
+
+def _wait_for_client(session: int, user: str, game_exe: str, timeout: float,
+                     say) -> int:
+    """Watch ``session`` until a client shows up. Its pid, or ``TimeoutError``.
+
+    Reached from both ends of the start above — the hop that began a launcher, and the
+    one that found a launcher already at work — because the question after either is
+    the same one and giving up on it means the same thing.
+    """
     deadline = time.time() + float(timeout)
     while time.time() < deadline:
         found = session_pids_of(session, game_exe)

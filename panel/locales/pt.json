@@ -2330,6 +2330,7 @@
   "log.link.attach_failed": "não foi possível agarrar o cliente: {error}",
   "log.link.attach_busy": "o cliente está ocupado — o painel não consegue assumi-lo há {minutes} min; o agendamento está parado",
   "log.link.attach_stuck": "ainda não é possível assumir o cliente — há {minutes} min: {error}",
+  "log.link.attach_stuck_quiet": "ainda não dá para pegar o cliente — há {minutes} min",
   "log.link.session_failed": "não foi possível alcançar o cliente na outra sessão do Windows: {error}",
   "log.link.session_silent": "a outra sessão do Windows não responde na porta {port}",
   "log.link.port_taken": "a porta {port} está ocupada — as ferramentas filhas não alcançam este perfil",

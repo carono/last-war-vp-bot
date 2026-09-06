@@ -2330,6 +2330,7 @@
   "log.link.attach_failed": "не удалось взяться за клиент: {error}",
   "log.link.attach_busy": "клиент занят — панель не может подцепиться уже {minutes} мин; расписание стоит",
   "log.link.attach_stuck": "до клиента по-прежнему не добраться — уже {minutes} мин: {error}",
+  "log.link.attach_stuck_quiet": "до клиента по-прежнему не добраться — уже {minutes} мин",
   "log.link.session_failed": "не добраться до клиента в другой сессии Windows: {error}",
   "log.link.session_silent": "другая сессия Windows не отвечает на порту {port}",
   "log.link.port_taken": "порт {port} занят чем-то другим — дочерние инструменты до этого профиля не достучатся",
