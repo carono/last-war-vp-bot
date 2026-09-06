@@ -1373,7 +1373,9 @@ def _alliance_grid(tree=None):
     """An `AllianceGrid` with no Tk behind it — the rows and the arithmetic only."""
     import types
     i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
-    rt = types.SimpleNamespace(root=None, profiles=_FakeProfiles(_state_path()))
+    rt = types.SimpleNamespace(root=None, profiles=_FakeProfiles(_state_path()),
+                               # …and the ask-to-save a sort press makes (#2592).
+                               settings=types.SimpleNamespace(changed=lambda: None))
     def _rank(row):
         key = "secrettasks.stars" if row.get("starred") else "secrettasks.level"
         return i18n.t(key, n=int(row.get("level") or 0))
@@ -1395,7 +1397,7 @@ def _alliance_grid(tree=None):
     tab.shared = _shared_marks(tab)
     g = object.__new__(al.AllianceGrid)
     g.tab = tab
-    g._rows, g._tree, g._sort = {}, tree, None
+    g._rows, g._tree, g._sort = {}, tree, gr.DEFAULT_SORT
     g._body = g._empty = None
     g._count_var = _Var()
     # Every page carries its own level range now (#1251) — blank here, so a test that
@@ -1757,15 +1759,15 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
         # its own once one has run (#1294). Empty here: no sprint, no row.
         tally_text=lambda: "")
     tab.alliance = types.SimpleNamespace(
-        web_flow=lambda: None,web_items=lambda: [], ur_var=_Var(False),
+        web_flow=lambda: None,web_items=lambda: [], web_sorts=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
     tab.ghost = types.SimpleNamespace(
-        web_flow=lambda: None,web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+        web_flow=lambda: None,web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_allies = types.SimpleNamespace(
-        web_flow=lambda: None,web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+        web_flow=lambda: None,web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_map = types.SimpleNamespace(
-        web_flow=lambda: None, web_items=lambda: [], web_rows=lambda: [],
+        web_flow=lambda: None, web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
                                           autoloot_var=_Var(False),
                                           level_min=lambda: None,
@@ -1835,12 +1837,12 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
         # The star sprint's session tally, which the card carries as a row of
         # its own once one has run (#1294). Empty here: no sprint, no row.
         tally_text=lambda: "")
-    tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
+    tab.alliance = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
-    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
-    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
-    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
                                           autoloot_var=_Var(False),
                                           level_min=lambda: None,
@@ -1986,12 +1988,12 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
         # The star sprint's session tally, which the card carries as a row of
         # its own once one has run (#1294). Empty here: no sprint, no row.
         tally_text=lambda: "")
-    tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
+    tab.alliance = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
-    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
-    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
-    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
                                           autoloot_var=_Var(False),
                                           level_min=lambda: None,
@@ -2889,16 +2891,16 @@ def _empty_world_pages(tab) -> None:
     the test that is ABOUT one of them builds its own with rows in.
     """
     import types
-    tab.mines = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0),
+    tab.mines = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], counts=lambda: (0, 0),
                                       web_flow=lambda: None, free_var=_Var(True))
     tab.monsters = types.SimpleNamespace(
-        web_items=lambda: [], counts=lambda: (0, 0), web_flow=lambda: None,
+        web_items=lambda: [], web_sorts=lambda: [], counts=lambda: (0, 0), web_flow=lambda: None,
         pace=lambda: 3, stages=lambda: [(600, "wide")], follow_seconds=lambda: 12,
         plain_hidden=lambda: 0, own_hidden=lambda: 0, follow_var=_Var(False),
         hide_plain_var=_Var(False), own_only_var=_Var(False))
-    tab.trains = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0),
+    tab.trains = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], counts=lambda: (0, 0),
                                        web_flow=lambda: None)
-    tab.trucks = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0),
+    tab.trucks = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], counts=lambda: (0, 0),
                                        web_flow=lambda: None)
     tab.pieces = types.SimpleNamespace(web_card=lambda: None)
     if not hasattr(tab, "autoloot_var"):
@@ -2945,6 +2947,7 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab.monitor_var = _Var(False)       # the ★ page's own sniffer switch (#1251)
     tab._own_server = 0                 # unread here, so the rule holds nothing back
     tab._visible_rows = lambda: []
+    tab._sort = gr.DEFAULT_SORT         # the order the ★ table stands in (#2592)
     tab._zoom_level = "tile"            # the camera height the bar is set to (#1265)
     # The card carries the RULE beside the state now (#1256), so the stand-in
     # answers both questions the phone asks of the standing order.
@@ -2960,6 +2963,8 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(
         ur_var=_Var(False), star_var=_Var(False), counts=lambda: (1, 0),
+        # …and the sort buttons every grid card carries now (#2592).
+        web_sorts=lambda: [],
         # Every card with a feed behind it carries the flow badge the window draws above
         # its table (#1549); no feed, no strip.
         web_flow=lambda: None,
@@ -2967,16 +2972,18 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # …each ghost page with its own «Только звезда» box, which the card draws.
     tab.ghost = types.SimpleNamespace(
         counts=lambda: (1, 0), star_var=_Var(False), web_flow=lambda: None,
+        web_sorts=lambda: [],
         web_rows=lambda: [{"label": "secrettasks.ghost.state_line", "value": "идёт"}],
         web_items=lambda: [{"text": "#3 X:4 Y:5", "facts": [], "until": None,
                             "pill": None}])
     tab.ghost_allies = types.SimpleNamespace(
         counts=lambda: (1, 0), star_var=_Var(False), web_flow=lambda: None,
+        web_sorts=lambda: [],
         web_items=lambda: [{"text": "#6 X:7 Y:8", "facts": [], "until": None,
                             "pill": None}])
     tab.ghost_map = types.SimpleNamespace(
         monitor_var=_Var(False), counts=lambda: (1, 0), star_var=_Var(False),
-        web_flow=lambda: None,
+        web_flow=lambda: None, web_sorts=lambda: [],
         # …and the standing order this page carries since #2010: its switch, the one
         # number that aims it and the rule written out for the card to say.
         autoloot_var=_Var(False), level_min=lambda: None,
@@ -2989,7 +2996,7 @@ def test_the_phone_is_shown_every_page_the_window_has():
             counts=lambda: (1, 0),
             # Every card with a feed behind it carries the same flow badge the window
             # draws above its table (#1549); no feed, no strip.
-            web_flow=lambda: None,
+            web_flow=lambda: None, web_sorts=lambda: [],
             web_items=lambda: [{"text": text, "facts": [], "until": None}],
             **extra)
 
@@ -3241,12 +3248,12 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
         # its own once one has run (#1294). Empty here: no sprint, no row.
         tally_text=lambda: "")
     tab.autoassist_var = _Var(False)
-    tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
+    tab.alliance = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
-    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
-    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
-    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_sorts=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
                                           autoloot_var=_Var(False),
                                           level_min=lambda: None,
@@ -3559,6 +3566,8 @@ def _config_stub():
     stub.coord_x_var = stub.coord_y_var = stub.coord_srv_var = _Var("")
     stub._jump_hist = []
     stub._zoom_level = "tile"
+    # …and the order the ★ table stands in (#2592), which `config()` saves too.
+    stub._sort = gr.DEFAULT_SORT
     # Every page keeps its own settings block now (#1251), so `config()` asks each of
     # them for one. A stand-in that answers is all this fixture needs.
     types = __import__("types")
@@ -3644,7 +3653,7 @@ def _ghost_grid(cls=None):
     tab.shared = _shared_marks(tab)
     g = object.__new__(cls)
     g.tab = tab
-    g._rows, g._tree, g._sort = {}, None, None
+    g._rows, g._tree, g._sort = {}, None, gr.DEFAULT_SORT
     g._body = g._empty = None
     g._count_var = _Var()
     g._status_var = _Var()
@@ -5102,6 +5111,9 @@ def test_each_page_saves_its_filters_under_its_own_key():
     saved = page.config()
     assert saved == {"level_from": "4", "level_to": "", "monitor": True,
                      "interval": "7", "star_only": True,
+                     # …and the order the table stands in (#2592), saved with the rest
+                     # so a sort chosen from a phone is still there after a restart.
+                     "sort": ["state", False],
                      # …and the standing order's own pair, which lives on this page
                      # since #2010 and is saved with the rest of it.
                      "autoloot": False, "level_min": ""}, saved
@@ -5540,6 +5552,58 @@ def test_naming_no_target_presses_nothing():
     order.run([])
     assert rt.actions.played == [], rt.actions.played
     assert order._proc is None
+
+
+def test_the_grid_stands_by_the_due_date_and_a_dateless_row_goes_last():
+    """«Нету сортировки в гриде с секретками, добавь по дате готовности» (#2592).
+
+    A ready row is due when it stops being raidable, a ripening one when it becomes
+    raidable, and the table opens on that order without anybody pressing a heading. A row
+    the feed has told us no date about goes to the BOTTOM in both directions — mixed in
+    among the dates it reads as a date somebody forgot to look at.
+    """
+    now = int(__import__("time").time() * 1000)
+    rows = [
+        # ready, expires in ten minutes — and a ready row outranks every waiting one
+        dict(_row(1, 7, -5_000, 600_000), ready=True, expires_at=now + 600_000),
+        # ready, expires in one minute: sooner, so it is above the row before it
+        dict(_row(2, 7, -5_000, 60_000), ready=True, expires_at=now + 60_000),
+        # still ripening, ready in two minutes
+        dict(_row(3, 7, 120_000, 900_000), completed_at=now + 120_000),
+        # …and one with no date at all
+        dict(_row(4, 7, 0, 0), completed_at=None, expires_at=None),
+    ]
+    order = [r["uuid"] for r in gr.sort_rows(rows, gr.DEFAULT_SORT)]
+    assert order == [2, 1, 3, 4], order
+
+    backwards = [r["uuid"] for r in gr.sort_rows(rows, ("state", True))]
+    assert backwards[-1] == 4, backwards      # the dateless row stays at the bottom
+    assert backwards[:3] == [3, 1, 2], backwards
+
+
+def test_the_phone_sorts_the_grid_it_pressed_on_and_no_other():
+    """One screen draws several grids, so the key names the grid as well as the column."""
+    from panel.tabs.secret_tasks import ghost as gh
+
+    ally = _alliance_grid(_FakeTable())
+    ghost = _ghost_grid(gh.GhostGrid)
+
+    buttons = {b["key"]: b for b in ally.web_sorts()}
+    assert "alliance:state" in buttons, buttons
+    # …and the one the list actually stands by wears its direction; the rest wear none.
+    assert buttons["alliance:state"]["dir"] == "asc"
+    assert buttons["alliance:lvl"]["dir"] == ""
+    # A sort button says «Готовность», not the state cell's own heading.
+    assert buttons["alliance:state"]["label"] == "secrettasks.sort.ready"
+
+    assert ghost.web_sort("alliance:lvl") is None, "another grid's key is not ours"
+    assert ghost._sort == gr.DEFAULT_SORT
+    assert ally.web_sort("alliance:lvl") == {"ok": True}
+    assert ally._sort == ("lvl", False)
+    # …and pressing the same column again turns the list round, as a heading click does.
+    ally.web_sort("alliance:lvl")
+    assert ally._sort == ("lvl", True)
+    assert ally.web_sort("alliance:nonesuch") is None
 
 
 if __name__ == "__main__":

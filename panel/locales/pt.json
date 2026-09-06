@@ -1232,6 +1232,8 @@
   "secrettasks.level": "nív. {n}",
   "secrettasks.until_ready": "pronta em {t}",
   "secrettasks.ready": "pronta para saquear",
+  "secrettasks.sort.ready": "Vencimento",
+  "secrettasks.sort.unknown": "essa ordenação não existe",
   "secrettasks.ready_expires": "pronta para saquear · expira em {t}",
   "secrettasks.robbed_mark": "já saqueada por mim",
   "secrettasks.col.server": "Servidor",

@@ -1232,6 +1232,8 @@
   "secrettasks.level": "sv. {n}",
   "secrettasks.until_ready": "{t} sonra hazır",
   "secrettasks.ready": "yağmalanmaya hazır",
+  "secrettasks.sort.ready": "Zaman",
+  "secrettasks.sort.unknown": "böyle bir sıralama yok",
   "secrettasks.ready_expires": "yağmalanmaya hazır · {t} sonra dolar",
   "secrettasks.robbed_mark": "zaten benim tarafımdan soyuldu",
   "secrettasks.col.server": "Sunucu",

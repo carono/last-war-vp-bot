@@ -1232,6 +1232,8 @@
   "secrettasks.level": "cấp {n}",
   "secrettasks.until_ready": "sẵn sàng sau {t}",
   "secrettasks.ready": "sẵn sàng để cướp",
+  "secrettasks.sort.ready": "Thời điểm sẵn sàng",
+  "secrettasks.sort.unknown": "không có kiểu sắp xếp đó",
   "secrettasks.ready_expires": "sẵn sàng để cướp · hết hạn sau {t}",
   "secrettasks.robbed_mark": "tôi đã cướp rồi",
   "secrettasks.col.server": "Máy chủ",

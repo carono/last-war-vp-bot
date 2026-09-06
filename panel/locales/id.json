@@ -1232,6 +1232,8 @@
   "secrettasks.level": "lv {n}",
   "secrettasks.until_ready": "siap dalam {t}",
   "secrettasks.ready": "siap dirampas",
+  "secrettasks.sort.ready": "Waktu siap",
+  "secrettasks.sort.unknown": "urutan seperti itu tidak ada",
   "secrettasks.ready_expires": "siap dirampas · habis dalam {t}",
   "secrettasks.robbed_mark": "sudah saya rampok",
   "secrettasks.col.server": "Server",

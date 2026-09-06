@@ -289,9 +289,8 @@ class _GhostGrid(grid.TaskGrid):
         import coords
 
         items = []
-        for row in sorted(self.visible_rows(),
-                          key=lambda r: (not r.get("ready"),
-                                         r.get("completed_at") or float("inf"))):
+        # The same order the window's table stands in (#2592) — see `alliance.web_items`.
+        for row in grid.sort_rows(self.visible_rows(), self._sort, self.SORT_KEYS):
             cap = int(row.get("loot_max") or 0)
             looted = row.get("loot_count")
             facts = [{"label": "secrettasks.col.owner",

@@ -1232,6 +1232,8 @@
   "secrettasks.level": "ур. {n}",
   "secrettasks.until_ready": "готово через {t}",
   "secrettasks.ready": "готово к сбору",
+  "secrettasks.sort.ready": "Готовность",
+  "secrettasks.sort.unknown": "такой сортировки нет",
   "secrettasks.ready_expires": "готово к сбору · истекает через {t}",
   "secrettasks.robbed_mark": "уже ограбили",
   "secrettasks.col.server": "Сервер",

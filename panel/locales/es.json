@@ -1232,6 +1232,8 @@
   "secrettasks.level": "niv. {n}",
   "secrettasks.until_ready": "lista en {t}",
   "secrettasks.ready": "lista para saquear",
+  "secrettasks.sort.ready": "Vencimiento",
+  "secrettasks.sort.unknown": "no existe ese orden",
   "secrettasks.ready_expires": "lista para saquear · caduca en {t}",
   "secrettasks.robbed_mark": "ya saqueada por mí",
   "secrettasks.col.server": "Servidor",

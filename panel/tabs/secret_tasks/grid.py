@@ -123,10 +123,7 @@ SORT_KEYS = {
     "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0), _uuid(r)),
     "server": lambda r: (int(r["server"] or 0), _uuid(r)),
     "lvl": lambda r: (int(r["level"] or 0), _uuid(r)),
-    "state": lambda r: (0 if r.get("ready") else 1,
-                        (r["expires_at"] if r.get("ready")
-                         else r["completed_at"]) or 0,
-                        _uuid(r)),
+    "state": lambda r: (0 if r.get("ready") else 1, ready_at(r), _uuid(r)),
     "slots": lambda r: (int(r["loot_count"] or 0), _uuid(r)),
 }
 
@@ -134,6 +131,40 @@ SORT_KEYS = {
 def _uuid(row) -> str:
     """The row's own id as the last word of every sort key — see :data:`SORT_KEYS`."""
     return str(row.get("uuid") or "")
+
+
+def ready_at(row) -> int:
+    """WHEN THIS ROW IS DUE, on the game's clock in milliseconds — 0 when unknown.
+
+    A row that is ready is due when it stops being raidable (`expires_at`); one that is
+    still ripening is due when it becomes raidable (`completed_at`). That is the one date
+    the eye reads this table for, and it is what the `state` column orders by.
+
+    A row the feed has told us nothing about answers 0, and 0 is never read as «due long
+    ago»: :func:`sort_rows` puts a dateless row at the BOTTOM, whichever way round the
+    list stands (#2592). A blank mixed in among the dates reads as a date somebody forgot
+    to look at.
+    """
+    when = (row.get("expires_at") if row.get("ready") else row.get("completed_at")) or 0
+    return int(when)
+
+
+#: WHICH COLUMNS HAVE A BLANK, and how to tell one (#2592). A row with nothing to compare
+#: goes to the bottom in both directions — a stable pass after the sort, the same shape
+#: the player register keeps for its notes (`panel/tabs/players/registry.py`).
+BLANK_LAST = {"state": lambda r: bool(ready_at(r))}
+
+#: HOW A TABLE ON THIS TAB STANDS UNTIL SOMEBODY ASKS OTHERWISE (#2592): by the date it
+#: is due — the ready rows first, then the shortest wait, and the dateless ones last. The
+#: person asked for it in those words, and it is the same order in both front-ends
+#: because it is the same `(column, reversed)` pair the headings and the phone's buttons
+#: both write.
+DEFAULT_SORT = ("state", False)
+
+#: WHAT A SORT BUTTON CALLS ITSELF when the column's own heading would not do (#2592).
+#: «Состояние» is the right word over a cell holding a countdown and a sentence, and the
+#: wrong one on a button that orders by a DATE — which is what the person asked for.
+SORT_LABELS = {"state": "secrettasks.sort.ready"}
 
 # …AND THE ★ LIST'S OWN EXTRA COLUMN (#1484): when the game last CONFIRMED this row.
 #
@@ -244,7 +275,45 @@ def sort_rows(rows, sort, keys=None) -> list:
     key = keys.get(column)
     if key is None:
         return list(rows)
-    return sorted(rows, key=key, reverse=backwards)
+    out = sorted(rows, key=key, reverse=backwards)
+    # …AND A ROW WITH NOTHING IN THAT COLUMN GOES LAST, both ways round (#2592). The pass
+    # is stable, so it only lifts the dated rows over the dateless ones and leaves the
+    # order the key asked for untouched.
+    blank = BLANK_LAST.get(column)
+    if blank is not None:
+        out.sort(key=lambda r: 0 if blank(r) else 1)
+    return out
+
+
+def web_sorts(prefix: str, sort, columns=None, keys=None) -> list:
+    """THE GRID'S ORDER, AS THE PHONE'S SMALL BUTTONS (#2592, the shape of #2308).
+
+    One button per column that has an order to sort in — the same set the window's
+    headings offer, because it is the same `SORT_KEYS`. The one the list actually stands
+    by wears its direction and the others wear none, so the row says where it stands
+    without anybody pressing it.
+
+    `prefix` names the GRID: one screen here draws five of them and a press carries only
+    a key, so «alliance:state» and «ghost:state» have to be different words or a thumb on
+    one card would reorder another. :func:`web_sort_column` reads it back.
+    """
+    columns = COLUMNS if columns is None else columns
+    keys = SORT_KEYS if keys is None else keys
+    column, backwards = sort if sort else (None, False)
+    out = []
+    for col, label, *_rest in columns:
+        if col not in keys:
+            continue
+        out.append({"key": "%s:%s" % (prefix, col),
+                    "label": SORT_LABELS.get(col, label),
+                    "dir": ("desc" if backwards else "asc") if col == column else ""})
+    return out
+
+
+def web_sort_column(prefix: str, key: str) -> str:
+    """The column a phone's sort press names, or "" when it belongs to another grid."""
+    head, _sep, column = str(key or "").partition(":")
+    return column if head == prefix and column else ""
 
 
 def row_tag(row) -> str:
@@ -624,6 +693,13 @@ class TaskGrid:
     COLUMNS = COLUMNS
     SORT_KEYS = SORT_KEYS
 
+    #: The order the page stands in — the pair a heading click and the phone's own sort
+    #: buttons both write (#2592). `__init__` puts the real default here (the due date,
+    #: for a page that HAS one); the class attribute is what a page built without it —
+    #: a test's stand-in — falls back to, and None is «the best raid first», which is
+    #: what `sort_rows` has always answered a None with.
+    _sort = None
+
     #: The key this page's own settings are stored under, so two pages' filters never
     #: land in one another's slot (#1251).
     CONFIG_KEY = ""
@@ -649,7 +725,12 @@ class TaskGrid:
         self._tree = None
         self._body = None
         self._empty = None
-        self._sort = None            # (column id, reversed) once a heading is clicked
+        # HOW THE TABLE STANDS BEFORE ANYBODY ASKS (#2592): by the date the row is due,
+        # the ready ones first. A heading click and the phone's own buttons both write
+        # this pair, so the two front-ends are never ordered differently. A page whose
+        # columns carry no state — the world ones do not all — keeps the old «highest
+        # level first» default, which `sort_rows` answers a None with.
+        self._sort = DEFAULT_SORT if "state" in self.SORT_KEYS else None
         self._count_var = tk_stringvar(tab.rt.root)
         # The flow strip above the table (#1549) — the receiver's own numbers, in words.
         # Made here and drawn in `build`, like everything else on a LAZY page.
@@ -771,12 +852,23 @@ class TaskGrid:
 
     def config(self) -> dict:
         """This page's own settings, under its own key (#1251)."""
-        return {"level_from": self.level_from.get(), "level_to": self.level_to.get()}
+        return {"level_from": self.level_from.get(), "level_to": self.level_to.get(),
+                # …and the order it stands in (#2592), so a sort chosen from a phone is
+                # still there after a restart. Saved as a list because that is what
+                # survives a round trip through JSON.
+                "sort": list(self._sort) if self._sort else None}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         take(raw, "level_from", self.level_from, str)
         take(raw, "level_to", self.level_to, str)
+        saved = raw.get("sort")
+        # A SAVED SORT IS NOT TRUSTED: a column this page no longer has would leave the
+        # table in `sort_rows`'s «no key, no order» branch, which looks like a grid that
+        # ignores its own headings.
+        if (isinstance(saved, (list, tuple)) and len(saved) == 2
+                and str(saved[0]) in self.SORT_KEYS):
+            self._sort = (str(saved[0]), bool(saved[1]))
 
     def persist_vars(self) -> list:
         return [self.level_from, self.level_to]
@@ -992,6 +1084,25 @@ class TaskGrid:
         else:
             self._sort = (column, False)
         self.render()
+
+    # -- the phone's own way of asking for an order (#2592) ------------------------
+    def web_sorts(self) -> list:
+        """The sort buttons over this grid's card — one per sortable column."""
+        return web_sorts(self.CONFIG_KEY, self._sort, self.COLUMNS, self.SORT_KEYS)
+
+    def web_sort(self, key: str) -> "dict | None":
+        """A sort press from the phone, or None when it names another grid's column.
+
+        The very gesture the window's heading is: press a column to order by it, press
+        it again to turn the list round. One state for both front-ends — `self._sort` —
+        so a phone and a window looking at the same list see the same order.
+        """
+        column = web_sort_column(self.CONFIG_KEY, key)
+        if not column or column not in self.SORT_KEYS:
+            return None
+        self._sort_by(column)
+        self.tab.rt.settings.changed()
+        return {"ok": True}
 
     def refilter(self) -> None:
         """A box on this page was flipped: redraw under the new rule, read nothing."""

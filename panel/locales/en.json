@@ -1232,6 +1232,8 @@
   "secrettasks.level": "lvl {n}",
   "secrettasks.until_ready": "ready in {t}",
   "secrettasks.ready": "ready to loot",
+  "secrettasks.sort.ready": "Due",
+  "secrettasks.sort.unknown": "there is no such ordering",
   "secrettasks.ready_expires": "ready to loot · expires in {t}",
   "secrettasks.robbed_mark": "already robbed by me",
   "secrettasks.col.server": "Server",

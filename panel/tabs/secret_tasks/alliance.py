@@ -176,11 +176,12 @@ class AllianceGrid(grid.TaskGrid):
         import coords
 
         items = []
-        # Ready first, then whatever runs out soonest — the phone's order on the card
-        # above, so the lists on one screen do not read in different orders.
-        for row in sorted(self.visible_rows(),
-                          key=lambda r: (not r.get("ready"),
-                                         r.get("expires_at") or float("inf"))):
+        # THE ORDER THE WINDOW'S TABLE STANDS IN, and by the same pair of values (#2592):
+        # `self._sort`, which a heading click and the phone's own sort buttons both
+        # write. It used to be a sort of its own here — ready first, then by expiry — and
+        # a row still ripening was ordered by a date the card does not even show, so the
+        # list looked unordered to whoever was reading it.
+        for row in grid.sort_rows(self.visible_rows(), self._sort, self.SORT_KEYS):
             done, exp = row.get("completed_at"), row.get("expires_at")
             # Who is running it comes first: on the phone this list is read to find
             # a name, the way the window's list is read to find a countdown.

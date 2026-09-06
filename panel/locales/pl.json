@@ -1232,6 +1232,8 @@
   "secrettasks.level": "poz. {n}",
   "secrettasks.until_ready": "gotowe za {t}",
   "secrettasks.ready": "gotowe do ograbienia",
+  "secrettasks.sort.ready": "Termin",
+  "secrettasks.sort.unknown": "nie ma takiego sortowania",
   "secrettasks.ready_expires": "gotowe do ograbienia · wygasa za {t}",
   "secrettasks.robbed_mark": "już przeze mnie obrabowane",
   "secrettasks.col.server": "Serwer",

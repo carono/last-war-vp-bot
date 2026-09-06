@@ -605,7 +605,9 @@ class SecretTasksTab(PanelTab):
         self._tree = None
         self._body = None
         self._empty = None
-        self._sort = None            # (column id, reversed) once a heading is clicked
+        # The order the ★ table stands in until a heading or the phone's own sort
+        # buttons say otherwise (#2592): by the date the row is due, ready first.
+        self._sort = grid.DEFAULT_SORT
         self._collect_btn = self._share_btn = self._goto_btn = None
         # The notebook the three tables are pages of, and its page frames in the order
         # they were added — so a language change can rewrite the tab labels, which are
@@ -1087,6 +1089,9 @@ class SecretTasksTab(PanelTab):
             # on cannot reach into another's (#1251).
             "grids": {page.CONFIG_KEY: page.config()
                       for page in self._grid_pages()},
+            # …and the order the ★ table stands in (#2592), so a sort chosen from a
+            # phone survives a restart. Every other page keeps its own inside `grids`.
+            "sort": list(self._sort) if self._sort else None,
             "show_spent": bool(self.show_spent_var.get()),
             # The three display rules the pages carry (#1251) — what is SHOWN, never
             # what is robbed. The robbery's own rule is `autoloot_skip_own_server`
@@ -1142,6 +1147,13 @@ class SecretTasksTab(PanelTab):
             blocks[self.ghost_map.CONFIG_KEY] = ghost_block
         for page in self._grid_pages():
             page.apply_config(blocks.get(page.CONFIG_KEY, {}))
+        # …AND THE ★ TABLE'S OWN ORDER (#2592). A saved column this build no longer has
+        # is ignored rather than restored: `sort_rows` answers an unknown column with the
+        # rows untouched, which looks exactly like a grid ignoring its own headings.
+        saved_sort = raw.get("sort")
+        if (isinstance(saved_sort, (list, tuple)) and len(saved_sort) == 2
+                and str(saved_sort[0]) in self.SORT_KEYS):
+            self._sort = (str(saved_sort[0]), bool(saved_sort[1]))
         # A profile saved while the two sniffers were ONE box with a dropdown carries
         # `secret_monitor` and `monitor_kind` (#1251). Which capture that switch meant
         # is what `monitor_kind` said, so it is honoured once, here, and then each
@@ -1571,6 +1583,13 @@ class SecretTasksTab(PanelTab):
     #: ask for it by. The ★ list's set, because the ★ list has a column of its own
     #: («Сверено», #1484) and a heading with no key gets no sort command at all.
     SORT_KEYS = grid.STAR_SORT_KEYS
+
+    #: HOW THE ★ TABLE STANDS BEFORE ANYBODY ASKS (#2592) — by the date the row is due,
+    #: the ready ones first. A class attribute as well as an instance one, because the
+    #: order is a property of the TABLE rather than of one tab, and every reader of it
+    #: (`config`, `web_view`, `_sorted_rows`) has to have an answer even on a tab whose
+    #: `__init__` a test skipped.
+    _sort = grid.DEFAULT_SORT
 
     def _sorted_rows(self, rows) -> list:
         """The rows in the order the table shows them (`grid.sort_rows`).
@@ -4449,9 +4468,11 @@ class SecretTasksTab(PanelTab):
         # spent tile the window has taken off the list is the divergence CLAUDE.md
         # forbids, and the worse half of it: whoever is away from the machine cannot
         # check which of the two is right.
-        for row in sorted(self._visible_rows(),
-                          key=lambda r: (not r.get("ready"),
-                                         r.get("expires_at") or float("inf"))):
+        # IN THE ORDER THE WINDOW'S TABLE STANDS IN (#2592) — `self._sort`, the very pair
+        # a heading click writes, so the phone's sort buttons and the window's headings
+        # are two drawings of one state. It used to sort by expiry even for a row still
+        # ripening, whose card shows the OTHER date.
+        for row in self._sorted_rows(self._visible_rows()):
             facts = [{"label": "secrettasks.col.level", "value": self._rank(row)},
                      {"label": "secrettasks.col.slots",
                       "value": f"{row.get('loot_count')}/3"},
@@ -4586,6 +4607,11 @@ class SecretTasksTab(PanelTab):
                                        "kind": opt_value.NUMBER,
                                        "value": self._stale_hours()}],
                            "empty": "secrettasks.empty",
+                           # …and HOW THE LIST IS ORDERED, as small buttons over the
+                           # rows (#2592). The same columns the window's headings sort
+                           # by, writing the same `self._sort`.
+                           "sorts": grid.web_sorts("stars", self._sort,
+                                                   grid.STAR_COLUMNS, self.SORT_KEYS),
                            # …and the button says WHAT it turns on (#1264). «Включить
                            # мониторинг» on a screen with two of them is a button whose
                            # meaning depends on which card it happens to be under, and a
@@ -4662,6 +4688,7 @@ class SecretTasksTab(PanelTab):
                            "options": self._order_fields("secret_autoassist")},
                           {"title": "secrettasks.alliance",
                            "items": self.alliance.web_items(),
+                           "sorts": self.alliance.web_sorts(),
                            "rows": self._count_rows(self.alliance),
                            "empty": "secrettasks.alliance.empty",
                            "actions": [{"id": "ur_only",
@@ -4688,12 +4715,14 @@ class SecretTasksTab(PanelTab):
                           {"title": "secrettasks.ghost",
                            "rows": self.ghost.web_rows() + self._count_rows(self.ghost),
                            "items": self.ghost.web_items(),
+                           "sorts": self.ghost.web_sorts(),
                            "empty": "secrettasks.ghost.empty",
                            "actions": [self._ghost_monitor_action(),
                                        self._star_action("ghost"),
                                        self._clear_action("ghost")]},
                           {"title": "secrettasks.ghost.allies",
                            "items": self.ghost_allies.web_items(),
+                           "sorts": self.ghost_allies.web_sorts(),
                            "rows": self._count_rows(self.ghost_allies),
                            "empty": "secrettasks.ghost.allies.empty",
                            "actions": [self._star_action("ghost_allies"),
@@ -4707,6 +4736,7 @@ class SecretTasksTab(PanelTab):
                           # same pair the ★ card carries.
                           {"title": "secrettasks.ghost.map",
                            "items": self.ghost_map.web_items(),
+                           "sorts": self.ghost_map.web_sorts(),
                            # THE ORDER'S OWN BUDGET, ON THE CARD THAT CARRIES THE ORDER
                            # (#2010). Five ghost robberies a day, counted apart from the
                            # five secret-task ones — different manager, different counter,
@@ -4755,6 +4785,7 @@ class SecretTasksTab(PanelTab):
                           # the one display rule the window also has.
                           {"title": "world.mines",
                            "items": self.mines.web_items(),
+                           "sorts": self.mines.web_sorts(),
                            "rows": self._count_rows(self.mines),
                            "empty": "world.mines.empty",
                            "actions": [{"id": "mines_free",
@@ -4764,6 +4795,7 @@ class SecretTasksTab(PanelTab):
                                        self._clear_action("mines")]},
                           {"title": "world.monsters",
                            "items": self.monsters.web_items(),
+                           "sorts": self.monsters.web_sorts(),
                            # …and the two numbers the LAP is walked by, because they are
                            # the difference between tens of rows and thousands and a
                            # person away from the machine has to be able to see which
@@ -4834,11 +4866,13 @@ class SecretTasksTab(PanelTab):
                                        self._clear_action("monsters")]},
                           {"title": "world.trains",
                            "items": self.trains.web_items(),
+                           "sorts": self.trains.web_sorts(),
                            "rows": self._count_rows(self.trains),
                            "empty": "world.trains.empty",
                            "actions": [self._clear_action("trains")]},
                           {"title": "world.trucks",
                            "items": self.trucks.web_items(),
+                           "sorts": self.trucks.web_sorts(),
                            "rows": self._count_rows(self.trucks),
                            "empty": "world.trucks.empty",
                            "actions": [self._clear_action("trucks")]}],
@@ -5130,6 +5164,24 @@ class SecretTasksTab(PanelTab):
                 self.set_ghost_level(args.get("value"))
                 return {"ok": True}
             return {"error": "unknown"}
+        if action == "sort":
+            # A SORT BUTTON OVER ONE OF THE FIVE GRIDS (#2592). The key names the grid as
+            # well as the column — «alliance:state» — because one screen draws five of
+            # them and a press carries nothing else to tell them apart. Each grid is
+            # asked in turn and answers None for a key that is not its own, exactly the
+            # fall-through the buttons above take.
+            key = str(args.get("key") or "")
+            column = grid.web_sort_column("stars", key)
+            if column and column in self.SORT_KEYS:
+                self._sort_by(column)
+                self.rt.settings.changed()
+                return {"ok": True}
+            for page in (self.alliance, self.ghost, self.ghost_allies, self.ghost_map,
+                         self.mines, self.monsters, self.trains, self.trucks):
+                moved = page.web_sort(key)
+                if moved is not None:
+                    return moved
+            return {"ok": False, "reason": "secrettasks.sort.unknown"}
         if action == "ghost_rob":
             # «Ограбить всех» — the same choice the watcher makes, out of the same list,
             # played as one recipe. Refused while a robbery is in flight: the five a day

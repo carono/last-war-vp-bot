@@ -1232,6 +1232,8 @@
   "secrettasks.level": "liv. {n}",
   "secrettasks.until_ready": "pronta fra {t}",
   "secrettasks.ready": "pronta da saccheggiare",
+  "secrettasks.sort.ready": "Scadenza",
+  "secrettasks.sort.unknown": "questo ordinamento non esiste",
   "secrettasks.ready_expires": "pronta da saccheggiare · scade fra {t}",
   "secrettasks.robbed_mark": "già saccheggiata da me",
   "secrettasks.col.server": "Server",
