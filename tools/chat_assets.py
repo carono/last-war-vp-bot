@@ -116,7 +116,7 @@ def photo_path(uid, pic_ver, big: bool = False) -> str | None:
     return None
 
 
-def photo_fetch(uid, pic_ver, big: bool = False) -> "str | None":
+def photo_fetch(uid, pic_ver, big: bool = False, log=None) -> "str | None":
     """The picture on disk, fetching it ONCE if this machine has not got it.
 
     THE CLIENT NEVER FETCHES THESE FOR US (#2418). A chat photograph is downloaded when
@@ -127,6 +127,13 @@ def photo_fetch(uid, pic_ver, big: bool = False) -> "str | None":
 
     Called from the route that SERVES one picture and from nowhere else: one fetch per
     photograph a person actually looked at, never a sweep and never a clock.
+
+    IT SAYS WHY IT FAILED when it is handed a `log` (#2418). Every way of not getting a
+    picture ends in the same 404 on the wire — no network, a certificate the machine
+    does not trust, a name the CDN never had, a disk that refused the write — and the
+    first live run of this had the panel's own process fetching nothing while the same
+    address answered 200 from a shell on the same machine. One line naming the reason is
+    the difference between that hour and a minute.
     """
     have = photo_path(uid, pic_ver, big=big)
     if have:
@@ -141,21 +148,32 @@ def photo_fetch(uid, pic_ver, big: bool = False) -> "str | None":
     if missed is not None and (time.time() - missed) < PHOTO_MISS_TTL_SEC:
         return None
 
-    key = photo_key(uid, pic_ver)
-    folder, name = key
-    dest = os.path.join(OWN_PHOTOS_DIR, folder, f"{name}{'_big' if big else ''}.jpg")
+    folder, name = photo_key(uid, pic_ver)
+    leaf = f"{name}{'_big' if big else ''}"
+    dest = os.path.join(OWN_PHOTOS_DIR, folder, leaf + ".jpg")
+
+    def _no(reason: str) -> None:
+        _PHOTO_MISSES[url] = time.time()
+        if log:
+            try:
+                log(f"chat photo {folder}/{leaf}: {reason}")
+            except Exception:             # noqa: BLE001 — a picture, never the page
+                pass
+
     try:
         with urllib.request.urlopen(url, timeout=PHOTO_TIMEOUT_SEC) as answer:
-            if getattr(answer, "status", 200) != 200:
+            status = getattr(answer, "status", 200)
+            if status != 200:
+                _no(f"the CDN answered {status}")
                 return None
             blob = answer.read(PHOTO_MAX_BYTES + 1)
-    except Exception:                     # noqa: BLE001 — a picture, never the page
-        _PHOTO_MISSES[url] = time.time()
+    except Exception as exc:              # noqa: BLE001 — a picture, never the page
+        _no(f"{type(exc).__name__}: {exc}")
         return None
     if not blob or len(blob) > PHOTO_MAX_BYTES or blob[:2] != b"\xff\xd8":
         # Not a JPEG: the CDN answers a small XML document (404, `NoSuchKey`) for a name
         # it does not know, and writing that to disk would cache the miss for ever.
-        _PHOTO_MISSES[url] = time.time()
+        _no(f"not a JPEG, {len(blob or b'')} bytes")
         return None
     try:
         os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -163,7 +181,8 @@ def photo_fetch(uid, pic_ver, big: bool = False) -> "str | None":
         with open(tmp, "wb") as handle:
             handle.write(blob)
         os.replace(tmp, dest)
-    except OSError:
+    except OSError as exc:
+        _no(f"cannot write it here: {exc}")
         return None
     return dest
 
@@ -304,7 +323,7 @@ def photo_link(uid, pic_ver, big: bool = False) -> "str | None":
     return "/api/chatsprite?" + _url.urlencode(q)
 
 
-def photo_named(uid, pic_ver, big: bool = False) -> "str | None":
+def photo_named(uid, pic_ver, big: bool = False, log=None) -> "str | None":
     """Resolve a photo the way `sprite_named` resolves a sprite: by name, never a path.
 
     It FETCHES what neither cache holds (#2418), because nothing else ever will: the
@@ -317,7 +336,7 @@ def photo_named(uid, pic_ver, big: bool = False) -> "str | None":
     Both halves must be digits — this is the one place a value that came off the wire
     becomes part of a filename, and `photo_key` is what checks it.
     """
-    return photo_fetch(uid, pic_ver, big=bool(big))
+    return photo_fetch(uid, pic_ver, big=bool(big), log=log)
 
 
 def emoji_catalogue() -> list:

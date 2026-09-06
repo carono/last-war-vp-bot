@@ -532,8 +532,19 @@ def _make_handler(server: WebServer):
                 import chat_assets
                 photo = _one(query.get("photo"))
                 if photo:
-                    return chat_assets.photo_named(photo, _one(query.get("ver")),
-                                                   big=bool(_one(query.get("big"))))
+                    # WHY A PICTURE DID NOT COME is written down (#2418). Every failure
+                    # is the same 404 here — no network, an untrusted certificate, a
+                    # name the CDN never had, a disk that refused the write — and the
+                    # first live run had this process fetching nothing while the same
+                    # address answered 200 from a shell on the same machine. The line
+                    # goes to the WINDOW's log rather than a profile's: the server is
+                    # the machine's, and a picture belongs to no account.
+                    from panel import debug_log
+
+                    return chat_assets.photo_named(
+                        photo, _one(query.get("ver")),
+                        big=bool(_one(query.get("big"))),
+                        log=debug_log.panel_logger("web").warning)
                 return chat_assets.sprite_named(_one(query.get("sprite")))
 
             self._picture(query, resolve)
