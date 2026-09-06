@@ -1258,5 +1258,51 @@ def test_a_photograph_the_client_never_fetched_is_said_not_swallowed():
         assert "chat.photo.missing" in words, f"{path.name} has no chat.photo.missing"
 
 
+def test_the_panel_fetches_a_photograph_the_client_never_did():
+    """#2418: nothing else was ever going to fetch it.
+
+    The client downloads a chat photograph while its own chat window draws the message,
+    and the panel reads chat without opening it — so `ChatPhotos` did not exist on this
+    machine at all and every bubble was blank. The picture is named on the game's own
+    CDN by the same pair that names it on disk (the sender uid and the `[photo:N]`
+    number), so the route that SERVES one gets it once, itself.
+    """
+    import hashlib
+
+    sys.path.insert(0, str(_REPO / "tools"))
+    import chat_assets
+
+    # The address is derived, never stored: the last six digits of the uid as a folder
+    # and md5("<uid>_<ver>") as the name. Invented values of the right shape.
+    uid, ver = "1000000000000001", "429"
+    name = hashlib.md5(f"{uid}_{ver}".encode()).hexdigest()
+    small = chat_assets.photo_url(uid, ver)
+    big = chat_assets.photo_url(uid, ver, big=True)
+    assert small.endswith(f"/000001/{name}.jpg"), small
+    assert big.endswith(f"/000001/{name}_big.jpg"), big
+    assert chat_assets.photo_url("Player1", ver) is None, \
+        "a uid that is not digits became part of a filename"
+    assert chat_assets.photo_url(uid, "../x") is None, \
+        "a version that is not digits became part of a filename"
+
+    src = (_REPO / "tools" / "chat_assets.py").read_text(encoding="utf-8")
+    named = src.split("def photo_named")[1].split("\ndef ")[0]
+    assert "photo_fetch" in named, \
+        "the route serving a photo no longer fetches one this machine has not got"
+    link = src.split("def photo_link")[1].split("\ndef ")[0]
+    assert "photo_path" not in link, \
+        "a link is gated on the disk again, so a picture that CAN be had is never asked for"
+    fetch = src.split("def photo_fetch")[1].split("\ndef ")[0]
+    assert "_PHOTO_MISSES" in fetch, \
+        "a 404 is asked again for every bubble on every scroll"
+    assert 'b"\\xff\\xd8"' in fetch, \
+        "the CDN's own error document would be written to disk as a picture"
+
+    view = (_REPO / "panel" / "web" / "app" / "src" / "views"
+            / "ChatView.tsx").read_text(encoding="utf-8")
+    assert "onError" in view and "setGone(" in view, \
+        "a picture the panel could not get is a broken image — the blank bubble again"
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())

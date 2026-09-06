@@ -518,6 +518,15 @@ def _make_handler(server: WebServer):
             resolved by `chat_assets.photo_named`. Never a path: this is the one place
             a value that came off the wire would become part of a filename, so both
             halves must be digits or nothing is served.
+
+            AND IT FETCHES ONE (#2418). A chat photograph is downloaded by the client
+            only while the game's own chat window is drawing the message, and the panel
+            reads chat without ever opening it — measured live, the client's chat-photo
+            cache did not exist at all, so every bubble in the panel was blank. So a
+            picture neither cache holds is got off the game's own CDN, once, HERE — on
+            the request that serves it, for the one photograph somebody looked at,
+            never a sweep and never a clock. A name the CDN does not know is a 404 and
+            the phone says there is a picture it has not got.
             """
             def resolve():
                 import chat_assets

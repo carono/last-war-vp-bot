@@ -238,6 +238,13 @@ export function ChatView({
   const [sprites, setSprites] = useState<Sprites>({ emoji: [], stickers: [] })
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<string | null>(null)
+  /* WHICH PICTURES THE PANEL COULD NOT GET, by their link (#2418). The panel fetches a
+     chat photograph off the game's own CDN the first time somebody looks at it, so a
+     bubble carries a link to a picture that CAN be had rather than one already on the
+     disk. When that fetch comes back empty the browser sees a broken image, and a
+     broken image is exactly the blank bubble this task is about — so the row is
+     remembered here and says the same sentence a message with no name at all says. */
+  const [gone, setGone] = useState<Record<string, boolean>>({})
   /* WHAT THE GAME TRANSLATED, per message id, and which rows are showing it (#2418).
      Both are kept here rather than on the row: the original must never be lost — a
      translation is a second reading of a message, not a replacement for it — so a tap
@@ -934,11 +941,15 @@ export function ChatView({
                           photo when its own chat window draws it, and this one never
                           opens that window — so the line says what is missing rather
                           than leaving a blank. */}
-                      {row.photo?.missing ? (
+                      {row.photo?.missing || (row.photo && gone[row.photo.small]) ? (
                         <p className="muted small">{t('chat.photo.missing')}</p>
                       ) : row.photo ? (
                         <button className="shot" onClick={() => setPhoto(row.photo?.big || row.photo?.small || '')}>
-                          <img src={row.photo.small} alt={t('chat.photo')} />
+                          <img
+                            src={row.photo.small}
+                            alt={t('chat.photo')}
+                            onError={() => setGone((was) => ({ ...was, [row.photo!.small]: true }))}
+                          />
                         </button>
                       ) : null}
                     </div>

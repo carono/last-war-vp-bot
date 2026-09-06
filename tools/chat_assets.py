@@ -40,17 +40,132 @@ import game_paths  # noqa: E402
 PHOTOS_DIR = game_paths.chat_photos_dir()
 
 
-def photo_path(uid, pic_ver, big: bool = False) -> str | None:
-    """Local cached JPG for a chat photo, or None if not downloaded yet.
+#: Where the panel keeps the pictures IT fetched. The client's own cache is read
+#: first and never written to — it belongs to the game, and a build that changes its
+#: mind about that tree must not find our files in it.
+OWN_PHOTOS_DIR = os.path.join(_REPO, "results", "chat_photos")
 
-    ``uid`` is the sender uid, ``pic_ver`` the ``[photo:N]`` number (picVer).
+#: The picture CDN the client itself names (`UIPlayerHead`, beside `LocalImages` and
+#: the `{0}_{1}` / `_big` / `.jpg` it builds a key out of). An environment variable in
+#: front of it for the same reason every other address here has one: a build that moves
+#: it must be answerable without editing code.
+PIC_CDN = (os.environ.get("LW_PIC_CDN") or "https://lastwar-cdn.akamaized.net/img")
+
+#: How long one fetch may take, and how big an answer may be. A chat photograph is a
+#: phone snapshot — measured live at 8–13 KB for the thumbnail and 0.14–0.43 MB for the
+#: full-size copy — so anything past this is not the picture we asked for.
+PHOTO_TIMEOUT_SEC = 12.0
+PHOTO_MAX_BYTES = 12 * 1024 * 1024
+
+#: A name the CDN answered 404 for, and when. A miss is NOT written to disk — caching
+#: it as a file would make it permanent, and a picture can appear later — but it is
+#: remembered for a while in memory, because the browser re-asks for every bubble on
+#: every scroll and the alternative is one request over the internet per bubble.
+_PHOTO_MISSES: dict = {}
+PHOTO_MISS_TTL_SEC = 600.0
+
+
+def photo_key(uid, pic_ver) -> "tuple | None":
+    """``(folder, md5)`` naming one picture, or ``None`` when the pair is not a pair.
+
+    The client keys every picture a player owns — the avatar and every photograph — the
+    same way: the last six digits of the uid as a folder, and `md5("<uid>_<ver>")` as
+    the name. Verified against this machine's own cache: 296 of 316 avatars named in the
+    chat history resolve to a file that is there.
     """
-    if not uid or pic_ver in (None, ""):
+    uid, ver = str(uid or "").strip(), str(pic_ver or "").strip()
+    if not uid.isdigit() or not ver.isdigit():
         return None
-    uid, pic_ver = str(uid), str(pic_ver)
-    h = hashlib.md5(f"{uid}_{pic_ver}".encode()).hexdigest()
-    cand = os.path.join(PHOTOS_DIR, uid[-6:], f"{h}{'_big' if big else ''}.jpg")
-    return cand if os.path.isfile(cand) else None
+    return uid[-6:], hashlib.md5(f"{uid}_{ver}".encode()).hexdigest()
+
+
+def photo_url(uid, pic_ver, big: bool = False) -> "str | None":
+    """The address the picture is served from, or ``None`` for a bad pair.
+
+    ``<cdn>/<last six digits of the uid>/<md5("<uid>_<ver>")>[_big].jpg`` — no query, no
+    signature and no expiry: measured live, the plain address answers 200 with the JPEG.
+    An invented example of the shape, so nothing real is written down here:
+
+        https://<cdn>/img/000123/0123456789abcdef0123456789abcdef.jpg
+        https://<cdn>/img/000123/0123456789abcdef0123456789abcdef_big.jpg
+    """
+    key = photo_key(uid, pic_ver)
+    if key is None:
+        return None
+    folder, name = key
+    return f"{PIC_CDN.rstrip('/')}/{folder}/{name}{'_big' if big else ''}.jpg"
+
+
+def photo_path(uid, pic_ver, big: bool = False) -> str | None:
+    """Local JPG for a chat photo, or None if neither cache has it YET.
+
+    Two places are read and neither is asked twice: the CLIENT's own download tree
+    first (it is the game's, and it is already there for anything the game drew), then
+    the panel's own (`results/chat_photos`), which is where :func:`photo_fetch` puts
+    what this machine went and got.
+    """
+    key = photo_key(uid, pic_ver)
+    if key is None:
+        return None
+    folder, name = key
+    leaf = os.path.join(folder, f"{name}{'_big' if big else ''}.jpg")
+    for root in (PHOTOS_DIR, OWN_PHOTOS_DIR):
+        cand = os.path.join(root, leaf)
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
+def photo_fetch(uid, pic_ver, big: bool = False) -> "str | None":
+    """The picture on disk, fetching it ONCE if this machine has not got it.
+
+    THE CLIENT NEVER FETCHES THESE FOR US (#2418). A chat photograph is downloaded when
+    the game's own chat window draws the message, and the panel reads chat without ever
+    opening it — measured: the client's chat-photo cache did not exist at all, so every
+    picture in the panel was a blank bubble. The address is the client's own
+    (:func:`photo_url`), so this is the same picture the game would have shown.
+
+    Called from the route that SERVES one picture and from nowhere else: one fetch per
+    photograph a person actually looked at, never a sweep and never a clock.
+    """
+    have = photo_path(uid, pic_ver, big=big)
+    if have:
+        return have
+    url = photo_url(uid, pic_ver, big=big)
+    if not url:
+        return None
+    import time
+    import urllib.request
+
+    missed = _PHOTO_MISSES.get(url)
+    if missed is not None and (time.time() - missed) < PHOTO_MISS_TTL_SEC:
+        return None
+
+    key = photo_key(uid, pic_ver)
+    folder, name = key
+    dest = os.path.join(OWN_PHOTOS_DIR, folder, f"{name}{'_big' if big else ''}.jpg")
+    try:
+        with urllib.request.urlopen(url, timeout=PHOTO_TIMEOUT_SEC) as answer:
+            if getattr(answer, "status", 200) != 200:
+                return None
+            blob = answer.read(PHOTO_MAX_BYTES + 1)
+    except Exception:                     # noqa: BLE001 — a picture, never the page
+        _PHOTO_MISSES[url] = time.time()
+        return None
+    if not blob or len(blob) > PHOTO_MAX_BYTES or blob[:2] != b"\xff\xd8":
+        # Not a JPEG: the CDN answers a small XML document (404, `NoSuchKey`) for a name
+        # it does not know, and writing that to disk would cache the miss for ever.
+        _PHOTO_MISSES[url] = time.time()
+        return None
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        tmp = dest + ".part"
+        with open(tmp, "wb") as handle:
+            handle.write(blob)
+        os.replace(tmp, dest)
+    except OSError:
+        return None
+    return dest
 
 
 def avatar_path(uid, head_pic_ver) -> str | None:
@@ -163,7 +278,7 @@ def sprite_link(path: str) -> "str | None":
 
 
 def photo_link(uid, pic_ver, big: bool = False) -> "str | None":
-    """One chat PHOTO as the phone asks for it, or None if it is not cached here.
+    """One chat PHOTO as the phone asks for it, or None when the pair is not a pair.
 
     The same route the sprites travel on (`/api/chatsprite`) and deliberately not a
     second one — the person's rule, and the reason is the one every picture route here
@@ -172,17 +287,17 @@ def photo_link(uid, pic_ver, big: bool = False) -> "str | None":
     number), never by a path, so nothing a message carries can point the route at a file
     of its own choosing.
 
-    `big` asks for the full-size copy the client caches beside the thumbnail — what a
-    tap opens. It falls back to the thumbnail when the client never downloaded one.
+    `big` asks for the full-size copy — what a tap opens. BOTH SIZES ARE ALWAYS
+    OFFERED since #2418: neither is on this disk until somebody looks at the picture,
+    because the route fetches it then (`photo_fetch`), and the CDN keeps the two
+    beside each other. A link is therefore a link to a picture that CAN be had, never
+    a promise that it is already here — a name the CDN does not know is answered 404
+    by the route and the bubble says so.
     """
     import urllib.parse as _url
 
-    if not photo_path(uid, pic_ver, big=big):
-        if not big:
-            return None
-        if not photo_path(uid, pic_ver):
-            return None
-        big = False
+    if photo_key(uid, pic_ver) is None:
+        return None
     q = {"photo": str(uid), "ver": str(pic_ver)}
     if big:
         q["big"] = "1"
@@ -190,14 +305,19 @@ def photo_link(uid, pic_ver, big: bool = False) -> "str | None":
 
 
 def photo_named(uid, pic_ver, big: bool = False) -> "str | None":
-    """Resolve a photo the way `sprite_named` resolves a sprite: by name, never a path."""
-    uid = str(uid or "").strip()
-    ver = str(pic_ver or "").strip()
-    # Both halves are digits in the game and nothing else may be tried: this is the one
-    # place a value off the wire becomes part of a filename.
-    if not uid.isdigit() or not ver.isdigit():
-        return None
-    return photo_path(uid, ver, big=bool(big))
+    """Resolve a photo the way `sprite_named` resolves a sprite: by name, never a path.
+
+    It FETCHES what neither cache holds (#2418), because nothing else ever will: the
+    client downloads a chat photograph when its own chat window draws the message, and
+    the panel reads chat without opening it — measured live, `ChatPhotos` did not exist
+    at all on this machine, so every picture in the panel was a blank bubble. One fetch
+    per photograph somebody actually looked at, on the server's own thread, never a
+    sweep and never a clock.
+
+    Both halves must be digits — this is the one place a value that came off the wire
+    becomes part of a filename, and `photo_key` is what checks it.
+    """
+    return photo_fetch(uid, pic_ver, big=bool(big))
 
 
 def emoji_catalogue() -> list:

@@ -816,15 +816,18 @@ class ChatTab(PanelTab):
                 photo = {"small": small,
                          "big": chat_assets.photo_link(uid, m.group(1), big=True)}
             else:
-                # A PHOTOGRAPH THE CLIENT NEVER FETCHED IS SAID, NOT SWALLOWED (#2418).
+                # A PHOTOGRAPH THAT CANNOT EVEN BE NAMED IS SAID, NOT SWALLOWED (#2418).
                 # The token was stripped whatever happened, so a message that is only a
                 # picture came out as an EMPTY bubble — «изображения не грузятся» with
-                # nothing on screen to explain it. Measured live: this client's download
-                # tree has no chat-photo cache at all (`ChatPhotos` does not exist), the
-                # bytes arrive only when the game's own chat window draws the item, and
-                # the URL builder is unreachable from Lua (`device` is nil, so
-                # `getCustomPicUrl` raises). Until that is answered, the bubble says
-                # there is a picture here and that this machine has not got it.
+                # nothing on screen to explain it. This branch is now only the pair that
+                # is not a pair (a sender uid or a `[photo:N]` number that is not
+                # digits); everything else gets a link, and the panel FETCHES the
+                # picture off the game's own CDN the first time somebody looks at it
+                # (`chat_assets.photo_fetch`). It had to: the client downloads a chat
+                # photograph only while its own chat window is drawing the message, and
+                # the panel never opens it — measured live, `ChatPhotos` did not exist
+                # on this machine at all. A picture the CDN does not know is a 404 on
+                # the route, and the phone draws the same sentence.
                 photo = {"small": "", "big": "", "missing": True}
             text = (text[:m.start()] + text[m.end():]).strip()
         parts = []
