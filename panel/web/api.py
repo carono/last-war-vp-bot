@@ -1269,6 +1269,28 @@ class WebApi:
         rt = self._runtime(profile)
         return {"actions": list_actions(lang=rt.i18n.lang)}
 
+    def fetch_chat_photo(self, uid: str, ver: str, big: bool = False) -> dict:
+        """Go and get ONE chat photograph off the game's own picture CDN.
+
+        Asked for by the service, which serves the picture and cannot fetch it: it runs
+        as LocalSystem and the far end resets its connection, while this process — an
+        ordinary one in the person's own session — gets a 200 for the same address. The
+        two share the disk, so all that has to travel back is whether the file is there.
+
+        It belongs to no profile: a chat photograph is somebody else's picture, named the
+        same way for every account on the machine, and it lands in the panel's own
+        picture cache rather than in a profile's directory.
+
+        NOT a sweep and not a clock — one photograph, on the request that draws it.
+        """
+        import chat_assets                 # `tools` is on the path in a panel process
+
+        said = []
+        got = chat_assets.photo_fetch(uid, ver, big=bool(big), log=said.append)
+        if got:
+            return {"ok": True}
+        return {"ok": False, "reason": (said[-1] if said else "no such picture")}
+
     def run_action(self, name: str, profile: str | None = None,
                    args: dict | None = None) -> dict:
         """Play one scenario under that profile's game claim — `rt.play_async`, no more.
@@ -2160,6 +2182,19 @@ class WebApi:
             if refused is not None:
                 return refused
             name = str(body.get("name") or "")
+            if path == "/api/chatphoto":
+                # A PICTURE FETCHED WHERE THE NETWORK IS (#2418). The route that serves
+                # chat photographs lives in the SERVICE, and the service runs as
+                # LocalSystem: measured live, its own request to the game's picture CDN
+                # is reset by the far end («WinError 10054») while the identical address
+                # answers 200 from this session. So the service asks a panel — an
+                # ordinary process in the person's own session — to go and get it, and
+                # then serves the file off the disk both of them share. It is one fetch
+                # for one photograph somebody looked at, exactly as if the service had
+                # made it: never a sweep, never a clock.
+                return _answer(self.fetch_chat_photo(
+                    str(body.get("photo") or ""), str(body.get("ver") or ""),
+                    bool(body.get("big"))))
             if path == "/api/timers/set":
                 return _answer(self.set_timer(name, bool(body.get("enabled")), who))
             if path == "/api/timers/now":

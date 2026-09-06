@@ -532,6 +532,25 @@ def _make_handler(server: WebServer):
                 import chat_assets
                 photo = _one(query.get("photo"))
                 if photo:
+                    ver, big = _one(query.get("ver")), bool(_one(query.get("big")))
+                    have = chat_assets.photo_path(photo, ver, big=big)
+                    if have:
+                        return have
+                    # THE FETCH IS MADE WHERE THE NETWORK IS (#2418). This process may be
+                    # the SERVICE, which runs as LocalSystem: measured live, its own
+                    # request to the picture CDN is reset by the far end («WinError
+                    # 10054») while the identical address answers 200 from the person's
+                    # session. So a panel is asked to go and get it — they share the disk
+                    # — and this only falls back to fetching for itself when there is no
+                    # panel to ask or the panel could not either.
+                    try:
+                        server.api.dispatch("POST", "/api/chatphoto", {},
+                                            {"photo": photo, "ver": ver, "big": big})
+                    except Exception:       # noqa: BLE001 — one picture, not the page
+                        pass
+                    got = chat_assets.photo_path(photo, ver, big=big)
+                    if got:
+                        return got
                     # WHY A PICTURE DID NOT COME is written down (#2418). Every failure
                     # is the same 404 here — no network, an untrusted certificate, a
                     # name the CDN never had, a disk that refused the write — and the
