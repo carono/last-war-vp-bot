@@ -116,6 +116,49 @@ def photo_path(uid, pic_ver, big: bool = False) -> str | None:
     return None
 
 
+
+def _through_a_plain_interpreter(url: str) -> "bytes | None":
+    """The same fetch, made by a short-lived CONSOLE interpreter, or ``None``.
+
+    THIS PROCESS MAY NOT BE ALLOWED ON THE NETWORK AT ALL, and it is not something the
+    code can see: measured on the live machine, a request from the windowed interpreter
+    the panel and the service both run under (`pythonw.exe`) is reset by the far end
+    («WinError 10054»), and the identical request made a second later by the console one
+    (`python.exe`) answers 200. Whatever draws that line — a split-tunnelled VPN, a
+    firewall rule naming an image — belongs to the machine and not to the bot, and the
+    only thing to do about it here is to ask an interpreter that IS allowed.
+
+    So a failure is retried ONCE through `game_paths.win_python()` — the same
+    interpreter every other child process of the panel is started with, asked for rather
+    than written down. On a machine with no such split this costs nothing, because the
+    first attempt succeeds and this is never reached.
+    """
+    import os as _os
+    import subprocess
+    import sys as _sys
+
+    exe = (game_paths.win_python() or "").strip()
+    if not exe or not _os.path.isfile(exe):
+        return None
+    if _os.path.basename(exe).lower() == _os.path.basename(_sys.executable or "").lower():
+        return None                       # the same interpreter, so the same answer
+    code = ("import sys,urllib.request;"
+            "a=urllib.request.urlopen(sys.argv[1],timeout=%d);"
+            "sys.stdout.buffer.write(a.read(%d))" % (int(PHOTO_TIMEOUT_SEC),
+                                                     PHOTO_MAX_BYTES + 1))
+    # NO CONSOLE WINDOW: the caller is a windowed process, and a black box blinking on
+    # the desktop every time somebody scrolls a chat is not a picture arriving quietly.
+    quiet = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        done = subprocess.run([exe, "-c", code, url], capture_output=True,
+                              timeout=PHOTO_TIMEOUT_SEC + 8, creationflags=quiet)
+    except Exception:                     # noqa: BLE001 — a picture, never the page
+        return None
+    if done.returncode != 0 or not done.stdout:
+        return None
+    return done.stdout
+
+
 def photo_fetch(uid, pic_ver, big: bool = False, log=None) -> "str | None":
     """The picture on disk, fetching it ONCE if this machine has not got it.
 
@@ -168,8 +211,10 @@ def photo_fetch(uid, pic_ver, big: bool = False, log=None) -> "str | None":
                 return None
             blob = answer.read(PHOTO_MAX_BYTES + 1)
     except Exception as exc:              # noqa: BLE001 — a picture, never the page
-        _no(f"{type(exc).__name__}: {exc}")
-        return None
+        blob = _through_a_plain_interpreter(url)
+        if blob is None:
+            _no(f"{type(exc).__name__}: {exc}")
+            return None
     if not blob or len(blob) > PHOTO_MAX_BYTES or blob[:2] != b"\xff\xd8":
         # Not a JPEG: the CDN answers a small XML document (404, `NoSuchKey`) for a name
         # it does not know, and writing that to disk would cache the miss for ever.

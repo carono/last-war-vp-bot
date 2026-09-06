@@ -1292,7 +1292,15 @@ def test_the_panel_fetches_a_photograph_the_client_never_did():
     link = src.split("def photo_link")[1].split("\ndef ")[0]
     assert "photo_path" not in link, \
         "a link is gated on the disk again, so a picture that CAN be had is never asked for"
+    plain = src.split("def _through_a_plain_interpreter")[1].split("\ndef ")[0]
+    assert "game_paths.win_python()" in plain, \
+        "the retry names an interpreter of its own instead of asking for the machine's"
+    assert "CREATE_NO_WINDOW" in plain, \
+        "a console window blinks on the desktop every time a chat is scrolled"
+
     fetch = src.split("def photo_fetch")[1].split("\ndef ")[0]
+    assert "_through_a_plain_interpreter" in fetch, \
+        "a process the machine keeps off the network gives up instead of asking one it lets on"
     assert "_PHOTO_MISSES" in fetch, \
         "a 404 is asked again for every bubble on every scroll"
     assert 'b"\\xff\\xd8"' in fetch, \
