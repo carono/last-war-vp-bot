@@ -596,7 +596,7 @@ def test_a_knob_writes_the_row_of_a_tab_nobody_has_drawn():
 
         tab = timerstab.TimersTab.__new__(timerstab.TimersTab)
         tab.rt = rt
-        tab._built = False
+        tab._drawn = False
         assert tab.write_args("sweep_star_servers", {"count": 9}) is True
         assert (timersmod.load_catalogue(path)
                 .by_name("sweep_star_servers").args["count"] == 9)
@@ -716,10 +716,10 @@ def _undrawn_card(saved, *, refuses=False):
             super().__init__(rt, parent)
             self.tickets = 0
             self.carriage = 1
-            self.drawn = 0
+            self.draws = 0
 
         def build(self) -> None:
-            self.drawn += 1
+            self.draws += 1
 
         def config(self) -> dict:
             return {"tickets": self.tickets, "carriage": self.carriage}
@@ -764,7 +764,7 @@ def test_the_saved_block_reaches_an_undrawn_tab_without_drawing_it():
     """
     tab, _said = _undrawn_card({"tickets": 3})
     assert tab.built is False, "restoring a block must not mark the tab as drawn"
-    assert tab.drawn == 0, "restoring a block must not build anything"
+    assert tab.draws == 0, "restoring a block must not build anything"
 
 
 def test_a_neighbour_knob_does_not_write_the_default_over_the_restored_one():
