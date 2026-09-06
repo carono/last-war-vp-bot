@@ -2891,5 +2891,9 @@
   "errand.arg.rob.margin": "Escort weaker than ours, per cent",
   "errand.arg.rob.margin.hint": "5 means an escort has to read at most 95% of ours before the run will touch it.",
   "errand.arg.rob.squad": "Squad sent",
-  "errand.arg.rob.squad.hint": "1 is the first squad, which is usually the strongest one arranged."
+  "errand.arg.rob.squad.hint": "1 is the first squad, which is usually the strongest one arranged.",
+  "errand.arg.rob.rotations": "Rotations of the board before a break",
+  "errand.arg.rob.rotations.hint": "How many times in a row the board may come back with nothing within the rule before the errand gives up and books its next turn. A robbery resets the count.",
+  "errand.arg.rob.pause_min": "Break, minutes",
+  "errand.arg.rob.pause_min.hint": "The errand's next turn, not a sleep: nothing holds the game link while it waits."
 }

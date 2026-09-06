@@ -2891,5 +2891,9 @@
   "errand.arg.rob.margin": "Muhafız bizden zayıf, yüzde olarak",
   "errand.arg.rob.margin.hint": "5, muhafızın bizim gücümüzün en fazla %95'i olması gerektiği anlamına gelir.",
   "errand.arg.rob.squad": "Hangi takım",
-  "errand.arg.rob.squad.hint": "1 ilk takımdır, genelde kurulanların en güçlüsü."
+  "errand.arg.rob.squad.hint": "1 ilk takımdır, genelde kurulanların en güçlüsü.",
+  "errand.arg.rob.rotations": "Molaya kadar liste yenilemesi",
+  "errand.arg.rob.rotations.hint": "Görev pes edip bir sonraki sırasını ayarlamadan önce listenin arka arkaya kaç kez kurala uyan hedefsiz dönebileceği. Bir soygun sayacı sıfırlar.",
+  "errand.arg.rob.pause_min": "Mola, dakika",
+  "errand.arg.rob.pause_min.hint": "Bu görevin bir sonraki sırası, bekleme değil: bu sürede oyun bağlantısını kimse tutmaz."
 }

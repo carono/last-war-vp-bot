@@ -2891,5 +2891,9 @@
   "errand.arg.rob.margin": "Escolta más débil que la nuestra, en por ciento",
   "errand.arg.rob.margin.hint": "5 significa que la escolta debe valer como mucho el 95% de la nuestra para tocarla.",
   "errand.arg.rob.squad": "Con qué escuadrón",
-  "errand.arg.rob.squad.hint": "1 es el primer escuadrón, normalmente el más fuerte de los formados."
+  "errand.arg.rob.squad.hint": "1 es el primer escuadrón, normalmente el más fuerte de los formados.",
+  "errand.arg.rob.rotations": "Recargas de la lista antes de la pausa",
+  "errand.arg.rob.rotations.hint": "Cuántas veces seguidas la lista puede volver sin un objetivo válido antes de que la tarea se rinda y programe su próximo turno. Un robo reinicia la cuenta.",
+  "errand.arg.rob.pause_min": "Pausa, minutos",
+  "errand.arg.rob.pause_min.hint": "Es el próximo turno de la tarea, no una espera: nadie retiene el enlace con el juego mientras tanto."
 }

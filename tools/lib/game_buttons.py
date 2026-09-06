@@ -404,6 +404,13 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.truck_rob_scan(),
         wait=0.5, label="Read the board, the day's count and our own strength",
     ),
+    "refresh_truck_targets": Button(
+        lua=_lua_actions.truck_rob_refresh(),
+        # The board is REBUILT by the server, so the wait is a round trip and not a
+        # redraw. Reading sooner sees the rows the last rotation left behind and decides
+        # the same trucks are still there.
+        wait=4.0, label="Ask the server for a new board of targets",
+    ),
     "rob_truck": Button(
         lua=_lua_actions.truck_rob_press(),
         # The robbery is instant — no march leaves the base — but the counter behind it

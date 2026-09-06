@@ -2891,5 +2891,9 @@
   "errand.arg.rob.margin": "Eskorta słabsza od naszej, w procentach",
   "errand.arg.rob.margin.hint": "5 oznacza, że eskorta może mieć najwyżej 95% naszej siły, inaczej nie ruszamy celu.",
   "errand.arg.rob.squad": "Którym oddziałem",
-  "errand.arg.rob.squad.hint": "1 to pierwszy oddział, zwykle najsilniejszy z ustawionych."
+  "errand.arg.rob.squad.hint": "1 to pierwszy oddział, zwykle najsilniejszy z ustawionych.",
+  "errand.arg.rob.rotations": "Odświeżeń listy przed przerwą",
+  "errand.arg.rob.rotations.hint": "Ile razy z rzędu lista może wrócić bez pasującego celu, zanim zadanie odpuści i zaplanuje następną turę. Udany rabunek zeruje licznik.",
+  "errand.arg.rob.pause_min": "Przerwa, minuty",
+  "errand.arg.rob.pause_min.hint": "To następna tura zadania, a nie czekanie: nikt nie trzyma w tym czasie połączenia z grą."
 }

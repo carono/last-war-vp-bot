@@ -582,7 +582,8 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         retry_sec=1800,
         # The rule, spelled out where both front-ends can reach it rather than left to the
         # recipe's own `ARGS` — the lesson of #2022. These ARE the recipe's defaults.
-        args={"min_level": 31, "quality": 10, "margin": 5, "squad": 1},
+        args={"min_level": 31, "quality": 10, "margin": 5, "squad": 1,
+              "rotations": 15, "pause_min": 15},
         label_key="timers.item.rob_trucks",
     ),
     # «ВЫПОЛНИТЬ ЗАДАНИЯ РАДАРА» IS NOT A ROW HERE ANY MORE (#2061) — the person's

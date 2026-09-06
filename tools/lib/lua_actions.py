@@ -16073,6 +16073,22 @@ def truck_rob_scan() -> str:
             '.."/"..tostring(cap).." ours="..tostring(ours).." src="..tostring(src)) end)')
 
 
+def truck_rob_refresh() -> str:
+    """Ask the SERVER for a new board of targets, and count the rotation.
+
+    `train.list` is what the window's own refresh button sends, and it really does
+    replace the rows: measured live, all fifteen `uuid`s came back different. Re-opening
+    the window would do the same thing and cost the six seconds the window takes, so the
+    message goes on its own.
+
+    The count of rotations that found nothing lives here beside it, because the recipe has
+    no arithmetic of its own — `__lw_rob_spins` is set to the person's ceiling once and
+    walked down by `truck_rob_spend_spin` below.
+    """
+    return ("pcall(function() SFSNetwork.SendMessage('train.list', true) "
+            'CS.UnityEngine.Debug.LogError("ACT rob_refresh asked") end)')
+
+
 def truck_rob_press() -> str:
     """Rob the safest truck the rule still allows, and park who it was.
 

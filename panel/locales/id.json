@@ -2891,5 +2891,9 @@
   "errand.arg.rob.margin": "Pengawal lebih lemah dari kita, dalam persen",
   "errand.arg.rob.margin.hint": "5 berarti pengawal paling banyak 95% dari kekuatan kita sebelum sasaran disentuh.",
   "errand.arg.rob.squad": "Pakai regu mana",
-  "errand.arg.rob.squad.hint": "1 adalah regu pertama, biasanya yang terkuat yang disusun."
+  "errand.arg.rob.squad.hint": "1 adalah regu pertama, biasanya yang terkuat yang disusun.",
+  "errand.arg.rob.rotations": "Muat ulang daftar sebelum jeda",
+  "errand.arg.rob.rotations.hint": "Berapa kali berturut-turut daftar boleh kembali tanpa sasaran yang lolos aturan sebelum tugas menyerah dan menjadwalkan giliran berikutnya. Satu perampokan mengulang hitungan.",
+  "errand.arg.rob.pause_min": "Jeda, menit",
+  "errand.arg.rob.pause_min.hint": "Ini giliran berikutnya dari tugas, bukan menunggu: tidak ada yang menahan sambungan ke gim selama itu."
 }

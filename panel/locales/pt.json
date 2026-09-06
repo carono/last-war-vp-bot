@@ -2891,5 +2891,9 @@
   "errand.arg.rob.margin": "Escolta mais fraca que a nossa, em por cento",
   "errand.arg.rob.margin.hint": "5 significa que a escolta pode valer no máximo 95% da nossa para ser atacada.",
   "errand.arg.rob.squad": "Com qual esquadrão",
-  "errand.arg.rob.squad.hint": "1 é o primeiro esquadrão, normalmente o mais forte montado."
+  "errand.arg.rob.squad.hint": "1 é o primeiro esquadrão, normalmente o mais forte montado.",
+  "errand.arg.rob.rotations": "Recargas da lista antes da pausa",
+  "errand.arg.rob.rotations.hint": "Quantas vezes seguidas a lista pode voltar sem um alvo dentro da regra antes de a tarefa desistir e marcar a próxima vez. Um roubo zera a contagem.",
+  "errand.arg.rob.pause_min": "Pausa, minutos",
+  "errand.arg.rob.pause_min.hint": "É a próxima vez da tarefa, não uma espera: ninguém segura a ligação ao jogo enquanto isso."
 }

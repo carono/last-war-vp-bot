@@ -216,6 +216,10 @@ SPEC: dict = {
              hint_key="errand.arg.rob.margin.hint"),
         _num("squad", "errand.arg.rob.squad", low=1, high=4,
              hint_key="errand.arg.rob.squad.hint"),
+        _num("rotations", "errand.arg.rob.rotations", low=1, high=60,
+             hint_key="errand.arg.rob.rotations.hint"),
+        _num("pause_min", "errand.arg.rob.pause_min", low=1, high=240,
+             hint_key="errand.arg.rob.pause_min.hint"),
     ),
     "play_frontline_breakthrough": (
         _num("rounds", "errand.arg.frontline.rounds", low=1, high=20),

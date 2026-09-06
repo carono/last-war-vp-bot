@@ -260,3 +260,22 @@ game knows the difference; `train.record.list` with `type=2` came back with no r
 the robber, so the record book is not obviously where to read it. Finding out costs a
 deliberate defeat, which costs troops, so it is a question for the person rather than a
 probe to run.
+
+### Asking for a new board
+
+`SFSNetwork.SendMessage('train.list', true)` — what the window's own refresh button sends,
+and it really does replace the rows rather than re-sort them: measured live, all fifteen
+`uuid`s came back different, with different owners, rarities and escorts. Re-opening
+`UILWTrainList` does the same thing and costs the six seconds the window takes, so the
+recipe sends the message on its own (`lua_actions.truck_rob_refresh`). One round trip is
+about four seconds.
+
+That is the «rotation» the errand counts: a rotation is one board that came back with
+nothing the rule allows. After `rotations` of them IN A ROW — a robbery resets the count —
+the run books its next turn `pause_min` minutes out with `next_run_in` and stops, rather
+than sleeping: a recipe waiting a quarter of an hour would hold the game claim for the
+whole of it while rallies, timers and the person's own buttons queued behind it.
+
+Counters, measured on the live account: `GetRobCount()` 0..4, `MAX_DAILY_LOOT_COUNT` 4,
+and the day turns over at `UITimeManager:GetInstance():GetTomorrowZero()` — the game's own
+stamp, never this machine's clock.

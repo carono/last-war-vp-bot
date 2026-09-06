@@ -2891,5 +2891,9 @@
   "errand.arg.rob.margin": "Escorte plus faible que la nôtre, en pour cent",
   "errand.arg.rob.margin.hint": "5 signifie que l'escorte doit valoir au plus 95% de la nôtre pour qu'on y touche.",
   "errand.arg.rob.squad": "Quelle escouade",
-  "errand.arg.rob.squad.hint": "1 est la première escouade, d'ordinaire la plus forte composée."
+  "errand.arg.rob.squad.hint": "1 est la première escouade, d'ordinaire la plus forte composée.",
+  "errand.arg.rob.rotations": "Rafraîchissements de la liste avant la pause",
+  "errand.arg.rob.rotations.hint": "Combien de fois d'affilée la liste peut revenir sans cible conforme avant que la tâche abandonne et planifie son prochain tour. Un pillage remet le compteur à zéro.",
+  "errand.arg.rob.pause_min": "Pause, minutes",
+  "errand.arg.rob.pause_min.hint": "C'est le prochain tour de la tâche, pas une attente : personne ne retient le lien avec le jeu pendant ce temps."
 }

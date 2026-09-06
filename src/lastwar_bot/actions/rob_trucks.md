@@ -50,6 +50,17 @@ ARGS margin = 5
 # arranged.
 ARGS squad = 1
 
+# HOW MANY TIMES THE BOARD IS ASKED FOR AGAIN before the run gives up for a while. One
+# rotation is one `train.list` that came back with nothing the rule allows; the count is
+# of rotations IN A ROW, so a robbery resets it. The board really is rebuilt each time —
+# measured live, all fifteen rows came back different.
+ARGS rotations = 15
+
+# …and how long the break is, in minutes. It is the errand's NEXT TURN, booked with
+# `next_run_in` and nothing else: a recipe that slept here would hold the game link for a
+# quarter of an hour while the rallies, the timers and the person's own buttons waited.
+ARGS pause_min = 15
+
 # 1. What we already know about who beats us, out of this profile's own memory and into
 #    the game VM, where the presses below can read it. `PARK` rather than `{name}`: a
 #    value a run has only just recalled cannot travel through a placeholder (docs/dsl.md).
@@ -90,15 +101,32 @@ IF left == 0
     TAP close_truck_targets
     STOP "no robbery left today"
 
-# 6. One at a time: rob, ask the game whether its counter moved, and let the answer decide
-#    whether the owner is worth offering again. The loop ends by setting its own `left` to
-#    0 rather than by `STOP`, so the closing lines and the `close` below always run — a
-#    board left open is a window the person finds in their way.
-WHILE left > 0 LIMIT 4
+# 6. Rob, ask the game whether its own counter moved, and let the answer decide whether
+#    that owner is worth offering again. When nothing on the board passes the rule the
+#    board is asked for AGAIN — that is a rotation — and after `rotations` of them in a
+#    row the run books its next turn `pause_min` minutes out and stops. The loop ends by
+#    setting its own `left` to 0 rather than by `STOP`, so the closing lines and the
+#    `close` below always run: a board left open is a window the person finds in their way.
+#
+#    THE LIMIT BELOW IS A DEAD MAN'S HANDLE, not the rule. The rule is the two counters —
+#    four robberies and `rotations` empty turns of the board — and both of them live in
+#    the game VM because the DSL has no arithmetic. 60 is comfortably more than the worst
+#    legal run (15 rotations plus 4 robberies) and would only ever fire if one of the two
+#    counters stopped moving, which is a bug rather than a state.
+READ_LUA (function() local M=DataCenter.LWMyStationDataManager M.__lw_rob_spins={rotations} M.__lw_rob_spun=0 return M.__lw_rob_spins end)() INTO spins
+WHILE left > 0 LIMIT 60
     READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_rob_fit) or 0) INTO fit
     IF fit == 0
-        LOG "nothing left on the board passes the rule — {board} truck(s) were looked at"
-        READ_LUA 0 INTO left
+        # Nothing the rule allows. Spend one rotation, and if that was the last of them
+        # hand the day back rather than asking the server sixteen times for the same board.
+        READ_LUA (function() local M=DataCenter.LWMyStationDataManager local n=(tonumber(M.__lw_rob_spins) or 0)-1 if n<0 then n=0 end M.__lw_rob_spins=n M.__lw_rob_spun=(tonumber(M.__lw_rob_spun) or 0)+1 return n end)() INTO spins
+        IF spins == 0
+            READ_LUA ({pause_min}*60) INTO next_run_in
+            READ_LUA 0 INTO left
+            LOG "{rotations} rotation(s) of the board in a row with nothing within the rule — coming back in {pause_min} minute(s)"
+        IF spins > 0
+            TAP refresh_truck_targets
+            TAP scan_truck_targets
     IF fit > 0
         TAP rob_truck
         READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_rob_hit) or 0) INTO sent
@@ -112,9 +140,14 @@ WHILE left > 0 LIMIT 4
             READ_LUA 0 INTO left
         IF sent == 1
             LOG "sent against a level {target_level} player: quality {target_quality}, escort {target_power}"
-            # The server needs a moment to fight it and answer, and its own daily counter
-            # is the answer — so the board is re-read AFTER the wait rather than before.
+            # THE PRESS IS NOT THE EVIDENCE — the lesson of #2585, where a command
+            # reported success for five days and sent nothing. What is asked for here is
+            # the GAME's own daily counter, off the server, after the fight has had time
+            # to happen: it moves for a robbery that landed and stays where it was for one
+            # that did not, whatever the send said about itself. So the board is asked for
+            # again AFTER the wait, and the counter is read off that answer.
             WAIT 4
+            TAP refresh_truck_targets
             TAP scan_truck_targets
             READ_LUA (function() local M=DataCenter.LWMyStationDataManager local was=tonumber(M.__lw_rob_seen) local now=tonumber(M.__lw_rob_done) or 0 M.__lw_rob_seen=now if was==nil then return 1 end if now>was then return 1 end return 0 end)() INTO moved
             READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_rob_done) or 0) INTO now_done
@@ -127,11 +160,15 @@ WHILE left > 0 LIMIT 4
                 REMEMBER truck_rob_blacklist FROM blacklist
                 LOG "the day's count did not move — that escort held, and its owner is off the list from now on"
             IF moved == 1
+                # A robbery resets the rotations: the ceiling is «this many EMPTY turns of
+                # the board in a row», not «this many turns».
+                READ_LUA (function() local M=DataCenter.LWMyStationDataManager M.__lw_rob_spins={rotations} return M.__lw_rob_spins end)() INTO spins
                 LOG "robbed — {now_done} of {cap} taken today"
 
 # 7. Say what the run ends on, and leave the screen as it was found.
 TAP scan_truck_targets
 READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_rob_done) or 0) INTO done
 READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_rob_fit) or 0) INTO fit
-LOG "truck robbery: {done} of {cap} taken today, {fit} truck(s) still within the rule on the board"
+READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_rob_spun) or 0) INTO spun
+LOG "truck robbery: {done} of {cap} taken today, {fit} truck(s) still within the rule on the board, {spun} rotation(s) of the board spent"
 TAP close_truck_targets
