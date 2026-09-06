@@ -963,7 +963,8 @@ class GameLink:
                 time.sleep(JUMP_CONFIRM_WAIT)
         return got
 
-    def jump(self, x: int, y: int, server, quiet: bool = False, on_done=None) -> bool:
+    def jump(self, x: int, y: int, server, quiet: bool = False, on_done=None,
+             human: bool = False) -> bool:
         """Jump the camera to a tile, on a worker thread. Serialised with every action.
 
         The claim is the ordinary one, so a coordinate clicked in the log and a timer
@@ -998,13 +999,25 @@ class GameLink:
         claim looked exactly like a jump that worked, and why the person pressed «Перейти»
         several times. A refusal calls it too, and never a second time.
         """
-        if not self.claim():
+        if not human and not self.claim():
             if not quiet:
                 self._log.say("panel", "busy")
             _call(on_done, {"ok": False, "server": None, "reason": "busy"})
             return False
 
         def work() -> None:
+            # SOMEBODY IS AT A BUTTON, SO THE JUMP WAITS FOR THE LINK RATHER THAN BOUNCING
+            # OFF IT (#2593). The plain `claim` is a try, and «занят» half a second after a
+            # press is the whole of «приходится иногда по несколько раз кликать» — the same
+            # defect `claim_soon` was written for (#1392, «343 presses in one day turned
+            # into nothing happening»). It hangs a demand on the door at :data:`claims.HUMAN`,
+            # so the background errand holding the client parks between two statements, and
+            # it BLOCKS — which is why it is here, on the worker, and not above.
+            if human and not self.claim_soon(priority=claims.HUMAN):
+                if not quiet:
+                    self._log.say("panel", "busy")
+                _call(on_done, {"ok": False, "server": None, "reason": "busy"})
+                return
             handle = self._activity.begin("activity.game.jump", x=x, y=y)
             answer = {"ok": False, "server": None, "reason": "log.error"}
             try:

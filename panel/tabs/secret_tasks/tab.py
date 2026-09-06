@@ -2295,7 +2295,7 @@ class SecretTasksTab(PanelTab):
         except tk.TclError:
             pass
 
-    def _jump(self, x: int, y: int, server, on_done=None) -> None:
+    def _jump(self, x: int, y: int, server, on_done=None, human: bool = False) -> None:
         """The one way this tab walks the camera anywhere. Remembers where it went.
 
         ``server`` may be None — the runtime then jumps on whatever server the client is
@@ -2308,7 +2308,7 @@ class SecretTasksTab(PanelTab):
         coordinate clicked in the log, and the box that caused it looked like a display
         preference. The box is about the LAP now, and only the lap.
         """
-        if not self.rt.game.jump(x, y, server, on_done=on_done):
+        if not self.rt.game.jump(x, y, server, on_done=on_done, human=human):
             # …and `on_done` has already been told WHY by the link itself, so nothing is
             # said twice and nothing is left waiting on a press that never started.
             return
@@ -2428,7 +2428,10 @@ class SecretTasksTab(PanelTab):
         if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
             x, y = str(MAP_MIDDLE), str(MAP_MIDDLE)
         self.say("coord", "log.picker.jump", srv=where)
-        self._jump(int(x), int(y), where, on_done=on_done)
+        # `human=True`: this is a person's button, so it WAITS for the link instead of
+        # bouncing off a busy one — measured live before it did, on a press half a second
+        # after a header read: «сервер 933: перехода не было — занят» (#2593).
+        self._jump(int(x), int(y), where, on_done=on_done, human=True)
 
     def _jump_landed(self, where: int, answer: dict) -> None:
         """The link finished walking the camera — release the button and say what happened.

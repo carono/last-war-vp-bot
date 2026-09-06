@@ -4809,7 +4809,7 @@ def test_a_jump_writes_the_server_it_went_to_into_the_box():
     tab.coord_srv_var = _Var("300")
     tab._jump_hist, tab._jump_hist_combo = [], None
     tab.rt = types.SimpleNamespace(
-        game=types.SimpleNamespace(jump=lambda x, y, srv, on_done=None: True),
+        game=types.SimpleNamespace(jump=lambda x, y, srv, on_done=None, human=False: True),
         settings=types.SimpleNamespace(changed=lambda: None))
 
     tab._jump(10, 20, 971)
@@ -4820,7 +4820,7 @@ def test_a_jump_writes_the_server_it_went_to_into_the_box():
     assert tab.coord_srv_var.get() == "971"
 
     # A refused jump writes nothing either.
-    tab.rt.game = types.SimpleNamespace(jump=lambda x, y, srv, on_done=None: False)
+    tab.rt.game = types.SimpleNamespace(jump=lambda x, y, srv, on_done=None, human=False: False)
     tab._jump(12, 22, 534)
     assert tab.coord_srv_var.get() == "971"
 
