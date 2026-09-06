@@ -63,10 +63,16 @@ from . import lua_service
 DEFAULT_SERVER = str(lua_actions.HOME_SERVER)
 
 #: How many times a jump asks the client «which warzone are you on» before giving up on
-#: seeing its target, and how long it waits between two of those (#2593). Measured live
-#: on a same-warzone jump: the answer is already right on the first read; a cross-server
-#: one loads the other world and wants the second. Three is the ceiling, not the cost.
-JUMP_CONFIRM_TRIES = 3
+#: seeing its target, and how long it waits between two of those (#2593).
+#:
+#: THE CEILING IS NOT THE COST. A same-warzone jump answers on the FIRST read — measured
+#: live, `ACT jump=…` and `curserver=` in the same second — so the ordinary press pays one
+#: reading and stops. A CROSS-SERVER one is a world being loaded, and three tries (two
+#: seconds) was measured too short: a jump to a neighbouring warzone whose chunk had gone
+#: out perfectly well was reported «клиент не оказался на этой зоне», which is the one
+#: lie this whole change exists to stop. Twelve seconds is the ceiling a person waits
+#: rather than the time anything takes.
+JUMP_CONFIRM_TRIES = 12
 JUMP_CONFIRM_WAIT = 1.0
 
 
