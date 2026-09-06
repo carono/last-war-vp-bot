@@ -529,6 +529,25 @@ def _alliance_star(rt) -> "dict | None":
             "age": age}
 
 
+def _alliance_gifts(rt) -> "dict | None":
+    """«ждут: 51 · обычных 6 · премиальных 45» — the alliance chests, off the one reading.
+
+    Two more fields of the chunk «Таймеры» already asks for (#2588), so the line costs
+    the game nothing. They are a dash — and a dash is `None` here — until somebody has
+    asked the server for the gift list at all: a client that has never asked holds no
+    gift records, and a «0 подарков» over that is the one lie this line exists to
+    prevent. `collect_alliance_gifts` does the asking, and the server's own
+    `push.alliance.reward.new` keeps the counts up to date afterwards.
+    """
+    values, age = _daily(rt)
+    if "algift_ord" not in values or "algift_prem" not in values:
+        return None
+    ordinary, premium = _int(values.get("algift_ord")), _int(values.get("algift_prem"))
+    return {"key": "timers.stat.alliance_gifts",
+            "fmt": {"n": ordinary + premium, "ord": ordinary, "prem": premium},
+            "age": age}
+
+
 def _arms_chests(rt) -> "dict | None":
     """«Сундуков сегодня: 9 · фаз: 3» — what «Гонка вооружений» has paid today.
 
@@ -603,6 +622,8 @@ PROVIDERS: dict = {
     "perform_arms_race": _arms_chests,
     # …and the week's ceremony (#2584), whose two numbers ride on the same reading.
     "work_alliance_star": _alliance_star,
+    # …and the alliance chests, read rather than collected blind (#2588).
+    "collect_alliance_gifts": _alliance_gifts,
     "alliance_star_ceremony": _alliance_star,
     # …the listener that watches the same pile the errand collects, and the one that
     # watches the same chests.

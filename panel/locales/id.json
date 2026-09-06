@@ -2856,6 +2856,7 @@
   "timers.item.work_alliance_star": "«Bintang Aliansi»: suka semua bintang, ambil dua peti",
   "timers.item.work_alliance_star.short": "Bintang Aliansi",
   "triggers.item.alliance_star_ceremony": "Beri suka pada bintang aliansi saat upacara diumumkan",
+  "timers.stat.alliance_gifts": "menunggu: {n} · biasa {ord} · premium {prem}",
   "timers.stat.alliance_star": "suka: {n} dari {all} · peti: {chests} dari {boxes}",
   "timers.stat.alliance_star_closed": "sekarang tidak berlangsung",
   "errand.arg.alliance_star.emoji": "Reaksi",

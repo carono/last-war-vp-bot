@@ -104,3 +104,57 @@ Confirmed live: `GetWindow(UIGiftPackageRewardGet).Ctrl:CloseSelf()` closed the
 modal (`IsWindowOpen` → false afterwards). The `Reward`/`GetGift` filter is safe:
 the gift window `UILWAllianceGift` and the HUD `UIMain` match neither token, so the
 scan only ever touches reward-show popups.
+
+## The list can be read, and the chests claimed, with NO window (#2588)
+
+The paragraph above — «the real click path is the controller's `OnGetAllBtnClick`,
+because a headless `SetAllGiftReceiveByType` sent nothing» — was right about the
+symptom and wrong about the cause. The claim sent nothing because the LIST was empty,
+and the client swallows a claim over an empty list. The list is not window-bound; it
+is simply **unasked**.
+
+One message fills it — the game's own get, the one the client fires when a person
+opens the section:
+
+```lua
+SFSNetwork.SendMessage(MsgDefines.AllianceGiftList, 0, 1000)   -- alliance.reward.list
+```
+
+`MsgDefines.AllianceGiftList` = `alliance.reward.list`, `AllianceReceiveAllGift` =
+`alliance.reward.allreceive`, and the push that keeps it fresh afterwards is
+`PushAlGiftNum` = `push.alliance.reward.new`. So the shape is the one `CLAUDE.md`
+asks for: **read once, then listen** — no clock, no poll.
+
+What the manager holds once the answer lands:
+
+| field | meaning |
+|---|---|
+| `giftInfoList[type]` | the gift records of that chest — a CLAIMED gift stays in it |
+| `<record>.receiveState` | 0 = still to claim |
+| `type2RedPointNumDict[type]` | unclaimed count of that chest |
+| `GetGiftNum()` | unclaimed over both |
+| `GetRedPointNum()` | not this number — it read 0 with 51 gifts waiting |
+
+So `seen == 0` (no records at all) means «nobody asked», which is NOT «no gifts» —
+that distinction is the whole reason the reading may report a dash.
+
+And the claim needs no window either:
+
+```lua
+SFSNetwork.SendMessage(MsgDefines.AllianceReceiveAllGift, 1)   -- 1 ordinary, 2 premium
+```
+
+### Measured live, 2026-09-06
+
+* cold client, nothing asked: `giftInfoList` empty for both types;
+* after the get: ordinary 45 records / 6 unclaimed, premium 200 / 45,
+  `GetGiftNum()` 51, `type2RedPointNumDict` `{1:6, 2:45}`;
+* headless `allreceive 1` with no window open: `{1:6}` → `{1:0}`, `GetGiftNum()`
+  52 → 46 within three seconds;
+* a full run of `collect_alliance_gifts.md`: «waiting — ordinary 0, premium 46» →
+  «took 46, still waiting 0».
+
+The recipe therefore asks, counts, claims only a chest with something in it, and
+proves the run by the counter rather than by the send (#2585). The two counts also
+ride on the checklist reading as `algift_ord` / `algift_prem`, so «Подарки альянса»
+draws a live line and no new question reaches the game.

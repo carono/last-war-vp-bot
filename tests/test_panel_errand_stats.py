@@ -276,10 +276,12 @@ def test_an_errand_nobody_can_answer_for_free_says_so_in_words():
     empty line under it is indistinguishable from one whose reading is broken.
 
     These are the ones no reading the panel takes can answer, not even the checklist's:
-    the alliance gift box, «Кодовое имя», the listener that watches for a kick.
+    «Кодовое имя», the listener that watches for a kick. The alliance gift box used to be
+    the third and is not any more (#2588) — its list is readable once the client has asked
+    the server for it, so the errand has a line and the case above holds it to the rule.
     """
     rt = _rt()
-    for errand in ("collect_alliance_gifts", "attack_codename_daily", "session_kick"):
+    for errand in ("attack_codename_daily", "session_kick"):
         assert errand not in statsmod.PROVIDERS
         assert statsmod.of(rt, errand) == {"key": "timers.stat.none", "fmt": {}, "age": None}
 
@@ -487,6 +489,21 @@ def test_the_days_secret_tasks_are_the_quota_and_not_the_map():
     rt = _rt(daily={"steal_left": 3, "steal_cap": 5}, daily_age=2.0)
     assert statsmod.of(rt, "secret_tasks_day") == {
         "key": "timers.stat.steals", "fmt": {"n": 3, "all": 5, "done": 2}, "age": 2.0}
+
+
+def test_the_alliance_chests_say_what_is_waiting_and_a_dash_is_not_a_zero():
+    """«ждут: 51 · обычных 6 · премиальных 45», off the same reading (#2588)."""
+    rt = _rt(daily={"algift_ord": 6, "algift_prem": 45}, daily_age=4.0)
+    assert statsmod.of(rt, "collect_alliance_gifts") == {
+        "key": "timers.stat.alliance_gifts",
+        "fmt": {"n": 51, "ord": 6, "prem": 45}, "age": 4.0}
+    # A client nobody has asked for the list holds no gift records at all, and the
+    # reading answers a dash. A dash is «nobody knows» and must never be drawn as
+    # «подарков нет»: the row falls back on what the panel itself knows.
+    rt = _rt(daily={}, daily_age=1.0)
+    assert statsmod._alliance_gifts(rt) is None
+    assert statsmod.of(rt, "collect_alliance_gifts")["key"] != \
+        "timers.stat.alliance_gifts"
 
 
 def test_the_weekly_ceremony_says_its_likes_and_its_two_chests():

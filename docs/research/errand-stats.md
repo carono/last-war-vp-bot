@@ -103,6 +103,7 @@ unnoticed.
 | `apply_ministry_interior` | whether a post is held, and how many applications took today | the same reading (`ministry_post`) + the panel's own record | yes |
 | `do_radar_tasks`, `do_radar_marches`, `radar_full_cycle` | room on the board and errands needing no march | the same reading (`radar_free`, `radar_helpable`) | yes |
 | `mail_gifts` | attachments still waiting in the Mail | the same reading | yes |
+| `collect_alliance_gifts` | gifts waiting in the two alliance chests, ordinary and premium | the same reading (`algift_ord`, `algift_prem`, #2588) — a dash until the list has been asked for once | yes |
 | `perform_arms_race` | chests the day has paid, and the phases behind the «i» | the day's own book (`panel/runtime/arms_book.py`), written when a reading lands | yes, the newest entry's |
 | `resource_tracker` | the pile standing uncollected | the stock cache | yes |
 | `explorer_chests` | chests the keys buy, with the purse beside it | the same reading | yes |
@@ -121,7 +122,6 @@ panel's own count of today's runs instead, or the sentence saying there is nothi
 
 | Errand | What a person would want | Why it is not free |
 |---|---|---|
-| `collect_alliance_gifts` | gifts uncollected | a per-type reading; the tab reads it only when opened |
 | `alliance_train_board` | is a conductor appointed | the events card reads it on demand; nothing writes it down |
 | `exchange_treasure_pieces`, `piece_exchange` | offers on the board | the board is read when the page is opened; no store |
 | `attack_codename_daily` | attacks left today | the manager is empty until asked (`docs/research/codename.md`) |

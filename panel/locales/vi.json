@@ -2856,6 +2856,7 @@
   "timers.item.work_alliance_star": "«Ngôi sao Liên minh»: thích tất cả và nhận hai rương",
   "timers.item.work_alliance_star.short": "Ngôi sao Liên minh",
   "triggers.item.alliance_star_ceremony": "Thích các ngôi sao liên minh khi buổi lễ được thông báo",
+  "timers.stat.alliance_gifts": "đang chờ: {n} · thường {ord} · cao cấp {prem}",
   "timers.stat.alliance_star": "lượt thích: {n}/{all} · rương: {chests}/{boxes}",
   "timers.stat.alliance_star_closed": "hiện không diễn ra",
   "errand.arg.alliance_star.emoji": "Biểu cảm",

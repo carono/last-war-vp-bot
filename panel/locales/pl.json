@@ -2856,6 +2856,7 @@
   "timers.item.work_alliance_star": "«Gwiazda sojuszu»: polub wszystkie i odbierz dwie skrzynie",
   "timers.item.work_alliance_star.short": "Gwiazda sojuszu",
   "triggers.item.alliance_star_ceremony": "Polub gwiazdy sojuszu, gdy ceremonia zostanie ogłoszona",
+  "timers.stat.alliance_gifts": "czeka: {n} · zwykłych {ord} · premium {prem}",
   "timers.stat.alliance_star": "polubienia: {n} z {all} · skrzynie: {chests} z {boxes}",
   "timers.stat.alliance_star_closed": "teraz się nie odbywa",
   "errand.arg.alliance_star.emoji": "Reakcja",

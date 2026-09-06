@@ -2856,6 +2856,7 @@
   "timers.item.work_alliance_star": "«Allianzstern»: alle Sterne liken, beide Truhen holen",
   "timers.item.work_alliance_star.short": "Allianzstern",
   "triggers.item.alliance_star_ceremony": "Allianzsterne liken, sobald die Zeremonie angekündigt ist",
+  "timers.stat.alliance_gifts": "warten: {n} · gewöhnlich {ord} · Premium {prem}",
   "timers.stat.alliance_star": "Likes: {n} von {all} · Truhen: {chests} von {boxes}",
   "timers.stat.alliance_star_closed": "findet gerade nicht statt",
   "errand.arg.alliance_star.emoji": "Reaktion",
