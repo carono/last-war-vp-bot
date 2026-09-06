@@ -188,6 +188,7 @@
   "develop.updates.frame": "Mises à jour",
   "develop.updates.dev": "Mettre à jour vers la version dev",
   "develop.updates.hint": "Décochée, le panneau ne passe qu'aux versions publiées — étiquettes vX.Y.Z, posées quand un lot de travail a été éprouvé. Cochée, il passe au dernier état de la branche, travail non publié compris : c'est ce qu'il faut quand on travaille sur le bot, et ce sur quoi personne d'autre ne devrait tourner. Le réglage vaut pour tout le panneau, pas pour ce profil : il n'y a qu'une copie de travail, et tous les profils en sortent.",
+  "develop.rally.today": "ralliements aujourd'hui",
   "develop.sniff.start": "Enregistrer une session",
   "develop.sniff.stop": "Arrêter et garder",
   "develop.web.already": "Un enregistrement est déjà en cours.",

@@ -188,6 +188,7 @@
   "develop.updates.frame": "Aktualizacje",
   "develop.updates.dev": "Aktualizuj do wersji dev",
   "develop.updates.hint": "Wyłączona — panel przechodzi tylko na opublikowane wydania: tagi vX.Y.Z, stawiane gdy partia pracy została sprawdzona. Włączona — na ostatni stan gałęzi, razem z niewydanym: tego chcesz, gdy pracujesz nad samym botem, i na tym nikt inny nie powinien siedzieć. Ustawienie dotyczy całego panelu, nie tego profilu: kopia robocza jest jedna i wszystkie profile działają z niej.",
+  "develop.rally.today": "zbiórki dzisiaj",
   "develop.sniff.start": "Nagraj sesję",
   "develop.sniff.stop": "Zatrzymaj i zachowaj",
   "develop.web.already": "Nagranie już trwa.",

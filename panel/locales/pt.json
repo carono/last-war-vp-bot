@@ -188,6 +188,7 @@
   "develop.updates.frame": "Atualizações",
   "develop.updates.dev": "Atualizar para a versão dev",
   "develop.updates.hint": "Desligada, o painel só passa para versões publicadas — etiquetas vX.Y.Z, postas quando um lote de trabalho foi comprovado. Ligada, passa para o último estado do ramo, incluindo o que não foi lançado: é isso que se quer ao trabalhar no bot, e aquilo em que mais ninguém deveria estar. A definição é do painel inteiro, não deste perfil: há uma só cópia de trabalho e todos os perfis saem dela.",
+  "develop.rally.today": "reuniões hoje",
   "develop.sniff.start": "Gravar uma sessão",
   "develop.sniff.stop": "Parar e guardar",
   "develop.web.already": "Já há uma gravação a decorrer.",

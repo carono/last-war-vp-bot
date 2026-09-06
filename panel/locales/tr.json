@@ -188,6 +188,7 @@
   "develop.updates.frame": "Güncellemeler",
   "develop.updates.dev": "Dev sürümüne güncelle",
   "develop.updates.hint": "Kapalıyken panel yalnızca yayımlanmış sürümlere geçer — bir grup iş denendiğinde atılan vX.Y.Z etiketleri. Açıkken dalın son durumuna geçer, yayımlanmamış işler dâhil: bot üzerinde çalışırken istenen budur ve başka kimsenin üzerinde olmaması gereken de budur. Ayar tüm panele aittir, bu profile değil: tek bir çalışma kopyası var ve bütün profiller ondan çalışır.",
+  "develop.rally.today": "bugünkü seferberlikler",
   "develop.sniff.start": "Oturumu kaydet",
   "develop.sniff.stop": "Durdur ve sakla",
   "develop.web.already": "Bir kayıt zaten sürüyor.",

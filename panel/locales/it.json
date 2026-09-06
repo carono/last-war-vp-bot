@@ -188,6 +188,7 @@
   "develop.updates.frame": "Aggiornamenti",
   "develop.updates.dev": "Aggiorna alla versione dev",
   "develop.updates.hint": "Spenta, il pannello passa solo alle release pubblicate — tag vX.Y.Z, messi quando un blocco di lavoro è stato provato. Accesa, passa all'ultimo stato del ramo, lavoro non rilasciato compreso: è quello che serve mentre lavori sul bot, e quello su cui nessun altro dovrebbe stare. L'impostazione vale per tutto il pannello, non per questo profilo: la copia di lavoro è una e tutti i profili escono da lì.",
+  "develop.rally.today": "raduni oggi",
   "develop.sniff.start": "Registra una sessione",
   "develop.sniff.stop": "Ferma e conserva",
   "develop.web.already": "Una registrazione è già in corso.",

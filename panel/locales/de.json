@@ -188,6 +188,7 @@
   "develop.updates.frame": "Aktualisierungen",
   "develop.updates.dev": "Auf die Dev-Version aktualisieren",
   "develop.updates.hint": "Aus: das Panel geht nur auf veröffentlichte Releases — Tags vX.Y.Z, die gesetzt werden, wenn ein Stapel Arbeit erprobt ist. Ein: es geht auf den letzten Stand des Zweigs, samt Unveröffentlichtem — genau das will man beim Arbeiten am Bot, und genau darauf sollte sonst niemand laufen. Die Einstellung gilt für das ganze Panel, nicht für dieses Profil: es gibt einen Checkout, und alle Profile laufen daraus.",
+  "develop.rally.today": "Sammelangriffe heute",
   "develop.sniff.start": "Sitzung aufzeichnen",
   "develop.sniff.stop": "Stoppen und behalten",
   "develop.web.already": "Eine Aufzeichnung läuft bereits.",

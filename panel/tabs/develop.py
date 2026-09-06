@@ -734,18 +734,22 @@ class DevelopTab(PanelTab):
                  else "triggers.off")
         rows = [{"label": "triggers.col.event", "value": trig.event_pattern},
                 {"label": "triggers.col.status", "value": self.t(state)}]
-        items = []
+        # …and the day's tally, as a ROW rather than as an item: a card counts its items
+        # in the badge beside its heading, and a «1» over one line of reading says
+        # nothing true about anything.
         stat = statsmod.of(self.rt, trig.name)
         if stat:
-            items.append({"text": self.t(stat["key"], **(stat.get("fmt") or {}))})
+            rows.append({"label": "develop.rally.today",
+                         "value": str((stat.get("fmt") or {}).get("n", ""))})
         return {"title": "triggers.item.rally_monitor.short",
-                "note": "triggers.item.rally_monitor",
                 "fields": [{"key": self.RALLY_TRIGGER,
-                            "label": "triggers.item.rally_monitor.short",
+                            # THE WHOLE SENTENCE on the switch, because the card's head
+                            # is already the short form — the same two strings the
+                            # errands page drew as a title and an «i».
+                            "label": "triggers.item.rally_monitor",
                             "kind": "switch",
                             "value": bool(schedule.trigger_enabled(trig.name))}],
-                "rows": rows,
-                "items": items}
+                "rows": rows}
 
     #: How big a run file may be and still be «nothing was recorded». Not zero: a
     #: transcript that latched the stream and saw one keepalive is already a few hundred

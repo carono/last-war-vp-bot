@@ -188,6 +188,7 @@
   "develop.updates.frame": "Cập nhật",
   "develop.updates.dev": "Cập nhật lên bản dev",
   "develop.updates.hint": "Tắt: bảng điều khiển chỉ lên các bản phát hành đã công bố — thẻ vX.Y.Z, được gắn khi một mẻ công việc đã được kiểm chứng. Bật: nó lên trạng thái mới nhất của nhánh, gồm cả phần chưa phát hành — đó là thứ bạn cần khi đang làm chính con bot, và là thứ không ai khác nên chạy. Thiết lập này thuộc về cả bảng điều khiển chứ không phải hồ sơ này: chỉ có một bản làm việc và mọi hồ sơ đều chạy từ đó.",
+  "develop.rally.today": "số lần tập kết hôm nay",
   "develop.sniff.start": "Ghi một phiên",
   "develop.sniff.stop": "Dừng và giữ lại",
   "develop.web.already": "Một bản ghi đang chạy rồi.",

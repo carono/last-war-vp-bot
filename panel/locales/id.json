@@ -188,6 +188,7 @@
   "develop.updates.frame": "Pembaruan",
   "develop.updates.dev": "Perbarui ke versi dev",
   "develop.updates.hint": "Mati: panel hanya naik ke rilis yang diterbitkan — tag vX.Y.Z, dipasang ketika sekumpulan pekerjaan sudah terbukti. Nyala: panel naik ke keadaan terakhir cabang, termasuk yang belum dirilis — itu yang dibutuhkan saat menggarap botnya sendiri, dan yang sebaiknya tidak dipakai orang lain. Pengaturan ini berlaku untuk seluruh panel, bukan profil ini: salinan kerjanya satu dan semua profil berjalan dari sana.",
+  "develop.rally.today": "rally hari ini",
   "develop.sniff.start": "Rekam sesi",
   "develop.sniff.stop": "Hentikan dan simpan",
   "develop.web.already": "Perekaman sudah berjalan.",
