@@ -859,7 +859,7 @@ class Schedule:
             self._honour_next_run(name, ctx)
             self._note_presses(ctx)
             self.rt.game.release()
-            self.rt.game.on_settled()
+            self.rt.game.settled()
             self._squads_moved(name)
 
     def _detached_errand(self, errand) -> bool:

@@ -287,7 +287,7 @@ class PanelRuntime:
         # The first header look often collides with the boot errands. Their RELEASE is
         # the event that retries it at the first real gap; waiting for another lucky
         # `/api/state` request left a green panel saying «game not read yet» (#2593).
-        self.game.on_settled = self.header.on_settled
+        self.game.add_settled(self.header.on_settled)
         self.actions = ActionRunner(log=self.log, target=self.game_target,
                                     activity=self.activity,
                                     interrupts=self.interrupts,
@@ -793,7 +793,8 @@ class PanelRuntime:
 
     def play_async(self, name: str, args: dict | None = None, *, tag: str = "action",
                    cancel=None, on_start=None, on_done=None, on_result=None,
-                   priority: int = claims.HUMAN, human: bool = False) -> bool:
+                   priority: int = claims.HUMAN, human: bool = False,
+                   inline: bool = False) -> bool:
         """Run one scenario on a worker thread, under the game claim.
 
         ``False`` when the claim was refused — something else is driving the game — and
@@ -841,6 +842,15 @@ class PanelRuntime:
         """
         import threading
 
+        # WHERE A CALLBACK LANDS (#2594). Every caller of this until now was a press and
+        # wanted its answer on the thread that draws; :meth:`play_now` is not — it is a
+        # worker that came here for the CLAIM and wants the Outcome in its own hand,
+        # because posting it to Tk and waiting for Tk to hand it back is a round trip
+        # through the one thread the whole window shares. So `inline` says «I am already
+        # on a thread that may block»: the run happens here and the callbacks are called
+        # where they are made.
+        deliver = (lambda call: call()) if inline else self._on_tk
+
         # THE GATE, BEFORE THE CLAIM AND BEFORE THE THREAD (#1910). `ActionRunner.run`
         # asks it too and is the guarantee — it is the door a caller that never comes
         # through here still has to pass — but a run refused down there has already
@@ -856,9 +866,9 @@ class PanelRuntime:
         if held:
             self.log.say(tag, held, name=name)
             if on_result is not None:
-                self._on_tk(lambda: on_result(Outcome(False, self.t(held, name=name))))
+                deliver(lambda: on_result(Outcome(False, self.t(held, name=name))))
             if on_done is not None:
-                self._on_tk(on_done)
+                deliver(on_done)
             return False
 
         if not self._relaunch_lock(name, tag):
@@ -879,15 +889,30 @@ class PanelRuntime:
         # than only a more urgent one. A press by a person is still a press — the run is
         # not detached, the caller is answered as it always was — it merely does not sit
         # on the client through its own pauses.
+        # …AND A PERSON'S PRESS IS NEVER DEMOTED BY IT (#2594). `SHARE` says how a run
+        # HOLDS the client, not how hard it is to get: demoting a press to
+        # :data:`claims.SHARED` means it outranks nothing at all, so the first thing
+        # holding the client refuses it outright. Live on 2026-09-06 that is exactly what
+        # a chat send would have become — eight «занят» in four minutes for one typed
+        # line — and «нажал, а ничего не ушло» is the failure #1288 exists to remove.
+        # So the demotion is for the runs nobody is waiting on; a press keeps its rank
+        # and merely gains the step-aside hook below.
         shares = self.actions.shares(name)
-        if shares and not detached:
+        if shares and not detached and not human:
             priority = claims.SHARED
 
         held = self.game.reserve(tag, priority)
-        if not held and not self.game.outranks(priority):
+        if not held and not self.game.outranks(priority) and not shares:
             # Nothing to be done: whoever has the client is at least as urgent as this
             # press, and asking them to step aside for an equal would only shuffle the
             # order of two things that both have to happen.
+            #
+            # …EXCEPT FOR A SHARING RUN, WHICH QUEUES INSTEAD OF DYING (#2594). Waiting
+            # costs the panel nothing when the waiter holds nothing: it hangs its demand
+            # on the door and `claim_soon` below gives up after
+            # :data:`~panel.runtime.link.YIELD_WAIT_SEC` with the same «занят» this line
+            # would have said now. What that buys is the ordinary case — an equal holder
+            # that finishes in two seconds — instead of dropping the person's message.
             self.log.say(tag, "busy")
             # …and the relaunch lock goes straight back: nothing was started, so nothing
             # is putting the client back and the next caller must not be refused.
@@ -918,9 +943,9 @@ class PanelRuntime:
                 # is no client starting up to wait for.
                 self._relaunch_done(name, started=False)
                 if on_result is not None:
-                    self._on_tk(lambda: on_result(Outcome(False, self.t("busy"))))
+                    deliver(lambda: on_result(Outcome(False, self.t("busy"))))
                 if on_done is not None:
-                    self._on_tk(on_done)
+                    deliver(on_done)
                 return
             try:
                 on_event = lambda msg: self.log.put(f"[{tag}] {msg}")   # noqa: E731
@@ -966,19 +991,57 @@ class PanelRuntime:
                 # taken», not as «the scenario gave no reason».
                 if on_result is not None:
                     result = outcome if outcome is not None else Outcome(False, raised)
-                    self._on_tk(lambda: on_result(result))
+                    deliver(lambda: on_result(result))
                 if on_done is not None:
-                    self._on_tk(on_done)
-                self.game.on_settled()
+                    deliver(on_done)
+                self.game.settled()
 
         # NAMED, and named with the PROFILE (#1392). A thread list is the last resort of
         # every jam diagnosis, and `Thread-14` in a window holding four accounts says
         # neither what it is doing nor whose it is — which is exactly the confusion
         # profile isolation exists to prevent. Trimmed, because a thread name is carried
         # by the OS on some platforms.
+        if inline:
+            # ON THIS THREAD, under the claim that was just taken. The caller asked for
+            # exactly that and is not the Tk thread — :meth:`play_now` says so in its
+            # own docstring, and the assertion that keeps it true lives there.
+            work()
+            return True
         threading.Thread(target=work, daemon=True,
                          name=f"lw:{self.profiles.active}:{tag}:{name}"[:60]).start()
         return True
+
+    def play_now(self, name: str, args: dict | None = None, *, tag: str = "action",
+                 priority: int = claims.SHARED, human: bool = False,
+                 cancel=None) -> Outcome:
+        """Play a scenario ON THIS THREAD, under a proper claim, and hand back what it found.
+
+        **NEVER from the Tk thread**: it blocks for as long as the scenario runs.
+
+        WHY IT EXISTS (#2594). A tab that wanted a scenario's READINGS on its own worker
+        had one option — `rt.actions.play(...)` — and that door takes **no game claim at
+        all**. It only looks harmless: the run still asks the daemon, using whatever lease
+        token the runtime happens to be holding, so it interleaves its calls into a timer's
+        run and the two take the lease off each other. Measured on this account's own
+        `panel.log` over 2026-09-03..06, with the chat as the only heavy user of that door:
+        1538 translation batches whose own work is one call, one 3-second wait and two
+        reads — median 5 s, p90 11 s, **max 127 s** — and 16 runs that ended
+        «lease lost — it expired or was taken by default/timer». Both numbers are one bug:
+        an unclaimed run fighting claimed ones.
+
+        So this is the claimed version of the same call. It is `play_async` with the thread
+        taken out: the same gate, the same relaunch lock, the same reserve/lease dance, the
+        same `SHARE` step-aside and regain hooks — and the Outcome returned rather than
+        posted. :data:`~panel.runtime.claims.SHARED` by default, because a caller that
+        wants a reading on a background thread is exactly the run that should hold the
+        client only while it is talking to it.
+        """
+        box: list = []
+        self.play_async(name, args, tag=tag, priority=priority, human=human,
+                        cancel=cancel, inline=True, on_result=box.append)
+        # An empty box is the one path that answers before a context exists: the claim was
+        # refused outright, which `play_async` reports by logging «занят» and returning.
+        return box[0] if box else Outcome(False, self.t("busy"))
 
     def post(self, call) -> None:
         """Run ``call`` on the Tk thread soon — from any thread, without touching Tk.

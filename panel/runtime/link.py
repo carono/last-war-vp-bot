@@ -134,6 +134,15 @@ class GameLink:
         #: "the link went green / is attaching / failed", said in one word. PUBLIC and
         #: reassignable like `on_settled`: the shell rebinds it per session (#1206).
         self.on_state = on_state or (lambda state, ok: None)
+        #: EXTRA subscribers to the same event, which :attr:`on_settled` cannot hold
+        #: (#2593). The attribute below is ASSIGNED by whoever wants it — the shell binds
+        #: its status strip to it — so a second interested party assigning it deletes the
+        #: first silently: `panel/runtime/host.py` hung the header's own «read at the first
+        #: free link» there and `panel/__main__.py` overwrote it a moment later, in the one
+        #: front-end that has a window. Anything that is not the shell's own strip
+        #: subscribes through :meth:`add_settled` instead and cannot be unhooked by an
+        #: assignment.
+        self._settled_also: list = []
         #: "an action has just let go of the game" — the shell re-reads its status strip
         #: there. A tab launched on its own has no strip and leaves it a no-op.
         self.on_settled = on_settled or (lambda: None)
@@ -934,40 +943,84 @@ class GameLink:
             self._log.say("server", "log.server.read_failed", error=exc)
         return DEFAULT_SERVER
 
-    def landed_on(self, target: "int | None"):
-        """Which warzone the camera actually ENDED UP on, or ``None`` when none was asked.
+    def add_settled(self, hook) -> None:
+        """Also hear «an action has just let go of the game», without owning the hook.
 
-        The proof a jump arrived, and the reason `jump` can answer «done» instead of
+        The half of :attr:`on_settled` an assignment cannot break: the shell keeps
+        assigning that attribute for its own strip, and everybody else lands here.
+        """
+        if hook is not None:
+            self._settled_also.append(hook)
+
+    def settled(self) -> None:
+        """Tell the shell's hook and every subscriber, and let none of them stop another."""
+        _call(self.on_settled, None)
+        for hook in list(self._settled_also):
+            _call(hook, None)
+
+    def landing(self) -> tuple:
+        """Ask the client where it is standing: ``(viewed, home, in_other)``.
+
+        One chunk, three facts (`lua_actions.jump_landing`). ``viewed`` is the number to
+        SHOW and never the thing to judge by — see the chunk's own note.
+        """
+        try:
+            for line in self.client.run(lua_actions.jump_landing(),
+                                        marker="ACT", settle=0.5, early=True):
+                if "landing=" not in line:
+                    continue
+                parts = line.split("landing=")[1].split()[0].split(",")
+                if len(parts) < 3:
+                    continue
+
+                def number(raw: str) -> int:
+                    try:
+                        return int(str(raw).strip())
+                    except (TypeError, ValueError):
+                        return 0
+
+                return (number(parts[0]), number(parts[1]),
+                        str(parts[2]).strip().lower() == "true")
+        except Exception as exc:                      # noqa: BLE001 — a reading, not the run
+            self._log.say("server", "log.server.read_failed", error=exc)
+        return (0, 0, False)
+
+    def landed_on(self, target: "int | None") -> tuple:
+        """Did the camera ARRIVE, and which warzone to show — ``(arrived, viewed)``.
+
+        The proof a jump got there, and the reason `jump` can answer «done» instead of
         «sent» (#2593). The chunk's own `ACT jump=… srv=` line says what was ASKED FOR,
         not where the client is standing: `GotoWorldPos` tweens, and a cross-server jump
         loads the other world first, so a press that reported success off that line was
         reporting that a message had left.
+
+        **WHAT COUNTS AS ARRIVED depends on which side of home the target is**, because
+        the viewed number is not trustworthy across a cross-server jump (see
+        :func:`lua_actions.jump_landing`): a foreign warzone is confirmed by
+        `IsInOtherServer()` turning TRUE, and the account's own warzone by its turning
+        false with `serverId` naming the target. Measured live before this: a jump to a
+        neighbouring warzone whose chunk had gone out perfectly well was still called
+        «клиент не оказался на этой зоне» twelve reads later.
 
         Read inside the claim the jump is already holding, so nothing else walks into the
         VM between the move and the check, and at most :data:`JUMP_CONFIRM_TRIES` times —
         this is one press confirming ITSELF, never a background poll.
         """
         if target is None:
-            return None
-        got = 0
+            return (True, 0)
+        viewed = 0
         for attempt in range(JUMP_CONFIRM_TRIES):
-            try:
-                # Do not use ``current_server()`` here: its historical fallback is the
-                # home warzone, which is useful to old callers but would turn a failed
-                # read into false proof that a jump HOME had arrived.
-                got = 0
-                for line in self.client.run(lua_actions.current_server(), marker="ACT",
-                                            settle=0.5, early=True):
-                    if "curserver=" in line:
-                        got = int(line.split("curserver=")[1].split()[0])
-                        break
-            except (TypeError, ValueError, IndexError):
-                got = 0
-            if got == target:
-                return got
+            viewed, home, other = self.landing()
+            if other:
+                # Somewhere that is not home. The client will not name WHICH while it is
+                # there, so a foreign target is answered by the fact of being away.
+                if home != target:
+                    return (True, viewed or target)
+            elif viewed == target or (home and home == target):
+                return (True, viewed or target)
             if attempt + 1 < JUMP_CONFIRM_TRIES:
                 time.sleep(JUMP_CONFIRM_WAIT)
-        return got
+        return (False, viewed)
 
     def jump(self, x: int, y: int, server, quiet: bool = False, on_done=None,
              human: bool = False) -> bool:
@@ -1047,9 +1100,8 @@ class GameLink:
                             lua_actions.jump_to_coord(x, y, target),
                             marker="ACT", settle=1.6, early=True):
                         self._log.put(f"[coord] {line}")
-                    landed = self.landed_on(target)
-                    arrived = target is None or landed == target
-                    answer = {"ok": arrived, "server": landed,
+                    arrived, landed = self.landed_on(target)
+                    answer = {"ok": arrived, "server": landed or target,
                               "reason": "" if arrived else "log.coord.not_landed"}
                     if not quiet:
                         self._log.say("coord", "log.done")
@@ -1059,7 +1111,7 @@ class GameLink:
             finally:
                 self._activity.end(handle)
                 self.release()
-                self.on_settled()
+                self.settled()
             # THE CAMERA MOVED, SO WHAT THE HEADER IS SHOWING IS OUT OF DATE (#2593). An
             # EVENT and never a clock, which is the only way a second reading is ever
             # taken (`panel/runtime/header.py::mark_stale`): the panel itself walked the

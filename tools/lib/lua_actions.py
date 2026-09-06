@@ -8869,6 +8869,29 @@ def account_switch_arm(serverid) -> str:
     return "%s = %d" % (_SWITCH_VAR, int(serverid))
 
 
+def jump_landing() -> str:
+    """Log `ACT landing=<viewed>,<home>,<in_other>` — the three facts a jump landed by.
+
+    **`curServerId` ALONE CANNOT SAY WHETHER A CROSS-SERVER JUMP ARRIVED (#2593).** Live,
+    after one, the client has named a THIRD warzone — neither the one left nor the one
+    entered (docs/research/secret-tasks-tab.md), so a press that waited for that field to
+    equal its target reported «перехода не было» about a jump that had worked. The wire
+    says the move itself takes ~1.6 s (docs/research/protocol.md), and the confirm was
+    still red after nineteen.
+
+    So the judge is `CrossServerUtil.IsInOtherServer()`, which is what
+    :func:`jump_to_coord`'s own live check used: a foreign warzone turns it true, the home
+    one turns it false, and the account's own `serverId` stays put through both. The
+    viewed number is kept as the thing to SHOW, never as the thing to decide by.
+    """
+    return ('local cur=%s local home="" local other=false '
+            'pcall(function() home = tostring(LuaEntry.Player.serverId) end) '
+            'pcall(function() other = CrossServerUtil.IsInOtherServer() end) '
+            'CS.UnityEngine.Debug.LogError("ACT landing="..tostring(cur)..","'
+            '..tostring(home)..","..tostring(other))'
+            % current_server_expr())
+
+
 def account_current_server() -> str:
     """Expression: the server of the character in play (0 while the client is reconnecting).
 
@@ -15916,6 +15939,197 @@ def truck_tickets_spent() -> str:
             "pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
             "if _num(s.itemId)==item then now=now+_num(s.count) end end end) "
             "local d=was-now if d<0 then d=0 end return d end)()")
+
+
+# ---------------------------------------------------------------------------
+# robbing somebody else's trade truck (#2591)
+# ---------------------------------------------------------------------------
+#
+# A DIFFERENT SCREEN FROM THE ONE ABOVE. Everything up to here is our OWN fleet — the
+# «Супер режим» window, the rotation, the dispatch. This is the other tab of the same
+# event: the board of trucks other players have on the road, and the press that robs one.
+# The game caps it at four a day (`MAX_DAILY_LOOT_COUNT`) and counts what has gone with
+# `GetRobCount()`.
+#
+# THE PRESS IS BUILT BY HAND, and the two hours it took to learn why are worth four lines
+# (measured live, #2591):
+#
+#   * `LWMyStationDataManager:TryAttackTrain(trainData, …)` throws inside the serialiser —
+#     `bad argument #2 to 'pack' (number expected, got table)`. Whatever the client calls
+#     it with, it is not a train's own data table;
+#   * `FormationToSFSObject(formation)` hands back an array of 33 entries whose `heroUuid`
+#     sits under the LONG tag holding a STRING, and the packer refuses it the same way. It
+#     is not the `heroInfo` the message wants;
+#   * `trainData.uuid` is a STRING on the board — `%d` will format it and `PutLong` will
+#     not take it, which is exactly the kind of failure that looks like a server refusal;
+#   * so the array is built here: one `SFSObject` per hero standing in the squad, with the
+#     hero's uuid as a number and its slot as an int.
+#
+# The four fields the message really writes were read off `AttackTrainMessage:OnCreate`
+# with a recording proxy in place of `sfsObj` (the trick `docs/research/alliance-train.md`
+# describes): `PutLong uuid`, `PutSFSArray heroInfo`, `PutInt serverId`, `PutInt squadNo`,
+# taken from arguments 1, 2, 3 and 5. Argument 4 is written nowhere and goes out as 0.
+#
+# WHAT «WEAKER THAN US» IS MEASURED AGAINST. The client cannot price its own squad:
+# `GetFormationPowerByUuid` answers 0 for every formation and there is no `*BattlePower`
+# method anywhere in `DataCenter`. Two readings exist, and this file prefers them in this
+# order:
+#
+#   1. **the server's own number**, off one of OUR trucks on the road — a dispatched truck
+#      carries the `power` of the squad escorting it, in the same units as the `power` the
+#      board prints against somebody else's truck. Apples to apples, and the only reading
+#      that is;
+#   2. **the heroes' own numbers added up**, when no truck of ours is out. It reads LOWER
+#      than the server's (39.8M against 60.1M for the same squad, measured), so a rule
+#      written against it comes out STRICTER than the person asked for — which is the safe
+#      direction for a press that loses troops when it is wrong.
+#
+# Which of the two answered is parked as well, so the recipe can say it out loud rather
+# than quietly comparing two different scales.
+
+#: The board of other players' trucks. Tab 2 is «цели»; tab 1 is our own fleet.
+_ROB_WIN = "UIWindowNames.UILWTrainList"
+
+_ROB_BOARD = (
+    "local function _rboard() local ok,w=pcall(function() "
+    "return UIManager.Instance:GetWindow(" + _ROB_WIN + ") end) "
+    "if not ok or w==nil then return nil end local l=nil "
+    "pcall(function() l=w.View:GetTrainsByTab(2) end) return l end ")
+
+#: Every knob the recipe parked, with the defaults a run that parked nothing still works
+#: under. `black` is a comma-fenced list of owner ids — `,id,id,` — so a plain substring
+#: search cannot match half an id.
+_ROB_RULE = (
+    "local function _rrule(M) local lvl=_num(M.__lw_rob_lvl) if lvl<=0 then lvl=31 end "
+    "local q=_num(M.__lw_rob_q) local margin=_num(M.__lw_rob_margin) "
+    "local squad=_num(M.__lw_rob_squad) if squad<=0 then squad=1 end "
+    "local black=','..tostring(M.__lw_rob_black or '')..',' "
+    "return lvl,q,margin,squad,black end ")
+
+#: What the run is allowed to compare a guard's power against. Returns the number and
+#: where it came from: 1 = the server's own, 0 = the heroes added up, -1 = nothing.
+_ROB_OURS = (
+    "local function _rours(M,squad) local best=0 "
+    "pcall(function() for _,t in pairs(M:GetMyTrainList() or {}) do "
+    "if _num(t.squadNo)==squad then local p=_num(t.power) if p>best then best=p end end end end) "
+    "if best>0 then return best,1 end local sum=0 "
+    "pcall(function() local f=M:GetAttackFormationByIndex(squad) "
+    "for uuid,_ in pairs(f.heroes or {}) do "
+    "local h=DataCenter.HeroDataManager:GetHeroByUuid(uuid) "
+    "if type(h)=='table' then sum=sum+_num(h.power) end end end) "
+    "if sum>0 then return sum,0 end return 0,-1 end ")
+
+#: Does one truck on the board pass every part of the rule.
+_ROB_FITS = (
+    "local function _rfits(t,lvl,q,margin,black,ours) "
+    "if t==nil or ours<=0 then return false end "
+    "if _num(t.ownerLv)<lvl then return false end "
+    "if q>0 then local sp=false pcall(function() sp=(t.isSpecialURQuality==true) end) "
+    "if _num(t.quality)<q and not (q>=10 and sp) then return false end end "
+    "if black:find(','..tostring(t.ownerId)..',',1,true) then return false end "
+    "if _num(t.power)>ours*(100-margin)/100 then return false end "
+    "return true end ")
+
+
+def truck_rob_open() -> str:
+    """Open the board of other players' trucks."""
+    return ("pcall(function() UIManager.Instance:OpenWindow(" + _ROB_WIN + ") end)")
+
+
+def truck_rob_close() -> str:
+    """Close it again, leaving the screen as it was found."""
+    return ("pcall(function() local mgr=UIManager.Instance "
+            "local ok,open=pcall(function() return mgr:IsWindowOpen(" + _ROB_WIN + ") end) "
+            "if ok and open then local w=mgr:GetWindow(" + _ROB_WIN + ") "
+            "if w and w.Ctrl and w.Ctrl.CloseSelf then "
+            "pcall(function() w.Ctrl:CloseSelf() end) end end end)")
+
+
+def truck_rob_scan() -> str:
+    """Read the board, the day's counter and our own strength in one go.
+
+    One snapshot rather than a dozen questions, for the reason every other scan in this
+    file gives: a truck that leaves the board between two of them would be counted twice.
+    """
+    return ("pcall(function() " + _NUM + _TRUCK_M + _ROB_BOARD + _ROB_RULE + _ROB_OURS +
+            _ROB_FITS +
+            "if not M then return end "
+            "local lvl,q,margin,squad,black=_rrule(M) "
+            "local ours,src=_rours(M,squad) "
+            "M.__lw_rob_ours=ours M.__lw_rob_src=src "
+            "local done=0 pcall(function() done=_num((M:GetRobCount())) end) "
+            "local cap=0 pcall(function() cap=_num(M.MAX_DAILY_LOOT_COUNT) end) "
+            "if cap<=0 then cap=4 end "
+            "local usedup=0 pcall(function() if M:IsTruckRobCountUsedUp() then usedup=1 end end) "
+            "local l=_rboard() local win=(l~=nil) and 1 or 0 "
+            "local n,fit,best=0,0,0 "
+            "if l~=nil then pcall(function() for _,d in pairs(l) do local t=d.trainData or d "
+            "n=n+1 if _rfits(t,lvl,q,margin,black,ours) then fit=fit+1 "
+            "local p=_num(t.power) if p>best then best=p end end end end) end "
+            "M.__lw_rob_win=win M.__lw_rob_n=n M.__lw_rob_fit=fit M.__lw_rob_best=best "
+            "M.__lw_rob_done=done M.__lw_rob_cap=cap M.__lw_rob_used=usedup "
+            'CS.UnityEngine.Debug.LogError("ACT rob_scan window="..tostring(win)'
+            '.." board="..tostring(n).." fit="..tostring(fit).." done="..tostring(done)'
+            '.."/"..tostring(cap).." ours="..tostring(ours).." src="..tostring(src)) end)')
+
+
+def truck_rob_press() -> str:
+    """Rob the safest truck the rule still allows, and park who it was.
+
+    SAFEST, not richest: within the rarity the rule asks for, the one with the weakest
+    guard goes first. What a robbery is worth is decided by the truck's rarity and how
+    far along its road it is, never by how hard its escort hits back — so a stronger
+    guard buys nothing and costs troops when the reading was optimistic.
+    """
+    return ("pcall(function() " + _NUM + _TRUCK_M + _ROB_BOARD + _ROB_RULE + _ROB_OURS +
+            _ROB_FITS +
+            "if not M then return end "
+            "M.__lw_rob_hit=0 M.__lw_rob_owner='' M.__lw_rob_lv=0 M.__lw_rob_pw=0 "
+            "M.__lw_rob_qual=0 M.__lw_rob_err='' "
+            "local lvl,q,margin,squad,black=_rrule(M) "
+            "local ours=_num(M.__lw_rob_ours) "
+            "if ours<=0 then M.__lw_rob_err='no reading of our own strength' return end "
+            "local l=_rboard() "
+            "if l==nil then M.__lw_rob_err='the board is not open' return end "
+            "local pick=nil "
+            "pcall(function() for _,d in pairs(l) do local t=d.trainData or d "
+            "if _rfits(t,lvl,q,margin,black,ours) then "
+            "if pick==nil then pick=t "
+            "elseif _num(t.quality)>_num(pick.quality) then pick=t "
+            "elseif _num(t.quality)==_num(pick.quality) "
+            "and _num(t.power)<_num(pick.power) then pick=t end end end end) "
+            "if pick==nil then M.__lw_rob_err='nothing on the board passes the rule' return end "
+            "M.__lw_rob_owner=tostring(pick.ownerId) M.__lw_rob_lv=_num(pick.ownerLv) "
+            "M.__lw_rob_pw=_num(pick.power) M.__lw_rob_qual=_num(pick.quality) "
+            "local f=nil pcall(function() f=M:GetAttackFormationByIndex(squad) end) "
+            "if f==nil then M.__lw_rob_err='squad '..squad..' is not there' return end "
+            "local arr=SFSArray.New() local heroes=0 "
+            "pcall(function() for uuid,slot in pairs(f.heroes or {}) do "
+            "local o=SFSObject.New() o:PutLong('heroUuid',uuid+0) o:PutInt('index',slot+0) "
+            "arr:AddSFSObject(o) heroes=heroes+1 end end) "
+            "if heroes==0 then M.__lw_rob_err='squad '..squad..' has no heroes in it' return end "
+            "local ok,err=pcall(function() SFSNetwork.SendMessage(MsgDefines.AttackTrain, "
+            "pick.uuid+0, arr, pick.serverId+0, 0, _num(f.squadNo)) end) "
+            "if not ok then M.__lw_rob_err=tostring(err) return end "
+            "M.__lw_rob_hit=1 "
+            'CS.UnityEngine.Debug.LogError("ACT rob_press owner="..tostring(M.__lw_rob_owner)'
+            '.." lv="..tostring(M.__lw_rob_lv).." power="..tostring(M.__lw_rob_pw)'
+            '.." quality="..tostring(M.__lw_rob_qual).." heroes="..tostring(heroes)) end)')
+
+
+def truck_rob_blacklist_add() -> str:
+    """Lua *expression* -> the blacklist with the last target's owner added to it.
+
+    Comma-fenced, and the same owner is never written twice — the recipe hands the answer
+    straight to `REMEMBER`, so what comes back is what the next run reads.
+    """
+    return ("(function() local M=DataCenter.LWMyStationDataManager "
+            "local black=tostring(M.__lw_rob_black or '') "
+            "local who=tostring(M.__lw_rob_owner or '') "
+            "if who=='' then return black end "
+            "if (','..black..','):find(','..who..',',1,true) then return black end "
+            "if black=='' then black=who else black=black..','..who end "
+            "M.__lw_rob_black=black return black end)()")
 
 
 # ---------------------------------------------------------------------------

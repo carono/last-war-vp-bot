@@ -305,7 +305,10 @@ def test_a_panel_made_jump_is_the_event_that_refreshes_the_header() -> None:
     """The server in the global header follows a confirmed move, never a timer (#2593)."""
     source = (_REPO / "panel" / "runtime" / "host.py").read_text(encoding="utf-8")
     assert "self.game.on_moved = self.header.mark_stale" in source
-    assert "self.game.on_settled = self.header.on_settled" in source
+    # …and the free-link read SUBSCRIBES rather than owning the hook (#2593): the shell
+    # assigns `on_settled` for its own status strip a moment later, so an assignment here
+    # was deleted again in every panel that has a window.
+    assert "self.game.add_settled(self.header.on_settled)" in source
     link = (_REPO / "panel" / "runtime" / "link.py").read_text(encoding="utf-8")
     assert 'if answer.get("ok"):' in link and "_call(self.on_moved, None)" in link
 
