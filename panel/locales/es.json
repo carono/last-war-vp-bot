@@ -2636,6 +2636,7 @@
   "events.arms.chests": "Cofres reclamados",
   "events.arms.day_chests": "Cofres del día tomados",
   "events.arms.rallies": "Concentraciones hoy",
+  "events.arms.window_rallies": "Concentraciones en esta ventana",
   "events.arms.day": "Fases hechas hoy",
   "events.arms.read": "Leído",
   "events.arms.until": "La fase termina en",

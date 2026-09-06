@@ -2636,6 +2636,7 @@
   "events.arms.chests": "Coffres réclamés",
   "events.arms.day_chests": "Coffres du jour pris",
   "events.arms.rallies": "Ralliements aujourd'hui",
+  "events.arms.window_rallies": "Ralliements sur la fenêtre",
   "events.arms.day": "Phases faites aujourd'hui",
   "events.arms.read": "Lu",
   "events.arms.until": "Fin de la phase dans",

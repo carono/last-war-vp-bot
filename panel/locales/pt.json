@@ -2636,6 +2636,7 @@
   "events.arms.chests": "Baús recebidos",
   "events.arms.day_chests": "Baús do dia recebidos",
   "events.arms.rallies": "Concentrações hoje",
+  "events.arms.window_rallies": "Concentrações nesta janela",
   "events.arms.day": "Fases feitas hoje",
   "events.arms.read": "Lido",
   "events.arms.until": "A fase termina em",

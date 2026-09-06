@@ -440,6 +440,18 @@ class EventsTab(PanelTab):
         except Exception as exc:            # noqa: BLE001 — a tally, never the run
             self.rt.dbg("events").warning("arms rallies not counted: %s", exc)
 
+    def arms_window_rallies(self) -> str:
+        """«Стягов за окно» — the banners the CURRENT drone phase has raised.
+
+        The recipe's own count (`arms_drone_made`), which is judged against the score
+        moving rather than against a send that returns cleanly either way; the panel only
+        keeps the last one it was told, and the recipe resets its purse on a new phase.
+        Drawn only while the drone phase is the one running — «за окно» has no meaning
+        outside the window, and a number left over from four hours ago is worse than no
+        number at all.
+        """
+        return str(max(0, int(self._arms_counted)))
+
     def arms_rallies_today(self) -> str:
         """«Стягов сегодня» for both front-ends — what the day's book says, `used / cap`.
 
@@ -1812,6 +1824,9 @@ class EventsTab(PanelTab):
         self._row(rows, "events.arms.points", modelmod.arms_points(state), grey)
         self._row(rows, "events.arms.chests", modelmod.arms_chests(state), grey)
         self._row(rows, "events.arms.day_chests", modelmod.arms_day_chests(state), grey)
+        if state.state == modelmod.OPEN and state.kind == modelmod.ARMS_DRONE:
+            self._row(rows, "events.arms.window_rallies",
+                      self.arms_window_rallies(), grey)
         self._row(rows, "events.arms.rallies", self.arms_rallies_today(), grey)
         self._row(rows, "events.arms.day",
                   "—" if state.done is None else "%d / 6" % state.done, grey)
@@ -2294,6 +2309,9 @@ class EventsTab(PanelTab):
              "value": (modelmod.ago(self._age_of(self._arms))
                        if self._arms is not None and not self._arms.error else "—")},
         ]}
+        if arms.state == modelmod.OPEN and arms.kind == modelmod.ARMS_DRONE:
+            acard["rows"].append({"label": "events.arms.window_rallies",
+                                  "value": self.arms_window_rallies()})
         if arms.state == modelmod.OPEN:
             acard["rows"].append({"label": "events.arms.until",
                                   "value": modelmod.hhmm(arms.seconds)})
