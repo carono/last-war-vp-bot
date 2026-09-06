@@ -532,6 +532,48 @@ def test_the_restart_card_is_not_drawn_among_the_errands():
     assert "if timer.name in HIDDEN_TIMERS:" in api
 
 
+def test_nothing_on_the_errands_page_is_a_second_drawing_of_the_state_page():
+    """The two that were: the client restart, and the kick recovery (#2579).
+
+    «Состояние» holds the client's life — and since this task the kick recovery too, so
+    that hiding the listener's card did not hide the ability with it. What this pins is
+    that the two pages cannot both draw the same press: an errand or a listener whose
+    scenario is one of the state page's controls must not have a card of its own.
+    """
+    import sys
+
+    sys.path.insert(0, str(_REPO))
+    from panel.runtime import game_control                       # noqa: PLC0415
+    from panel import triggers as trigmod                        # noqa: PLC0415
+    from panel import timers as timersmod                        # noqa: PLC0415
+    from panel.web import api as apimod                          # noqa: PLC0415
+
+    assert apimod.HIDDEN_TIMERS == frozenset({"restart_game"})
+    assert "session_kick" in apimod.MOVED_TRIGGERS
+    # …and the recovery really is offered there, or hiding the card would have hidden
+    # the ability: four presses now, and the fourth plays the listener's own recipe.
+    assert [c.id for c in game_control.CONTROLS] == ["launch", "quit", "restart",
+                                                     "recover"]
+    assert game_control.BY_ID["recover"].scenario == "recover_from_kick"
+
+    # NOTHING ELSE IS A DUPLICATE. Every scenario the state page presses, against every
+    # row of the two catalogues: a row that plays one of them and is still drawn among
+    # the errands is the next «дубль» to hide.
+    pressed = {c.scenario for c in game_control.CONTROLS}
+    drawn = []
+    for timer in timersmod.DEFAULT_TIMERS:
+        if timer.name in apimod.HIDDEN_TIMERS:
+            continue
+        if set(timer.scenario) & pressed:
+            drawn.append(timer.name)
+    for trig in trigmod.DEFAULT_TRIGGERS:
+        if trig.name in apimod.MOVED_TRIGGERS:
+            continue
+        if set(trig.scenario) & pressed:
+            drawn.append(trig.name)
+    assert drawn == [], f"still a second drawing of a «Состояние» press: {drawn}"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

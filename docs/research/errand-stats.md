@@ -61,11 +61,21 @@ The order is strict and it matters: a real reading always wins, the day's count 
 consolation, and the sentence is the last resort. «Сколько осталось» is what a person
 acts on; «сколько раз запускали» is only proof the row is alive.
 
-**One card is not drawn at all**: «Перезапуск игры» (`HIDDEN_TIMERS` in
-`panel/web/api.py`). «Состояние» already carries the client's three lifecycle presses,
-and the person's words were «карточку перезапуска игры скрыть, это дубль на основной
-странице». The row itself is untouched — the schedule owns it, it still fires, and
-`/api/timers/set` still answers for it.
+**Two cards are not drawn at all**, both because «Состояние» already carries the press:
+
+* «Перезапуск игры» (`HIDDEN_TIMERS` in `panel/web/api.py`) — «карточку перезапуска игры
+  скрыть, это дубль на основной странице»;
+* «Восстановление после кика», the `session_kick` listener (`MOVED_TRIGGERS`) — «карточку
+  восстановления после кика тоже скрой, на главной тоже должен быть дубль, если нету, то
+  добавь». There was no such press, so it was ADDED: `game_control.CONTROLS` has a fourth
+  control now and both front-ends draw it off that one table. The listener is untouched —
+  it still watches, `panel/runtime/recovery.py` still does the automatic recovery, and
+  `/api/triggers/set` still answers for the switch.
+
+In both cases the row itself is untouched: the schedule owns it and it still fires. What
+is gone is only the second drawing of it. `tests/test_panel_errand_stats.py` walks both
+catalogues against the state page's scenarios, so a THIRD duplicate cannot appear
+unnoticed.
 
 ## What is free today
 

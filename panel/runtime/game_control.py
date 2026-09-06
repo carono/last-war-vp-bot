@@ -1,7 +1,7 @@
 """The client's life — start it, close it, put it back — as one table both front-ends read.
 
-Three presses, and every one of them is a scenario: `launch_game`, `quit_game`,
-`restart_game`. Nothing here drives the game. What this module holds is the four things
+Four presses, and every one of them is a scenario: `launch_game`, `quit_game`,
+`restart_game`, `recover_from_kick`. Nothing here drives the game. What this module holds is the four things
 the WINDOW and the PHONE must agree about, and which were about to be written down
 twice:
 
@@ -40,6 +40,7 @@ from . import game_process
 LAUNCH = "launch"
 QUIT = "quit"
 RESTART = "restart"
+RECOVER = "recover"
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,8 @@ class Control:
 
 
 #: In the order both front-ends draw them: the one that creates, then the one that
-#: destroys, then the one that does both.
+#: destroys, then the two that do both — the ordinary restart, and the one for a client
+#: that is alive and locked behind somebody else's login.
 CONTROLS = (
     Control(LAUNCH, "launch_game", "log.game.launching", "game.launch",
             wants_client=False),
@@ -74,6 +76,21 @@ CONTROLS = (
             wants_client=True, confirm="game.confirm.quit"),
     Control(RESTART, "restart_game", "log.game.restarting", "game.restart",
             wants_client=True, confirm="game.confirm.restart"),
+    # …AND THE FOURTH, WHICH CAME HERE BECAUSE ITS CARD LEFT «Таймеры» (#2579). The
+    # person asked for the listener's block to go — «карточку восстановления после кика
+    # тоже скрой, на главной тоже должен быть дубль, если нету, то добавь» — and an
+    # ability that is drawn nowhere is an ability nobody can reach, so the press moved to
+    # the page that already holds the client's life.
+    #
+    # WHAT IT IS NOT: a second recovery. `panel/runtime/recovery.py` still does the
+    # automatic one and the `session_kick` listener still WATCHES without acting (#1296);
+    # this is the same recipe under a person's thumb, for the kick that is on screen
+    # right now. `wants_client` is True because a kicked client is very much alive — it
+    # is sitting behind a modal, which is the whole difficulty — and the question is
+    # asked for the same reason «Перезапустить» asks one: it takes the client down and
+    # brings it back.
+    Control(RECOVER, "recover_from_kick", "log.game.recovering", "game.recover",
+            wants_client=True, confirm="game.confirm.recover"),
 )
 
 BY_ID = {control.id: control for control in CONTROLS}
@@ -107,7 +124,7 @@ def available(control, running) -> bool:
 
 
 def state(up, playing: str = "") -> list:
-    """The three presses as the phone receives them — id, word, question, may-I.
+    """The four presses as the phone receives them — id, word, question, may-I.
 
     Everything the browser needs to draw the row and nothing it could get wrong: it
     does not know which scenario a press plays, and cannot be taught to, because the

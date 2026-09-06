@@ -2454,13 +2454,20 @@ class _Saved:
 #: nothing in either front-end has to be told about it.
 SHORT_SUFFIX = ".short"
 
+#: …AND «session_kick» SINCE #2579, for the same reason and by the person's own words:
+#: «карточку восстановления после кика тоже скрой, на главной тоже должен быть дубль,
+#: если нету, то добавь». Its recovery is a press on «Состояние» now
+#: (`panel/runtime/game_control.py`, the fourth control), beside the client's other
+#: three — and the listener itself is untouched: it still watches, `recovery.py` still
+#: does the automatic recovery, and `/api/triggers/set` still answers for the switch.
+#:
 #: Listeners whose card lives on ANOTHER screen and is therefore not drawn among the
 #: errands (#2573). «Лог стягов» records every alliance banner for whoever is working on
 #: the bot and acts on nothing, so the person moved its card to «Разработка», beside the
 #: recorder and the busy grids. The order itself did not move — the schedule still owns
 #: it, `/api/triggers/set` still answers for it, and the tab draws the schedule's own
 #: switch rather than a second copy.
-MOVED_TRIGGERS = frozenset({"rally_monitor"})
+MOVED_TRIGGERS = frozenset({"rally_monitor", "session_kick"})
 
 #: Errands whose card is NOT drawn on «Таймеры», because the same thing is already a
 #: press on another screen (#2579). «Перезапуск игры» is the one: «Состояние» has the

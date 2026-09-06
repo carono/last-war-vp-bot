@@ -1174,12 +1174,15 @@ def _link_is(api, rt, running) -> None:
         ph.NO_TRAFFIC if running else ph.NO_CLIENT, "")
 
 
-def test_the_state_page_carries_the_three_presses():
+def test_the_state_page_carries_the_clients_own_presses():
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
         _link_is(api, rt, True)
         controls = api.state()["game"]["controls"]
-        assert [c["id"] for c in controls] == ["launch", "quit", "restart"]
+        # FOUR SINCE #2579: the kick recovery joined them when its card left «Таймеры»
+        # — «на главной тоже должен быть дубль, если нету, то добавь». Order matters as
+        # much as membership: both front-ends draw the row straight off this table.
+        assert [c["id"] for c in controls] == ["launch", "quit", "restart", "recover"]
         # The words are locale KEYS the browser says out of the same table the window
         # uses — the very same keys, which is what makes the two buttons one button.
         english = i18nmod.load_locale("en")
@@ -1194,10 +1197,13 @@ def test_a_press_that_would_mean_nothing_is_not_offered():
         rt, api = _api(home)
         _link_is(api, rt, False)
         off = {c["id"]: c["enabled"] for c in api.state()["game"]["controls"]}
-        assert off == {"launch": True, "quit": False, "restart": False}
+        assert off == {"launch": True, "quit": False, "restart": False,
+                       "recover": False}
         _link_is(api, rt, True)
         on = {c["id"]: c["enabled"] for c in api.state()["game"]["controls"]}
-        assert on == {"launch": False, "quit": True, "restart": True}
+        # …and the kick recovery wants a client for the same reason the restart does: a
+        # kicked client is alive and sitting behind a modal, which is the difficulty.
+        assert on == {"launch": False, "quit": True, "restart": True, "recover": True}
 
 
 def test_a_stranded_client_may_still_be_stopped_and_restarted():
@@ -1212,7 +1218,8 @@ def test_a_stranded_client_may_still_be_stopped_and_restarted():
         for link in (True,):
             _link_is(api, rt, link)
             row = {c["id"]: c["enabled"] for c in api.state()["game"]["controls"]}
-            assert row == {"launch": False, "quit": True, "restart": True}, link
+            assert row == {"launch": False, "quit": True, "restart": True,
+                           "recover": True}, link
 
 
 def test_pressing_one_plays_the_scenario_and_says_so():
