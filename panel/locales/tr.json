@@ -2854,6 +2854,7 @@
   "web.ui.accounts.unread": "hiç okunmadı",
   "chat.picker.open": "İfadeler ve çıkartmalar",
   "timers.item.work_alliance_star": "«İttifak Yıldızı»: herkesi beğen, iki sandığı da al",
+  "timers.item.work_alliance_star.short": "İttifak Yıldızı",
   "triggers.item.alliance_star_ceremony": "Tören duyurulduğunda ittifak yıldızlarını beğen",
   "timers.stat.alliance_star": "beğeni: {all} içinden {n} · sandık: {boxes} içinden {chests}",
   "timers.stat.alliance_star_closed": "şu anda düzenlenmiyor",

@@ -2854,6 +2854,7 @@
   "web.ui.accounts.unread": "mai letto",
   "chat.picker.open": "Emoji e adesivi",
   "timers.item.work_alliance_star": "«Stella dell'alleanza»: mettere mi piace a tutte e prendere i due forzieri",
+  "timers.item.work_alliance_star.short": "Stella dell'alleanza",
   "triggers.item.alliance_star_ceremony": "Mettere mi piace alle stelle quando la cerimonia viene annunciata",
   "timers.stat.alliance_star": "mi piace: {n} su {all} · forzieri: {chests} su {boxes}",
   "timers.stat.alliance_star_closed": "al momento non si tiene",
