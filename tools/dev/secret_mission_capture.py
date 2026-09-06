@@ -411,6 +411,11 @@ def main() -> int:
             # old server's lines from the new one's instead of landing amid
             # them.
             for old, new in index.drain_server_changes():
+                # Keep the panel informed from the same confirmed incoming map event
+                # as the primary sniffer.  Either capture may be the one enabled.
+                print("##SERVER##" + json.dumps(
+                    {"old": old, "server": new}, separators=(",", ":")),
+                    flush=True)
                 if old is None:
                     print(f"{C_OK}server {new}{C_RESET} — reading this map\n")
                 else:

@@ -67,6 +67,11 @@ AREA_MARKER = "##AREA##"
 #: file stays what it always was: the fallback for a restart.
 GHOST_MARKER = "##GHOST##"
 
+#: A confirmed incoming map-server transition.  Both passive capture children emit
+#: this from ``MapIndex.drain_server_changes``; unlike a requested jump destination,
+#: it is evidence that map traffic from this server has actually arrived.
+SERVER_MARKER = "##SERVER##"
+
 #: The `family NNNN` token the capture prints on every finding, and the leading ` *` it
 #: marks a starred one with. The family is what the rule is actually made of; the star
 #: glyph is the fallback for a line shape that ever stops carrying it.
@@ -476,6 +481,15 @@ class Capture:
         (no coordinate of its own, but it marks a checkpoint flush). Called on the child's
         reader thread, so it marshals onto the Tk thread, where the merge is debounced.
         """
+        if line.startswith(SERVER_MARKER):
+            try:
+                event = json.loads(line[len(SERVER_MARKER):].strip())
+                server = event.get("server") if isinstance(event, dict) else None
+                if server is not None and str(server).isdigit() and int(server) > 0:
+                    self.rt.bus.publish("game.server", int(server))
+            except (TypeError, ValueError):
+                pass
+            return False
         if line.startswith(TILE_MARKER):
             return self.on_tile(line)
         if line.startswith(AREA_MARKER):
@@ -550,4 +564,3 @@ class Capture:
                                         ensure_ascii=False) + "\n")
         except OSError:
             pass
-

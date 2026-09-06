@@ -316,6 +316,28 @@ def test_a_panel_made_jump_is_the_event_that_refreshes_the_header() -> None:
     assert '"server": landed,' in link and '"server": landed or target' not in link
 
 
+def test_an_incoming_map_change_also_refreshes_the_header() -> None:
+    """External moves use the confirmed wire event, without another game read."""
+    source = (_REPO / "panel" / "runtime" / "host.py").read_text(encoding="utf-8")
+    assert 'self.bus.subscribe("game.server", self.header.confirm_server)' in source
+
+    from panel.runtime.bus import EventBus
+    from panel.tabs.secret_tasks.capture import Capture
+
+    clock = _Clock()
+    header = _header(_Runtime(_Store()), clock)
+    bus = EventBus()
+    bus.subscribe("game.server", header.confirm_server)
+    capture = object.__new__(Capture)
+    capture.rt = type("Runtime", (), {"bus": bus})()
+
+    assert capture.on_line('##SERVER##{"old":903,"server":904}') is False
+    assert header.state()["server"] == 904
+    assert header._where_want is False, "the event caused a redundant game read"
+    capture.on_line('##SERVER##{"old":904,"server":null}')
+    assert header.state()["server"] == 904, "an unconfirmed event erased the fact"
+
+
 def test_a_confirmed_server_is_visible_without_another_read() -> None:
     clock = _Clock()
     header = _header(_Runtime(_Store()), clock)
