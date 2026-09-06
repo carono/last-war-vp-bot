@@ -526,6 +526,18 @@ How, and how not:
 * Press **«⟳ Перезапустить панель»** on «Состояние», or `POST /api/panel` with
   `{"action": "restart"}` on the web port — the same table
   (`panel/runtime/panel_control.py`) from either front-end.
+* **A NEW HTTP ROUTE NEEDS THE OTHER RESTART (#2579).** The web paths live in the
+  SERVICE (`LastWarBot`, which binds the port); the panel only answers what they ask,
+  over the door. So `panel/web/api.py` and everything behind it reach the phone on a
+  PANEL restart, and a new `path ==` in `panel/web/server.py` reaches it only on
+  `POST /api/service {"action": "restart"}` — the service's own press
+  (`panel/service/self_control.py`), which asks the SCM rather than killing anything.
+  The tell is the 404: a route the service has never heard of answers JSON
+  `{"error": "not_found"}`, while a real picture route with nothing to send answers an
+  empty `text/plain`. It has cost a day twice — the resource icons and the arms-race
+  ones — and both times the hunt was for an orphan process that does not exist. The whole
+  of it is `docs/research/panel-web.md` §3.14, including how to ask which commit each
+  process is on (`GET /api/panels`).
 * **Never `taskkill`, never kill the process by hand.** The user has forbidden it: the
   orderly restart takes every open profile down and brings them back, and a killed panel
   leaves locks, children and a client nobody let go of.

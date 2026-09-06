@@ -124,6 +124,46 @@ def test_the_panel_sends_one_kind_of_picture_and_no_fallback():
         "the route must not serve the sprite an errand card no longer draws")
 
 
+# ---------------------------------------------------------------------------
+# the two signs of the foot (#2579)
+# ---------------------------------------------------------------------------
+def test_the_gear_stands_beside_the_run_sign_and_not_in_the_head():
+    """«кнопку шестеренку перемести к кнопке запуска, выровняй по правому краю».
+
+    Both signs travel as `acts`, which the card draws in the FOOT; the head keeps the
+    «i» and the switch. What this pins is the thing that would silently undo it: a gear
+    handed in as `infoNode` (the head corner) instead.
+    """
+    view = _read("views", "TimersView.tsx")
+    gear = view.split("function useGear", 1)[1].split("\n}", 1)[0]
+    assert 'className="go icon"' in gear, "the gear is a sign, drawn like its neighbour"
+    assert "acts={[gear.button, run].filter(Boolean)}" in view, (
+        "the gear must travel in the foot row, beside «▶»")
+    assert "infoNode={gear" not in view, "…and never into the head corner"
+    card = _read("ui", "ErrandCard.tsx")
+    # The foot is where `acts` land on a cover card, and the reading takes what is left
+    # of the line — which is what puts the signs against the right edge.
+    assert "{cover ? <Reading stat={stat} queued={queued} /> : null}\n            {row}" \
+        in card, "the reading leads the foot row and the signs follow it"
+
+
+def test_the_signs_are_one_control_and_cost_no_height():
+    """Same size, same shape, a visible press — and never a rule keyed on a cursor."""
+    css = _read("app.css")
+    body = css.split(".item.errand .errand-acts .go.icon {", 1)[1].split("}", 1)[0]
+    assert "border-radius: 999px" in body, "the signs are discs"
+    assert "width: var(--tap)" in body and "height: var(--tap)" in body, (
+        "a sign is the tap target it always was — the card's height depends on it")
+    assert ":hover" not in css, "a phone has no cursor"
+    assert ".item.errand .errand-acts .go.icon:active {" in css, (
+        "a press a thumb covers must still be visible")
+    # THE PRIMARY ONE IS MARKED BY A CLASS, not by where it sits: a card with no knobs
+    # has one sign and it is «▶».
+    assert ".item.errand .errand-acts .go.icon.run {" in css
+    view = _read("views", "TimersView.tsx")
+    assert "'go icon run'" in view
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

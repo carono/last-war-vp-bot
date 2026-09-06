@@ -200,7 +200,11 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
            button, because it is the same question: «идёт или нет». */
         <button
           key="run"
-          className="go icon"
+          /* THE PRIMARY SIGN OF THE ROW (#2579), and it says so in a class rather than
+             in a position: «⚙» and «▶» sit together at the right of the foot, and which
+             of the two a thumb is reaching for must not be decided by counting children
+             — a card with no knobs has one sign and it is this one. */
+          className={'go icon run' + (row.running ? ' running' : '')}
           title={row.running ? t('web.ui.stop') : t('web.ui.run')}
           aria-label={row.running ? t('web.ui.stop') : t('web.ui.run')}
           disabled={busy}

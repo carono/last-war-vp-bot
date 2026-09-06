@@ -530,6 +530,46 @@ still has all three.
 prints the document height, the grid heights and the tallest block on an emulated iPhone
 13 mini, so before and after are two numbers rather than two impressions.
 
+### 3.14 THE ROUTES LIVE IN THE SERVICE, and that is which restart a change needs (#2579)
+
+**Read this before deciding that a web change «did not take».** It has cost time twice —
+the resource icons that «не грузились», and the arms-race icons of #2579 — and both times
+the diagnosis went looking for an orphaned process that does not exist.
+
+There are two processes and they are both meant to be there:
+
+* the **service** — the Windows service `LastWarBot`, started by the SCM at boot. It owns
+  the HTTP half: it binds the web port (`9761`) and the door (`9762`, loopback only,
+  where panels dial IN), and it is the process that decides **which paths exist**;
+* the **panel** — `panel.headless`, started and supervised by the service's keeper. It
+  answers the QUESTIONS behind those paths, over the door.
+
+So a change reaches the phone through one of two different restarts:
+
+| what changed | what has to restart |
+|---|---|
+| what a route ANSWERS — `panel/web/api.py`, a tab, a runtime module | the PANEL: `POST /api/panel {"action": "restart"}` |
+| **a new route** — a `path ==` in `panel/web/server.py`, a new picture endpoint | the **SERVICE**: `POST /api/service {"action": "restart"}` |
+| the front-end — anything under `panel/web/app/` | **neither**: `npm run build` writes files the service serves off disk on the next request |
+
+A new route added without the second restart answers `{"error": "not_found"}` **as JSON**,
+because the service's own dispatcher never matched it and fell through. That is the tell,
+and it is worth knowing by heart: a 404 from a picture route that really exists comes back
+`text/plain` and empty (`_picture` sends it), while a route the running service has never
+heard of comes back as JSON. Two different 404s, two different diagnoses.
+
+**Neither process is an orphan and neither is killed.** The service's own press is
+`panel/service/self_control.py` (#1994, #2069): it asks the SCM to stop and start it —
+it runs as LocalSystem, which is the account that may — and writes the outcome to
+`service_restart.log`. `GET /api/service` says whether the press is available at all
+(a service running in the foreground answers `unavailable`). `taskkill` is forbidden and
+unnecessary.
+
+**How to tell the two apart when something looks stale.** `GET /api/panels` on the web
+port lists every panel the service has, with the COMMIT each is running (`head`) — so
+«the panel is behind» and «the service is behind» are one request apart, and the process
+holding the port is identified by name rather than guessed at.
+
 ## 4. What was left out, and why
 
 * **An Android application.** The original idea, dropped: `tkinter` does not exist on
