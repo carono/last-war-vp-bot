@@ -700,6 +700,13 @@ class TaskGrid:
     #: what `sort_rows` has always answered a None with.
     _sort = None
 
+    #: WHAT «UNTOUCHED» MEANS FOR THIS PAGE (#2592): the due date for a secret-task
+    #: table, and None — «the best raid first» — for a page whose `state` column means
+    #: something else entirely. The world pages say `free / taken`, `who saw it` and
+    #: `when it leaves` in that cell (`world.py`), so an order named after the column
+    #: would not be one order at all.
+    DEFAULT_ORDER = DEFAULT_SORT
+
     #: The key this page's own settings are stored under, so two pages' filters never
     #: land in one another's slot (#1251).
     CONFIG_KEY = ""
@@ -730,7 +737,7 @@ class TaskGrid:
         # this pair, so the two front-ends are never ordered differently. A page whose
         # columns carry no state — the world ones do not all — keeps the old «highest
         # level first» default, which `sort_rows` answers a None with.
-        self._sort = DEFAULT_SORT if "state" in self.SORT_KEYS else None
+        self._sort = self.DEFAULT_ORDER if "state" in self.SORT_KEYS else None
         self._count_var = tk_stringvar(tab.rt.root)
         # The flow strip above the table (#1549) — the receiver's own numbers, in words.
         # Made here and drawn in `build`, like everything else on a LAZY page.

@@ -211,6 +211,13 @@ class WorldGrid(grid.TaskGrid):
     #: the sighting instead — see the module docstring.
     HAS_CLOCK = False
 
+    #: …and a world page opens on the BEST FIND rather than on a date (#2592). Its
+    #: `state` cell is not a countdown to readiness — it says whether a mine is free,
+    #: who saw a monster, when a truck leaves — so the tab's own «by the due date»
+    #: default would be three different orders wearing one name. The sort buttons are
+    #: still there; only what «untouched» means is this page's own.
+    DEFAULT_ORDER = None
+
     def __init__(self, tab) -> None:
         super().__init__(tab)
         # What the last merge said, so the count line can be drawn before the page has
