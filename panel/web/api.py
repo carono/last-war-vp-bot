@@ -1076,6 +1076,8 @@ class WebApi:
         watching = set(schedule.triggers.watching())
         rows = []
         for trig in schedule.trigger_catalogue:
+            if trig.name in MOVED_TRIGGERS:
+                continue
             # The BOX, not `trigger_config`: that one folds in whether this window can
             # carry the order out at all, and a phone drawing an unticked box over a
             # trigger the window shows ticked is the two front-ends disagreeing about
@@ -2363,6 +2365,14 @@ class _Saved:
 #: gets no «i». So shortening a label is adding one string to eleven locale files, and
 #: nothing in either front-end has to be told about it.
 SHORT_SUFFIX = ".short"
+
+#: Listeners whose card lives on ANOTHER screen and is therefore not drawn among the
+#: errands (#2573). «Лог стягов» records every alliance banner for whoever is working on
+#: the bot and acts on nothing, so the person moved its card to «Разработка», beside the
+#: recorder and the busy grids. The order itself did not move — the schedule still owns
+#: it, `/api/triggers/set` still answers for it, and the tab draws the schedule's own
+#: switch rather than a second copy.
+MOVED_TRIGGERS = frozenset({"rally_monitor"})
 
 
 def _short(rt, label_key: str) -> str:

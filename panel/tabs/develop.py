@@ -114,6 +114,7 @@ from tkinter.scrolledtext import ScrolledText
 from .. import profile as profilemod
 from ..runtime import ActionRunner, list_actions
 from ..runtime import busy as busymod
+from ..runtime import errand_stats as statsmod
 from ..runtime.log_view import LogPane
 from ..runtime.paths import TOOLS, TOOLS_LIB, repo_rel
 from ..widgets import font as ui_font, numeric_spinbox
@@ -697,8 +698,54 @@ class DevelopTab(PanelTab):
                   "fields": [{"key": "dev_updates", "label": "develop.updates.dev",
                               "kind": "switch", "value": profilemod.dev_updates()}],
                   "note": "develop.updates.hint"}]
+        rally = self._rally_card()
+        if rally is not None:
+            cards.append(rally)
         cards.extend(self._busy.web_cards(busymod.snapshot(self.rt)))
         return {"title": "tab.develop", "cards": cards}
+
+    #: The listener this tab draws since #2573 — «Лог стягов». It writes the archive of
+    #: alliance banners nobody reads while playing and everybody reads while working on
+    #: the bot, so the person moved its card off «Таймеры» and onto this page. The
+    #: ORDER itself did not move: the schedule still owns it, and the switch below is
+    #: the schedule's own one state (`Schedule.trigger_enabled`), never a second copy.
+    RALLY_TRIGGER = "rally_monitor"
+
+    def _rally_card(self) -> "dict | None":
+        """«Лог стягов» whole: the switch, what it waits for, whether an ear is up.
+
+        The same three readings the errands page drew beside it — the wire event, the
+        three-word status, and the day's tally where the store has one. Nothing is read
+        from the game here: the catalogue, the watcher set and the tally are all things
+        the panel already holds.
+        """
+        schedule = getattr(self.rt, "schedule", None)
+        trig = (schedule.trigger_catalogue.by_name(self.RALLY_TRIGGER)
+                if schedule is not None else None)
+        if trig is None:
+            return None
+        try:
+            watching = set(schedule.triggers.watching())
+            pending = set(schedule.timers.pending())
+        except Exception:                # noqa: BLE001 — a reading, never the page
+            watching, pending = set(), set()
+        state = ("timers.queued" if trig.name in pending
+                 else "triggers.listening" if trig.name in watching
+                 else "triggers.off")
+        rows = [{"label": "triggers.col.event", "value": trig.event_pattern},
+                {"label": "triggers.col.status", "value": self.t(state)}]
+        items = []
+        stat = statsmod.of(self.rt, trig.name)
+        if stat:
+            items.append({"text": self.t(stat["key"], **(stat.get("fmt") or {}))})
+        return {"title": "triggers.item.rally_monitor.short",
+                "note": "triggers.item.rally_monitor",
+                "fields": [{"key": self.RALLY_TRIGGER,
+                            "label": "triggers.item.rally_monitor.short",
+                            "kind": "switch",
+                            "value": bool(schedule.trigger_enabled(trig.name))}],
+                "rows": rows,
+                "items": items}
 
     #: How big a run file may be and still be «nothing was recorded». Not zero: a
     #: transcript that latched the stream and saw one keepalive is already a few hundred
@@ -821,7 +868,15 @@ class DevelopTab(PanelTab):
                 return {"ok": True}
             key, fmt = verdict
             return {"ok": True, "reason": key, "fmt": fmt}
-        if action != "set" or str((args or {}).get("key") or "") != "dev_updates":
+        key = str((args or {}).get("key") or "")
+        if action == "set" and key == self.RALLY_TRIGGER:
+            # THE SCHEDULE'S OWN SWITCH (#2573), not a copy of it: while «Таймеры» is
+            # drawn its boxes ARE the configuration, and `set_trigger_enabled` writes
+            # whichever of the two currently holds the truth.
+            want = bool((args or {}).get("value"))
+            ok = bool(self.rt.schedule.set_trigger_enabled(self.RALLY_TRIGGER, want))
+            return {"ok": ok} if ok else {"error": "unknown"}
+        if action != "set" or key != "dev_updates":
             return {"error": "unknown"}
         flag = bool((args or {}).get("value"))
         profilemod.set_dev_updates(flag)
