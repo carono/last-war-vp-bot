@@ -325,6 +325,26 @@ def parse_record_line(line: str, marker: str = MARKER) -> "dict | None":
     post = fields.get("post", "")
     special = post not in ("", "0", "0.0")
     display = with_extra if with_extra and (special or base.strip() in _PLACEHOLDER) else base
+    # …EXCEPT WHEN THE RENDERER THREW THE PICTURE AWAY (#2418, found again by #2594).
+    #
+    # A photograph is `post = 633`, so the rule above hands the row to
+    # `getMessageWithExtra()` — and for THAT kind the game's renderer answers its own
+    # localised placeholder, the literal words «[Изображение]». The marker naming the
+    # picture (`<lwPhoto:<picVer>:>`) is in `getMsg()` and nowhere else, so the rule cost
+    # every photograph the one field that identifies it: the panel filed the placeholder
+    # as the message text and drew it as a word.
+    #
+    # Measured on this account's own history: `[photo:N]` stops on 04.09 17:14 and
+    # `[Изображение]` runs from 03.09 17:12 to now — 39 of them, 35 in the alliance
+    # room, the newest minutes before this was written. That is the person's report,
+    # in one line: «У меня в чате просто заглушка [изображение]».
+    #
+    # So the base wins back whenever it carries an inline object the extra renderer does
+    # not. It is narrow on purpose — it fires only when the two disagree about a
+    # `<lw…>` marker, so every other interactive kind keeps the rendering #2418 gave it
+    # (a coordinate share still arrives formatted, with its author and its alliance).
+    if display is with_extra and _LW_RE.search(base) and not _LW_RE.search(with_extra):
+        display = base
     # Timestamp the record with the message's own serverTime (epoch ms), NEVER the parse
     # time: history read out of the client is parsed «now», so a parse-time stamp would
     # sort every ancient message to the bottom of the tab.

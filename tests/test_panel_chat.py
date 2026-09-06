@@ -72,6 +72,43 @@ def test_parse_missing_avatar_is_blank():
     assert rec["head_pic_ver"] == "" and rec["head_pic"] == "", rec
 
 
+# --- a photograph keeps the marker that names it ---------------------------
+
+def test_a_photograph_keeps_its_marker_and_is_not_the_word_for_one():
+    """«У меня в чате просто заглушка [Изображение]» — the person, #2594.
+
+    A photograph is `post = 633`, so #2418's post rule handed the row to
+    `getMessageWithExtra()` — and for that kind the game's renderer answers its own
+    localised placeholder rather than the message. The marker naming the picture
+    (`<lwPhoto:<picVer>:>`) lives in `getMsg()` and nowhere else, so the rule cost every
+    photograph the one field that identifies it: the panel filed the word and drew it.
+
+    Measured on this account's history when it was found: `[photo:N]` stopped on
+    04.09 17:14 and the placeholder ran from 03.09 17:12 to that minute — 39 messages,
+    35 of them in the alliance room.
+    """
+    import chat_records
+
+    def line(post, base, extra):
+        return ("ACT R roomId=alliance_1 type=0 uid=1 st=1700000000000 seqId=9 "
+                f"post={post} msg={base.encode().hex()} we={extra.encode().hex()}")
+
+    got = chat_records.parse_record_line(line("633", "<lwPhoto:1984:>", "[Изображение]"))
+    assert got["msg"] == "[photo:1984]", got["msg"]
+
+    # …AND THE REST OF #2418 IS UNTOUCHED. The rule fires only where the two renderings
+    # disagree about an inline object, so an interactive post with nothing to lose still
+    # arrives the way the game draws it, and a plain message still keeps its own text.
+    coords = chat_records.parse_record_line(
+        line("404", "?", "[AL1] Player1 (BZ #100 X:602 Y:404)"))
+    assert coords["msg"] == "[AL1] Player1 (BZ #100 X:602 Y:404)", coords["msg"]
+    plain = chat_records.parse_record_line(line("0", "hello", "hello"))
+    assert plain["msg"] == "hello", plain["msg"]
+    # A sticker rides the same markers and must survive the same way.
+    stick = chat_records.parse_record_line(line("633", "<lwSticker:12:>", "[Изображение]"))
+    assert stick["msg"] == "[sticker:12]", stick["msg"]
+
+
 # --- the avatar resolves to the ChatPhotos copy ----------------------------
 
 def test_avatar_path_matches_photo_scheme():
