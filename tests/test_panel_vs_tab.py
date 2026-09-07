@@ -40,6 +40,7 @@ NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set",
             "vs.day.soon", "vsduel.drone_chips", "vsduel.drone_level",
             "vs.chips.title", "vs.chips.in_bag", "vs.chips.opened",
             "vs.chips.refresh", "vs.chips.read_at", "vs.chips.never",
+            "vs.chips.open_all", "vs.drone.raise_now",
             "vs.age.sec", "vs.age.min", "vs.age.hour", "vs.age.day")
 
 
@@ -100,7 +101,7 @@ def test_the_days_switch_is_on_the_card_and_its_knobs_are_behind_the_gear():
         monday = _week(tab.web_view())["items"][0]
         assert monday["toggle"]["key"] == "plan.mon.enabled", monday["toggle"]
         assert monday["toggle"]["value"] is True
-        keys = [field["key"] for field in monday["options"]]
+        keys = [f["key"] for g in monday["options_groups"] for f in g["fields"]]
         assert "plan.mon.enabled" not in keys, (
             "the day's own switch is on the card, never repeated behind its gear")
         assert keys == ["plan.mon.drone_chips", "plan.mon.drone_level"], (
@@ -185,7 +186,8 @@ def test_a_profile_that_never_saved_this_tab_still_reads_its_plan():
         monday = _week(tab.web_view())["items"][0]
         assert monday["facts"][0]["value"] == "2 / 2", monday["facts"]
         assert any(field["key"] == "plan.mon.drone_chips" and field["value"] is True
-                   for field in monday["options"]), monday["options"][:3]
+                   for group in monday["options_groups"]
+                   for field in group["fields"]), monday["options_groups"]
     finally:
         root.destroy()
 
@@ -207,13 +209,16 @@ def test_only_the_wired_knobs_are_drawn_and_the_rest_of_the_week_says_so():
 
         items = {item["label"]: item for item in _week(tab.web_view())["items"]}
         monday = items["vsduel.day.mon"]
-        assert [f["key"] for f in monday["options"]] == ["plan.mon.drone_chips",
-                                                         "plan.mon.drone_level"]
+        assert [g["title"] for g in monday["options_groups"]] == [
+            "vsduel.drone_chips", "vsduel.drone_level"]
+        assert [f["key"] for g in monday["options_groups"]
+                for f in g["fields"]] == ["plan.mon.drone_chips",
+                                          "plan.mon.drone_level"]
         assert monday.get("pill") is None
         for label in ("vsduel.day.tue", "vsduel.day.wed", "vsduel.day.thu",
                       "vsduel.day.fri", "vsduel.day.sat"):
             day = items[label]
-            assert not day.get("options"), (label, day.get("options"))
+            assert not day.get("options_groups"), (label, day.get("options_groups"))
             assert day.get("pill") == "vs.day.soon", label
             assert not day.get("actions"), label
         assert set(RUNS) <= set(READY), (RUNS, READY)
@@ -233,12 +238,12 @@ def test_the_wired_knob_carries_the_button_that_plays_its_recipe():
         tab.rt.play_async = lambda name, *a, **k: played.append(name) or True
 
         monday = _week(tab.web_view())["items"][0]
-        # ONE BUTTON PER ABILITY, each named after what it runs (#2617).
-        assert monday["actions"] == [
-            {"id": "run", "label": "vsduel.drone_chips", "icon": "run",
-             "args": {"key": "mon.drone_chips"}},
-            {"id": "run", "label": "vsduel.drone_level", "icon": "run",
-             "args": {"key": "mon.drone_level"}}], monday.get("actions")
+        # NOT ONE BUTTON ON THE CARD (#2624): the presses live inside the gear, one per
+        # ability, under that ability's own switch.
+        assert not monday.get("actions"), monday.get("actions")
+        assert [a["label"] for g in monday["options_groups"]
+                for a in g["actions"]] == ["vs.chips.open_all", "vs.chips.refresh",
+                                           "vs.drone.raise_now"]
         assert tab.web_press("run", {"key": "mon.drone_chips"}) == {"ok": True}
         assert tab.web_press("run", {"key": "mon.drone_level"}) == {"ok": True}
         assert played == ["open_drone_chips", "upgrade_drone"], played
@@ -318,18 +323,30 @@ def test_the_drone_press_is_in_the_catalogue_and_proves_itself():
     assert button.verify_lua, "a press that changed nothing must fail, not report ok"
 
 
+def _groups(view: dict) -> list:
+    """The blocks behind Monday's gear — one per wired ability (#2624)."""
+    return _week(view)["items"][0].get("options_groups") or []
+
+
+def _chip_group(view: dict) -> dict:
+    for group in _groups(view):
+        if group.get("title") == "vsduel.drone_chips":
+            return group
+    raise AssertionError("no chest block behind the gear")
+
+
 def _chips(view: dict) -> dict:
-    for card in view["cards"]:
-        if card.get("title") == "vs.chips.title":
-            return card
-    raise AssertionError("no chest card on the screen")
+    """The chest rows, as the old card-shaped tests read them."""
+    group = _chip_group(view)
+    return {"items": group.get("items") or [], "note": group.get("note"),
+            "actions": group.get("actions") or []}
 
 
 def test_the_chests_are_counted_under_the_knob_even_before_anything_is_read():
     """«Под чипами выведи статистику» (#2617) — a row per grade, from the first look.
 
     Nothing has been read yet on a fresh profile, so the counts are dashes and the note
-    says so — a card that only appears once somebody presses «Обновить» is a card nobody
+    says so — a list that only appears once somebody presses «Обновить» is a list nobody
     finds.
     """
     try:
@@ -349,7 +366,7 @@ def test_the_chests_are_counted_under_the_knob_even_before_anything_is_read():
             assert item["facts"][0]["value"] == "—"
             assert item["facts"][1]["value"] == "0"
             assert "icon" not in item, "no picture is drawn rather than a wrong one"
-        assert card["actions"][0]["id"] == "chips_read"
+        assert [a["id"] for a in card["actions"]] == ["run", "chips_read"]
         assert card["note"] == tab.t("vs.chips.never")
     finally:
         root.destroy()
@@ -448,8 +465,12 @@ def test_the_week_is_the_screen_and_its_cards_are_the_errand_card():
         assert week["title"] == "vs.week" and week.get("main") is True, week.get("main")
         assert [c for c in view["cards"] if c.get("main")] == [week], (
             "one main card, or the screen has two subjects")
-        for action in view["cards"][0]["items"][0].get("actions") or ():
-            assert action.get("icon") == "run", action
+        # …AND THE CARD CARRIES NOTHING OF ITS OWN (#2624) — the same shape «Таймеры»
+        # draws: a switch in the corner, a gear, and no buttons stuck on the picture.
+        for item in week["items"]:
+            assert not item.get("actions"), item.get("actions")
+        assert not [c for c in view["cards"] if c.get("title") == "vs.chips.title"], (
+            "the chests are inside the gear now, not a card of their own")
     finally:
         root.destroy()
 

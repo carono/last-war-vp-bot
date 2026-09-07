@@ -1502,6 +1502,8 @@
   "vs.chips.in_bag": "w torbie",
   "vs.chips.opened": "otwarte",
   "vs.chips.refresh": "Odśwież",
+  "vs.chips.open_all": "Otwórz wszystkie",
+  "vs.drone.raise_now": "Podnieś teraz",
   "vs.chips.read_at": "odczytano {ago} temu",
   "vs.chips.never": "jeszcze nieodczytane",
   "vs.age.sec": "{n} s",

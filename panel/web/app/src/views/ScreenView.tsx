@@ -10,7 +10,7 @@ import { Modal } from '../ui/Modal'
 import { firstPlace, Marked, useJump } from '../ui/Coord'
 import { WorldMap } from './WorldMap'
 import { ChatView } from './ChatView'
-import type { Field, PressAnswer, ScreenView as View, SortButton, ViewAction, ViewCard, ViewItem } from '../types'
+import type { Field, OptionGroup, PressAnswer, ScreenView as View, SortButton, ViewAction, ViewCard, ViewItem } from '../types'
 
 /* ONE RENDERER FOR EVERY TAB'S SCREEN.
  *
@@ -104,7 +104,11 @@ function PressButton({
 function useItemGear(item: ViewItem, screen: string, after: () => void) {
   const [open, setOpen] = useState(false)
   const options = item.options || []
-  if (!options.length) return { button: null, sheet: null }
+  /* THE GEAR MAY HOLD ABILITIES RATHER THAN A LIST OF KNOBS (#2624). Same sheet, same
+     component, same way of closing — what changes is only what is inside it: per
+     ability, its switch, the press that runs it, and what it is about. */
+  const groups: OptionGroup[] = item.options_groups || []
+  if (!options.length && !groups.length) return { button: null, sheet: null }
   const name = item.options_title ? t(item.options_title) : (item.label ? t(item.label) : item.text || '')
   return {
     button: (
@@ -122,6 +126,26 @@ function useItemGear(item: ViewItem, screen: string, after: () => void) {
     ),
     sheet: open ? (
       <Modal title={name} onClose={() => setOpen(false)}>
+        {groups.map((group, gi) => (
+          <div className="item" key={'g' + gi}>
+            {group.title ? <b>{t(group.title)}</b> : null}
+            {(group.fields || []).map((field) => (
+              <ScreenField key={field.key} field={field} screen={screen} after={after} />
+            ))}
+            {(group.actions || []).length ? (
+              <div className="foot">
+                {(group.actions || []).map((action) => (
+                  <PressButton key={action.id + String(action.args?.key || '')}
+                               action={action} screen={screen} after={after} />
+                ))}
+              </div>
+            ) : null}
+            {(group.items || []).map((row, ri) => (
+              <Item key={'i' + ri} item={row} now={0} screen={screen} after={after} />
+            ))}
+            {group.note ? <p className="muted small">{group.note}</p> : null}
+          </div>
+        ))}
         {options.map((field) => (
           <ScreenField key={field.key} field={field} screen={screen} after={after} />
         ))}

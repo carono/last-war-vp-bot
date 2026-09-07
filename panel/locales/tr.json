@@ -1502,6 +1502,8 @@
   "vs.chips.in_bag": "çantada",
   "vs.chips.opened": "açılan",
   "vs.chips.refresh": "Yenile",
+  "vs.chips.open_all": "Hepsini aç",
+  "vs.drone.raise_now": "Şimdi yükselt",
   "vs.chips.read_at": "{ago} önce okundu",
   "vs.chips.never": "henüz okunmadı",
   "vs.age.sec": "{n} sn",

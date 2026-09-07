@@ -1502,6 +1502,8 @@
   "vs.chips.in_bag": "в сумке",
   "vs.chips.opened": "открыто",
   "vs.chips.refresh": "Обновить",
+  "vs.chips.open_all": "Открыть все",
+  "vs.drone.raise_now": "Повысить сейчас",
   "vs.chips.read_at": "прочитано {ago} назад",
   "vs.chips.never": "ещё не читалось",
   "vs.age.sec": "{n} с",

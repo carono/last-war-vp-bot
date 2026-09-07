@@ -59,6 +59,12 @@ CHIP_IDS: tuple = ("540201", "540301", "540401")
 #: The scenario that counts them without opening any.
 CHIP_READ = "read_drone_chips"
 
+#: WHAT THE PRESS INSIDE THE SHEET CALLS ITSELF (#2624). The switch above it already
+#: says what the ability IS — «Открыть чипы дрона» — so the button says what pressing it
+#: does now, and the two do not read as one control written twice.
+RUN_LABELS: dict = {"mon.drone_chips": "vs.chips.open_all",
+                    "mon.drone_level": "vs.drone.raise_now"}
+
 
 class VsTab(VsDuelTab):
     """The duel plan, drawn as a card per day of the week."""
@@ -191,8 +197,8 @@ class VsTab(VsDuelTab):
         state["spent_at"] = int(time.time())
         self._chips_save(state)
 
-    def _web_chips_card(self) -> dict:
-        """The chests under the knob: one row per grade, with the game's own picture.
+    def _chips_rows(self) -> list:
+        """One row per grade: the game's own picture, its name, what is held and opened.
 
         A grade the game has no picture for on this machine is drawn WITHOUT one, never
         with somebody else's (`panel/tabs/inventory.py::cell_url`, the same rule every
@@ -201,29 +207,28 @@ class VsTab(VsDuelTab):
         state = self._chips_state()
         rows = state.get("rows") if isinstance(state.get("rows"), list) else []
         opened = state.get("opened") or {}
-        items = []
+        out = []
         for row in rows or [{"id": item, "count": None, "colour": 0, "icon": "",
                              "name": ""} for item in CHIP_IDS]:
             item_id = str(row.get("id") or "")
             picture = cell_url(str(row.get("icon") or ""), row.get("colour"))
             count = row.get("count")
-            item = {"text": row.get("name") or item_id,
-                    "facts": [{"label": "vs.chips.in_bag",
-                               "value": "—" if count is None else str(count)},
-                              {"label": "vs.chips.opened",
-                               "value": str(_int(opened.get(item_id)))}]}
+            entry = {"text": row.get("name") or item_id,
+                     "facts": [{"label": "vs.chips.in_bag",
+                                "value": "\u2014" if count is None else str(count)},
+                               {"label": "vs.chips.opened",
+                                "value": str(_int(opened.get(item_id)))}]}
             if picture:
-                item["icon"] = picture
-            items.append(item)
-        card = {"title": "vs.chips.title", "items": items,
-                "actions": [{"id": "chips_read", "label": "vs.chips.refresh"}]}
-        when = _int(state.get("at"))
-        if when:
-            # `note` is DATA and already said in this profile's language.
-            card["note"] = self.t("vs.chips.read_at", ago=self._ago(when))
-        else:
-            card["note"] = self.t("vs.chips.never")
-        return card
+                entry["icon"] = picture
+            out.append(entry)
+        return out
+
+    def _chips_note(self) -> str:
+        """How old the count is — data, said in this profile's own language."""
+        when = _int(self._chips_state().get("at"))
+        if not when:
+            return self.t("vs.chips.never")
+        return self.t("vs.chips.read_at", ago=self._ago(when))
 
     # -- the phone's copy ------------------------------------------------------
     def web_view(self) -> "dict | None":
@@ -243,8 +248,6 @@ class VsTab(VsDuelTab):
                   # IS — would be one tap away.
                   "main": True,
                   "items": [self._web_day_item(day) for day, _items in DAYS]},
-                 # …and under the week, the chests the Monday knob is about (#2617).
-                 self._web_chips_card(),
                  {"title": "vsduel.collect",
                   "rows": [{"label": "vsduel.collect.last",
                             "value": self._collected.get()}]},
@@ -253,20 +256,49 @@ class VsTab(VsDuelTab):
                 "actions": [{"id": "collect", "label": "vsduel.collect"}]}
 
     def _web_day_item(self, day: str) -> dict:
-        """One day, as the card an errand is drawn as — with only what is wired on it."""
+        """One day, as the card an errand is drawn as — and NOTHING is added to the card.
+
+        The person's words (#2624): «Ты куда мне кнопки налепил, это всё в параметрах, и
+        я сказал у карточки точно такой же шаблон как в таймерах должен быть. Жмем
+        шестеренку, видим галку открывать чипы, под ним кнопка открыть все и список чипов
+        со статистикой».
+
+        So the card is exactly what «Таймеры» draws — the picture, the name, the day's
+        own switch in the corner, the gear — and everything else is INSIDE the gear, one
+        block per ability: its switch, the press that runs it now, and what it is about.
+        """
         fields = self._web_day_card(day)["fields"]
         # The first field IS the day's own switch (`_web_day_card`), and it belongs on
         # the card rather than behind its gear (#2068): a row's one switch is the thing
         # the row is about.
         toggle = fields[0]
-        ready = [f for f in fields[1:] if self._plain_key(f.get("key")) in READY]
+        knobs = {self._plain_key(f.get("key")): f for f in fields[1:]}
         item = {"label": f"vsduel.day.{day}", "shape": "cover", "toggle": toggle,
                 "facts": [{"label": "vs.day.set",
                            # The set's name is DATA — the operator may have typed it.
                            "value": self._store.name(self._day_set[day].get(),
                                                      self.t)}]}
-        if ready:
-            item["options"] = ready
+        groups = []
+        for action in self._day_actions(day):
+            name = f"{day}.{action.key}"
+            if name not in READY:
+                continue                  # an unwired box is not offered at all
+            group = {"title": action.label,
+                     "fields": [knobs[name]] if name in knobs else [],
+                     "actions": []}
+            if name in RUNS:
+                group["actions"].append({"id": "run", "args": {"key": name},
+                                         "label": RUN_LABELS.get(name, action.label)})
+            if action.key == "drone_chips":
+                # …and under the press, what it is about: one row per grade, with the
+                # game's own picture, how many are in the bag and how many were opened.
+                group["items"] = self._chips_rows()
+                group["actions"].append({"id": "chips_read",
+                                         "label": "vs.chips.refresh"})
+                group["note"] = self._chips_note()
+            groups.append(group)
+        if groups:
+            item["options_groups"] = groups
             item["options_title"] = f"vsduel.day.{day}"
             item["facts"].insert(0, {"label": "vs.day.actions",
                                      "value": self._day_count(day)})
@@ -274,19 +306,6 @@ class VsTab(VsDuelTab):
             # A DAY NOBODY HAS WIRED SAYS SO, in one word, rather than offering knobs
             # that decide nothing.
             item["pill"] = "vs.day.soon"
-        # ONE BUTTON PER WIRED KNOB, in the plan's own order, each saying WHAT it runs
-        # (#2617): «Открыть чипы дрона» and «Повышать дрон» are two abilities on one
-        # day, and a single «Выполнить» could only ever be one of them.
-        # …AND THEY ARE THE ERRAND CARD'S OWN «▶» (#2621), not a wide text button: this
-        # IS the card «Таймеры» draws, so it must not carry a different button from it.
-        # The ability's name rides along as the label, which is what the two of them say
-        # when a thumb rests on either.
-        acts = [{"id": "run", "args": {"key": name}, "label": label, "icon": "run"}
-                for name, label in ((f"{day}.{action.key}", action.label)
-                                    for action in self._day_actions(day))
-                if name in READY and name in RUNS]
-        if acts:
-            item["actions"] = acts
         return item
 
     @staticmethod
