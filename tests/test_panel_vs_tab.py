@@ -37,7 +37,10 @@ LOCALES = ROOT / "panel" / "locales"
 
 #: What the tab adds to the words it inherits from the plan it draws.
 NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set",
-            "vs.day.soon", "vsduel.drone_chips", "vsduel.drone_level")
+            "vs.day.soon", "vsduel.drone_chips", "vsduel.drone_level",
+            "vs.chips.title", "vs.chips.in_bag", "vs.chips.opened",
+            "vs.chips.refresh", "vs.chips.read_at", "vs.chips.never",
+            "vs.age.sec", "vs.age.min", "vs.age.hour", "vs.age.day")
 
 
 def _tab():
@@ -52,6 +55,15 @@ def _tab():
     rt = fake_runtime.cold_runtime(root)
     tab = VsTab(rt, ttk.Frame(root))
     rt.tabs.add(tab)
+    # The store outlives one test — the chest tally is kept on purpose (#2617) — so a
+    # test that is about a FRESH profile has to start from one.
+    try:
+        from panel.runtime import store as storemod
+
+        rt.store.blob_set(storemod.DRONE_CHIPS, {})
+        tab._chips = None
+    except Exception:                     # noqa: BLE001 — no store, no tally
+        pass
     return root, tab
 
 
@@ -304,6 +316,118 @@ def test_the_drone_press_is_in_the_catalogue_and_proves_itself():
     assert "MsgDefines.TacticalWeaponLevelUpMessage" in button.lua
     assert button.count_lua, "`xall` needs to know how many levels are affordable"
     assert button.verify_lua, "a press that changed nothing must fail, not report ok"
+
+
+def _chips(view: dict) -> dict:
+    for card in view["cards"]:
+        if card.get("title") == "vs.chips.title":
+            return card
+    raise AssertionError("no chest card on the screen")
+
+
+def test_the_chests_are_counted_under_the_knob_even_before_anything_is_read():
+    """«Под чипами выведи статистику» (#2617) — a row per grade, from the first look.
+
+    Nothing has been read yet on a fresh profile, so the counts are dashes and the note
+    says so — a card that only appears once somebody presses «Обновить» is a card nobody
+    finds.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        from panel.tabs.vs import CHIP_IDS
+
+        card = _chips(tab.web_view())
+        assert len(card["items"]) == len(CHIP_IDS), card["items"]
+        for item, chest in zip(card["items"], CHIP_IDS):
+            assert item["text"] == chest, item          # no name read yet: the id
+            labels = [f["label"] for f in item["facts"]]
+            assert labels == ["vs.chips.in_bag", "vs.chips.opened"], labels
+            assert item["facts"][0]["value"] == "—"
+            assert item["facts"][1]["value"] == "0"
+            assert "icon" not in item, "no picture is drawn rather than a wrong one"
+        assert card["actions"][0]["id"] == "chips_read"
+        assert card["note"] == tab.t("vs.chips.never")
+    finally:
+        root.destroy()
+
+
+def test_a_reading_fills_the_rows_and_an_opening_adds_to_the_tally():
+    """What the two scenarios say is what the card shows — never a guess of the tab's.
+
+    The bag half can always be re-read; the tally cannot, because an open chest is gone.
+    So the opened count is added from the run's own `chips_per_id` line and kept.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        class _Outcome:
+            def __init__(self, **vars_):
+                self.ok = True
+                self.ctx = type("C", (), {"vars": dict(vars_)})()
+
+        tab._chips_rows_back(_Outcome(chips_rows=(
+            "540201|31|3|icon_item_540201|Chest R ;; "
+            "540301|10|4|icon_item_540301|Chest SR ;; "
+            "540401|3|5||Chest SSR")))
+        card = _chips(tab.web_view())
+        assert [i["text"] for i in card["items"]] == ["Chest R", "Chest SR", "Chest SSR"]
+        assert [i["facts"][0]["value"] for i in card["items"]] == ["31", "10", "3"]
+        assert card["note"] != tab.t("vs.chips.never"), "the age is shown once it is read"
+        # An id whose icon the game did not name draws none rather than a neighbour's.
+        assert "icon" not in card["items"][2]
+
+        tab._chips_opened_back(_Outcome(chips_per_id="540201:31,540401:3"))
+        card = _chips(tab.web_view())
+        assert [i["facts"][1]["value"] for i in card["items"]] == ["31", "0", "3"]
+        # …and a second run ADDS to it rather than replacing it.
+        tab._chips_opened_back(_Outcome(chips_per_id="540401:2"))
+        assert _chips(tab.web_view())["items"][2]["facts"][1]["value"] == "5"
+        # A run that opened nothing changes nothing at all.
+        tab._chips_opened_back(_Outcome(chips_per_id="-"))
+        assert _chips(tab.web_view())["items"][2]["facts"][1]["value"] == "5"
+    finally:
+        root.destroy()
+
+
+def test_the_refresh_press_plays_the_reading_recipe_with_the_same_ids():
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        from panel.tabs.vs import CHIP_IDS
+
+        seen = []
+        tab.rt.play_async = lambda name, args=None, **k: (
+            seen.append((name, args, sorted(k))) or True)
+        assert tab.web_press("chips_read", {}) == {"ok": True}
+        name, args, kw = seen[0]
+        assert name == "read_drone_chips" and args == {"ids": ",".join(CHIP_IDS)}
+        assert "on_result" in kw, "what came back has to reach the store"
+        # …and the opening run carries the same list and its own tally callback.
+        assert tab.web_press("run", {"key": "mon.drone_chips"}) == {"ok": True}
+        name, args, kw = seen[1]
+        assert name == "open_drone_chips" and args == {"ids": ",".join(CHIP_IDS)}
+        assert "on_result" in kw
+    finally:
+        root.destroy()
+
+
+def test_the_reading_recipe_asks_and_opens_nothing():
+    text = (ROOT / "src" / "lastwar_bot" / "actions" / "read_drone_chips.md").read_text(
+        encoding="utf-8")
+    running = "\n".join(line for line in text.splitlines()
+                        if line.strip() and not line.lstrip().startswith("#"))
+    assert "TAP" not in running, "a counting recipe presses nothing"
+    assert "INTO chips_rows" in running
 
 
 def _main() -> int:

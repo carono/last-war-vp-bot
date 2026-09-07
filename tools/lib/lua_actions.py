@@ -11554,7 +11554,7 @@ def use_bag_ids() -> str:
     return (
         "local raw = tostring(DataCenter.__lw_use_ids or '') "
         "local D, T = DataCenter.ItemData, DataCenter.ItemTemplateManager "
-        "local ids, used, stacks, bad = {}, 0, 0, {} "
+        "local ids, used, stacks, bad, per = {}, 0, 0, {}, {} "
         # `[^,]+` and not `[^,%s]+`: this string is %-formatted below, so a Lua
         # character class of `%s` would be eaten as a format spec. `tonumber` ignores
         # the spaces anyway.
@@ -11577,11 +11577,17 @@ def use_bag_ids() -> str:
         "for _, st in ipairs(mine) do if st.n > 0 then "
         "local sent = pcall(function() "
         "SFSNetwork.SendMessage(MsgDefines.ItemUse, {uuid = st.uuid, num = st.n}) end) "
-        "if sent then used = used + st.n stacks = stacks + 1 end end end end end "
+        "if sent then used = used + st.n stacks = stacks + 1 "
+        # PER ID, because the panel keeps a tally per GRADE (#2617): a run that opened
+        # 31 R and 3 SSR is two different facts, and «44» is neither of them.
+        "per[id] = (per[id] or 0) + st.n end end end end end "
         "if used == 0 and why == '' then why = 'none-in-bag' end end "
         "if #bad > 0 then why = why .. (why == '' and '' or ' ') .. 'not-usable=' "
         ".. table.concat(bad, '/') end "
-        "DataCenter.__lw_use_all = {ids = raw, used = used, stacks = stacks, why = why} "
+        "local pairs_txt = {} "
+        "for id, n in pairs(per) do pairs_txt[#pairs_txt + 1] = id .. ':' .. n end "
+        "DataCenter.__lw_use_all = {ids = raw, used = used, stacks = stacks, why = why, "
+        "per = table.concat(pairs_txt, ',')} "
         'CS.UnityEngine.Debug.LogError("ACT use_bag_ids ids="..tostring(raw)'
         '.." used="..tostring(used).." stacks="..tostring(stacks).." why="..tostring(why))'
         % {"kinds": ", ".join(str(k) for k in USABLE_ITEM_TYPES)}
@@ -11597,6 +11603,13 @@ def bag_use_all_report() -> str:
         "' stacks=' .. tostring(math.floor(tonumber(u.stacks) or 0)) .. "
         "' why=' .. tostring((u.why ~= nil and u.why ~= '') and u.why or '-') end)()"
     )
+
+
+def bag_use_all_per_id() -> str:
+    """Lua *expression* -> «540201:31,540401:3» — what the last «open all» spent, by id."""
+    return ("(function() local u = DataCenter.__lw_use_all or {} "
+            "local s = tostring(u.per or '') "
+            "if s == '' then return '-' end return s end)()")
 
 
 def bag_use_all_used() -> str:
@@ -11618,6 +11631,41 @@ def bag_count_of_ids() -> str:
         "if want[math.floor(tonumber(v.itemId) or 0)] then "
         "total = total + math.floor(tonumber(v.count) or 0) end end end) "
         "return total end)()"
+    )
+
+
+def bag_item_rows() -> str:
+    """Lua *expression* -> one line per item id in `DataCenter.__lw_use_ids`.
+
+    ``id|count|colour|icon|name``, joined by `` ;; ``. The NAME and the ICON are the
+    game's own — `GetName` does the locale lookup for whatever language the client is in,
+    and the icon is the row's own file name, never computed from the id (an item wears a
+    picture belonging to a different number, docs/research/inventory.md).
+
+    One call for the whole list, because a read is a thread hijack whatever it asks.
+    """
+    return (
+        "(function() local raw = tostring(DataCenter.__lw_use_ids or '') "
+        "local D, T = DataCenter.ItemData, DataCenter.ItemTemplateManager "
+        "if T == nil then return '' end "
+        "local want, order = {}, {} "
+        "for piece in string.gmatch(raw, '[^,]+') do "
+        "local n = math.floor(tonumber(piece) or 0) "
+        "if n > 0 and not want[n] then want[n] = 0 order[#order + 1] = n end end "
+        "if D ~= nil then pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+        "local id = math.floor(tonumber(v.itemId) or 0) "
+        "if want[id] ~= nil then want[id] = want[id] + math.floor(tonumber(v.count) or 0) "
+        "end end end) end "
+        "local out = {} "
+        "for _, id in ipairs(order) do "
+        "local name, icon, colour = '', '', 0 "
+        "pcall(function() name = tostring(T:GetName(id) or '') end) "
+        "pcall(function() local row = T:GetItemTemplate(id) "
+        "icon = tostring(row.icon or '') "
+        "colour = math.floor(tonumber(row.color or row.quality) or 0) end) "
+        "out[#out + 1] = id .. '|' .. want[id] .. '|' .. colour .. '|' .. icon "
+        ".. '|' .. name end "
+        "return table.concat(out, ' ;; ') end)()"
     )
 
 

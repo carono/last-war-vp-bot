@@ -22,7 +22,19 @@ Nothing on this tab presses anything at the game beyond the one read it inherits
 """
 from __future__ import annotations
 
+import time
+
+from ..runtime import store
+from .inventory import cell_url
 from .vs_duel import DAYS, VsDuelTab, _Choice, walk_items
+
+
+def _int(value, default: int = 0) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
 
 #: WHAT IS ACTUALLY WIRED, and nothing else is drawn (#2617). The person's words:
 #: «делаем функциональный первый день, скрой все параметры, что еще не реализованы».
@@ -38,6 +50,14 @@ READY: frozenset = frozenset({"mon.drone_chips", "mon.drone_level"})
 #: back (CLAUDE.md). A ready knob with no recipe here simply has no button.
 RUNS: dict = {"mon.drone_chips": "open_drone_chips",
               "mon.drone_level": "upgrade_drone"}
+
+#: THE CHESTS THE CHIP ABILITY IS ABOUT (#2617) — the three grades the live bag carries,
+#: as the bag reads them. They travel to both recipes as an argument, so an account with
+#: a fourth grade gets it by editing this line and nothing else.
+CHIP_IDS: tuple = ("540201", "540301", "540401")
+
+#: The scenario that counts them without opening any.
+CHIP_READ = "read_drone_chips"
 
 
 class VsTab(VsDuelTab):
@@ -71,11 +91,139 @@ class VsTab(VsDuelTab):
         first save on, `restore` brings its own block and this seeding is overwritten.
         """
         super().__init__(rt, parent)
+        #: What the store says about the chip chests — read on first need, never on a
+        #: clock (CLAUDE.md, «Read once, then LISTEN»). `None` until it has been asked.
+        self._chips = None
         try:
             old = self.rt.settings.tab_config("vs_duel")
         except Exception:                # noqa: BLE001 — a profile, never the panel
             old = {}
         self.apply_config(old if isinstance(old, dict) else {})
+
+    # -- the chests, counted -----------------------------------------------------
+    #
+    # WHAT IS KEPT AND WHY. The bag can always be re-read from the game; the number of
+    # chests this account has OPENED cannot — an open chest is gone, and nothing in the
+    # client remembers it. So the tally is the panel's own fact and lives in the database
+    # with every other one (CLAUDE.md, `store.DRONE_CHIPS`), while the bag half is a
+    # reading with its age beside it: read on a press, never on a clock.
+
+    def _ago(self, stamp: int) -> str:
+        """«3 мин» — how old a reading is, in the coarsest unit that still says something.
+
+        Every unit is a locale key: a reading whose age reads «3 min» in a Russian panel
+        is a word written in the code (CLAUDE.md).
+        """
+        gap = max(0, int(time.time()) - int(stamp))
+        if gap < 60:
+            return self.t("vs.age.sec", n=gap)
+        if gap < 3600:
+            return self.t("vs.age.min", n=gap // 60)
+        if gap < 86400:
+            return self.t("vs.age.hour", n=gap // 3600)
+        return self.t("vs.age.day", n=gap // 86400)
+
+    def _chips_state(self) -> dict:
+        """What the store holds about the chests: the tally, the last reading, its age."""
+        if self._chips is None:
+            state = None
+            try:
+                state = self.rt.store.blob_get(store.DRONE_CHIPS)
+            except Exception:                # noqa: BLE001 — a reading, never the tab
+                state = None
+            self._chips = state if isinstance(state, dict) else {}
+        return self._chips
+
+    def _chips_save(self, state: dict) -> None:
+        self._chips = state
+        try:
+            self.rt.store.blob_set(store.DRONE_CHIPS, state)
+        except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
+            pass
+
+    def _chips_rows_back(self, outcome) -> None:
+        """`read_drone_chips` came back — keep what it said, in the store.
+
+        The row is the GAME's: the count, the rarity, the icon file and the name in the
+        client's own language. Nothing here translates any of it (docs/panel-tabs.md).
+        """
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        raw = str(variables.get("chips_rows") or "")
+        rows = []
+        for piece in raw.split(";;"):
+            parts = [bit.strip() for bit in piece.split("|")]
+            if len(parts) < 5 or not parts[0].isdigit():
+                continue
+            rows.append({"id": parts[0], "count": _int(parts[1]),
+                         "colour": _int(parts[2]), "icon": parts[3],
+                         "name": parts[4]})
+        if not rows:
+            return
+        state = dict(self._chips_state())
+        state["rows"] = rows
+        state["at"] = int(time.time())
+        self._chips_save(state)
+
+    def _chips_opened_back(self, outcome) -> None:
+        """`open_drone_chips` came back — add what it opened to the tally, by grade.
+
+        `chips_per_id` is the recipe's own line («540201:31,540401:3») and never a guess
+        of ours: a run that opened nothing adds nothing, and a run the server refused
+        never gets here.
+        """
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        raw = str(variables.get("chips_per_id") or "")
+        state = dict(self._chips_state())
+        opened = dict(state.get("opened") or {})
+        moved = False
+        for piece in raw.split(","):
+            item, _, count = piece.partition(":")
+            item, count = item.strip(), _int(count)
+            if not item.isdigit() or count <= 0:
+                continue
+            opened[item] = _int(opened.get(item)) + count
+            moved = True
+        if not moved:
+            return
+        state["opened"] = opened
+        # …and the bag has just changed, so what is drawn beside the tally is stale.
+        # It is not re-read here: the next press asks, and until then the age says so.
+        state["spent_at"] = int(time.time())
+        self._chips_save(state)
+
+    def _web_chips_card(self) -> dict:
+        """The chests under the knob: one row per grade, with the game's own picture.
+
+        A grade the game has no picture for on this machine is drawn WITHOUT one, never
+        with somebody else's (`panel/tabs/inventory.py::cell_url`, the same rule every
+        picture route here keeps).
+        """
+        state = self._chips_state()
+        rows = state.get("rows") if isinstance(state.get("rows"), list) else []
+        opened = state.get("opened") or {}
+        items = []
+        for row in rows or [{"id": item, "count": None, "colour": 0, "icon": "",
+                             "name": ""} for item in CHIP_IDS]:
+            item_id = str(row.get("id") or "")
+            picture = cell_url(str(row.get("icon") or ""), row.get("colour"))
+            count = row.get("count")
+            item = {"text": row.get("name") or item_id,
+                    "facts": [{"label": "vs.chips.in_bag",
+                               "value": "—" if count is None else str(count)},
+                              {"label": "vs.chips.opened",
+                               "value": str(_int(opened.get(item_id)))}]}
+            if picture:
+                item["icon"] = picture
+            items.append(item)
+        card = {"title": "vs.chips.title", "items": items,
+                "actions": [{"id": "chips_read", "label": "vs.chips.refresh"}]}
+        when = _int(state.get("at"))
+        if when:
+            # `note` is DATA and already said in this profile's language.
+            card["note"] = self.t("vs.chips.read_at", ago=self._ago(when))
+        else:
+            card["note"] = self.t("vs.chips.never")
+        return card
 
     # -- the phone's copy ------------------------------------------------------
     def web_view(self) -> "dict | None":
@@ -90,6 +238,8 @@ class VsTab(VsDuelTab):
         self._paint_collected()
         cards = [{"title": "vs.week", "layout": "cards",
                   "items": [self._web_day_item(day) for day, _items in DAYS]},
+                 # …and under the week, the chests the Monday knob is about (#2617).
+                 self._web_chips_card(),
                  {"title": "vsduel.collect",
                   "rows": [{"label": "vsduel.collect.last",
                             "value": self._collected.get()}]},
@@ -149,13 +299,22 @@ class VsTab(VsDuelTab):
         is (CLAUDE.md). A day switched off is not a refusal either — the person pressed
         it themselves, and a press is not the schedule.
         """
+        if action == "chips_read":
+            return {"ok": self.rt.play_async(
+                CHIP_READ, args={"ids": ",".join(CHIP_IDS)}, tag="vs", human=True,
+                on_result=self._chips_rows_back)}
         if action != "run":
             return super().web_press(action, args)
         name = str((args or {}).get("key") or "")
         recipe = RUNS.get(name) if name in READY else None
         if recipe is None:
             return {"error": "unknown"}
-        return {"ok": self.rt.play_async(recipe, tag="vs", human=True)}
+        extra = {}
+        if name == "mon.drone_chips":
+            # The ids the page draws are the ids the run opens — one list, never two.
+            extra = {"args": {"ids": ",".join(CHIP_IDS)},
+                     "on_result": self._chips_opened_back}
+        return {"ok": self.rt.play_async(recipe, tag="vs", human=True, **extra)}
 
     def _day_count(self, day: str) -> str:
         """«1 / 1» — how much of the day is ticked, out of what the panel can DO.
