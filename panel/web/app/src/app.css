@@ -236,6 +236,24 @@ header {
 }
 .head-row .status { flex: 1 1 auto; padding-top: 4px; }
 
+/* «Ещё», moved here from the footer (#2621) — a plain icon button, thumb-sized like
+   every other header control, pinned to the row's right edge. */
+.head-more {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-soft);
+}
+.head-more .nav-icon { width: 22px; height: 22px; }
+.head-more.on { color: var(--accent); background: var(--bg-soft); }
+
 /* THE LEVEL IS INSIDE THE PICTURE, where the game itself draws it. A ring rather than a
    corner badge: at 38 px a corner number is unreadable, and this is the size the header
    can spare. */
@@ -767,7 +785,7 @@ nav {
   bottom: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 80px));
+  grid-template-columns: repeat(5, minmax(0, 80px));
   justify-content: center;
   gap: 2px;
   padding: 6px 6px calc(6px + env(safe-area-inset-bottom));

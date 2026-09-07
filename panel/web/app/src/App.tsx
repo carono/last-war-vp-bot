@@ -44,7 +44,6 @@ const NAV: { id: string; key: string; view: ViewName; screen?: string }[] = [
   { id: 'map', key: 'web.ui.nav.map', view: 'more', screen: 'worldview' },
   { id: 'chat', key: 'tab.chat', view: 'more', screen: 'chat' },
   { id: 'vs', key: 'tab.vs', view: 'more', screen: 'vs' },
-  { id: 'more', key: 'web.ui.nav.more', view: 'more' },
 ]
 
 /* One small outline family, drawn here so navigation never depends on game artwork or
@@ -493,6 +492,15 @@ function Panel() {
             <span className="head-nick">{me.nick || me.name}</span>
           </button>
           <StatusStrip header={state?.header} />
+          {/* «Ещё» MOVED HERE FROM THE FOOTER (#2621) — the person's own words: «в
+              футере кнопку еще переносим в хеадер». It is the one footer entry with no
+              `screen` of its own, so it does not compete with the destinations that do:
+              pressing it drops any open screen and shows the list. */}
+          <button className={'head-more' + (view === 'more' && !screen ? ' on' : '')}
+                  onClick={() => go({ ...route, view: 'more', screen: null, part: 0, map: 'model' })}
+                  aria-label={t('web.ui.nav.more')} title={t('web.ui.nav.more')}>
+            <NavIcon id="more" />
+          </button>
         </div>
       </header>
 
