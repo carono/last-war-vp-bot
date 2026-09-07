@@ -939,8 +939,10 @@ export function ScreenPage({
   /* THE MAP AND VS CARRY NO «НАЗАД» (#2621) — the person's own words: «из вкладок
      карты, vs убираем кнопку назад». Both are reached straight off the footer now,
      not through «Ещё», so a back button pointed at a list they were never opened
-     from; «Ещё» itself moved into the header for the same reason. The title stays. */
-  const noBack = id === 'worldview' || id === 'vs'
+     from; «Ещё» itself moved into the header for the same reason. The title stays.
+     «Карта» is `secret_tasks` since #2622 — `worldview` moved out of the footer and
+     back onto «Ещё», so IT keeps its «назад» again. */
+  const noBack = id === 'secret_tasks' || id === 'vs'
   return (
     <>
       {ownHead ? null : (

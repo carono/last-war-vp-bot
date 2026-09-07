@@ -2311,16 +2311,22 @@ def test_the_conversation_takes_the_whole_phone_and_reserves_nothing():
 def test_the_map_and_chat_are_bottom_buttons_and_chat_still_hides_the_bar():
     """#2593: five one-line cells fit 390 px; open chat deliberately keeps none.
 
-    #2620 added VS beside chat, so the map keeps pointing at the `worldview` screen
-    (the one with the pan and the swept-tile grid). #2621 then moved «Ещё» into the
-    header — the person's words: «в футере кнопку еще переносим в хеадер» — leaving
-    five destinations that each carry a `screen` (or, for state/timers, a `view`) of
-    their own; a plain list has no place fighting them for a footer slot."""
+    #2620 added VS beside chat. #2621 then moved «Ещё» into the header — the
+    person's words: «в футере кнопку еще переносим в хеадер» — leaving five
+    destinations that each carry a `screen` (or, for state/timers, a `view`) of
+    their own; a plain list has no place fighting them for a footer slot.
+
+    #2622: «Карта» points at `secret_tasks` (the mine/monster/truck GRID tables,
+    a coordinate click walks the camera), not `worldview` (the read-only Pixi
+    mirror #2593/#2620 had guessed at) — the person's own answer once they saw
+    the wrong one live: «ссылка на карту не изменена»."""
     app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
     nav = app[app.index("const NAV"):app.index("const DEVELOP_SCREEN")]
     assert nav.count(" id: '") == 5, "the footer does not have exactly five destinations"
     assert "id: 'more'" not in nav, "«Ещё» is still a footer destination"
-    assert "key: 'web.ui.nav.map'" in nav and "screen: 'worldview'" in nav
+    assert "key: 'web.ui.nav.map'" in nav and "screen: 'secret_tasks'" in nav
+    assert "screen: 'worldview'" not in nav, \
+        "the footer map button still points at the read-only mirror"
     assert "key: 'tab.chat'" in nav and "screen: 'chat'" in nav
     assert "key: 'tab.vs'" in nav and "screen: 'vs'" in nav
     assert (nav.index("id: 'map'") < nav.index("id: 'chat'")
@@ -2356,7 +2362,7 @@ def test_more_moved_into_the_header_and_the_screens_that_replaced_it_lost_back()
         "the header button is smaller than a tap target"
 
     screen_src = (_APP_SRC / "views" / "ScreenView.tsx").read_text(encoding="utf-8")
-    assert "const noBack = id === 'worldview' || id === 'vs'" in screen_src
+    assert "const noBack = id === 'secret_tasks' || id === 'vs'" in screen_src
     assert "{noBack ? null : (" in screen_src, \
         "the map or VS screen can still draw a back button"
 
