@@ -767,7 +767,7 @@ nav {
   bottom: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 80px));
+  grid-template-columns: repeat(6, minmax(0, 80px));
   justify-content: center;
   gap: 2px;
   padding: 6px 6px calc(6px + env(safe-area-inset-bottom));

@@ -43,6 +43,7 @@ const NAV: { id: string; key: string; view: ViewName; screen?: string }[] = [
      no second API surface and no second map state (#2593). */
   { id: 'map', key: 'web.ui.nav.map', view: 'more', screen: 'worldview' },
   { id: 'chat', key: 'tab.chat', view: 'more', screen: 'chat' },
+  { id: 'vs', key: 'tab.vs', view: 'more', screen: 'vs' },
   { id: 'more', key: 'web.ui.nav.more', view: 'more' },
 ]
 
@@ -54,6 +55,7 @@ function NavIcon({ id }: { id: string }) {
     timers: <><circle cx="12" cy="13" r="8" /><path d="M12 9v4l3 2M9 3h6" /></>,
     map: <><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3zM9 3v15M15 6v15" /></>,
     chat: <path d="M4 5h16v11H9l-5 4z" />,
+    vs: <><path d="M4 12h6M10 12 7 9M10 12l-3 3" /><path d="M20 12h-6M14 12l3-3M14 12l3 3" /></>,
     more: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
   }
   return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[id]}</svg>
