@@ -49,11 +49,16 @@ LOG "levels the bag pays for: {drone_can}"
 
 # 4. Raise it. `xall` re-reads the count between presses, so it spends exactly what the
 #    bag holds and a press the client dropped is pressed again.
+# The level BEFORE, parked in the game rather than only read out: `IF` compares a
+# variable with a literal and never two variables (docs/dsl.md), so «did it move»
+# has to come back already answered.
+LUA DataCenter.__lw_drone_before = (function() local info = nil local M = DataCenter and DataCenter.TacticalWeaponManager if M ~= nil then pcall(function() info = M:GetTacticalWeaponInfo(1000) end) if type(info) ~= 'table' then pcall(function() for _, v in pairs(M.tacticalWeaponInfos or {}) do info = v end end) end end if type(info) ~= 'table' then return 0 end return math.floor(tonumber(info.level) or 0) end)()
 READ_LUA (function() local info = nil local M = DataCenter and DataCenter.TacticalWeaponManager if M ~= nil then pcall(function() info = M:GetTacticalWeaponInfo(1000) end) if type(info) ~= 'table' then pcall(function() for _, v in pairs(M.tacticalWeaponInfos or {}) do info = v end end) end end if type(info) ~= 'table' then return 0 end return math.floor(tonumber(info.level) or 0) end)() INTO drone_before
 TAP drone_level_up xall
 WAIT 1.5
 
 READ_LUA (function() local info = nil local M = DataCenter and DataCenter.TacticalWeaponManager if M ~= nil then pcall(function() info = M:GetTacticalWeaponInfo(1000) end) if type(info) ~= 'table' then pcall(function() for _, v in pairs(M.tacticalWeaponInfos or {}) do info = v end end) end end if type(info) ~= 'table' then return 0 end return math.floor(tonumber(info.level) or 0) end)() INTO drone_after
+READ_LUA (function() local now = (function() local info = nil local M = DataCenter and DataCenter.TacticalWeaponManager if M ~= nil then pcall(function() info = M:GetTacticalWeaponInfo(1000) end) if type(info) ~= 'table' then pcall(function() for _, v in pairs(M.tacticalWeaponInfos or {}) do info = v end end) end end if type(info) ~= 'table' then return 0 end return math.floor(tonumber(info.level) or 0) end)() local was = math.floor(tonumber(DataCenter.__lw_drone_before) or 0) if now > was then return 1 end return 0 end)() INTO drone_moved
 LOG "drone level: {drone_before} -> {drone_after}"
-IF drone_after == drone_before
+IF drone_moved == 0
     FAIL "the drone did not move — {drone_state}"
