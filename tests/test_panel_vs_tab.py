@@ -37,7 +37,7 @@ LOCALES = ROOT / "panel" / "locales"
 
 #: What the tab adds to the words it inherits from the plan it draws.
 NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set",
-            "vs.run", "vs.day.soon", "vsduel.drone_chips")
+            "vs.day.soon", "vsduel.drone_chips", "vsduel.drone_level")
 
 
 def _tab():
@@ -91,7 +91,7 @@ def test_the_days_switch_is_on_the_card_and_its_knobs_are_behind_the_gear():
         keys = [field["key"] for field in monday["options"]]
         assert "plan.mon.enabled" not in keys, (
             "the day's own switch is on the card, never repeated behind its gear")
-        assert keys == ["plan.mon.drone_chips"], (
+        assert keys == ["plan.mon.drone_chips", "plan.mon.drone_level"], (
             "only what is wired is drawn (#2617) — %s" % keys)
         assert monday["options_title"] == "vsduel.day.mon"
     finally:
@@ -106,11 +106,11 @@ def test_a_press_moves_the_plan_and_the_card_says_so():
         return
     try:
         before = _week(tab.web_view())["items"][0]["facts"][0]["value"]
-        assert before == "1 / 1", before
+        assert before == "2 / 2", before
         assert tab.web_press("set", {"key": "plan.mon.drone_chips",
                                      "value": False}) == {"ok": True}
         after = _week(tab.web_view())["items"][0]["facts"][0]["value"]
-        assert after == "0 / 1", after
+        assert after == "1 / 2", after
         assert tab.web_press("nope", {}) == {"error": "unknown"}
     finally:
         root.destroy()
@@ -171,7 +171,7 @@ def test_a_profile_that_never_saved_this_tab_still_reads_its_plan():
         return
     try:
         monday = _week(tab.web_view())["items"][0]
-        assert monday["facts"][0]["value"] == "1 / 1", monday["facts"]
+        assert monday["facts"][0]["value"] == "2 / 2", monday["facts"]
         assert any(field["key"] == "plan.mon.drone_chips" and field["value"] is True
                    for field in monday["options"]), monday["options"][:3]
     finally:
@@ -195,7 +195,8 @@ def test_only_the_wired_knobs_are_drawn_and_the_rest_of_the_week_says_so():
 
         items = {item["label"]: item for item in _week(tab.web_view())["items"]}
         monday = items["vsduel.day.mon"]
-        assert [f["key"] for f in monday["options"]] == ["plan.mon.drone_chips"]
+        assert [f["key"] for f in monday["options"]] == ["plan.mon.drone_chips",
+                                                         "plan.mon.drone_level"]
         assert monday.get("pill") is None
         for label in ("vsduel.day.tue", "vsduel.day.wed", "vsduel.day.thu",
                       "vsduel.day.fri", "vsduel.day.sat"):
@@ -220,15 +221,19 @@ def test_the_wired_knob_carries_the_button_that_plays_its_recipe():
         tab.rt.play_async = lambda name, *a, **k: played.append(name) or True
 
         monday = _week(tab.web_view())["items"][0]
-        assert monday["actions"] == [{"id": "run", "label": "vs.run",
-                                      "args": {"key": "mon.drone_chips"}}], (
-            monday.get("actions"))
+        # ONE BUTTON PER ABILITY, each named after what it runs (#2617).
+        assert monday["actions"] == [
+            {"id": "run", "label": "vsduel.drone_chips",
+             "args": {"key": "mon.drone_chips"}},
+            {"id": "run", "label": "vsduel.drone_level",
+             "args": {"key": "mon.drone_level"}}], monday.get("actions")
         assert tab.web_press("run", {"key": "mon.drone_chips"}) == {"ok": True}
-        assert played == ["open_drone_chips"], played
+        assert tab.web_press("run", {"key": "mon.drone_level"}) == {"ok": True}
+        assert played == ["open_drone_chips", "upgrade_drone"], played
         # …and nothing else may be started through it, whatever it is asked for.
         assert tab.web_press("run", {"key": "tue.build_speedup"}) == {"error": "unknown"}
         assert tab.web_press("run", {}) == {"error": "unknown"}
-        assert played == ["open_drone_chips"], played
+        assert played == ["open_drone_chips", "upgrade_drone"], played
     finally:
         root.destroy()
 
@@ -264,6 +269,41 @@ def test_the_press_it_names_is_in_the_catalogue():
     assert "MsgDefines.ItemUse" in lua, "the send is the bag's own item.use"
     # One call, not one per stack: the loop is inside the chunk (#2617).
     assert lua.count("SendMessage") == 1 and "for _, st in ipairs(mine)" in lua
+
+
+def test_the_drone_recipe_reads_the_price_instead_of_knowing_it():
+    """`upgrade_drone.md` — the ability, and the one thing it must never do: assume.
+
+    The cost of a level is the client's own `cost_resItem` row and it changes as the
+    drone climbs, so a number written into the recipe would be right for one account at
+    one level. What is pinned here is that it reads, that it stops rather than fails when
+    there is nothing to raise, and that it proves the level MOVED.
+    """
+    text = (ROOT / "src" / "lastwar_bot" / "actions" / "upgrade_drone.md").read_text(
+        encoding="utf-8")
+    running = "\n".join(line for line in text.splitlines()
+                        if line.strip() and not line.lstrip().startswith("#"))
+    assert "TAP drone_level_up xall" in running, "it spends what the bag pays for"
+    assert "cost_resItem" in running, "the price is read, never written down"
+    assert "42000" not in running and "7037" not in running, (
+        "one account's price is not everybody's")
+    assert running.count("STOP") == 3, "a ceiling and an empty bag are states, not failures"
+    assert "FAIL" in running, "a press that did not move the level is a failure"
+
+
+def test_the_drone_press_is_in_the_catalogue_and_proves_itself():
+    import sys as _sys
+
+    for path in (str(ROOT / "tools"), str(ROOT / "tools" / "lib")):
+        if path not in _sys.path:
+            _sys.path.insert(0, path)
+    from lib import game_buttons
+
+    button = game_buttons.BUTTONS.get("drone_level_up")
+    assert button is not None, "no such press: drone_level_up"
+    assert "MsgDefines.TacticalWeaponLevelUpMessage" in button.lua
+    assert button.count_lua, "`xall` needs to know how many levels are affordable"
+    assert button.verify_lua, "a press that changed nothing must fail, not report ok"
 
 
 def _main() -> int:

@@ -1498,7 +1498,6 @@
   "vs.week": "Semana del duelo",
   "vs.day.actions": "Acciones",
   "vs.day.set": "Conjunto",
-  "vs.run": "Ejecutar",
   "vs.day.soon": "aún sin conectar",
   "vsduel.sets.hint": "Un conjunto es una semana entera de ajustes, y cada día se juega con el conjunto que nombra su propio selector — así el lunes puede acumular mientras el sábado empuja. Un conjunto nuevo nace como copia de lo que hay ahora en pantalla.",
   "vsduel.sets.new": "Nuevo",

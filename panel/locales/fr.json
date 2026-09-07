@@ -1498,7 +1498,6 @@
   "vs.week": "Semaine du duel",
   "vs.day.actions": "Actions",
   "vs.day.set": "Jeu",
-  "vs.run": "Exécuter",
   "vs.day.soon": "pas encore relié",
   "vsduel.sets.hint": "Un jeu, c'est une semaine de réglages, et chaque jour se joue selon le jeu que son propre sélecteur désigne — ainsi lundi peut thésauriser pendant que samedi pousse. Un nouveau jeu part comme une copie de ce qui est à l'écran.",
   "vsduel.sets.new": "Nouveau",

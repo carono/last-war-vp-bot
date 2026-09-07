@@ -11621,6 +11621,133 @@ def bag_count_of_ids() -> str:
     )
 
 
+#: THE DRONE, AS THE CLIENT SPELLS IT (#2617). The game calls it a «tactical weapon» in
+#: its own code and «UAV» on the wire (`push.uav.effects`, `push.uav.skillchip.changes`),
+#: which is why nothing in `DataCenter` is named after a drone at all. One per account,
+#: id 1000, read off `TacticalWeaponManager`.
+DRONE_WEAPON_ID = 1000
+
+
+def _drone_info_lua(var: str = "info") -> str:
+    """Lua *statements* -> park the account's drone in a local of that name (or nil).
+
+    Two ways round, because the manager answers one of them on any given call: the
+    getter, and the table it keeps. Probed live — see docs/research/drone-upgrade.md.
+    """
+    return (
+        "local %(var)s = nil "
+        "local M = DataCenter and DataCenter.TacticalWeaponManager "
+        "if M ~= nil then "
+        "pcall(function() %(var)s = M:GetTacticalWeaponInfo(%(id)d) end) "
+        "if type(%(var)s) ~= 'table' then "
+        "pcall(function() for _, v in pairs(M.tacticalWeaponInfos or {}) do "
+        "%(var)s = v end end) end end "
+        % {"var": var, "id": DRONE_WEAPON_ID}
+    )
+
+
+def drone_state() -> str:
+    """Lua *expression* -> one line about the drone: level, cap, cost and what is held.
+
+    Everything the gate needs in ONE reading, because a read is a thread hijack and the
+    machine makes about 1.4 of them a second (docs/research/link-contention.md).
+    """
+    return (
+        "(function() " + _drone_info_lua() +
+        "if type(info) ~= 'table' then return 'lv=0 max=0 can=0 why=no-drone' end "
+        "local row = info.levelTemplate "
+        "if type(row) ~= 'table' then pcall(function() row = info:GetLevelTemplate() end) end "
+        "local cost = {} "
+        "if type(row) == 'table' and type(row.cost_resItem) == 'table' then "
+        "for _, c in pairs(row.cost_resItem) do "
+        "if type(c) == 'table' then cost[#cost + 1] = {id = math.floor(tonumber(c.id) or 0), "
+        "n = math.floor(tonumber(c.value) or 0)} end end end "
+        "local D = DataCenter.ItemData "
+        "local have = {} "
+        "if D ~= nil then pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+        "local id = math.floor(tonumber(v.itemId) or 0) "
+        "have[id] = (have[id] or 0) + math.floor(tonumber(v.count) or 0) end end) end "
+        "local bits = {} "
+        "for _, c in ipairs(cost) do "
+        "bits[#bits + 1] = c.id .. ':' .. (have[c.id] or 0) .. '/' .. c.n end "
+        "local function ask(name) local v = nil "
+        "local ok = pcall(function() v = info[name](info) end) "
+        "if not ok then return -1 end if v == true then return 1 end "
+        "if v == false then return 0 end return math.floor(tonumber(v) or -1) end "
+        "return 'lv=' .. tostring(math.floor(tonumber(info.level) or 0)) .. "
+        "' max=' .. tostring(math.floor(tonumber(info.maxLevel) or 0)) .. "
+        "' capped=' .. tostring(ask('IsReachLevelLimit')) .. "
+        "' topped=' .. tostring(ask('IsReachMaxLevel')) .. "
+        "' pays=' .. tostring(ask('HasResItemToUpgrade')) .. "
+        "' cost=' .. table.concat(bits, ',') end)()"
+    )
+
+
+def drone_level() -> str:
+    """Lua *expression* -> the drone's level right now, or 0. The proof a press worked."""
+    return ("(function() " + _drone_info_lua() +
+            "if type(info) ~= 'table' then return 0 end "
+            "return math.floor(tonumber(info.level) or 0) end)()")
+
+
+def drone_upgrades_left() -> str:
+    """Lua *expression* -> how many levels the account can buy RIGHT NOW.
+
+    What `xall` counts down: the smallest of «what each cost item buys», nothing at all
+    when the client says the level is capped by the building or by the drone's own
+    ceiling, and never more than the levels parked in `DataCenter.__lw_drone_max`
+    (0 = as many as the bag pays for).
+    """
+    return (
+        "(function() " + _drone_info_lua() +
+        "if type(info) ~= 'table' then return 0 end "
+        "local function ask(name) local v = nil "
+        "local ok = pcall(function() v = info[name](info) end) "
+        "return ok and v == true end "
+        "if ask('IsReachMaxLevel') or ask('IsReachLevelLimit') then return 0 end "
+        "local row = info.levelTemplate "
+        "if type(row) ~= 'table' then pcall(function() row = info:GetLevelTemplate() end) end "
+        "if type(row) ~= 'table' or type(row.cost_resItem) ~= 'table' then return 0 end "
+        "local D = DataCenter.ItemData if D == nil then return 0 end "
+        "local have = {} "
+        "pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+        "local id = math.floor(tonumber(v.itemId) or 0) "
+        "have[id] = (have[id] or 0) + math.floor(tonumber(v.count) or 0) end end) "
+        "local can = -1 "
+        "for _, c in pairs(row.cost_resItem) do if type(c) == 'table' then "
+        "local id, n = math.floor(tonumber(c.id) or 0), math.floor(tonumber(c.value) or 0) "
+        "if n > 0 then local buys = math.floor((have[id] or 0) / n) "
+        "if can < 0 or buys < can then can = buys end end end end "
+        "if can < 0 then can = 0 end "
+        "local cap = math.floor(tonumber(DataCenter.__lw_drone_max) or 0) "
+        "if cap > 0 and can > cap then can = cap end "
+        "return can end)()"
+    )
+
+
+def drone_level_up() -> str:
+    """Press «upgrade the drone» once — one `weapon.up.lv` for the account's own drone.
+
+    The send is `MsgDefines.TacticalWeaponLevelUpMessage`; what it carries is
+    docs/research/drone-upgrade.md, proven live rather than guessed. Nothing here gates
+    the ability: the recipe reads :func:`drone_upgrades_left` and presses that many
+    times, so a press that arrives with nothing to pay with is refused by the server
+    exactly as the game's own button would be.
+    """
+    return (
+        _drone_info_lua() +
+        "local before = 0 "
+        "if type(info) == 'table' then before = math.floor(tonumber(info.level) or 0) end "
+        "local sent = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.TacticalWeaponLevelUpMessage, "
+        "{id = %(id)d}) end) "
+        "DataCenter.__lw_drone = {sent = sent and 1 or 0, level = before} "
+        'CS.UnityEngine.Debug.LogError("ACT drone_up sent="..tostring(sent)'
+        '.." level="..tostring(before))'
+        % {"id": DRONE_WEAPON_ID}
+    )
+
+
 def bag_use_report() -> str:
     """Lua *expression* -> one line about the last item use, for the log and the panel."""
     return (
