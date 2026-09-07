@@ -114,6 +114,28 @@ READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_home) or 0) INTO h
 READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_road) or 0) INTO road
 LOG "trade station: {sent} of {cap} sent today, {ready} could go now, {home} home with a load, {road} still on the road, {poor} truck(s) below the target and {good} at it, {tickets} contract(s) in hand, sleigh tech={sleigh_open}"
 
+# 2a. «ВЕРНУТЬ» — the loads that came home to nobody and went into the day's pool (#2605).
+#
+#     A truck nobody collects does not lose what it carried: the trade station keeps a
+#     pool per server day and hands it back for the asking — `train.recover.reward`, one
+#     send per day-pool, free (`GetTrainRecoverCostStr` answered 0 on every row measured).
+#     The pools expire after a few days, so this is income with a fuse on it.
+#
+#     It comes BEFORE the two stops below on purpose: the pools belong to the recover
+#     manager, not to the super-mode window, so a run that could not open the window — or
+#     one on a station that is locked again — still takes what is already earned.
+#
+#     Asked for first, and counted again afterwards: a send is not a claim (#2585), and a
+#     claimed pool proves itself by coming back with a state on it.
+TAP ask_recover_pools
+READ_LUA ((((function() local M=DataCenter and DataCenter.DispatchRecoverManager if not M then return nil end local open=false pcall(function() open=M:IsTrainRecoverOpen() and true or false end) if not open then return nil end local n=0 for _,row in pairs(M.trainRecoverList or {}) do if row.state==nil then n=n+1 end end return n end)())) or 0) INTO recover_was
+IF recover_was > 0
+    TAP claim_recover_trucks
+    WAIT 2
+    TAP ask_recover_pools
+    READ_LUA ((((function() local M=DataCenter and DataCenter.DispatchRecoverManager if not M then return nil end local open=false pcall(function() open=M:IsTrainRecoverOpen() and true or false end) if not open then return nil end local n=0 for _,row in pairs(M.trainRecoverList or {}) do if row.state==nil then n=n+1 end end return n end)())) or 0) INTO recover_left
+    LOG "returned truck pools: {recover_was} waiting, {recover_left} still unclaimed"
+
 # 3. A station the base has not unlocked yet answers zero to everything, exactly like an
 #    idle one. Say which of the two it is and stop, rather than reporting a day's work
 #    nobody could have done.

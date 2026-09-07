@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Hợp Tác Cùng Thắng",
   "checklist.detail.no_target": "không có Thủ Lĩnh Chiến Đấu để dùng",
   "checklist.state.no_target": "không có mục tiêu",
-  "checklist.detail.winwin_next": "lại sau {t}"
+  "checklist.detail.winwin_next": "lại sau {t}",
+  "timers.stat.trucks_out_back": "lượt gửi còn lại: {n} trên {all} · đã trả lại: {back}",
+  "timers.stat.trucks_send_back": "lượt gửi còn lại: {n}/{all} · sẵn sàng: {ready} · đã trả lại: {back}",
+  "timers.stat.steals_back": "còn lại: {n}/{all} · đã lấy: {done} · đã trả lại: {back}"
 }

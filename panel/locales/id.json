@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Kerjasama Mutualisme",
   "checklist.detail.no_target": "tidak ada Pemimpin Perang untuk menggunakannya",
   "checklist.state.no_target": "tanpa target",
-  "checklist.detail.winwin_next": "lagi dalam {t}"
+  "checklist.detail.winwin_next": "lagi dalam {t}",
+  "timers.stat.trucks_out_back": "pengiriman tersisa: {n} dari {all} · dikembalikan: {back}",
+  "timers.stat.trucks_send_back": "pengiriman tersisa: {n} dari {all} · siap: {ready} · dikembalikan: {back}",
+  "timers.stat.steals_back": "tersisa: {n} dari {all} · diambil: {done} · dikembalikan: {back}"
 }

@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Coopération Gagnant-gagnant",
   "checklist.detail.no_target": "aucun Chef de Guerre sur qui l'utiliser",
   "checklist.state.no_target": "aucune cible",
-  "checklist.detail.winwin_next": "de nouveau dans {t}"
+  "checklist.detail.winwin_next": "de nouveau dans {t}",
+  "timers.stat.trucks_out_back": "envois restants : {n} sur {all} · restitués : {back}",
+  "timers.stat.trucks_send_back": "envois restants : {n} sur {all} · prêts : {ready} · restitués : {back}",
+  "timers.stat.steals_back": "restant : {n} sur {all} · pris : {done} · restitués : {back}"
 }

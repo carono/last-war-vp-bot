@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Взаимовыгодное сотрудничество",
   "checklist.detail.no_target": "некому применить: в альянсе нет военного лидера",
   "checklist.state.no_target": "некому",
-  "checklist.detail.winwin_next": "снова через {t}"
+  "checklist.detail.winwin_next": "снова через {t}",
+  "timers.stat.trucks_out_back": "отправок осталось: {n} из {all} · возвращённых: {back}",
+  "timers.stat.trucks_send_back": "отправок осталось: {n} из {all} · готовы: {ready} · возвращённых: {back}",
+  "timers.stat.steals_back": "осталось: {n} из {all} · взято: {done} · возвращённых: {back}"
 }

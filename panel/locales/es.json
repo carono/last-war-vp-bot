@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Cooperación de Beneficio Mutuo",
   "checklist.detail.no_target": "no hay Líder de Guerra en quien usarlo",
   "checklist.state.no_target": "sin objetivo",
-  "checklist.detail.winwin_next": "de nuevo en {t}"
+  "checklist.detail.winwin_next": "de nuevo en {t}",
+  "timers.stat.trucks_out_back": "envíos restantes: {n} de {all} · devueltos: {back}",
+  "timers.stat.trucks_send_back": "envíos restantes: {n} de {all} · listos: {ready} · devueltos: {back}",
+  "timers.stat.steals_back": "quedan: {n} de {all} · tomados: {done} · devueltos: {back}"
 }

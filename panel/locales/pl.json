@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Współpraca korzystna dla obu stron",
   "checklist.detail.no_target": "brak Przywódcy wojennego, na którym można tego użyć",
   "checklist.state.no_target": "brak celu",
-  "checklist.detail.winwin_next": "ponownie za {t}"
+  "checklist.detail.winwin_next": "ponownie za {t}",
+  "timers.stat.trucks_out_back": "pozostałe wysyłki: {n} z {all} · zwrócone: {back}",
+  "timers.stat.trucks_send_back": "pozostałe wysyłki: {n} z {all} · gotowe: {ready} · zwrócone: {back}",
+  "timers.stat.steals_back": "zostało: {n} z {all} · zabrano: {done} · zwrócone: {back}"
 }

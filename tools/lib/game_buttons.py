@@ -646,6 +646,29 @@ BUTTONS: dict[str, Button] = {
         max_taps=5,
         relay=("post_claim",),
     ),
+    "ask_recover_pools": Button(
+        # Not a press: the two «Вернуть» lists asked for the way the window asks when it
+        # opens. The client holds them from login and they go stale as server days turn
+        # over, so a run that is about to claim asks once first — inside the run, never
+        # on a clock.
+        lua=_lua_actions.recover_pools_ask(),
+        wait=2.0, label="Ask for the returned pools",
+    ),
+    "claim_recover_tasks": Button(
+        # «Вернуть» on the command post: everything the secret tasks earned on a day
+        # nobody collected. One send per day-pool, and free — the reward was earned
+        # already, so there is no budget in front of it.
+        lua=_lua_actions.recover_claim_all("tasks"),
+        wait=2.0, label="Take back what the secret tasks left behind",
+        relay=("rec_tasks",),
+    ),
+    "claim_recover_trucks": Button(
+        # …and the same button on the trade station, over the trucks that came home to
+        # nobody. The same manager, the same shape, the other list.
+        lua=_lua_actions.recover_claim_all("trucks"),
+        wait=2.0, label="Take back what the trucks left behind",
+        relay=("rec_trucks",),
+    ),
     "note_the_bag": Button(
         # Not a press: what the bag holds right now, parked so a later look can say what
         # CHANGED. The only honest answer to «what fell out of the boxes» — the reward

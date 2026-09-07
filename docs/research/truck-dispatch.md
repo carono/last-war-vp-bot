@@ -179,6 +179,19 @@ is the window's own first formation — the strongest the person has arranged. F
 ticked at once spend four formations, including the weak ones, which is what the operator
 asked to be able to avoid.
 
+## «Вернуть» — the loads that came home to nobody (#2605)
+
+A truck nobody collects does not lose what it carried: at the day's end the server sweeps
+it into a pool and holds it for a few days behind the departure window's «Вернуть». It is
+free to take, it is one send per day-pool (`train.recover.reward`), and it expires — so
+`send_trucks.md` claims it on the way past, BEFORE the two stops that end a run with no
+window or a locked station, because the pools belong to a different manager and are still
+there when the station is not.
+
+The whole of it — the manager, the row, the frame, what it costs and what was measured on
+two accounts — is [`recover-pools.md`](recover-pools.md), which covers the secret tasks'
+identical half at the same time.
+
 ## Robbing somebody else's truck (#2591)
 
 The other tab of the same event. `train.list` fills a board of trucks other players have

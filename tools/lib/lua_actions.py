@@ -16880,3 +16880,109 @@ def hidden_treasures_note() -> str:
 def hidden_treasures_board() -> str:
     """The parked reading, or an empty string when nothing has been read yet."""
     return "(DataCenter.__lw_hidden_board or '')"
+
+
+# ---------------------------------------------------------------------------
+# «Вернуть» — the rewards a secret task or a trade truck never delivered (#2605)
+# ---------------------------------------------------------------------------
+#
+# Both windows — the command post's hero dispatch and the trade station's departure —
+# carry a button called «Вернуть». Behind it is ONE manager,
+# `DataCenter.DispatchRecoverManager`, holding two lists of the same shape: a row per
+# server day, with everything that day's tasks or trucks earned and nobody took. The
+# server keeps them for a few days and then they are gone.
+#
+# Measured live on two accounts (#2605):
+#
+# * `dispatchRecoverList` / `trainRecoverList` — the pools, keyed by `customId`, which is
+#   the day's own stamp. A row with `state == nil` has NOT been claimed; a claimed one
+#   comes back with `state = 1`, which is how a press is judged rather than by the send
+#   returning without an error.
+# * `ClaimDispatchRecoverReward(customId)` / `ClaimTrainRecoverReward(customId)` — one
+#   pool per send. Recorded with the sending layer stubbed (#2598): the frame is
+#   `SFSNetwork.SendMessage('dispatch.recover.reward', customId)`, exactly one field wide,
+#   and its train twin the same.
+# * `GetDispatchRecoverCostStr()` / `GetTrainRecoverCostStr()` answer **0** — claiming a
+#   pool is free. It is income that was already earned and never collected, so there is no
+#   budget gate here and nothing to refuse.
+# * `IsDispatchRecoverOpen()` / `IsTrainRecoverOpen()` say whether the account has the
+#   feature at all, and a closed one is answered `nil` rather than `0` so a page draws
+#   «unknown» instead of «nothing to take».
+
+_RECOVER_M = ("local M=DataCenter and DataCenter.DispatchRecoverManager ")
+
+#: The two halves, as the manager spells them. `kind` is the recipe's word for one.
+_RECOVER_KINDS = {
+    "tasks": ("dispatchRecoverList", "IsDispatchRecoverOpen",
+              "ClaimDispatchRecoverReward"),
+    "trucks": ("trainRecoverList", "IsTrainRecoverOpen",
+               "ClaimTrainRecoverReward"),
+}
+
+
+def _recover_parts(kind: str) -> tuple:
+    try:
+        return _RECOVER_KINDS[kind]
+    except KeyError:                        # pragma: no cover — a typo in a caller
+        raise ValueError("recover kind must be 'tasks' or 'trucks', not %r" % (kind,))
+
+
+def recover_pools_ask() -> str:
+    """Ask the server for both «Вернуть» lists — what the window sends when it opens.
+
+    A request, not a poll: it is made inside a run that is about to claim, never on a
+    clock. The client holds the lists from login and they go stale as days turn over, so
+    a run that is about to press asks once first.
+    """
+    return ("pcall(function() " + _RECOVER_M +
+            "if not M then return end "
+            "pcall(function() M:RequestRecoverListsBySwitch() end) "
+            "pcall(function() M:RequestDispatchRecoverList() end) "
+            "pcall(function() M:RequestTrainRecoverList() end) end)")
+
+
+def recover_pools_left(kind: str) -> str:
+    """Lua *expression* -> how many pools of `kind` are still unclaimed.
+
+    `nil` when the account has not got the feature — «unknown», which a page draws as a
+    dash. Never `0`, which would read as «nothing to take» on an account that cannot take
+    anything at all (the same trap the locked trade station set, `truck-dispatch.md`).
+    """
+    field, is_open, _ = _recover_parts(kind)
+    return ("(function() " + _RECOVER_M +
+            "if not M then return nil end local open=false "
+            "pcall(function() open=M:" + is_open + "() and true or false end) "
+            "if not open then return nil end local n=0 "
+            "for _,row in pairs(M." + field + " or {}) do "
+            "if row.state==nil then n=n+1 end end return n end)()")
+
+
+def recover_claim_all(kind: str) -> str:
+    """Claim every unclaimed pool of `kind` — one send each, and free.
+
+    One send per pool because the game has no batch for it: `Claim…RecoverReward` takes a
+    single `customId`. They go out together and the reply that flips `state` arrives on
+    its own; what was SENT is parked, and the recipe re-reads the list afterwards to say
+    what actually moved — a send is never taken for a claim (#2585).
+    """
+    field, is_open, claim = _recover_parts(kind)
+    tag = "rec_" + kind
+    return ("pcall(function() " + _RECOVER_M +
+            "if not M then return end local open=false "
+            "pcall(function() open=M:" + is_open + "() and true or false end) "
+            "local before,sent=0,0 "
+            "if open then for _,row in pairs(M." + field + " or {}) do "
+            "if row.state==nil then before=before+1 "
+            "if pcall(function() M:" + claim + "(row.customId) end) then sent=sent+1 end "
+            "end end end "
+            "M.__lw_rec_" + kind + "_before=before M.__lw_rec_" + kind + "_sent=sent "
+            'CS.UnityEngine.Debug.LogError("ACT ' + tag + ' before="..tostring(before)'
+            '.." sent="..tostring(sent)) end)')
+
+
+def recover_pools_sent(kind: str) -> str:
+    """Lua *expression* -> how many claims the last press put on the wire."""
+    _recover_parts(kind)
+    return ("(function() " + _RECOVER_M +
+            "if not M then return 0 end "
+            "return tonumber(M.__lw_rec_" + kind + "_sent) or 0 end)()")

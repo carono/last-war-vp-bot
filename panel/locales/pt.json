@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Cooperação Vitória Mútua",
   "checklist.detail.no_target": "nenhum Líder de Guerra em quem usar",
   "checklist.state.no_target": "sem alvo",
-  "checklist.detail.winwin_next": "de novo em {t}"
+  "checklist.detail.winwin_next": "de novo em {t}",
+  "timers.stat.trucks_out_back": "envios restantes: {n} de {all} · devolvidos: {back}",
+  "timers.stat.trucks_send_back": "envios restantes: {n} de {all} · prontos: {ready} · devolvidos: {back}",
+  "timers.stat.steals_back": "restam: {n} de {all} · levados: {done} · devolvidos: {back}"
 }

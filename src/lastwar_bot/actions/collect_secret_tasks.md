@@ -78,6 +78,27 @@ WHILE ripe_in > 0 LIMIT 60
     TAP scan_secret_post
     READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local w={ripe_wait} if w<=0 then return 0 end local n=tonumber(M.__lw_ref_nextfree) or 0 if n<=0 or n>w then return 0 end return n end)() INTO ripe_in
 
+# 1b. «ВЕРНУТЬ» — the days whose tasks finished and were never collected (#2605).
+#
+#     The command post keeps a pool per server day of everything its tasks earned while
+#     nobody was looking, and hands it back for the asking: `dispatch.recover.reward`,
+#     one send per day-pool, and it costs NOTHING (`GetDispatchRecoverCostStr` is 0 on
+#     every row measured). The pools expire after a few days, so a run that skips them is
+#     a run that throws income away.
+#
+#     The lists are asked for first — the client holds them from login and a server day
+#     turns over without telling it — and the count is read again AFTERWARDS: a send is
+#     not a claim (#2585), and a claimed pool proves itself by coming back with a state
+#     on it, which is what makes `left` fall.
+TAP ask_recover_pools
+READ_LUA (((function() local M=DataCenter and DataCenter.DispatchRecoverManager if not M then return nil end local open=false pcall(function() open=M:IsDispatchRecoverOpen() and true or false end) if not open then return nil end local n=0 for _,row in pairs(M.dispatchRecoverList or {}) do if row.state==nil then n=n+1 end end return n end)()) or 0) INTO recover_was
+IF recover_was > 0
+    TAP claim_recover_tasks
+    WAIT 2
+    TAP ask_recover_pools
+    READ_LUA (((function() local M=DataCenter and DataCenter.DispatchRecoverManager if not M then return nil end local open=false pcall(function() open=M:IsDispatchRecoverOpen() and true or false end) if not open then return nil end local n=0 for _,row in pairs(M.dispatchRecoverList or {}) do if row.state==nil then n=n+1 end end return n end)()) or 0) INTO recover_left
+    LOG "returned task pools: {recover_was} waiting, {recover_left} still unclaimed"
+
 # 2. Note the bag down, so «what fell out» can be answered by subtraction.
 TAP note_the_bag
 

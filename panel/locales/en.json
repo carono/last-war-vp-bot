@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Win-Win Cooperation",
   "checklist.detail.no_target": "no War Leader to use it on",
   "checklist.state.no_target": "no target",
-  "checklist.detail.winwin_next": "again in {t}"
+  "checklist.detail.winwin_next": "again in {t}",
+  "timers.stat.trucks_out_back": "dispatches left: {n} of {all} · returned: {back}",
+  "timers.stat.trucks_send_back": "dispatches left: {n} of {all} · ready: {ready} · returned: {back}",
+  "timers.stat.steals_back": "left: {n} of {all} · taken: {done} · returned: {back}"
 }

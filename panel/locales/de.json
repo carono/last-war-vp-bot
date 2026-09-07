@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Win-Win-Kooperation",
   "checklist.detail.no_target": "kein Kriegsanführer, auf den es angewendet werden kann",
   "checklist.state.no_target": "kein Ziel",
-  "checklist.detail.winwin_next": "wieder in {t}"
+  "checklist.detail.winwin_next": "wieder in {t}",
+  "timers.stat.trucks_out_back": "verbleibende Fahrten: {n} von {all} · zurückgegeben: {back}",
+  "timers.stat.trucks_send_back": "verbleibende Fahrten: {n} von {all} · bereit: {ready} · zurückgegeben: {back}",
+  "timers.stat.steals_back": "übrig: {n} von {all} · genommen: {done} · zurückgegeben: {back}"
 }

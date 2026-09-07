@@ -497,9 +497,12 @@ the same list — with the collector firing in the middle of the day errand's ow
 
 So there is one row, `secret_tasks_day`, playing `actions/work_secret_tasks.md`:
 
-1. `CALL collect_secret_tasks` — claim, then open the boxes. The order is the operator's
-   instruction and it also pays: the boxes hand back «Секретные приказы», so the
-   refreshing that follows is cheaper.
+1. `CALL collect_secret_tasks` — claim, take back the days nobody collected, then open
+   the boxes. The order is the operator's instruction and it also pays: the boxes hand
+   back «Секретные приказы», so the refreshing that follows is cheaper. The taking back
+   is the command post's own «Вернуть» — free, and on a fuse, since a pool the server
+   sweeps up at the day's end is gone a few days later
+   ([`recover-pools.md`](recover-pools.md), #2605).
 2. `CALL refresh_secret_tasks` — the price rule, the UR rescues, the sending.
 3. read the nearest finish and leave it in `next_run_in` (+30 s).
 

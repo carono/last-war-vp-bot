@@ -487,6 +487,36 @@ def test_the_trucks_say_what_is_left_and_what_is_standing_ready():
     assert statsmod.of(rt, "send_trucks")["key"] == "timers.stat.trucks_out"
 
 
+def test_the_returned_pools_join_both_cards_and_only_when_there_are_any():
+    """«возвращённых N» — the two «Вернуть» lists, drawn beside what they belong to (#2605).
+
+    Drawn only when it is not zero: a permanent «возвращённых 0» is noise on every card
+    every day, and the number is worth reading exactly when it is not zero. A dash in the
+    reading — the feature is not open on this account — is not a zero either, and reaches
+    here as a missing field rather than as one.
+    """
+    rt = _rt(daily={"trucks_send_left": 2, "trucks_send_cap": 4, "trucks_idle": 1,
+                    "recover_trucks": 3}, daily_age=5.0)
+    assert statsmod.of(rt, "send_trucks") == {
+        "key": "timers.stat.trucks_send_back",
+        "fmt": {"n": 2, "all": 4, "ready": 1, "back": 3}, "age": 5.0}
+    # …and the same on the card that has only two halves of its own.
+    rt = _rt(daily={"trucks_send_left": 2, "trucks_send_cap": 4, "recover_trucks": 1},
+             daily_age=5.0)
+    assert statsmod.of(rt, "send_trucks")["key"] == "timers.stat.trucks_out_back"
+    # The command post says it beside the day's robberies.
+    rt = _rt(daily={"steal_left": 3, "steal_cap": 5, "recover_tasks": 7}, daily_age=2.0)
+    assert statsmod.of(rt, "secret_tasks_day") == {
+        "key": "timers.stat.steals_back",
+        "fmt": {"n": 3, "all": 5, "done": 2, "back": 7}, "age": 2.0}
+    # Nothing waiting, and neither card mentions it.
+    rt = _rt(daily={"trucks_send_left": 2, "trucks_send_cap": 4, "trucks_idle": 1,
+                    "recover_trucks": 0}, daily_age=5.0)
+    assert statsmod.of(rt, "send_trucks")["key"] == "timers.stat.trucks_send"
+    rt = _rt(daily={"steal_left": 3, "steal_cap": 5, "recover_tasks": 0}, daily_age=2.0)
+    assert statsmod.of(rt, "secret_tasks_day")["key"] == "timers.stat.steals"
+
+
 def test_the_days_secret_tasks_are_the_quota_and_not_the_map():
     """«сколько осталось, сколько собрал» — and the ★ autoloot keeps the tile list."""
     rt = _rt(daily={"steal_left": 3, "steal_cap": 5}, daily_age=2.0)

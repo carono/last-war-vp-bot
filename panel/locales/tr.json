@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Kazan-Kazan İşbirliği",
   "checklist.detail.no_target": "kullanılacak Savaş Lideri yok",
   "checklist.state.no_target": "hedef yok",
-  "checklist.detail.winwin_next": "{t} sonra tekrar"
+  "checklist.detail.winwin_next": "{t} sonra tekrar",
+  "timers.stat.trucks_out_back": "kalan sevkiyat: {all} içinden {n} · iade: {back}",
+  "timers.stat.trucks_send_back": "kalan sevkiyat: {n} / {all} · hazır: {ready} · iade: {back}",
+  "timers.stat.steals_back": "kalan: {n} / {all} · alınan: {done} · iade: {back}"
 }

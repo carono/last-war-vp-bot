@@ -2882,5 +2882,8 @@
   "checklist.item.winwin": "Cooperazione per il successo",
   "checklist.detail.no_target": "nessun Leader della Guerra su cui usarlo",
   "checklist.state.no_target": "nessun bersaglio",
-  "checklist.detail.winwin_next": "di nuovo tra {t}"
+  "checklist.detail.winwin_next": "di nuovo tra {t}",
+  "timers.stat.trucks_out_back": "invii rimasti: {n} su {all} · restituiti: {back}",
+  "timers.stat.trucks_send_back": "invii rimasti: {n} su {all} · pronti: {ready} · restituiti: {back}",
+  "timers.stat.steals_back": "rimasti: {n} su {all} · presi: {done} · restituiti: {back}"
 }

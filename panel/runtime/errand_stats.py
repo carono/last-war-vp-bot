@@ -383,15 +383,27 @@ def _trucks_send(rt) -> "dict | None":
     of the quota and how many trucks could go out RIGHT NOW (`trucks_idle`) — the
     difference between the two is what is on the road, and it is drawn as «готовы» rather
     than «в пути» because that is the number the reading actually is.
+
+    «ВОЗВРАЩЁННЫХ N» joins it when there is one (#2605): the day-pools behind the trade
+    station's «Вернуть», holding what trucks earned and nobody took. It is only drawn when
+    it is not zero — a permanent «возвращённых 0» is noise on every card every day, and
+    the number matters exactly when it is not zero.
     """
     values, age = _daily(rt)
     if "trucks_send_left" not in values or "trucks_send_cap" not in values:
         return None
     fmt = {"n": _int(values.get("trucks_send_left")),
            "all": _int(values.get("trucks_send_cap"))}
+    back = _int(values.get("recover_trucks"))
     if "trucks_idle" not in values:
+        if back:
+            fmt["back"] = back
+            return {"key": "timers.stat.trucks_out_back", "fmt": fmt, "age": age}
         return {"key": "timers.stat.trucks_out", "fmt": fmt, "age": age}
     fmt["ready"] = _int(values.get("trucks_idle"))
+    if back:
+        fmt["back"] = back
+        return {"key": "timers.stat.trucks_send_back", "fmt": fmt, "age": age}
     return {"key": "timers.stat.trucks_send", "fmt": fmt, "age": age}
 
 
@@ -453,13 +465,21 @@ def _steals(rt) -> "dict | None":
 
     «Секретки за день, сколько осталось, сколько собрал», and both halves come out of the
     one reading: the cap the game states and what is left of it.
+
+    …and «возвращённых N» beside them when the command post's own «Вернуть» is holding
+    day-pools nobody has claimed (#2605), on the same terms as the trucks': drawn only
+    when it is not zero.
     """
     values, age = _daily(rt)
     if "steal_left" not in values or "steal_cap" not in values:
         return None
     left, cap = _int(values.get("steal_left")), _int(values.get("steal_cap"))
-    return {"key": "timers.stat.steals",
-            "fmt": {"n": left, "all": cap, "done": max(0, cap - left)}, "age": age}
+    fmt = {"n": left, "all": cap, "done": max(0, cap - left)}
+    back = _int(values.get("recover_tasks"))
+    if back:
+        fmt["back"] = back
+        return {"key": "timers.stat.steals_back", "fmt": fmt, "age": age}
+    return {"key": "timers.stat.steals", "fmt": fmt, "age": age}
 
 
 def _ghost_steals(rt) -> "dict | None":
