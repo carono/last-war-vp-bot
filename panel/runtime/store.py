@@ -168,6 +168,11 @@ GHOST_MAP_STATE = "ghost_map_state"
 #: place both of them already talk to.
 SECRET_TASKS_STATE = "secret_tasks_state"
 
+#: THE DRONE'S CHIP CHESTS — what the bag holds of each grade, and how many of each this
+#: account has opened (#2617). The tally is the only part that cannot be re-read from the
+#: game: a chest that is open is gone, so the count of them exists nowhere but here.
+DRONE_CHIPS = "drone_chips"
+
 #: How long a writer waits for another writer before giving up. Generous on purpose:
 #: the competing writer is another thread of this panel, or a standalone tab in another
 #: process, and both finish in milliseconds. A person seeing «database is locked»

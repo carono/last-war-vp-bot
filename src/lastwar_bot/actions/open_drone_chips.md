@@ -19,6 +19,11 @@
 # a minute of everybody's budget. The loop is inside `use_bag_ids`, exactly as the
 # alliance donation's thirty attempts are.
 #
+# WHAT IT REPORTS. `chips_opened` is the total and `chips_per_id` is the same thing by
+# GRADE — «540201:31,540401:3» — because the page that draws the chests keeps a tally per
+# grade, and a chest that is open is gone: the count of them exists nowhere but in the
+# panel's own store.
+#
 # WHAT IT SPENDS: the chests themselves, and nothing else. No diamonds, no daily quota,
 # no march. An empty bag is a STATE and not a failure — it stops and says so.
 
@@ -41,6 +46,9 @@ WAIT 2
 # 4. Say what the client actually sent, in its own numbers.
 READ_LUA (function() local u = DataCenter.__lw_use_all or {} return 'ids=' .. tostring(u.ids or '-') .. ' used=' .. tostring(math.floor(tonumber(u.used) or 0)) .. ' stacks=' .. tostring(math.floor(tonumber(u.stacks) or 0)) .. ' why=' .. tostring((u.why ~= nil and u.why ~= '') and u.why or '-') end)() INTO chips_report
 LOG "opened: {chips_report}"
+
+READ_LUA (function() local u = DataCenter.__lw_use_all or {} local s = tostring(u.per or '') if s == '' then return '-' end return s end)() INTO chips_per_id
+LOG "by grade: {chips_per_id}"
 
 READ_LUA (function() local u = DataCenter.__lw_use_all or {} return math.floor(tonumber(u.used) or 0) end)() INTO chips_opened
 IF chips_opened == 0
