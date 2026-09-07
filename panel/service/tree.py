@@ -17,10 +17,19 @@ was counting, holding the game and the web port a restarted service needs.
 
 **A job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, held by the service process.**
 On Windows a process created by a member of a job joins that job, and so does everything
-IT creates, however it was started — `subprocess.Popen`, `CreateProcessAsUserW` into a
-signed-in session (`panel/service/session.py`), detached, windowless, any of it. When the
-last handle to the job closes — which is when the service process ends, for any reason,
-including being killed — the kernel terminates every member.
+IT creates, however it was started — `subprocess.Popen`, detached, windowless, any of it.
+When the last handle to the job closes — which is when the service process ends, for any
+reason, including being killed — the kernel terminates every member.
+
+**Except across a session boundary, and that is not a choice (#2616).** A job holds
+processes of ONE session, so a panel started into a signed-in session with
+`CreateProcessAsUserW` (`panel/service/session.py`) cannot join a job made in session 0:
+the implicit join is refused and the CALL ITSELF fails with 5 (`ERROR_ACCESS_DENIED`) —
+which is what it did, live, the first time this shipped: «keeper: could not start a panel:
+CreateProcessAsUserW 5», repeated, no panel at all. That launch therefore asks for
+`CREATE_BREAKAWAY_FROM_JOB` and the panel stays outside the job, exactly as the keeper's
+polite stop already assumed. What the job still holds is everything the SERVICE itself
+spawns in session 0.
 
 So this is a FLOOR, not a replacement for the orderly shutdown. The order stays exactly
 what it was: the SCM's stop reaches `Service.stop`, the keeper asks each panel to quit
