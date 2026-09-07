@@ -11792,11 +11792,16 @@ def drone_upgrades_left() -> str:
 def drone_level_up() -> str:
     """Press «upgrade the drone» once — one `weapon.up.lv` for the account's own drone.
 
-    The send is `MsgDefines.TacticalWeaponLevelUpMessage`; what it carries is
-    docs/research/drone-upgrade.md, proven live rather than guessed. Nothing here gates
-    the ability: the recipe reads :func:`drone_upgrades_left` and presses that many
-    times, so a press that arrives with nothing to pay with is refused by the server
-    exactly as the game's own button would be.
+    The send is `MsgDefines.TacticalWeaponLevelUpMessage`, and **its shape is not settled
+    yet**: `{id = 1000}` is accepted by the serialiser and does nothing — live, on an
+    account that could afford two levels, the level did not move and not one resource was
+    spent (docs/research/drone-upgrade.md §4). A wrong shape therefore costs nothing,
+    which is why this ships: the recipe's `verify_lua` is the level itself, so the run
+    FAILS instead of reporting a press that did nothing.
+
+    Nothing here gates the ability: the recipe reads :func:`drone_upgrades_left` and
+    presses that many times, so a press that arrives with nothing to pay with is refused
+    by the server exactly as the game's own button would be.
     """
     return (
         _drone_info_lua() +
