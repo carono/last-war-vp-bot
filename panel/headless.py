@@ -301,10 +301,9 @@ class HeadlessPanel:
         write one `config.json`, drive one daemon and share one client.
 
         A name with no directory behind it is CREATED, which is what `Workspace.open`
-        has always done and what «Создать» on the phone relies on. A profile made that
-        way has no `daemon_port` of its own and would drive the default profile's client
-        until one is set — `Workspace._warn_client_shared` says so in both profiles'
-        logs, as it does in the window.
+        has always done and what «Создать» on the phone relies on — and a profile made
+        that way is then REFUSED by the gate below rather than opened onto somebody
+        else's game, because it has no client of its own yet.
         """
         name = profilemod.sanitize(name)
         if not name:
@@ -312,6 +311,8 @@ class HeadlessPanel:
         if self.workspace.get(name) is not None:
             self.workspace.switch_to(name)
             return True
+        if not self._client_is_its_own(name):
+            return False
         handle = autostartmod.take_lock(self.workspace.profiles, name)
         if handle is None:
             self._say("log.profile.held_elsewhere", name=name)
@@ -332,6 +333,57 @@ class HeadlessPanel:
         session.start()
         self._start_session(session)
         session.rt.say(profilectl.TAG, "log.profile.opened", name=name)
+        return True
+
+    def _client_is_its_own(self, name: str) -> bool:
+        """Would opening ``name`` take a client somebody else is already driving? (#2024)
+
+        A profile IS an account and an account is a client of its own, in two halves —
+        a Windows session and a daemon port (`panel/runtime/provision.py`). A profile
+        that has neither falls back to the console and the console's port, so opening it
+        beside the profile that really owns this desktop is two panels farming ONE game:
+        the lease makes them take turns rather than collide, so nothing looks broken and
+        the only symptom is one account's log filling with «игра занята — <the other
+        one>» (#1250, #1252).
+
+        The window could afford to WARN about that — `Workspace._warn_client_shared`
+        says it in both profiles' logs and a person is sitting in front of it. A press
+        from a phone has nobody to read the warning before the schedule starts spending
+        the wrong account's quota, so here it is a REFUSAL that names the reason, and
+        the profile is left closed until it is given its own session and port.
+
+        Measured against the profiles that are OPEN, never against every one on disk: a
+        profile whose client nobody currently holds is free to take it, which is what
+        makes `default` openable on a machine where four abandoned profiles still name
+        the console. Both sides are read off the CONFIG rather than off a live link,
+        because with no window the file is the truth — there are no Settings widgets in
+        front of it — and because the answer has to be had before anything is opened.
+        """
+        profiles = self.workspace.profiles
+        try:
+            config = profiles.load(name) or {}
+        except Exception:                     # noqa: BLE001 — let the open say why
+            return True
+        # HALF A CLIENT is worse than none: `rdp_session` on with no login means the
+        # process probe looks for the game among nobody's processes and reports the
+        # ordinary «клиент не запущен» for ever, which reads as a game that will not
+        # start rather than as a profile that was never finished.
+        if config.get("rdp_session") and not str(config.get("rdp_user") or "").strip():
+            self._say("log.profile.open_no_login", name=name)
+            return False
+        mine = provisionmod.client_of(config)
+        peers = []
+        for session in self.workspace.sessions:
+            try:
+                theirs = provisionmod.client_of(profiles.load(session.name) or {})
+            except Exception:                 # noqa: BLE001 — one unreadable profile
+                continue
+            if theirs == mine:
+                peers.append(session.name)
+        if peers:
+            self._say("log.profile.open_shared_client", name=name, port=mine.port,
+                      others=", ".join(sorted(peers)))
+            return False
         return True
 
     def _close_profile(self, name: str) -> bool:

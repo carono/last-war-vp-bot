@@ -382,13 +382,21 @@ def test_a_panel_with_no_window_still_takes_the_readings() -> None:
         "the window took its own readings again — one rule, one place"
 
 
-def _second_profile(name: str = "second") -> None:
-    """One more profile on disk, closed, for the presses below to reach for."""
+def _second_profile(name: str = "second", **client) -> None:
+    """One more profile on disk, closed, for the presses below to reach for.
+
+    WITH A CLIENT OF ITS OWN unless the caller says otherwise: a session and a port,
+    which is what makes it a separate account rather than a second view of `solo`'s
+    game. `client` overrides that, so a test can make the half-configured profile the
+    gate is supposed to refuse.
+    """
+    values = {"tabs": {"enabled": [], "known": []}, "watchdog": False, "power": False,
+              "daemon_port": 47655, "rdp_session": True, "rdp_user": name}
+    values.update(client)
     os.makedirs(os.path.join(profilemod.PROFILES_DIR, name), exist_ok=True)
     with open(os.path.join(profilemod.PROFILES_DIR, name, "config.json"),
               "w", encoding="utf-8") as fh:
-        json.dump({"tabs": {"enabled": [], "known": []},
-                   "watchdog": False, "power": False}, fh)
+        json.dump(values, fh)
 
 
 def test_a_windowless_panel_can_open_and_close_a_profile_from_the_phone() -> None:
@@ -495,6 +503,86 @@ def test_renaming_and_deleting_reach_the_disk_with_no_window() -> None:
         # here as well.
         assert profilectl.carry_out(profilectl.DELETE, "solo") is False
         assert profiles.exists("solo")
+    finally:
+        profilectl.set_handler(None)
+        panel.shutdown()
+        scratch.close()
+
+
+def test_a_profile_with_no_client_of_its_own_is_refused_and_told_why() -> None:
+    """«Профиль без порта = чужой клиент», and a press must not walk into it (#2024).
+
+    A profile with no `daemon_port` and no Windows session falls back to the console and
+    the console's port, so opening it beside the profile that really owns this desktop is
+    two panels farming ONE game (#1250, #1252). The lease makes them take turns rather
+    than collide, so nothing looks broken — the symptom is one account's log filling with
+    «игра занята — <the other one>» while its quota is spent on somebody else's tiles.
+
+    The window could WARN, because a person is in front of it. A press from a phone has
+    nobody to read a warning before the schedule starts, so with no window it is a
+    refusal that names the reason and leaves the profile closed.
+    """
+    from panel.runtime import profile_control as profilectl
+
+    scratch, panel = _panel()
+    # No port, no session: the console, which `solo` is already on.
+    _second_profile("stowaway", daemon_port=None, rdp_session=False, rdp_user="")
+    # …and one whose session is switched on with nobody named: half a client, which
+    # looks for the game among nobody's processes and reports «клиент не запущен» for
+    # ever — a profile that was never finished, reading as a game that will not start.
+    _second_profile("halfway", daemon_port=47656, rdp_session=True, rdp_user="")
+    # …and one that IS a separate account, for the other half of the gate below. Made
+    # here rather than where it is used: a profile is a row of the database now and the
+    # manager adopts the directories it finds when it is built, so one written after the
+    # panel is up is not there to be opened (#2025).
+    _second_profile("roomy")                     # its own session and port
+    try:
+        panel.open()
+        profilectl.set_handler(panel._profile_press)                     # noqa: SLF001
+        for name in ("stowaway", "halfway"):
+            assert profilectl.carry_out(profilectl.OPEN, name) is False, \
+                f"«{name}» was opened onto another profile's client"
+            assert name not in panel.workspace.names, panel.workspace.names
+            assert name not in panel._locks, panel._locks                # noqa: SLF001
+        # …and the refusal is WORDS, not a silent False: both reasons are said in the log
+        # of the profile that is there to be read. A line waits in the spool until
+        # somebody drains it — `start()` arms that pump and this test never called it —
+        # so the drain is done here, exactly as `_pump_log` does it.
+        rt = panel.workspace.current.rt
+        rt.log.open_file(rt.profiles.panel_log("solo"))
+        rt.log_spool.pump()
+        said = Path(panel.workspace.profiles.panel_log("solo")).read_text("utf-8")
+        assert "stowaway" in said and "halfway" in said, said[-400:]
+
+        # THE GATE IS ABOUT WHO IS OPEN, never about every profile on disk: a client
+        # nobody currently holds is free to take. `solo` closes, and the console it was
+        # sitting on is the stowaway's for the asking.
+        assert profilectl.carry_out(profilectl.OPEN, "roomy") is True
+        assert profilectl.carry_out(profilectl.CLOSE, "solo") is True
+        assert profilectl.carry_out(profilectl.OPEN, "stowaway") is True, \
+            "a client nobody holds was refused anyway"
+    finally:
+        profilectl.set_handler(None)
+        panel.shutdown()
+        scratch.close()
+
+
+def test_two_profiles_with_their_own_clients_open_side_by_side() -> None:
+    """The gate must not be a ban on more than one profile: the three test accounts each
+    have their own Windows session and their own port, which is exactly the arrangement
+    it exists to protect."""
+    from panel.runtime import profile_control as profilectl
+
+    scratch, panel = _panel()
+    _second_profile("one", daemon_port=47655, rdp_user="one")
+    _second_profile("two", daemon_port=47656, rdp_user="two")
+    try:
+        panel.open()
+        profilectl.set_handler(panel._profile_press)                     # noqa: SLF001
+        assert profilectl.carry_out(profilectl.OPEN, "one") is True
+        assert profilectl.carry_out(profilectl.OPEN, "two") is True
+        assert sorted(panel.workspace.names) == ["one", "solo", "two"], \
+            panel.workspace.names
     finally:
         profilectl.set_handler(None)
         panel.shutdown()
