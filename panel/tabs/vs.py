@@ -237,6 +237,11 @@ class VsTab(VsDuelTab):
         """
         self._paint_collected()
         cards = [{"title": "vs.week", "layout": "cards",
+                  # THE SCREEN OPENS ON THE WEEK (#2621) — the person's words: «в vs
+                  # основным экраном делай неделю». Four cards would otherwise be drawn
+                  # as a summary of tiles first, and the week — which is what this page
+                  # IS — would be one tap away.
+                  "main": True,
                   "items": [self._web_day_item(day) for day, _items in DAYS]},
                  # …and under the week, the chests the Monday knob is about (#2617).
                  self._web_chips_card(),
@@ -272,7 +277,11 @@ class VsTab(VsDuelTab):
         # ONE BUTTON PER WIRED KNOB, in the plan's own order, each saying WHAT it runs
         # (#2617): «Открыть чипы дрона» and «Повышать дрон» are two abilities on one
         # day, and a single «Выполнить» could only ever be one of them.
-        acts = [{"id": "run", "args": {"key": name}, "label": label}
+        # …AND THEY ARE THE ERRAND CARD'S OWN «▶» (#2621), not a wide text button: this
+        # IS the card «Таймеры» draws, so it must not carry a different button from it.
+        # The ability's name rides along as the label, which is what the two of them say
+        # when a thumb rests on either.
+        acts = [{"id": "run", "args": {"key": name}, "label": label, "icon": "run"}
                 for name, label in ((f"{day}.{action.key}", action.label)
                                     for action in self._day_actions(day))
                 if name in READY and name in RUNS]

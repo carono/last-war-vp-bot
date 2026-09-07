@@ -40,9 +40,17 @@ function PressButton({
   useEffect(() => {
     if (action.disabled === false) setBusy(false)
   }, [action.disabled])
+  /* THE SAME «▶» «Таймеры» DRAWS (#2621), when the press asks for it. Not a second
+     button: the same classes the errand card's own run button wears, so the two pages
+     cannot drift apart by a stylesheet. The label becomes the title, which is how a
+     card with two of them says which is which. */
+  const sign = action.icon === 'run'
+  const label = t(action.label)
   return (
     <button
-      className="go"
+      className={sign ? 'go icon run' : 'go'}
+      title={sign ? label : undefined}
+      aria-label={sign ? label : undefined}
       disabled={busy || !!action.disabled}
       onClick={async () => {
         let pending = false
@@ -79,7 +87,7 @@ function PressButton({
         }
       }}
     >
-      {t(action.label)}
+      {sign ? '\u25B6' : label}
     </button>
   )
 }
@@ -929,7 +937,13 @@ export function ScreenPage({
    * one card on its own. Two cards or fewer are left exactly as they were: a strip over
    * a screen that fits is furniture nobody asked for. */
   const sectioned = cards.length > 2
-  const openCard = sectioned && part > 0 ? cards[part - 1] : null
+  /* THE CARD THE SCREEN IS ABOUT (#2621). A screen may name one, and then part 0 opens
+     THAT rather than the summary of tiles — «в vs основным экраном делай неделю». The
+     summary chip is left out with it: an index of a page whose subject is one card is a
+     tap that leads away from what the person came for. */
+  const mainAt = cards.findIndex((c) => c.main)
+  const shown = sectioned && part === 0 && mainAt >= 0 ? mainAt + 1 : part
+  const openCard = sectioned && shown > 0 ? cards[shown - 1] : null
   const drawn = sectioned ? (openCard ? [openCard] : []) : cards
   const searchable = drawn.some((c) => c.search || (c.items || []).length > PAGE_ITEMS)
   /* A SCREEN THAT DRAWS A CONVERSATION CARRIES ITS OWN HEAD (#2418). Two bars — this
@@ -978,13 +992,15 @@ export function ScreenPage({
       ) : null}
       {sectioned ? (
         <div className="chips">
-          <button className={'chip' + (part === 0 ? ' on' : '')} onClick={() => setPart(0)}>
-            {t('web.ui.overview')}
-          </button>
+          {mainAt >= 0 ? null : (
+            <button className={'chip' + (part === 0 ? ' on' : '')} onClick={() => setPart(0)}>
+              {t('web.ui.overview')}
+            </button>
+          )}
           {cards.map((card, i) => (
             <button
               key={i}
-              className={'chip' + (part === i + 1 ? ' on' : '')}
+              className={'chip' + (shown === i + 1 ? ' on' : '')}
               onClick={() => setPart(i + 1)}
             >
               {cardName(card)}
@@ -1002,7 +1018,7 @@ export function ScreenPage({
           onChange={(e) => setNeedle(e.target.value)}
         />
       ) : null}
-      {sectioned && part === 0 ? (
+      {sectioned && shown === 0 ? (
         <div className="tiles">
           {cards.map((card, i) => (
             <button className="tile" key={i} onClick={() => setPart(i + 1)}>

@@ -235,9 +235,9 @@ def test_the_wired_knob_carries_the_button_that_plays_its_recipe():
         monday = _week(tab.web_view())["items"][0]
         # ONE BUTTON PER ABILITY, each named after what it runs (#2617).
         assert monday["actions"] == [
-            {"id": "run", "label": "vsduel.drone_chips",
+            {"id": "run", "label": "vsduel.drone_chips", "icon": "run",
              "args": {"key": "mon.drone_chips"}},
-            {"id": "run", "label": "vsduel.drone_level",
+            {"id": "run", "label": "vsduel.drone_level", "icon": "run",
              "args": {"key": "mon.drone_level"}}], monday.get("actions")
         assert tab.web_press("run", {"key": "mon.drone_chips"}) == {"ok": True}
         assert tab.web_press("run", {"key": "mon.drone_level"}) == {"ok": True}
@@ -428,6 +428,30 @@ def test_the_reading_recipe_asks_and_opens_nothing():
                         if line.strip() and not line.lstrip().startswith("#"))
     assert "TAP" not in running, "a counting recipe presses nothing"
     assert "INTO chips_rows" in running
+
+
+def test_the_week_is_the_screen_and_its_cards_are_the_errand_card():
+    """«В vs основным экраном делай неделю… карточки должны быть как в таймерах» (#2621).
+
+    Two halves, and both are data the front-end reads: the week card says it is the one
+    the screen opens on, and every press on a day wears the errand card's own «▶» rather
+    than the wide text button a screen's actions used to be.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        view = tab.web_view()
+        week = view["cards"][0]
+        assert week["title"] == "vs.week" and week.get("main") is True, week.get("main")
+        assert [c for c in view["cards"] if c.get("main")] == [week], (
+            "one main card, or the screen has two subjects")
+        for action in view["cards"][0]["items"][0].get("actions") or ():
+            assert action.get("icon") == "run", action
+    finally:
+        root.destroy()
 
 
 def _main() -> int:
