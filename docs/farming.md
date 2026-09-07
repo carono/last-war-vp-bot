@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 72 of 190
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 72 of 192
 
-🟩 72 done · 🟨 87 partly · 🟥 31 not automated
+🟩 72 done · 🟨 88 partly · 🟥 32 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -286,7 +286,9 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Arena
 
 - ❌ Apex arena
-- 🟡 3-on-3 battle — presses «Challenge», fights the matched opponent with the three squads standing in the arena line-up, and keeps going until the day's five WINS are in or its thirty challenges run out; a lost battle costs a challenge and is not a win, so it fights again. How many wins the day has is the game's own count, not a tally of presses, so battles the person fought by hand cost nothing and battles other players started against them do not count as wins. The line-up itself is still the person's to arrange, and «Storm arena» is a different event nobody has done yet
+- 🟡 3-on-3 battle — presses «Challenge», fights the matched opponent with the three squads standing in the arena line-up, and keeps going until the day's five WINS are in or its thirty challenges run out; a lost battle costs a challenge and is not a win, so it fights again. How many wins the day has is the game's own count, not a tally of presses, so battles the person fought by hand cost nothing and battles other players started against them do not count as wins. The line-up itself is still the person's to arrange
+- 🟡 Storm arena — the event that takes the arena's place when the 3-on-3 one ends. The game offers five opponents; it takes the weakest of them that is not in our own alliance and fights it with the arena's own line-up, five times a day. Whether a battle is won or lost does not matter here — the day's chest is paid for the number of battles — and once the five are in it takes every chest the count has earned. It spends nothing but the day's own attempts: no diamonds, and the list of opponents is only re-rolled while re-rolls are free. Battles the person fought by hand count towards the same five, so it only ever does what is still owed. The line-up itself is still the person's to arrange, and while the event is in its other phase it does nothing and says so
+- ❌ Storm arena: the likes, the promotion and choosing the line-up
 - ❌ Free diamonds
 
 ### Heroes
@@ -387,7 +389,7 @@ The routine as it is actually played, against what the bot covers.
 | Alliance gifts | ✅ · on a schedule 🟡 |
 | Golden eggs and lucky gifts in chat | 🟡 a share of somebody else's Lucky Gift is taken the moment the chat announces it — and the giver is thanked with a like and the window shut behind it; unproven on a live one · ❌ the golden eggs |
 | Supplies, secret training, quests | ✅ the day's finished quests, claimed and read back · 🟡 the progress-bar chests · ❌ supplies and secret training |
-| Arena | 🟡 the 3-on-3 battles up to the day's five wins · ❌ apex arena, free diamonds |
+| Arena | 🟡 the 3-on-3 battles up to the day's five wins · 🟡 the storm arena's five battles and its chest · ❌ apex arena, free diamonds |
 | Help alliancemates who ask | ✅ |
 | Fire the profession skills that came off cooldown | 🟡 the no-target ones · ✅ Win-Win · ❌ the rest of the targeted ones |
 | General's challenge, free heroes in the tavern | ❌ |

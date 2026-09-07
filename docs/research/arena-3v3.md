@@ -11,8 +11,11 @@ The arena building's «Испытание» matches an opponent, puts the accoun
 squads against theirs and settles the fight on the server. The day allows **30
 challenges** and the reward the person is playing for is **five wins**.
 
-«Арена шторма» is the event that replaces this one when it ends — `gale.arena.*`, a
-different manager and different rules. Nothing here applies to it.
+«Арена Шторма» is the event that replaces this one when it ends, and this file used to
+name it `gale.arena.*`. **That was wrong** — `gale.arena.*` is «Арена ветров», and the
+storm arena is the `new.arena.*` family with a manager called `NewPeakArenaManager`
+(#2602). It is a different manager and different rules either way, and nothing here
+applies to it: `docs/research/storm-arena.md`.
 
 ## 1. The wire
 
@@ -176,5 +179,6 @@ from «Чеклист» as the «Арена» line's press.
   wrong order costs a battle out of thirty.
 * **Revenge is not taken.** `score.arena.revenge` and the manager's `revengeList` are
   there; an ordinary match is what the day's wins need.
-* **«Арена шторма» (`gale.arena.*`) is untouched** — a different event, and it is not
-  running yet.
+* **«Арена Шторма» is no longer untouched, and it was never `gale.arena.*`** — it is
+  `new.arena.*`, it is running, and the bot fights it: `docs/research/storm-arena.md`.
+  The two share one row on the board, because they share one building (#2602).

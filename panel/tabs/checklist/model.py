@@ -288,6 +288,22 @@ READ_ERRANDS: tuple = (
     Errand("mail_gifts", "mail_gifts", scenario="collect_mail_gifts"),
     Errand("secret_steals", "steal_left", QUOTA, cap="steal_cap"),
     Errand("ghost_steals", "ghost_left", QUOTA, cap="ghost_cap", gate="ghost_open"),
+    # «Арена»: ONE row for the building, because the building runs ONE event at a time
+    # and swaps it when the old one ends — the 3v3 challenge («Испытание», five wins out
+    # of thirty attempts) and «Арена Шторма» (five battles, and a box paid on the count
+    # rather than on the wins). The press is `actions/arena_battles.md`, which asks the
+    # two managers' own windows which one is open and plays that one; each of the two
+    # keeps its own gates and stops on its own shut door.
+    #
+    # READ for the storm arena and BLIND for the 3v3, and the difference is the game's
+    # rather than ours: the storm arena's day is counted in BATTLES and the client holds
+    # that count, while the 3v3's is counted in WINS and the server tells nobody the
+    # number until a battle has been fought (docs/research/arena-3v3.md §4). So the row
+    # says «сколько ещё» while the storm arena runs and «состояние неизвестно» while the
+    # 3v3 does — and `arena_left` counts the boxes the day has reached and not taken
+    # alongside the battles still owed, so zero means «пять боёв и сундук взят».
+    Errand("arena", "arena_left", QUOTA, cap="arena_cap", gate="arena_open",
+           scenario="arena_battles"),
 )
 
 #: …and the rest of the day, which nothing here can read yet.
@@ -342,7 +358,6 @@ BLIND_ERRANDS: tuple = (
     Errand("alliance_gifts", scenario="collect_alliance_gifts"),
     Errand("chat_gifts"),
     Errand("arms_race"),
-    Errand("arena"),
     Errand("tavern"),
     Errand("supplies"),
     Errand("shop"),

@@ -69,6 +69,7 @@ CODENAME_SHUT = "open=0 attacks=0 need=3 left=3 maxdmg=12607399171 targets=0 unt
 FULL = ("base_ready=4 trucks_ready=0 donate_left=17 help_waiting=0 recruit_pending=2 "
         "gifts_pending=0 skills_ready=1 wounded=0 healed_ready=0 queues_help=3 "
         "decorations=0 mail_gifts=0 steal_left=2 steal_cap=5 ghost_open=1 ghost_left=5 ghost_cap=5 "
+        "arena_open=1 arena_left=5 arena_cap=5 "
         "trucks_send_left=5 trucks_send_cap=5 trucks_idle=3")
 
 
@@ -389,7 +390,12 @@ def test_the_errands_with_an_ability_offer_it_and_the_four_without_do_not():
                         # badge the client already keeps, so it costs no request, and
                         # whose press is the tab's own «собрать всё» on every tab
                         # standing above zero.
-                        "mail_gifts"], runnable
+                        "mail_gifts",
+                        # …and «Арена» (#2602): one row for the building, whose press
+                        # plays whichever of its two events is open. The reading is the
+                        # storm arena's own battle count, which the client holds, so the
+                        # row costs no request either.
+                        "arena"], runnable
     silent = [e.key for e in modelmod.READ_ERRANDS if not e.runnable]
     assert silent == ["trucks", "queues_help", "secret_steals", "ghost_steals"], silent
 
@@ -421,6 +427,11 @@ def test_the_errands_with_an_ability_offer_it_and_the_four_without_do_not():
     # and the reading has not been put on the board, so the row offers the press and goes
     # on saying «неизвестно». Its listener (`push.daily.quest`) is «when the game says
     # so» and not a way to ask for it now, which is exactly what this row is for.
+    #
+    # `arena` used to be the eighth and is not here any more (#2602): the arena building
+    # runs the storm arena as well as the 3v3, and the storm arena's day is counted in
+    # BATTLES, which the client holds — so the row earned a reading and moved up to the
+    # read half. What stays blind is what still cannot be seen at all.
     blind = [e.key for e in modelmod.BLIND_ERRANDS if e.runnable]
     assert blind == ["truck_reward", "radar", "radar_march", "radar_all",
                      "alliance_gifts", "daily_quests", "ministry"], blind

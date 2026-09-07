@@ -671,7 +671,12 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
     ),
     Timer(
         name="arena_3v3_battles",
-        scenario=("arena_3v3_battles",),
+        # ONE row for the arena BUILDING, and the name is only kept because renaming a
+        # timer throws away the schedule somebody set on it. The building runs one event
+        # at a time and swaps it — the 3v3 challenge and «Арена Шторма» — so the press is
+        # `actions/arena_battles.md`, which asks which of the two is open and plays that
+        # one (#2602).
+        scenario=("arena_battles",),
         # AN HOUR, not a day, and the reason is the retry rather than the reward: the
         # wins are a day's worth and the recipe asks the server how many are still
         # missing, so a run that finds them made is a clean no-op costing two reads.
@@ -683,11 +688,15 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # and every one of those mends itself in minutes. A spent day and a shut event
         # are a STOP, so neither costs a retry.
         retry_sec=900,
-        enabled=False,
-        # The day's target and the ceiling on one run. Five wins is what the game's own
-        # daily reward asks for; the cap is the day's 30 challenges, and the server's
-        # count is what actually stops the loop.
-        args={"wins": 5, "cap": 30},
+        # ON, like every ability added since #2390: the arena spends nothing but its own
+        # daily attempts, buys nothing and cannot touch a diamond, and a row nobody ever
+        # ticks is a row that does nothing at all.
+        # The day's targets and the ceiling on one run, one pair per event. Five wins is
+        # what the 3v3's own daily reward asks for and the cap is its 30 challenges;
+        # `battles` is the storm arena's five, the number its biggest daily box is paid
+        # on. Whichever recipe runs takes the two it declares and ignores the rest, and
+        # in both cases the SERVER's own count is what actually stops the loop.
+        args={"wins": 5, "cap": 30, "battles": 5},
         label_key="timers.item.arena_3v3_battles",
     ),
     Timer(
