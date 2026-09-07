@@ -846,18 +846,6 @@ nav .nav.on::after {
   font-size: 13px;
 }
 
-/* The link named an account this panel has not got (#2050). In the flow rather than
-   floating like «нет связи»: it is not a passing fault but a standing fact about what is
-   on the screen, and it stays until somebody picks an account on purpose. */
-.stray {
-  margin: 0 12px 8px;
-  padding: 7px 10px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--warn) 18%, var(--bg-soft));
-  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--card-edge));
-  font-size: 13px;
-}
-
 /* -- the door ------------------------------------------------------------------- */
 
 .gate {

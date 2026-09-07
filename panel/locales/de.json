@@ -1660,7 +1660,6 @@
   "web.ui.notify": "Bei Fehlern benachrichtigen",
   "web.ui.log.empty": "noch nichts gesagt",
   "web.ui.offline": "keine Verbindung zum Panel",
-  "web.ui.route.gone": "der Link nannte das Profil «{name}» — es ist im Panel nicht geöffnet, gezeigt wird «{shown}»",
   "web.ui.now": "jetzt",
   "web.ui.in": "in {span}",
   "web.ui.ago": "vor {span}",

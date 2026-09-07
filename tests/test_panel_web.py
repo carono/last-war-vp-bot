@@ -2414,6 +2414,35 @@ def test_no_field_is_small_enough_to_make_ios_zoom():
                 assert int(size) >= 16, f"a field is set to {size}px:\n{rule}"
 
 
+def test_a_link_naming_an_account_this_panel_has_not_got_is_corrected_in_silence():
+    """The fallback says NOTHING now (#2593), and the reason is what it kept saying.
+
+    #2050 drew a line naming both accounts — whose link it was, and what is on screen
+    instead — whenever the address named a profile the panel did not list. The list comes
+    from a poll, so every moment the panel had not finished answering for its profiles (a
+    restart, a profile still opening) read as «this panel has not got it»: the line went
+    up about an account that was back a second later, with the SAME name on both sides of
+    it, and it stood until somebody picked an account on purpose. The person's words:
+    «сообщение … не понятно к чему и от чего вылезает, убери его».
+
+    So there is no message, no state behind one, and no key for it in any locale. The
+    correction itself is untouched — the page still falls back and still REPLACES the
+    address rather than pushing it.
+    """
+    app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
+    assert "setStray" not in app and "stray" not in app, "the missing-account line is back"
+    assert "web.ui.route.gone" not in app, "the missing-account message is back"
+    css = (_APP_SRC / "app.css").read_text(encoding="utf-8")
+    assert ".stray" not in css, "the style for the missing-account line is back"
+    for locale in sorted((_REPO / "panel" / "locales").glob("*.json")):
+        assert "web.ui.route.gone" not in locale.read_text(encoding="utf-8"), \
+            f"{locale.name} still carries the key"
+    # The silence is not silence about everything: the fallback still happens, and it
+    # still replaces so the back button does not walk through the app's own correction.
+    assert "go({ ...routeRef.current, profile: want }, true)" in app, \
+        "the fallback no longer writes the account it fell back to"
+
+
 def test_the_page_carries_one_switcher_and_it_is_the_account_face():
     """ONE way between accounts, and since #2061 it is the face in the header.
 
@@ -2446,12 +2475,14 @@ def test_the_page_carries_one_switcher_and_it_is_the_account_face():
         "switching an account still raises the client-data toast"
     # …AND THE PICK WRITES THE ADDRESS (#2050): the account is in the route, so a reload
     # comes back to the same one. It goes through `switchProfile`, which is the only
-    # thing on this page allowed to move between accounts, and that goes through `leave`
-    # — the address writer. A pick that set state directly would look identical until
-    # somebody pressed F5 and landed on another account's page.
+    # thing on this page allowed to move between accounts, and that goes through `go` —
+    # the address writer. A pick that set state directly would look identical until
+    # somebody pressed F5 and landed on another account's page. (It went through a `leave`
+    # wrapper until #2593, whose only extra job was clearing the missing-account line that
+    # no longer exists.)
     assert "if (name !== profile) switchProfile(name)" in app, \
         "the account pick does not go through the one mover"
-    assert "const switchProfile = useCallback(" in app and "leave({ profile: name" in app, \
+    assert "const switchProfile = useCallback(" in app and "go({ profile: name" in app, \
         "switching an account no longer writes it into the address"
     state_view = (_APP_SRC / "views" / "StateView.tsx").read_text(encoding="utf-8")
     assert "state.link.shared" in state_view and "'web.ui.link.shared'" in state_view, \

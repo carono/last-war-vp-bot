@@ -472,16 +472,19 @@ the back button walks a word backwards one character at a time instead of going 
 where it came from. If one of them ever has to survive a reload it belongs in storage,
 never in the history.
 
-**A link may name an account this panel has not got**, and it says so rather than
-quietly showing another one. The profile may have been closed at the machine since the
-link was made, or the link may have come from a different computer altogether — and a
-multi-account panel showing one account's numbers under the expectation of another's is
-the one mistake it must never make. So the page falls back to the account the window is
-showing AND draws a line naming both: whose link it was, and what is on screen instead
-(`web.ui.route.gone`). It stands until somebody picks an account on purpose; the fallback
-that raised it does not clear it. Opening the missing profile is not offered, because
-opening one is the window's own doing (`Workspace`) and deliberately not a press the
-phone has (§3.4).
+**A link may name an account this panel has not got**, and the page falls back SILENTLY
+to the account the window is showing (#2593). It used to draw a line naming both — whose
+link it was, and what is on screen instead (`web.ui.route.gone`) — on the reasoning that a
+multi-account panel must never show one account's numbers under the expectation of
+another's. What that reasoning missed is WHEN the fallback fires: the list comes from a
+poll, so any moment the panel has not finished answering for its profiles — a restart, a
+profile still opening — reads as «the address names one this panel does not have», the
+line goes up naming an account that is back a second later, and the two names in it are
+the same one. The line stood until somebody picked an account on purpose, so a warning
+about nothing anybody had done outlived the second it was true for. The chip in the header
+names the account on screen at all times, which is the part that actually prevents the
+mistake. Opening the missing profile is still not offered, because opening one is the
+window's own doing (`Workspace`) and deliberately not a press the phone has (§3.4).
 
 **A tap PUSHES, a correction REPLACES.** Choosing a chip, opening a screen, moving to
 another tab are steps the back button undoes. The panel filling in what the person did

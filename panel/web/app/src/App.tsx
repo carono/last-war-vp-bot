@@ -242,15 +242,6 @@ function Panel() {
   const [screens, setScreens] = useState<Screen[]>([])
   const [lines, setLines] = useState<LogLine[]>([])
   const [offline, setOffline] = useState(false)
-  /* THE ACCOUNT A LINK NAMED AND THIS PANEL HAS NOT GOT (#2050). A link is sent to
-   * oneself and opened a week later, by which time that profile may have been closed at
-   * the machine — or the link may have come from another computer altogether. Falling
-   * back silently would show one account's numbers under the expectation of another's,
-   * which is the one mistake a multi-account panel must never make, so the page SAYS
-   * whose link it was and which account it is showing instead. The web front-end cannot
-   * open a profile — that is the window's own doing (`Workspace`), and it is deliberately
-   * not a press the phone has. */
-  const [stray, setStray] = useState('')
   const [notify, setNotify] = useState(false)
   /* Whether the account sheet is up. The face in the header is the only way in (#2061). */
   const [picking, setPicking] = useState(false)
@@ -346,10 +337,10 @@ function Panel() {
         // person navigating, so it REPLACES: the back button must not walk through it.
         const want = names.includes(who.showing || '') ? who.showing! : names[0] || ''
         setProfile(want)
-        // Only a profile that was ASKED FOR and is missing is worth a word. The empty
-        // start — a first visit, no account in the address — is not a mistake anybody
-        // made and gets no message.
-        if (profile && want !== profile) setStray(profile)
+        // The correction is SILENT (#2593). It used to draw a line naming the account the
+        // link asked for and the one on screen instead, and a poll that caught the list
+        // mid-restart raised it about a profile that was there a second later — a warning
+        // whose two names were the same one, about nothing anybody had done.
         if (want !== profile) go({ ...routeRef.current, profile: want }, true)
       }
       setState(await get<State>('/api/state'))
@@ -431,23 +422,13 @@ function Panel() {
     setScreens([])
   }, [profile])
 
-  /* The word about a link's missing account stands until somebody moves ON PURPOSE —
-   * tapping a chip answers it, and the fallback that raised it must not clear it. */
-  const leave = useCallback(
-    (next: Route, replace?: boolean) => {
-      setStray('')
-      go(next, replace)
-    },
-    [go],
-  )
-
   const switchProfile = useCallback(
     (name: string) => {
       // The open screen does not travel: a tab switched on for one profile need not
       // exist on the next, and «Ещё» is where the two lists differ.
-      leave({ profile: name, view: view === 'more' ? 'more' : view, screen: null, part: 0, map: 'model' })
+      go({ profile: name, view: view === 'more' ? 'more' : view, screen: null, part: 0, map: 'model' })
     },
-    [leave, view],
+    [go, view],
   )
 
   const accounts = profiles.accounts || []
@@ -512,10 +493,6 @@ function Panel() {
         />
       ) : null}
 
-      {stray ? (
-        <p className="stray">{t('web.ui.route.gone', { name: stray, shown: profile })}</p>
-      ) : null}
-
       <main>
         {screen ? (
           <>
@@ -523,11 +500,11 @@ function Panel() {
               id={screen}
               pollKey={tickCount}
               part={route.part}
-              onPart={(n) => leave({ ...route, part: n })}
+              onPart={(n) => go({ ...route, part: n })}
               map={route.map}
-              onMap={(mode) => leave({ ...route, map: mode }, true)}
+              onMap={(mode) => go({ ...route, map: mode }, true)}
               onServer={confirmHeaderServer}
-              onBack={() => leave({ ...route, screen: null, part: 0, map: 'model' })}
+              onBack={() => go({ ...route, screen: null, part: 0, map: 'model' })}
             />
             {screen === DEVELOP_SCREEN ? (
               <>
@@ -575,7 +552,7 @@ function Panel() {
         ) : (
           <MoreView
             screens={screens}
-            onOpen={(id) => leave({ ...route, view: 'more', screen: id, part: 0, map: 'model' })}
+            onOpen={(id) => go({ ...route, view: 'more', screen: id, part: 0, map: 'model' })}
             theme={theme}
             /* Drawn at once and written for the whole panel — the poll above brings
                the panel's own answer back a moment later, so a refusal corrects it. */
@@ -596,7 +573,7 @@ function Panel() {
             aria-label={t(entry.key)}
             className={'nav' + ((entry.screen ? screen === entry.screen
                                               : view === entry.view && !screen) ? ' on' : '')}
-            onClick={() => leave({ ...route, view: entry.view, screen: entry.screen || null,
+            onClick={() => go({ ...route, view: entry.view, screen: entry.screen || null,
                                    part: 0, map: 'model' })}
           >
             <NavIcon id={entry.id} />

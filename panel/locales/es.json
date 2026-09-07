@@ -1660,7 +1660,6 @@
   "web.ui.notify": "Avisarme de los errores",
   "web.ui.log.empty": "aún no se ha dicho nada",
   "web.ui.offline": "sin conexión con el panel",
-  "web.ui.route.gone": "el enlace nombraba el perfil «{name}»: no está abierto en el panel, se muestra «{shown}»",
   "web.ui.now": "ahora",
   "web.ui.in": "en {span}",
   "web.ui.ago": "hace {span}",

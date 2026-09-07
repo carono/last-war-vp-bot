@@ -1660,7 +1660,6 @@
   "web.ui.notify": "Beri tahu kalau ada kesalahan",
   "web.ui.log.empty": "belum ada yang dikatakan",
   "web.ui.offline": "tidak ada sambungan ke panel",
-  "web.ui.route.gone": "tautan menyebut profil «{name}» — profil itu tidak terbuka di panel, yang ditampilkan «{shown}»",
   "web.ui.now": "sekarang",
   "web.ui.in": "dalam {span}",
   "web.ui.ago": "{span} lalu",

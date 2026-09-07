@@ -1660,7 +1660,6 @@
   "web.ui.notify": "Avvisami degli errori",
   "web.ui.log.empty": "non è stato ancora detto nulla",
   "web.ui.offline": "nessun collegamento con il pannello",
-  "web.ui.route.gone": "il collegamento indicava il profilo «{name}»: non è aperto nel pannello, viene mostrato «{shown}»",
   "web.ui.now": "adesso",
   "web.ui.in": "tra {span}",
   "web.ui.ago": "{span} fa",
