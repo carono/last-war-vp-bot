@@ -15158,8 +15158,19 @@ def secret_post_scan() -> str:
 
 
 def secret_post_open() -> str:
-    """Open «Секретный командный пункт» — the window all three presses live in."""
-    return ("pcall(function() UIManager.Instance:OpenWindow(" + _POST_WIN + ") end)")
+    """Open «Секретный командный пункт» — the window all three presses live in.
+
+    IDEMPOTENT SINCE #2606, and that is the whole of it: `OpenWindow` on a window that
+    is already up re-runs the open, so a refresh cycle asking for it once a ticket made
+    the post visibly re-appear on every press — «модалка обновляется, как будто каждый
+    раз открываем вкладку». Asking whether it is open first costs one call and leaves
+    the screen still; the window ends in exactly the same state either way, so no gate
+    and no press below changes.
+    """
+    return ("pcall(function() local mgr=UIManager.Instance "
+            "local ok,open=pcall(function() return mgr:IsWindowOpen(" + _POST_WIN + ") end) "
+            "if ok and open then return end "
+            "mgr:OpenWindow(" + _POST_WIN + ") end)")
 
 
 def secret_post_close() -> str:

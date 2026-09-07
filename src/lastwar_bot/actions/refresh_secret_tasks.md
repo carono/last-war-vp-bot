@@ -153,7 +153,12 @@ LOG "secret post: {nonur} idle non-UR, {ur} idle UR, {running} out on errands, {
 #    or a UR is stuck for want of a squad.
 READ_LUA (function() local function _num(v) if v==nil then return 0 end local ok,n=pcall(function() return v+0 end) if ok and n~=nil then return n end ok,n=pcall(function() return tonumber(v) end) if ok and n~=nil then return n end return 0 end local M=DataCenter.ActDispatchTaskDataManager local idle,nonur,ur,run=0,0,0,0 local ok,tasks=pcall(function() return M:GetAllSingleTasks() end) if ok and type(tasks)=='table' then for _,v in pairs(tasks) do local col=0 pcall(function() col=_num(v.cfg:getValue('color')) end) local ct=_num(v.completionTime) if ct>0 then run=run+1 else idle=idle+1 if col>=5 then ur=ur+1 else nonur=nonur+1 end end end end local item=(function() local ok,v=pcall(function() return DataCenter.ActDispatchTaskDataManager:GetDispatchSetting('refresh_item') end) local n=0 if ok and v~=nil then pcall(function() n=v+0 end) end return n end)() local tickets=0 pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do if _num(s.itemId)==item then tickets=tickets+_num(s.count) end end end) local gold=0 pcall(function() gold=_num(LuaEntry.Player.gold) end) local price=0 pcall(function() price=_num(M:GetTaskRefreshSetting()) end) local superopen=0 pcall(function() if M:CheckSuperRefreshOpen() then superopen=1 end end) local free=0 pcall(function() free=_num(M:GetSingleTaskNormalCount()) end) local ing=0 pcall(function() ing=_num(M:GetSingleTaskIngCount()) end) local maxm=0 pcall(function() maxm=math.floor(_num(M:GetMaxMarch())) end) local now=0 pcall(function() now=math.floor(_num(UITimeManager:GetInstance():GetServerSeconds())) end) local nextfree=0 if ok and type(tasks)=='table' and now>0 then for _,v in pairs(tasks) do local ct=math.floor(_num(v.completionTime)/1000) if ct>now then local d=ct-now if nextfree==0 or d<nextfree then nextfree=d end end end end local budget=tonumber(M.__lw_ref_budget) or 0 local gold0=tonumber(M.__lw_ref_gold0) or gold local spent=gold0-gold if spent<0 then spent=0 end local goldleft=budget-spent if goldleft<0 then goldleft=0 end if (tonumber(M.__lw_ref_gold) or 0)==0 then goldleft=0 end local keep=tonumber(M.__lw_ref_keep) or 0 if ur>0 then return 1 end if nonur<=keep then return 0 end if tickets>0 then return 1 end if price>0 and goldleft>=price then return 1 end return 0 end)() INTO go
 WHILE go == 1 LIMIT 24
-    TAP open_secret_post
+    # THE POST IS OPENED ONCE, NOT ONCE A TICKET (#2606). Nothing in a round that only
+    # refreshes ever closes it — the refresh press, the cost dialog and the scan all
+    # leave it standing — so asking for it at the top of every round made the window
+    # visibly re-appear on each press and cost 2 s of settle for nothing. It is asked
+    # for again only where it is really lost: after a send (below), which the game's own
+    # handler closes the post for.
     TAP scan_secret_post
     READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ur) or 0) INTO ur
     # 4a. Anything the game has selected goes out FIRST — with «только UR» on, that is
@@ -216,8 +221,12 @@ WHILE go == 1 LIMIT 24
             ELSE
                 LOG "a UR is idle and the game selected nothing to send it with — no free hero or no march slot"
                 TAP cancel_batch_dispatch
+        # A SEND CLOSES THE POST — the game's own handler shuts the popup and takes the
+        # camera to the tasks' point — so the window is asked for again HERE, inside the
+        # only branch that can lose it. The press itself is idempotent, so a round that
+        # cancelled instead of sending pays a call and moves nothing on screen.
+        TAP open_secret_post
     # 4b. …and only then the refresh, and only if the rescue actually worked.
-    TAP open_secret_post
     TAP scan_secret_post
     READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ur) or 0) INTO ur
     IF ur > 0
