@@ -2309,22 +2309,27 @@ def test_the_conversation_takes_the_whole_phone_and_reserves_nothing():
 
 
 def test_the_map_and_chat_are_bottom_buttons_and_chat_still_hides_the_bar():
-    """#2593: five one-line cells fit 390 px; open chat deliberately keeps none."""
+    """#2593: six one-line cells fit 390 px; open chat deliberately keeps none.
+
+    #2620 added the sixth — VS, beside chat — so the map keeps pointing at the
+    `worldview` screen (the one with the pan and the swept-tile grid) and VS
+    joins it in the footer rather than staying reachable only through «Ещё»."""
     app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
     nav = app[app.index("const NAV"):app.index("const DEVELOP_SCREEN")]
-    assert nav.count(" id: '") == 5, "the footer does not have exactly five destinations"
+    assert nav.count(" id: '") == 6, "the footer does not have exactly six destinations"
     assert "key: 'web.ui.nav.map'" in nav and "screen: 'worldview'" in nav
     assert "key: 'tab.chat'" in nav and "screen: 'chat'" in nav
-    assert nav.index("id: 'map'") < nav.index("id: 'chat'") < nav.index("id: 'more'")
+    assert "key: 'tab.vs'" in nav and "screen: 'vs'" in nav
+    assert (nav.index("id: 'map'") < nav.index("id: 'chat'")
+            < nav.index("id: 'vs'") < nav.index("id: 'more'"))
     assert "(entry.screen ? screen === entry.screen" in app, \
         "the map and chat buttons have no active state"
     assert '<NavIcon id={entry.id} />' in app and 'className="nav-label"' in app
     assert "aria-label={t(entry.key)}" in app, "an icon button has no accessible name"
     assert "stroke-width: 1.8" in _css(), "the footer icons are not one outline family"
     css = _css()
-    assert "grid-template-columns: repeat(5, minmax(0, 80px))" in css, \
-        "the five buttons either overflow a phone or stretch across a wide screen"
-    # 390 - 12 px horizontal padding - 4 * 2 px gaps = 370 px for the five labels.
+    assert "grid-template-columns: repeat(6, minmax(0, 80px))" in css, \
+        "the six buttons either overflow a phone or stretch across a wide screen"
     assert "padding: 6px 6px" in css and "gap: 2px" in css
     assert "white-space: nowrap" in css, "a footer label may wrap"
     assert "min-height: 52px" in css, "a footer target is shorter than 44 px"
