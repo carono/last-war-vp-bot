@@ -39,20 +39,28 @@ class VsTab(VsDuelTab):
     #: Its own key for the title, and the week's words are the ones it inherits.
     LOCALE_NS = ("vsduel", "vs")
 
-    def apply_config(self, raw) -> None:
-        """The plan this tab draws is the one «Дуэль VS» kept, wherever it was written.
+    def __init__(self, rt, parent) -> None:
+        """…and the week is LOADED here, which is not a nicety on this front-end.
 
-        The old tab never left development mode, so most profiles have no block of its
-        own — but one that DOES had a week typed into it, and a rename of the page is
-        not a reason to hand somebody an empty one. An empty block of our own falls back
-        to it exactly once; from the first save on, the values are this tab's.
+        A block is applied by `restore`, and the panel that actually runs — the headless
+        one behind the web (`panel/headless.py`) — calls it only for a block that is not
+        empty. A profile that has never saved this tab therefore never had `apply_config`
+        called at all, and the variables kept what `__init__` gave them: the day switch
+        on and every action off. The window hides that by loading the week when it draws
+        it; the phone has no drawing, so it read «0 / 4» over a plan the panel would have
+        played in full. So the sets are put into the variables the moment the tab exists.
+
+        The old block is where it looks first. «Дуэль VS» never left development mode, so
+        most profiles have none — but one that DOES had a week typed into it, and a
+        rename of the page is not a reason to hand somebody an empty one. From this tab's
+        first save on, `restore` brings its own block and this seeding is overwritten.
         """
-        if not (isinstance(raw, dict) and raw):
-            try:
-                raw = self.rt.settings.tab_config("vs_duel")
-            except Exception:            # noqa: BLE001 — a profile, never the panel
-                raw = {}
-        super().apply_config(raw)
+        super().__init__(rt, parent)
+        try:
+            old = self.rt.settings.tab_config("vs_duel")
+        except Exception:                # noqa: BLE001 — a profile, never the panel
+            old = {}
+        self.apply_config(old if isinstance(old, dict) else {})
 
     # -- the phone's copy ------------------------------------------------------
     def web_view(self) -> "dict | None":
