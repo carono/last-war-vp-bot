@@ -186,6 +186,20 @@ SPEC: dict = {
         _flag("golloes_free", "shop.golloes_free",
               hint_key="shop.golloes_free.hint", default=1),
     ),
+    # THE HIDDEN TREASURES (#2597). The three knobs were a page of their own until the
+    # person asked for it to go — «"Скрытые Сокровища" убираем отдельную вкладку,
+    # настройки переносим в карточку в таймерах». They are the recipe's own `ARGS`, so
+    # the row holds them and the gear edits the row: the week's goal (0 = the game's own
+    # cap), the digs one run may make (0 = as many as the plan asks for), and what one
+    # dig pays on average — which decides only how many digs the distance is planned as.
+    "dig_hidden_treasures": (
+        _num("goal", "hidden.opt.goal", low=0, high=100000,
+             hint_key="hidden.opt.goal.hint"),
+        _num("cap", "hidden.opt.cap", low=0, high=100,
+             hint_key="hidden.opt.cap.hint"),
+        _num("pay", "hidden.opt.pay", low=1, high=5000,
+             hint_key="hidden.opt.pay.hint"),
+    ),
     "send_trucks": (
         _flag("collect", "errand.arg.trucks.collect",
               hint_key="errand.arg.trucks.collect.hint"),

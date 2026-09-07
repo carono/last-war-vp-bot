@@ -130,7 +130,13 @@ a loss, since nothing but fragments is spent.
   `plan_hidden_treasures`, `dig_hidden_treasure`, `claim_hidden_treasures`.
 * The ability — `src/lastwar_bot/actions/dig_hidden_treasures.md` (`goal`, `cap`, `pay`),
   the reading — `src/lastwar_bot/actions/read_hidden_treasures.md`.
-* The page — `panel/tabs/hidden_treasures.py`, one card with the week's facts in words.
+* The card — a row of «Таймеры» (#2597). The page of its own is gone: the errand
+  `dig_hidden_treasures` (`panel/timers.py`) carries the three knobs as its `args`,
+  the gear draws them (`panel/runtime/errand_args.py`), and the live line under the
+  card — compasses of the week's cap, digs in the bag, digs still to the goal —
+  comes off the one daily reading (`panel/runtime/errand_stats.py`, the
+  `hidden_*` fields of `actions/read_daily_checklist.md`), so the card costs the
+  game nothing.
 
 ## Open ends
 

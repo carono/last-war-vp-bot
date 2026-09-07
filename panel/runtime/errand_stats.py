@@ -553,6 +553,51 @@ def _alliance_gifts(rt) -> "dict | None":
             "age": age}
 
 
+def _timer_args(rt, errand: str) -> dict:
+    """One errand's `args` block, or `{}` — the row is where its knobs live (#2597)."""
+    try:
+        for timer in rt.schedule.timer_catalogue:
+            if timer.name == errand:
+                return dict(timer.args or {})
+    except Exception:                    # noqa: BLE001 — a reading, never the page
+        return {}
+    return {}
+
+
+def _hidden_treasures(rt) -> "dict | None":
+    """«Очков 750 из 6000 · копок в запасе 12 · до цели ещё 17» — the week's board.
+
+    Off the ONE reading «Таймеры» already takes (`errand_reads.py`), so the card that
+    replaced the old page costs the game nothing. «До цели» is the distance divided by
+    what one dig pays on average — the row's own `pay`, the same number the recipe plans
+    with — and never «сколько копок возможно», which is `digs` and is drawn beside it.
+
+    A week that is over says so in words: a «0 из 6000» over a shut event reads as a
+    broken card rather than as nothing to do, which is the distinction `_ghost_steals`
+    makes for the same reason. And the score LAGS on purpose — the compasses a dig pays
+    do not reach the client's own count until it is restarted
+    (`docs/research/hidden-treasures.md`) — which is why the age travels with the line.
+    """
+    values, age = _daily(rt)
+    if "hidden_score" not in values or "hidden_goal" not in values:
+        return None
+    if not _int(values.get("hidden_open"), 1):
+        return {"key": "timers.stat.hidden_closed", "fmt": {}, "age": age}
+    args = _timer_args(rt, "dig_hidden_treasures")
+    cap = _int(values.get("hidden_goal"))
+    goal = _int(args.get("goal"))
+    if goal <= 0 or (cap > 0 and goal > cap):
+        goal = cap
+    score = _int(values.get("hidden_score"))
+    pay = max(1, _int(args.get("pay"), 1) or 1)
+    short = max(0, goal - score)
+    return _with_today(rt, "dig_hidden_treasures",
+                       {"key": "timers.stat.hidden",
+                        "fmt": {"n": score, "all": goal,
+                                "digs": _int(values.get("hidden_digs")),
+                                "left": -(-short // pay)}, "age": age})
+
+
 def _arms_chests(rt) -> "dict | None":
     """«Сундуков сегодня: 9 · фаз: 3» — what «Гонка вооружений» has paid today.
 
@@ -629,6 +674,9 @@ PROVIDERS: dict = {
     "work_alliance_star": _alliance_star,
     # …and the alliance chests, read rather than collected blind (#2588).
     "collect_alliance_gifts": _alliance_gifts,
+    # …and the hidden treasures (#2597), whose page became a card on this board: the
+    # week's compasses and the digs the bag still holds, off the same reading.
+    "dig_hidden_treasures": _hidden_treasures,
     "alliance_star_ceremony": _alliance_star,
     # …the listener that watches the same pile the errand collects, and the one that
     # watches the same chests.

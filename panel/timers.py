@@ -901,6 +901,25 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         args={"keep": 0, "max": 0},
         label_key="timers.item.open_explorer_chests",
     ),
+    Timer(
+        name="dig_hidden_treasures",
+        scenario=("dig_hidden_treasures",),
+        # SIX HOURS, AND IT IS THE FRAGMENTS' CLOCK (#2597). A dig spends one of each of
+        # the seven map pieces, and the pieces arrive from the day's own errands rather
+        # than on a schedule of their own — so a run that emptied the bag has something
+        # to spend again within a few hours, and one that found the bag empty stops in a
+        # single round trip and says why.
+        interval_sec=6 * 3600,
+        # A failure here is a client that was not answering; a few minutes is soon
+        # enough for a week-long event.
+        retry_sec=600,
+        # THE THREE KNOBS OF THE ABILITY, which used to be a page of their own: the
+        # week's goal (0 = the game's own cap), the digs one run may make (0 = as many
+        # as the plan asks for), and what one dig pays on average — the recipe's own
+        # `ARGS`, edited by the gear on this board and stored here and nowhere else.
+        args={"goal": 0, "cap": 0, "pay": 320},
+        label_key="timers.item.dig_hidden_treasures",
+    ),
 )
 
 
