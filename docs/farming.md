@@ -385,7 +385,7 @@ The routine as it is actually played, against what the bot covers.
 | Dig and collect treasures | 🟡 a chest is found three ways — shared into chat, heard being dug, or found by walking the map — and answered on its own: nearest free squad out, gift taken once it is dug. The gift is now asked for at the millisecond the digging ends rather than at the panel's next look — 24 s late at worst before, 0 ms measured after — and asked for again until it arrives or the chest goes; a squad whose march the game silently dropped is sent again instead of being taken for one that has already been. Other alliances' chests are left alone; the walk found nineteen chests and eighteen were theirs. A chest of this alliance's own has now been found and marched at unattended; one dug AND paid for end to end is still to come |
 | Fireworks | ✅ boxes are taken by themselves the instant a firework is announced — 0 ms measured live; lighting one is still the person's |
 | Alliance gifts | ✅ · on a schedule 🟡 |
-| Golden eggs and lucky gifts in chat | 🟡 a share of somebody else's packet of free diamonds is taken the moment the chat announces it, unproven on a live one · ❌ the golden eggs |
+| Golden eggs and lucky gifts in chat | 🟡 a share of somebody else's Lucky Gift is taken the moment the chat announces it — and the giver is thanked with a like and the window shut behind it; unproven on a live one · ❌ the golden eggs |
 | Supplies, secret training, quests | ✅ the day's finished quests, claimed and read back · 🟡 the progress-bar chests · ❌ supplies and secret training |
 | Arena | 🟡 the 3-on-3 battles up to the day's five wins · ❌ apex arena, free diamonds |
 | Help alliancemates who ask | ✅ |
