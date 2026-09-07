@@ -80,7 +80,18 @@ IF armed == 0
 IF armed < 0
     FAIL "no squad is standing in the base — every one of them is already out"
 
-# --- 3. Send, and let the game say whether an attack went out ---------------------
+# --- 3. The ear that tidies up after the hit --------------------------------------
+# The game answers a hit with a modal of its own — «Текущий урон» over one
+# «Подтвердить» — and it does NOT come with the send: the squad flies to the boss
+# first, so the window opens minutes after this recipe has ended and no step in it
+# could ever close it. So the ear goes in BEFORE the send and the client says itself
+# when the window opens: the two windows named in `CODENAME_SHUT_WINDOWS` are shut with
+# `Ctrl:CloseSelf`, and only for the half hour after our own attack — outside it the
+# modal belongs to whoever is playing by hand, and the event's own screens («История
+# Боев», the rank, the rewards) are never touched at all.
+TAP codename_shut_watch
+
+# --- 4. Send, and let the game say whether an attack went out ---------------------
 # The proof is the SERVER's own attack count moving, not the send returning cleanly:
 # the count is what the reward is paid against and what the board draws.
 #
@@ -106,4 +117,5 @@ WHILE sent < 1 LIMIT 12
 IF sent < 1
     FAIL "the squad was sent and the attack count did not move — check the client is still talking to the server"
 
-LOG "A squad is on its way to the «Кодовое имя» boss"
+READ_LUA (function() local B=DataCenter.__lw_cnshut if B==nil then return 'караул не встал' end if not B.on then return 'караул не встал: '..tostring(B.err) end return 'караул на окне рекорда: видел '..tostring(B.seen)..', закрыл '..tostring(B.closed)..(#(B.rows or {})>0 and (' ['..table.concat(B.rows,' ')..']') or '') end)() INTO shut
+LOG "A squad is on its way to the «Кодовое имя» boss — {shut}"

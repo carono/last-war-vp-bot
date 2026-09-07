@@ -1252,6 +1252,18 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.codename_arm(),
         wait=0.2, label="arm the boss attack (target + free squad)",
     ),
+    "codename_shut_watch": Button(
+        # THE EAR THAT TIDIES UP AFTER THE HIT (#2604). The record modal — «Текущий
+        # урон» over one «Подтвердить» — is not raised by the send: the squad has to
+        # reach the boss first, so it arrives minutes after the recipe has ended and
+        # cannot be closed by a step in it. This installs the ear before the send, and
+        # the client itself says when the window opens. Idempotent, re-armed by every
+        # attack, and it dies with the client.
+        # `tools/lib/lua_actions.py::codename_shut_install`,
+        # docs/research/codename-event.md.
+        lua=_lua_actions.codename_shut_install(),
+        wait=0.0, label="watch for the record window the hit will raise",
+    ),
     "codename_send": Button(
         # The attack itself, in ONE call and with no window: the very send the squad
         # screen makes when a person taps «Марш», with the arguments read off the wire

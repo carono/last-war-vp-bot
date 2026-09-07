@@ -9362,6 +9362,103 @@ def codename_sent() -> str:
             % codename_attacks_made())
 
 
+#: The windows the «Кодовое имя» attack leaves behind, and the ONLY ones the ear below
+#: is allowed to shut (#2604). Both are raised by the game itself when a hit lands —
+#: `UIBossDamageTip` carries «Текущий урон» over a single «Подтвердить», and
+#: `LWUIWorldBossDamageTipView` is its newer sibling — so neither is a window a person
+#: opens on purpose, which is what makes closing one safe. The event's other screens
+#: («История Боев» `LWUIWorldBossRecord`, the rank, the reward, the task list) are
+#: deliberately NOT here: a person reads those, and a panel that shut them would be
+#: taking the game away from whoever is playing it.
+CODENAME_SHUT_WINDOWS = ("UIBossDamageTip", "LWUIWorldBossDamageTipView")
+
+#: How long after an attack a record window still counts as OURS, in minutes. The modal
+#: does not arrive with the send: the squad flies to the boss first and the client only
+#: raises it when the hit is resolved, which is minutes later and cannot be waited for
+#: inside the recipe. So the ear holds a deadline instead of a flag, long enough for the
+#: slowest march and short enough that an evening of hand-play is never touched.
+CODENAME_SHUT_MINUTES = 30
+
+
+def codename_shut_install(minutes: int = CODENAME_SHUT_MINUTES) -> str:
+    """Lua *chunk* — shut the record modal the game raises after our own hit (#2604).
+
+    An EAR, never a poll: it wraps `UIManager.Instance:OpenWindow` — the same instance
+    `rawset` the reward ear uses (`reward_watch_install`, docs/research/reward-popups.md)
+    — so nothing is asked of the game between the attack and the window, and the client
+    tells us itself the moment one opens. The wrapper chains onto whatever is already on
+    the instance and is re-armed by every attack, so the two ears survive each other in
+    either order.
+
+    Three things decide whether a window is shut, and all three have to hold:
+
+    1. the name is one of :data:`CODENAME_SHUT_WINDOWS` — an explicit pair, never a
+       substring, and never the screens a person reads;
+    2. our own attack armed the ear less than ``minutes`` ago. Outside that span the
+       modal belongs to somebody playing by hand and is left alone;
+    3. the window answers `Ctrl:CloseSelf` — never `DestroyAllWindow`, which takes the
+       HUD with it and does not give it back.
+
+    The close is scheduled through `TimerManager:DelayInvoke` rather than made inside the
+    client's own `OpenWindow`, for the same reason #2603 delayed the lucky gift's: a
+    window closed halfway through opening is a window the client is still building.
+    """
+    names = " ".join(f"W['{name}']=true" for name in CODENAME_SHUT_WINDOWS)
+    return (
+        "pcall(function() "
+        "local D=DataCenter local B=D.__lw_cnshut "
+        "if B==nil or B.rows==nil then B={rows={},closed=0,seen=0} D.__lw_cnshut=B end "
+        f"local W={{}} {names} B.allow=W "
+        # The client answers to both spellings of its clock depending on where it is
+        # asked from, and a wrong one here would make the deadline meaningless — so both
+        # are tried, and a clock that answers neither falls back to the machine's.
+        "local function now() local t=0 "
+        "pcall(function() t=UITimeManager:GetInstance():GetServerTime() end) "
+        "if (tonumber(tostring(t)) or 0)<=0 then "
+        "pcall(function() t=UITimeManager.Instance:GetServerTime() end) end "
+        "local n=math.floor((tonumber(tostring(t)) or 0)+0) "
+        "if n<=0 then n=math.floor(os.time()*1000) end return n end "
+        f"B.till=now()+{int(minutes)}*60*1000 "
+        "local mgr=UIManager.Instance "
+        "local cur=rawget(mgr,'OpenWindow') "
+        "if type(cur)~='function' then local mt=getmetatable(mgr) "
+        "local cls=mt and rawget(mt,'__index') cur=cls and cls.OpenWindow end "
+        "if type(cur)~='function' then B.err='no OpenWindow' return end "
+        "if B.wrapper~=nil and cur==B.wrapper then B.on=true return end "
+        "B.orig=cur "
+        # `table.pack`/`unpack`, exactly as the reward ear: this sits in front of EVERY
+        # window the client opens and may not change what the caller gets back.
+        "local pk=table.pack or function(...) return {n=select('#',...),...} end "
+        "local up=table.unpack or unpack "
+        "B.wrapper=function(self,name,...) local res=pk(B.orig(self,name,...)) "
+        "pcall(function() local b=D.__lw_cnshut if b==nil then return end "
+        "local s=tostring(name) if not b.allow[s] then return end "
+        "b.seen=b.seen+1 "
+        "if b.till==nil or now()>b.till then "
+        "b.rows[#b.rows+1]='left|'..s while #b.rows>20 do table.remove(b.rows,1) end return end "
+        "TimerManager:GetInstance():DelayInvoke(function() pcall(function() "
+        "local w=UIManager.Instance:GetWindow(s) "
+        "if w and w.Ctrl and w.Ctrl.CloseSelf then w.Ctrl:CloseSelf() "
+        "b.closed=b.closed+1 b.rows[#b.rows+1]='closed|'..s "
+        "else b.rows[#b.rows+1]='stuck|'..s end "
+        "while #b.rows>20 do table.remove(b.rows,1) end end) end,0.6) end) "
+        "return up(res,1,res.n) end "
+        "rawset(mgr,'OpenWindow',B.wrapper) B.on=true end)"
+    )
+
+
+def codename_shut_report() -> str:
+    """Lua *expression* -> what the ear has done, in one line for the log."""
+    return (
+        "(function() local B=DataCenter.__lw_cnshut "
+        "if B==nil then return 'караул не встал' end "
+        "if not B.on then return 'караул не встал: '..tostring(B.err) end "
+        "return 'караул на окне рекорда: видел '..tostring(B.seen)"
+        "..', закрыл '..tostring(B.closed)"
+        "..(#(B.rows or {})>0 and (' ['..table.concat(B.rows,' ')..']') or '') end)()"
+    )
+
+
 # ---------------------------------------------------------------------------
 # «Кристальный босс» — the daily boss with three attacks (#2077)
 # ---------------------------------------------------------------------------

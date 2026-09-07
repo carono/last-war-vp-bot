@@ -237,6 +237,58 @@ of it; `retry_sec` is what actually finishes a day, in two or three short goes.
 
 ---
 
+## The modal the hit leaves behind, and why it is an ear (#2604)
+
+A hit on the boss is answered by a window of the game's own: **«Текущий урон»** over a
+single **«Подтвердить»**. Nobody asked for it, it sits over the client until somebody
+presses it, and it is in the way of everything the panel does through the window stack —
+so it is closed behind us.
+
+**It does NOT arrive with the send.** The squad flies to the boss first and the client
+raises the window only when the hit is resolved, which is minutes later; two attacks made
+headless (16:40 and 16:51 of one afternoon) opened NOTHING for the twenty minutes after
+them, and a scan of the client's own `UIWindowNames` — 2 235 names — found three windows
+open the whole time, all of them the HUD. The battle history knows better: the same
+afternoon's two hits are in it, at 14 860 107 273 and 6 647 361 205, one of which beat the
+record. So a step at the end of the recipe could never close this window, and a clock that
+looked for it would be exactly the background poll `CLAUDE.md` forbids.
+
+**So the recipe installs an EAR before the send** (`codename_shut_watch` →
+`lua_actions.codename_shut_install`), the same instance `rawset` on
+`UIManager.Instance:OpenWindow` the reward ear uses (`reward-popups.md`): the client says
+itself when a window opens, nothing is asked of the game in between, and the two ears
+chain onto each other in whichever order they are armed.
+
+Three things decide whether a window is shut, and all three have to hold:
+
+| # | guard | why |
+|---|---|---|
+| 1 | the name is one of `CODENAME_SHUT_WINDOWS` — `UIBossDamageTip`, `LWUIWorldBossDamageTipView` | an explicit pair, never a substring |
+| 2 | our own attack armed the ear less than `CODENAME_SHUT_MINUTES` (30) ago | outside that span the modal belongs to whoever is playing by hand |
+| 3 | the window answers `Ctrl:CloseSelf` | never `DestroyAllWindow`, which takes the HUD with it |
+
+### How the two names were found, and what is deliberately NOT among them
+
+The live client's window table was scanned for everything carrying `Boss`, `Damage` or
+`Record`, and each candidate was opened, read and shut again:
+
+| window | what it says | verdict |
+|---|---|---|
+| `UIBossDamageTip` | «Текущий урон» · «Подтвердить» | **the modal** — closed |
+| `LWUIWorldBossDamageTipView` | would not open bare (it wants the hit's data) | its sibling — closed if it ever opens |
+| `LWUIWorldBossRecord` | «История Боев», «Наибольший Урон», the last ten hits with the squad that made each | a person READS this — left alone |
+| `UIActBossTips` | the event's rules card | left alone |
+| `LWUIWorldBossRank` · `UIWorldBossRank` · `LWUIWorldBossReward` · `LWUIWorldBossTask` | the rank, the rewards, the tasks | left alone |
+
+The line between the two halves of that table is the whole design: the panel shuts what
+the GAME raised over our own hit, and never a screen somebody opened to read.
+
+`tests/test_codename_shut.py` runs the ear in a real Lua VM against a stand-in client and
+pins both halves — the modal shut inside the deadline, and the same modal left open once
+it has passed.
+
+---
+
 ## What is proven, and what is not
 
 **Proven against a live client:** the reading, once it asks. On a running event, with the
@@ -260,5 +312,10 @@ three endings. Until it has finished a real day it stays 🟡 in `docs/farming.m
 **Not established:** whether the daily ranking reads `maxDamage` or some per-day number
 kept elsewhere. `maxDamage` did not move across four attacks because none of them beat
 the record — which is what a record does, and why it is drawn but never used as proof.
+
+**Not yet proven live: the modal being shut (#2604).** The ear itself is proven in a Lua
+VM and the two window names were read off the live client; what could not be forced in a
+session is the modal appearing, because it wants a hit big enough for the game to raise it.
+The next day's errand is what will show the `закрыл 1` in the log.
 
 `docs/farming.md` marks «Кодовое имя» ✅.
