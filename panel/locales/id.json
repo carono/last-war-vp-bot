@@ -1502,6 +1502,8 @@
   "vs.chips.in_bag": "di tas",
   "vs.chips.opened": "dibuka",
   "vs.chips.refresh": "Perbarui",
+  "vs.chips.open_all": "Buka semua",
+  "vs.drone.raise_now": "Naikkan sekarang",
   "vs.chips.read_at": "dibaca {ago} lalu",
   "vs.chips.never": "belum dibaca",
   "vs.age.sec": "{n} d",

@@ -1502,6 +1502,8 @@
   "vs.chips.in_bag": "na bolsa",
   "vs.chips.opened": "abertos",
   "vs.chips.refresh": "Atualizar",
+  "vs.chips.open_all": "Abrir todos",
+  "vs.drone.raise_now": "Subir agora",
   "vs.chips.read_at": "lido há {ago}",
   "vs.chips.never": "ainda não lido",
   "vs.age.sec": "{n} s",

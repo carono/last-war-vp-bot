@@ -276,6 +276,15 @@ export interface ViewAction {
   disabled?: boolean
 }
 
+/* ONE ABILITY BEHIND A GEAR (#2624) — see `ViewItem.options_groups`. */
+export interface OptionGroup {
+  title?: string
+  fields?: Field[]
+  actions?: ViewAction[]
+  items?: ViewItem[]
+  note?: string
+}
+
 export interface ViewItem {
   label?: string
   text?: string
@@ -309,6 +318,13 @@ export interface ViewItem {
      every one of them so that a person could read one. `kind` and `args` are what the
      phone asks `/api/screen/data` for, `title` is what to call the sheet (data). */
   info?: { kind: string; args?: Record<string, string>; title?: string }
+  /* WHAT THE GEAR HOLDS WHEN IT HOLDS MORE THAN KNOBS (#2624) — the person's words:
+     «Жмем шестеренку, видим галку открывать чипы, под ним кнопка открыть все и список
+     чипов со статистикой». A group is one ABILITY: its switch, the press that runs it
+     now, and whatever it is about, in that order. Several groups are several abilities
+     on one row, drawn one under another; a row with none of them keeps `options` below,
+     which is the plain case every other screen uses. */
+  options_groups?: OptionGroup[]
   /* THE KNOBS THIS TILE OWNS, behind its own gear (#2051). A screen's card may be a
      grid of things that each have settings of their own — the rally groups are the
      first — and they open in the same sheet the errands' gear opens. */

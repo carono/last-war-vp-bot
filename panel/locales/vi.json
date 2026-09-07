@@ -1502,6 +1502,8 @@
   "vs.chips.in_bag": "trong túi",
   "vs.chips.opened": "đã mở",
   "vs.chips.refresh": "Làm mới",
+  "vs.chips.open_all": "Mở tất cả",
+  "vs.drone.raise_now": "Nâng ngay",
   "vs.chips.read_at": "đọc {ago} trước",
   "vs.chips.never": "chưa đọc",
   "vs.age.sec": "{n} giây",
