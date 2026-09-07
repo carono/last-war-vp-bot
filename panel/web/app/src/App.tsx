@@ -47,8 +47,10 @@ const NAV: { id: string; key: string; view: ViewName; screen?: string }[] = [
      what «ходим по карте» meant. `worldview` stays a screen, reachable through
      «Ещё»; it is simply not this button any more. */
   { id: 'map', key: 'web.ui.nav.map', view: 'more', screen: 'secret_tasks' },
-  { id: 'chat', key: 'tab.chat', view: 'more', screen: 'chat' },
   { id: 'vs', key: 'tab.vs', view: 'more', screen: 'vs' },
+  // «Чат» самый правый (#2623) — the person's own words: «Чат сделай самым
+  // правым». The rest keep their order; only chat moved.
+  { id: 'chat', key: 'tab.chat', view: 'more', screen: 'chat' },
 ]
 
 /* One small outline family, drawn here so navigation never depends on game artwork or
