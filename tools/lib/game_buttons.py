@@ -1558,6 +1558,17 @@ BUTTONS["use_item"] = Button(
     lua=_lua_actions.use_bag_item(),
     wait=0.4, label="use an item from the bag",
 )
+BUTTONS["drone_level_up"] = Button(
+    # Raise the drone one level (#2617) — the duel's Monday. The drone is the client's
+    # «tactical weapon» (`push.uav.*` on the wire), one per account. `count_lua` is how
+    # many levels the bag can pay for right now, so `xall` spends exactly that and stops;
+    # `verify_lua` is the LEVEL itself, so a press the server refused fails the recipe
+    # instead of reporting `tap=ok`.
+    lua=_lua_actions.drone_level_up(),
+    count_lua=_lua_actions.drone_upgrades_left(),
+    verify_lua=_lua_actions.drone_level(),
+    wait=1.2, max_taps=40, label="raise the drone one level",
+)
 BUTTONS["use_bag_ids"] = Button(
     # Open EVERY stack of a LIST of item ids (#2617) — the duel's Monday pays for opening
     # a kind of box the account holds several levels of, and one press per stack is one

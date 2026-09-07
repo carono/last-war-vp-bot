@@ -1498,7 +1498,6 @@
   "vs.week": "Duellwoche",
   "vs.day.actions": "Aktionen",
   "vs.day.set": "Satz",
-  "vs.run": "Ausführen",
   "vs.day.soon": "noch nicht angebunden",
   "vsduel.sets.hint": "Ein Satz sind die Einstellungen einer ganzen Woche, und jeder Tag wird nach dem Satz gespielt, den seine eigene Liste nennt — der Montag kann ansparen, während der Samstag pusht. Ein neuer Satz beginnt als Abbild dessen, was gerade auf dem Schirm steht.",
   "vsduel.sets.new": "Anlegen",

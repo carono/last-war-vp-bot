@@ -31,12 +31,13 @@ from .vs_duel import DAYS, VsDuelTab, _Choice, walk_items
 #: with none of them says it is still being written instead of showing dead boxes.
 #:
 #: The names are `<day>.<action>`, exactly as the plan spells them.
-READY: frozenset = frozenset({"mon.drone_chips"})
+READY: frozenset = frozenset({"mon.drone_chips", "mon.drone_level"})
 
 #: …and which scenario each of those knobs RUNS, for the button beside it. The panel
 #: holds no opinion about what the ability is: it plays the recipe and reports what came
 #: back (CLAUDE.md). A ready knob with no recipe here simply has no button.
-RUNS: dict = {"mon.drone_chips": "open_drone_chips"}
+RUNS: dict = {"mon.drone_chips": "open_drone_chips",
+              "mon.drone_level": "upgrade_drone"}
 
 
 class VsTab(VsDuelTab):
@@ -118,9 +119,12 @@ class VsTab(VsDuelTab):
             # A DAY NOBODY HAS WIRED SAYS SO, in one word, rather than offering knobs
             # that decide nothing.
             item["pill"] = "vs.day.soon"
-        acts = [{"id": "run", "args": {"key": name}, "label": "vs.run"}
-                for name in (f"{day}.{action.key}"
-                             for action in self._day_actions(day))
+        # ONE BUTTON PER WIRED KNOB, in the plan's own order, each saying WHAT it runs
+        # (#2617): «Открыть чипы дрона» and «Повышать дрон» are two abilities on one
+        # day, and a single «Выполнить» could only ever be one of them.
+        acts = [{"id": "run", "args": {"key": name}, "label": label}
+                for name, label in ((f"{day}.{action.key}", action.label)
+                                    for action in self._day_actions(day))
                 if name in READY and name in RUNS]
         if acts:
             item["actions"] = acts

@@ -1498,7 +1498,6 @@
   "vs.week": "Tuần đấu",
   "vs.day.actions": "Hành động",
   "vs.day.set": "Bộ",
-  "vs.run": "Chạy",
   "vs.day.soon": "chưa được nối",
   "vsduel.sets.hint": "Một bộ là cài đặt cho trọn một tuần, và mỗi ngày được chơi theo cái bộ mà ô chọn của chính ngày đó gọi tên — nhờ vậy Thứ Hai có thể tích trữ trong khi Thứ Bảy dồn sức. Bộ mới ra đời như một bản sao của những gì đang hiện trên màn hình.",
   "vsduel.sets.new": "Mới",
