@@ -11628,6 +11628,30 @@ def bag_count_of_ids() -> str:
 DRONE_WEAPON_ID = 1000
 
 
+#: HOW MUCH OF A COST ITEM THE ACCOUNT HOLDS — and it is NOT the bag (#2617, measured).
+#: The drone's two prices are 7037 (components) and 7038 (gears), and neither is a stack
+#: in `ItemData.ItemInfos`: a live account showed 0 of both there while the client's own
+#: gate said it could pay, because they are RESOURCES —
+#: `ResourceItemDataManager` — and a resource is a running total, not a stack. Reading
+#: the wrong store is how a recipe reports «not enough» over a purse of 71 976 670.
+_RES_COUNTS_LUA = (
+    "local function _lw_res_counts() local out = {} "
+    "local R = DataCenter and DataCenter.ResourceItemDataManager "
+    "if R ~= nil then pcall(function() for k, v in pairs(R.itemList or {}) do "
+    "local id = 0 local n = 0 "
+    "if type(v) == 'table' then "
+    "id = math.floor(tonumber(v.itemId or v.id or k) or 0) "
+    "n = math.floor(tonumber(v.count or v.num or v.value or v.number) or 0) end "
+    "if id > 0 then out[id] = (out[id] or 0) + n end end end) end "
+    # …and the bag on top of it, for a cost item that IS a stack.
+    "local D = DataCenter and DataCenter.ItemData "
+    "if D ~= nil then pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+    "local id = math.floor(tonumber(v.itemId) or 0) "
+    "if id > 0 then out[id] = (out[id] or 0) + math.floor(tonumber(v.count) or 0) end "
+    "end end) end return out end "
+)
+
+
 def _drone_info_lua(var: str = "info") -> str:
     """Lua *statements* -> park the account's drone in a local of that name (or nil).
 
@@ -11653,7 +11677,7 @@ def drone_state() -> str:
     machine makes about 1.4 of them a second (docs/research/link-contention.md).
     """
     return (
-        "(function() " + _drone_info_lua() +
+        "(function() " + _RES_COUNTS_LUA + _drone_info_lua() +
         "if type(info) ~= 'table' then return 'lv=0 max=0 can=0 why=no-drone' end "
         "local row = info.levelTemplate "
         "if type(row) ~= 'table' then pcall(function() row = info:GetLevelTemplate() end) end "
@@ -11662,11 +11686,7 @@ def drone_state() -> str:
         "for _, c in pairs(row.cost_resItem) do "
         "if type(c) == 'table' then cost[#cost + 1] = {id = math.floor(tonumber(c.id) or 0), "
         "n = math.floor(tonumber(c.value) or 0)} end end end "
-        "local D = DataCenter.ItemData "
-        "local have = {} "
-        "if D ~= nil then pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
-        "local id = math.floor(tonumber(v.itemId) or 0) "
-        "have[id] = (have[id] or 0) + math.floor(tonumber(v.count) or 0) end end) end "
+        "local have = _lw_res_counts() "
         "local bits = {} "
         "for _, c in ipairs(cost) do "
         "bits[#bits + 1] = c.id .. ':' .. (have[c.id] or 0) .. '/' .. c.n end "
@@ -11699,7 +11719,7 @@ def drone_upgrades_left() -> str:
     (0 = as many as the bag pays for).
     """
     return (
-        "(function() " + _drone_info_lua() +
+        "(function() " + _RES_COUNTS_LUA + _drone_info_lua() +
         "if type(info) ~= 'table' then return 0 end "
         "local function ask(name) local v = nil "
         "local ok = pcall(function() v = info[name](info) end) "
@@ -11708,11 +11728,7 @@ def drone_upgrades_left() -> str:
         "local row = info.levelTemplate "
         "if type(row) ~= 'table' then pcall(function() row = info:GetLevelTemplate() end) end "
         "if type(row) ~= 'table' or type(row.cost_resItem) ~= 'table' then return 0 end "
-        "local D = DataCenter.ItemData if D == nil then return 0 end "
-        "local have = {} "
-        "pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
-        "local id = math.floor(tonumber(v.itemId) or 0) "
-        "have[id] = (have[id] or 0) + math.floor(tonumber(v.count) or 0) end end) "
+        "local have = _lw_res_counts() "
         "local can = -1 "
         "for _, c in pairs(row.cost_resItem) do if type(c) == 'table' then "
         "local id, n = math.floor(tonumber(c.id) or 0), math.floor(tonumber(c.value) or 0) "
