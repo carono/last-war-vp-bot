@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 71 of 189
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **37%** — 71 of 190
 
-🟩 71 done · 🟨 87 partly · 🟥 31 not automated
+🟩 71 done · 🟨 88 partly · 🟥 31 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -79,7 +79,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - 🟡 Firing the skills that need no target — production, instant collect, speed-up chest, a survivor, an instant step off the build or research queue: one press each, no window opened, whatever is off cooldown. The press is proven against the live game, but no charge was free to spend, so a run has not been confirmed in-game yet
 - 🟡 Firing them on a schedule — one switch in the panel and the ready ones are used with nobody watching, so a charge is never left to sit out its day. The bot does not check every hour: the game itself says when the next charge lands, and the run books its own next turn for that moment — normally a day away, and the panel is quiet in between. A client that is not logged in is not counted as «nothing to do»: that turn is retried in a few minutes instead. Switched off until you turn it on, and not yet watched through a live day
-- ❌ The skills that need a target — helping an alliancemate's build or research, planting the siege banner: they want a world point and nothing picks one yet
+- 🟡 «Win-Win Cooperation» — the one targeted skill the bot can now cast. It goes on another player, and not on any player: the game only allows it on a War Leader, and it cuts their building and research costs for a day while the reward comes to us. The bot finds the target itself — the game already tells it which alliancemates are War Leaders and where their bases stand, so nothing is searched for and nothing is asked of the server; it prefers somebody who is online, with the biggest base among those, so the discount is actually used. Nothing is spent but the charge, no squad leaves the base, and no window is opened. In the daily checklist it is a line of its own — «потрачено 1 из 1 · снова через 20:41» — so «applied today» and «and again when» are one glance. The reading, the candidate list and the press are all proven against the live game; no charge was free to spend, so a run has not been confirmed in-game yet
+- ❌ The other skills that need a target — helping an alliancemate's build or research, planting the siege banner: they want a world point and nothing picks one yet
 
 ### Alliance support
 
@@ -388,7 +389,7 @@ The routine as it is actually played, against what the bot covers.
 | Supplies, secret training, quests | ✅ the day's finished quests, claimed and read back · 🟡 the progress-bar chests · ❌ supplies and secret training |
 | Arena | 🟡 the 3-on-3 battles up to the day's five wins · ❌ apex arena, free diamonds |
 | Help alliancemates who ask | ✅ |
-| Fire the profession skills that came off cooldown | 🟡 the no-target ones · ❌ the targeted ones |
+| Fire the profession skills that came off cooldown | 🟡 the no-target ones · 🟡 Win-Win · ❌ the rest of the targeted ones |
 | General's challenge, free heroes in the tavern | ❌ |
 | Shop purchases from a list | ❌ |
 | Treasure maps and the exchange | ❌ |

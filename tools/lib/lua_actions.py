@@ -1517,6 +1517,156 @@ def apply_occupation_skill(skill_id: int) -> str:
             % (skill_can_use(skill_id), int(skill_id), int(skill_id)))
 
 
+# -- Win-Win Cooperation: the one profession skill that is cast ON ANOTHER PLAYER ---
+#
+# «Взаимовыгодное сотрудничество» / "Win-Win Cooperation" — an Engineer node whose
+# use-position is `Building` rather than `SkillView`, so it needs a target and cannot go
+# through `apply_next_occupation_skill()`. The game's own words for what it does
+# (`season_mastery_s3_text_2_1`): "Can only be used on the War Leader: reduces THEIR
+# construction and tech research costs … Earn rewards." The reward is ours; the discount
+# is theirs. It costs nothing but the charge.
+#
+# THE TARGET'S PROFESSION IS IN THE DATA, which was the open question. Every record the
+# client keeps about another player carries `careerType` — the same number as one's own
+# `home_id` (101 Engineer, 102 War Leader) — and `careerLv` beside it. It is on the
+# world point detail a marker tap fetches AND on the alliance roster, and the roster is
+# the useful one: `AllianceCareerManager:GetAllianceMemberListByCareer(102)` hands back
+# every War Leader in the alliance already filtered, each record carrying the `pointId`
+# and `serverId` the press wants. No request goes on the wire to ask — the client has it.
+#
+# So there is no server-side "find me a candidate" call to imitate: the camera flight a
+# player sees when they pick this skill is the client walking its own roster.
+WIN_WIN_SKILL_ID = 10417
+
+#: The professions, as the game numbers them — one's own `home_id` and another player's
+#: `careerType` are the same scale.
+CAREER_ENGINEER, CAREER_WAR_LEADER = 101, 102
+
+
+def _win_win_node() -> str:
+    """Lua fragment: `node` = the mastery node whose current skill is Win-Win, or nil.
+
+    Resolved off the tree rather than written down, for the reason
+    :func:`_occupation_ready_ids` gives: the node a skill sits at depends on the
+    profession and on how far the tree is levelled. An account that is a War Leader —
+    or an Engineer who has not learnt this node — simply has no match, which the gate
+    reports as `state=-1` rather than pretending the skill is on cooldown.
+    """
+    return ("local node=nil if d then "
+            "for _,mid in ipairs(M:GetHomeDict(d.home_id) or {}) do "
+            "if M:GetCurSkillIdByMasteryId(mid)==%d then node=mid break end end end "
+            % WIN_WIN_SKILL_ID)
+
+
+def win_win_state() -> str:
+    """Lua *expression* -> one line of `key=value` about Win-Win, read in one trip.
+
+    `state` is the client's own `MasterySkillState` for the node — `1` Normal (a charge
+    is banked), `3` CD, and **`-1` when this account has no such node at all**, which is
+    the honest answer for a War Leader and for an Engineer who has not learnt it. `-2`
+    is a client that cannot answer for the tree at all (the login screen, which answers
+    everything and knows nothing).
+
+    `cands` is how many War Leaders of the alliance the client can name a base tile for
+    — the press has nothing to aim at below one. `next_ms` is the server's own countdown
+    to the next charge (`GetSkillAvailableTime`, i.e. `recover.cdEndTime`), `0` when one
+    is banked now. `since_fire` is how long ago this recipe last fired it, so a re-fire
+    inside the guard window is visible instead of looking like a refusal.
+    """
+    return (
+        "(function() local M=DataCenter.MasteryManager "
+        "local d=nil pcall(function() d=M:GetData() end) "
+        "if not d then return 'state=-2 charges=0 cands=0 next_ms=0 since_fire=0' end "
+        "local now=UITimeManager:GetInstance():GetServerTime() "
+        + _win_win_node() +
+        "local st=-1 local ch=0 local nxt=0 "
+        "if node then st=M:GetMasteryGroupSkillState(node) or 0 "
+        "pcall(function() local c=d:GetSkillChargeData(%d) ch=(c and c.num) or 0 end) "
+        "local avail=0 pcall(function() avail=d:GetSkillAvailableTime(%d) or 0 end) "
+        "if avail>0 then nxt=avail-now if nxt<0 then nxt=0 end end end "
+        "local n=0 pcall(function() "
+        "for _,v in pairs(DataCenter.AllianceCareerManager"
+        ":GetAllianceMemberListByCareer(%d) or {}) do "
+        "if type(v)=='table' and (v.pointId or 0)>0 then n=n+1 end end end) "
+        "local f=M.__lw_fired or {} "
+        "return 'state='..tostring(st)..' charges='..tostring(ch)..' cands='..tostring(n)"
+        "..' next_ms='..tostring(math.floor(nxt))"
+        "..' since_fire='..tostring(math.floor(now-(f[%d] or 0))) end)()"
+        % (WIN_WIN_SKILL_ID, WIN_WIN_SKILL_ID, CAREER_WAR_LEADER, WIN_WIN_SKILL_ID)
+    )
+
+
+def win_win_ready() -> str:
+    """Lua *expression* -> `1` when the skill can be fired at somebody right now.
+
+    Everything :func:`win_win_state` reports, folded into the one number a recipe gates
+    on and the button counts down: the node exists, the client says `Normal`, at least
+    one War Leader has a tile to aim at, and the re-fire guard has expired.
+    """
+    return (
+        "(function() local M=DataCenter.MasteryManager "
+        "local d=nil pcall(function() d=M:GetData() end) if not d then return 0 end "
+        "local now=UITimeManager:GetInstance():GetServerTime() "
+        + _win_win_node() +
+        "if not node then return 0 end "
+        "if M:GetMasteryGroupSkillState(node)~=MasterySkillState.Normal then return 0 end "
+        "local f=M.__lw_fired or {} if (now-(f[%d] or 0))<=%d then return 0 end "
+        "local n=0 pcall(function() "
+        "for _,v in pairs(DataCenter.AllianceCareerManager"
+        ":GetAllianceMemberListByCareer(%d) or {}) do "
+        "if type(v)=='table' and (v.pointId or 0)>0 then n=n+1 end end end) "
+        "if n<1 then return 0 end return 1 end)()"
+        % (WIN_WIN_SKILL_ID, MASTERY_REFIRE_GUARD_MS, CAREER_WAR_LEADER)
+    )
+
+
+def apply_win_win() -> str:
+    """Fire Win-Win at one War Leader of the alliance — one press, one target.
+
+    The call is the game's own click path, proven against the live VM with both senders
+    stubbed out and restored in the same chunk: `MasteryManager:UseSkill(10417, pointId,
+    nil, serverId)` reaches `SendUseSkillMsg` with `use.desert.talent.skill` and a param
+    of `{otherUid, serverId}` — **and never `MarchUtil.OnClickStartMarch`**, so nothing
+    leaves the base and nothing is spent but the charge. The uid is resolved inside
+    `UseSkill` from the point, so the caller passes the tile and not the player.
+
+    WHICH War Leader is chosen deliberately rather than "the first one": somebody who is
+    online will actually spend the discount inside the day it lasts, and among those the
+    biggest base has the most building and research left to spend it on. Ties fall back
+    to whatever the roster happens to hand over, which is fine — every candidate is a
+    legal target and the reward is ours either way.
+
+    The id is stamped on `__lw_fired` before the call, exactly as
+    :func:`apply_next_occupation_skill` does and for the same reason: the charge only
+    drops when the server's reply lands, so without the stamp a second tap inside that
+    window would fire at a second player off one charge.
+    """
+    return (
+        "local M=DataCenter.MasteryManager "
+        "local d=nil pcall(function() d=M:GetData() end) "
+        "local now=UITimeManager:GetInstance():GetServerTime() "
+        + _win_win_node() +
+        "local f=M.__lw_fired or {} "
+        "if node and M:GetMasteryGroupSkillState(node)==MasterySkillState.Normal "
+        "and (now-(f[%d] or 0))>%d then "
+        "local pick=nil pcall(function() "
+        "for _,v in pairs(DataCenter.AllianceCareerManager"
+        ":GetAllianceMemberListByCareer(%d) or {}) do "
+        "if type(v)=='table' and (v.pointId or 0)>0 then "
+        "if pick==nil then pick=v "
+        "elseif (v.online and true or false)~=(pick.online and true or false) then "
+        "if v.online then pick=v end "
+        "elseif (v.mainCityLv or 0)>(pick.mainCityLv or 0) then pick=v end end end end) "
+        "if pick then M.__lw_fired=f M.__lw_fired[%d]=now "
+        "pcall(function() M:UseSkill(%d, pick.pointId, nil, pick.serverId) end) "
+        'CS.UnityEngine.Debug.LogError("ACT win_win_used point "..tostring(pick.pointId)) '
+        'else CS.UnityEngine.Debug.LogError("ACT win_win_no_candidate") end '
+        'else CS.UnityEngine.Debug.LogError("ACT win_win_not_ready") end'
+        % (WIN_WIN_SKILL_ID, MASTERY_REFIRE_GUARD_MS, CAREER_WAR_LEADER,
+           WIN_WIN_SKILL_ID, WIN_WIN_SKILL_ID)
+    )
+
+
 def occupation_skills_dump() -> str:
     """Reader chunk: one `ACT S …` line per active skill of the current profession.
 

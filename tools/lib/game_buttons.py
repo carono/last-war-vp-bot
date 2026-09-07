@@ -469,6 +469,24 @@ BUTTONS: dict[str, Button] = {
         # Thirteen active nodes on a maxed tree, and only about half are no-target.
         max_taps=10,
     ),
+    # --- Win-Win Cooperation: the profession skill that is cast ON ANOTHER PLAYER ---
+    # «Взаимовыгодное сотрудничество». Not part of `use_profession_skill`, and cannot
+    # be: its use-position is `Building`, so the press names a target — and not any
+    # target, only a player whose profession is War Leader. The client already knows
+    # who those are (`careerType` on every roster record), so the choice is made inside
+    # the press off the alliance's own list; nothing is asked of the server to find one.
+    #
+    # One press, one target, one charge — `max_taps` is 1 because there is only ever one
+    # charge, and the count is the same gate the recipe reads.
+    "use_win_win_skill": Button(
+        lua=_lua_actions.apply_win_win(),
+        # The same generous pause `use_profession_skill` takes, for the same reason: the
+        # cooldown arrives with the SERVER's reply and the client believes the skill is
+        # still ready until it lands.
+        wait=4.0, label="Use Win-Win Cooperation",
+        count_lua=_lua_actions.win_win_ready(),
+        max_taps=1,
+    ),
     "profession_skills_panel": Button(
         # The «Профессия» window itself. Not needed to fire anything — the press is
         # headless — but it is how a human checks what the bot just did.

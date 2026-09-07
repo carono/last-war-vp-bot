@@ -2876,5 +2876,9 @@
   "errand.arg.rob.rotations": "Ricariche della lista prima della pausa",
   "errand.arg.rob.rotations.hint": "Quante volte di seguito la lista può tornare senza un bersaglio ammesso prima che l'incarico rinunci e prenoti il turno successivo. Una rapina azzera il conteggio.",
   "errand.arg.rob.pause_min": "Pausa, minuti",
-  "errand.arg.rob.pause_min.hint": "È il turno successivo dell'incarico, non un'attesa: nel frattempo nessuno tiene il collegamento al gioco."
+  "errand.arg.rob.pause_min.hint": "È il turno successivo dell'incarico, non un'attesa: nel frattempo nessuno tiene il collegamento al gioco.",
+  "checklist.item.winwin": "Cooperazione per il successo",
+  "checklist.detail.no_target": "nessun Leader della Guerra su cui usarlo",
+  "checklist.state.no_target": "nessun bersaglio",
+  "checklist.detail.winwin_next": "di nuovo tra {t}"
 }

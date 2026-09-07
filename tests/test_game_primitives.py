@@ -372,8 +372,24 @@ def test_occupation_skills_recipe_walks_the_ready_set():
     path = se.resolve_action("occupation_skills")
     assert path is not None, "actions/occupation_skills.md is missing"
     stmts = se.parse_text(path.read_text(encoding="utf-8"))
-    assert [s.name for s in stmts] == ["use_profession_skill", "dismiss_skill_result"]
-    assert stmts[0].count is None, "the press must be TAP … xall, not a fixed count"
+    # The recipe carries readings and gates around its presses now — the wake-up clock
+    # it books its own next turn on, and Win-Win's own state (#2598) — so the presses are
+    # picked out rather than assumed to be the whole file. What is pinned is which
+    # presses there are and in what order, which is what costs charges to get wrong.
+    def _walk(block):
+        for st in block:
+            yield st
+            # Win-Win's press sits behind its own gate, so the presses are not all at
+            # the top level of the file any more.
+            for name in ("then_block", "else_block", "body"):
+                yield from _walk(getattr(st, name, None) or [])
+
+    taps = [s for s in _walk(stmts) if hasattr(s, "name")]
+    assert [t.name for t in taps] == ["use_profession_skill", "dismiss_skill_result",
+                                      "use_win_win_skill", "dismiss_skill_result"]
+    assert taps[0].count is None, "the press must be TAP … xall, not a fixed count"
+    # Win-Win is one press and one charge, so it is deliberately NOT `xall`.
+    assert taps[2].count == 1, "Win-Win banks one charge — one press, never a walk"
 
     button = gb.get("use_profession_skill")
     assert button is not None and button.count_lua, "xall needs a count expression"
@@ -383,6 +399,38 @@ def test_occupation_skills_recipe_walks_the_ready_set():
     assert ev.presses == 2, f"expected two skills used, got {ev.presses}"
     sent = [c for c in ev.chunks if "UseSkill" in c]
     assert all("__lw_fired" in c for c in sent), "presses must stamp the re-fire guard"
+
+
+def test_win_win_is_aimed_at_a_war_leader_and_stamps_the_guard():
+    """The one profession skill cast on another player (#2598).
+
+    Three things that cost a charge to get wrong, and one that costs a wrong target:
+
+    * the press names the profession it is allowed to aim at — the game's own
+      `careerType` 102, read off the alliance roster the client already holds, so
+      nothing is asked of the server to find a candidate;
+    * it goes through `MasteryManager:UseSkill` with a point and a server, which is the
+      click path proven to reach `use.desert.talent.skill` and never a march;
+    * it stamps the re-fire guard, because the charge only drops when the reply lands;
+    * and the gate refuses when there is no candidate, so a press can never go out with
+      nothing to aim at.
+    """
+    import game_buttons as gb
+    import lua_actions as la
+
+    press = la.apply_win_win()
+    assert "GetAllianceMemberListByCareer(%d)" % la.CAREER_WAR_LEADER in press
+    assert "M:UseSkill(%d, pick.pointId, nil, pick.serverId)" % la.WIN_WIN_SKILL_ID in press
+    assert "__lw_fired" in press, "the press must stamp the re-fire guard"
+    assert "OnClickStartMarch" not in press, "nothing marches for this one"
+
+    gate = la.win_win_ready()
+    assert "if n<1 then return 0 end" in gate, "no candidate must refuse the press"
+    assert "MasterySkillState.Normal" in gate
+
+    button = gb.get("use_win_win_skill")
+    assert button is not None and button.count_lua == gate
+    assert button.max_taps == 1, "one charge, one press"
 
 
 def test_occupation_skill_cooldown_is_server_clocked_and_state_aware():

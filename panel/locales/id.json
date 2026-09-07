@@ -2876,5 +2876,9 @@
   "errand.arg.rob.rotations": "Muat ulang daftar sebelum jeda",
   "errand.arg.rob.rotations.hint": "Berapa kali berturut-turut daftar boleh kembali tanpa sasaran yang lolos aturan sebelum tugas menyerah dan menjadwalkan giliran berikutnya. Satu perampokan mengulang hitungan.",
   "errand.arg.rob.pause_min": "Jeda, menit",
-  "errand.arg.rob.pause_min.hint": "Ini giliran berikutnya dari tugas, bukan menunggu: tidak ada yang menahan sambungan ke gim selama itu."
+  "errand.arg.rob.pause_min.hint": "Ini giliran berikutnya dari tugas, bukan menunggu: tidak ada yang menahan sambungan ke gim selama itu.",
+  "checklist.item.winwin": "Kerjasama Mutualisme",
+  "checklist.detail.no_target": "tidak ada Pemimpin Perang untuk menggunakannya",
+  "checklist.state.no_target": "tanpa target",
+  "checklist.detail.winwin_next": "lagi dalam {t}"
 }

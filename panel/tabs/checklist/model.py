@@ -155,6 +155,35 @@ TRUCK_ERRANDS: tuple = (
            scenario="send_trucks"),
 )
 
+#: How long until the Win-Win charge comes back, in minutes — the field the row draws
+#: beside «потрачено 1 из 1», so «применено» and «и снова через 20:41» are one glance.
+WINWIN_NEXT_FIELD = "winwin_next_min"
+
+
+def winwin_next(reading) -> "int | None":
+    """Minutes until Win-Win can be cast again — `0` when it can be now, `None` unknown.
+
+    Straight off the field rather than through the row, for the reason
+    :func:`codename_counter` gives: the clock is worth drawing whatever state the gate
+    puts the row in, and `None` must never come out as a zero.
+    """
+    if reading is None or reading.error:
+        return None
+    return reading.get(WINWIN_NEXT_FIELD)
+
+
+def winwin_clock(minutes) -> str:
+    """`«20:41»` — the countdown as the board writes it, or `«—»` for no answer.
+
+    Hours and minutes, the same shape as the quota clock under the board, so a person
+    reads the two the same way.
+    """
+    if minutes is None:
+        return "—"
+    minutes = max(int(minutes), 0)
+    return "%d:%02d" % (minutes // 60, minutes % 60)
+
+
 #: The field beside the quota: how many trucks could go out RIGHT NOW. Not an errand of
 #: its own — it is the same errand's «and this much of it can be done this minute», which
 #: is what a person deciding whether to open the game actually wants.
@@ -238,6 +267,19 @@ READ_ERRANDS: tuple = (
     Errand("visitors_recruit", "recruit_pending", scenario="recruit_survivors"),
     Errand("visitors_gifts", "gifts_pending", scenario="collect_visitor_gifts"),
     Errand("skills", "skills_ready", scenario="occupation_skills"),
+    # «Взаимовыгодное сотрудничество» — the one profession skill cast on ANOTHER
+    # player, and the only errand of this board whose day is 23.5 hours rather than the
+    # server's (#2598). A quota of one: the skill banks a single charge, so `1 из 1`
+    # spent is «сделано» and it comes back on its own clock — which is why the row also
+    # carries :func:`winwin_next`, the minutes until it does. Nothing else here needs
+    # that, because nothing else has a cooldown a person is waiting on.
+    #
+    # The gate is «is there anything to do at all»: the node has to be on this
+    # profession's tree (a War Leader has no such skill) AND the alliance has to hold a
+    # War Leader with a base tile to aim at. Either missing and the row is CLOSED with
+    # its own wording, never «not done» about a thing nobody could do.
+    Errand("winwin", "winwin_left", QUOTA, cap="winwin_cap", gate="winwin_open",
+           closed="no_target", scenario="occupation_skills"),
     Errand("decorations", "decorations", scenario="upgrade_decorations"),
     # The gifts sitting in the Mail, and the one line of the board whose reading is
     # FREE (#2090): the badge each mail tab draws is a number the client already

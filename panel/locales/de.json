@@ -2876,5 +2876,9 @@
   "errand.arg.rob.rotations": "Neuladungen der Liste bis zur Pause",
   "errand.arg.rob.rotations.hint": "Wie oft hintereinander die Liste ohne passendes Ziel zurückkommen darf, bevor der Auftrag aufgibt und seinen nächsten Lauf einplant. Ein Raub setzt den Zähler zurück.",
   "errand.arg.rob.pause_min": "Pause, Minuten",
-  "errand.arg.rob.pause_min.hint": "Der nächste Lauf des Auftrags, kein Schlafen: die Verbindung zum Spiel hält währenddessen niemand."
+  "errand.arg.rob.pause_min.hint": "Der nächste Lauf des Auftrags, kein Schlafen: die Verbindung zum Spiel hält währenddessen niemand.",
+  "checklist.item.winwin": "Win-Win-Kooperation",
+  "checklist.detail.no_target": "kein Kriegsanführer, auf den es angewendet werden kann",
+  "checklist.state.no_target": "kein Ziel",
+  "checklist.detail.winwin_next": "wieder in {t}"
 }

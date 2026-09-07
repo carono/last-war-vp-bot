@@ -2876,5 +2876,9 @@
   "errand.arg.rob.rotations": "Rotations of the board before a break",
   "errand.arg.rob.rotations.hint": "How many times in a row the board may come back with nothing within the rule before the errand gives up and books its next turn. A robbery resets the count.",
   "errand.arg.rob.pause_min": "Break, minutes",
-  "errand.arg.rob.pause_min.hint": "The errand's next turn, not a sleep: nothing holds the game link while it waits."
+  "errand.arg.rob.pause_min.hint": "The errand's next turn, not a sleep: nothing holds the game link while it waits.",
+  "checklist.item.winwin": "Win-Win Cooperation",
+  "checklist.detail.no_target": "no War Leader to use it on",
+  "checklist.state.no_target": "no target",
+  "checklist.detail.winwin_next": "again in {t}"
 }

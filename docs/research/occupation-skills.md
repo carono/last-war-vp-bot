@@ -39,7 +39,7 @@ that was recorded, thirteen nodes are active:
 | Построить сейчас | 10118 | 314 | SkillView | 2850 min |
 | Исследуйте сейчас | 10130 | 325 | SkillView | 2850 min |
 | Совместное исследование Ⅱ | 10450 | 905 | Building | 1410 min |
-| Взаимовыгодное сотрудничество | 10417 | 801 | Building | 1410 min |
+| Взаимовыгодное сотрудничество (Win-Win) | 10417 | 801 | Building | 1410 min |
 | Совместное строительство Ⅱ | 10436 | 805 | Building | 1410 min |
 | Совместное исследование | 10133 | 328 | Building | *covered* |
 | Совместное строительство | 10120 | 317 | Building | *covered* |
@@ -195,6 +195,143 @@ recipe is safe to put in a routine that runs across accounts of different ages.
 
 **Still unproven:** the server accepting a press this code path produced. Until a
 charge is available and a run is confirmed in-game, the feature stays 🟡.
+
+## Win-Win Cooperation — the skill that is cast on ANOTHER PLAYER (#2598)
+
+«Взаимовыгодное сотрудничество» / `Win-Win Cooperation`, skill **10417**, is the first of
+the targeted half of this feature to be finished. It is an Engineer node whose
+use-position is `Building`, so it needs a tile — and, per the game's own description
+(`season_mastery_s3_name_2_1` / `_text_2_1`, read out of the client's own locale tables
+with `tools/game_locale.py`), a very particular one:
+
+> Can only be used on the War Leader: Reduces their construction and tech research costs
+> by 5% for 24 hours. Earn 1 rewards. Cooldown: 23.5 hours.
+
+The discount is theirs, the reward is ours, and the whole thing costs one banked charge —
+no diamonds, no resources, no troops.
+
+### The open question was «can the profession be read off the data», and the answer is YES
+
+It was the question the task was written around, and it needed no capture to settle.
+**Every record the client keeps about another player carries `careerType`** — the same
+scale as one's own `home_id`, `101` Engineer and `102` War Leader — with `careerLv`
+beside it. It is on the world point detail a marker tap fetches (`world.get.detail.new`,
+alongside `name`, `power`, `allianceId`, `pointId`) and it is on the alliance roster.
+
+The roster is the useful one, because the client keeps it **already indexed by
+profession**:
+
+```lua
+DataCenter.AllianceCareerManager:GetAllianceMemberListByCareer(102)
+```
+
+Each record it hands back holds `careerType`, `careerLv`, `uid`, `name`, `online`,
+`mainCityLv`, `power`, `serverId` and — the field that matters — `pointId`, the base tile
+the press aims at. Live on the account this was worked out on: **77 Engineers and 18 War
+Leaders, all 18 with a `pointId`, 4 of them online.**
+
+So there is nothing to imitate on the wire. `MsgDefines` has no mastery message that asks
+for a candidate — the mastery family is `use.desert.talent.skill`, `learn.desert.talent.new`,
+`change.desert.talent.page`, the two `push.desert.talent.*` patches and the reset — and the
+camera flight a player sees after picking the skill is the client walking its own roster.
+**Read once, then listen** is satisfied for free: the roster is already there.
+
+### What the press actually is
+
+Proven the same way the untargeted press was, with `SFSNetwork.SendMessage`,
+`MasteryManager.SendUseSkillMsg` **and `MarchUtil.OnClickStartMarch`** stubbed inside one
+chunk and restored in the same chunk. Calling
+
+```lua
+DataCenter.MasteryManager:UseSkill(10417, <pointId>, nil, <serverId>)
+```
+
+arrived at exactly one call:
+
+```
+SendUseSkillMsg id=10417 param={otherUid=<16-digit string>, serverId=<number>}
+                msg=use.desert.talent.skill
+```
+
+Three things follow, and each closes a worry:
+
+* **No march.** `OnClickStartMarch` was never reached, so nothing leaves the base and no
+  squad is tied up. The «Building» use-position names where the skill is AIMED, not that
+  it travels.
+* **The uid is resolved inside `UseSkill`.** The caller passes the tile and the server;
+  the client turns that into `otherUid` itself. So a recipe never has to hold a player's
+  id — it holds a point.
+* **It is headless and scene-free.** The whole of the above was run with the client
+  standing in the city, no world scene loaded and no window open.
+
+### The gates, and what each of them says
+
+`lua_actions.win_win_state()` answers all of it in one round trip, and the recipe prints
+the line whatever happens, because «не сработало» has five different causes here:
+
+| answer | what it means |
+|---|---|
+| `state=-2` | the client cannot answer for the tree at all — the login screen, which answers everything and knows nothing |
+| `state=-1` | this account has no such node: a War Leader, or an Engineer who has not learnt it. Not a cooldown and not an error |
+| `state=3`  | on cooldown; `next_ms` is the server's own countdown (`GetSkillAvailableTime`, i.e. `recover.cdEndTime`) |
+| `cands=0`  | nobody in the alliance is a War Leader the client can name a base tile for |
+| `state=1`  | a charge is banked and the press may go |
+
+The node is found by walking `GetHomeDict` for the mastery id whose current skill is
+10417, never written down — the same reason `_occupation_ready_ids` resolves everything
+off the tree: which node a skill sits at depends on the profession and on how far the
+tree is levelled.
+
+**Which** War Leader is picked is a decision rather than «the first row»: somebody who is
+`online` will actually spend the discount inside the day it lasts, and among those the
+biggest `mainCityLv` has the most building and research left to spend it on. Every
+candidate is a legal target and the reward is ours either way, so the tie-break costs
+nothing to get wrong.
+
+The re-fire guard covers this press too, and has to: the charge only drops when the
+server's reply lands, so without the stamp a second tap inside that window would fire at
+a SECOND player off one charge.
+
+### On the board
+
+The checklist carries it as a quota of one — `winwin_left` of `winwin_cap`, gated on
+`winwin_open` — so «потрачено 1 из 1» is «применено сегодня». It is the only errand of
+that board whose day is 23.5 hours rather than the server's midnight, which is why the row
+also draws `winwin_next_min` as a countdown («снова через 20:41»): without it the one
+question a person has after seeing «сделано» has no answer on the page. The `occupation_skills`
+timer counts this charge into its own wake-up clock for the same reason.
+
+**Still unproven:** the server accepting this press. The reading, the candidate list and
+the call path are all confirmed live; the charge had not been spent at the time of
+writing, so the feature stays 🟡 until a run is watched in-game.
+
+## On a clock — and the clock is the game's
+
+The recipe is a timer row (`occupation_skills`, `panel/timers.py`), switched off until
+somebody turns it on. What matters is that its period is a FALLBACK and not the
+schedule: a charge recovers on a countdown the server sets — the press's own reply
+carries it as `recover.cdEndTime` — so the run reads the soonest of those instants over
+the profession's no-target skills and hands it back as `next_run_in` (seconds from now,
+plus a minute's margin; `docs/dsl.md`). The schedule books that turn and asks nothing in
+between. A row on an hourly period would put twenty-three questions to the game for
+every one that had an answer, which is exactly what «читаем один раз, остальное слушаем»
+forbids.
+
+The reading skips `Locked`, `Covered` and `None` nodes for the same reason
+`skill_cooldown_remaining` returns `-1` for them, and it skips whatever the re-fire
+guard has stamped in the last two minutes — a skill just fired still reads `Normal`
+until the reply lands, and booking the next turn off that would ask again at once. When
+nothing at all is readable — no mastery data, no learned active skill — the answer is
+`0`, which leaves the row's own six hours standing. A reading that fails costs one
+ordinary turn and can never quietly stop the timer.
+
+The gate at the top of the recipe is the same count the press uses
+(`MasterySkillState == Normal` over the profession's own tree, never a written-down list
+of ids — a season adding a node would leave the list pressing last season's set). It
+distinguishes three answers where a bare count has two: a number is what to fire, `0` is
+an honest «nothing ripe», and `-1` is a client that cannot answer for the tree at all —
+the login screen, which answers everything and knows nothing. The last is a FAILED run,
+so the errand is retried in minutes rather than written off as done for the day.
 
 ## The re-fire guard
 

@@ -378,7 +378,13 @@ def test_the_errands_with_an_ability_offer_it_and_the_four_without_do_not():
     runnable = [e.key for e in modelmod.READ_ERRANDS if e.runnable]
     assert runnable == ["base_resources", "hospital_collect", "hospital_heal",
                         "alliance_help", "alliance_donate", "visitors_recruit",
-                        "visitors_gifts", "skills", "decorations",
+                        "visitors_gifts", "skills",
+                        # …and «Взаимовыгодное сотрудничество» (#2598): the profession
+                        # skill cast on another player, whose press is the same
+                        # `occupation_skills` this board already offers on the row above
+                        # — one ability, two lines, because the two answer different
+                        # questions and their gates are different.
+                        "winwin", "decorations",
                         # …and the Mail's gifts (#2090): a line whose reading is the
                         # badge the client already keeps, so it costs no request, and
                         # whose press is the tab's own «собрать всё» on every tab

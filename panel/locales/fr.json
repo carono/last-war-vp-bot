@@ -2876,5 +2876,9 @@
   "errand.arg.rob.rotations": "Rafraîchissements de la liste avant la pause",
   "errand.arg.rob.rotations.hint": "Combien de fois d'affilée la liste peut revenir sans cible conforme avant que la tâche abandonne et planifie son prochain tour. Un pillage remet le compteur à zéro.",
   "errand.arg.rob.pause_min": "Pause, minutes",
-  "errand.arg.rob.pause_min.hint": "C'est le prochain tour de la tâche, pas une attente : personne ne retient le lien avec le jeu pendant ce temps."
+  "errand.arg.rob.pause_min.hint": "C'est le prochain tour de la tâche, pas une attente : personne ne retient le lien avec le jeu pendant ce temps.",
+  "checklist.item.winwin": "Coopération Gagnant-gagnant",
+  "checklist.detail.no_target": "aucun Chef de Guerre sur qui l'utiliser",
+  "checklist.state.no_target": "aucune cible",
+  "checklist.detail.winwin_next": "de nouveau dans {t}"
 }

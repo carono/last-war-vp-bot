@@ -2876,5 +2876,9 @@
   "errand.arg.rob.rotations": "Số lần làm mới danh sách trước khi nghỉ",
   "errand.arg.rob.rotations.hint": "Danh sách được phép trở về mà không có mục tiêu hợp lệ bao nhiêu lần liên tiếp trước khi việc vặt bỏ cuộc và hẹn lượt sau. Một vụ cướp thành công đặt lại bộ đếm.",
   "errand.arg.rob.pause_min": "Nghỉ, phút",
-  "errand.arg.rob.pause_min.hint": "Đó là lượt chạy kế tiếp của việc vặt, không phải chờ: trong lúc đó không ai giữ kết nối tới trò chơi."
+  "errand.arg.rob.pause_min.hint": "Đó là lượt chạy kế tiếp của việc vặt, không phải chờ: trong lúc đó không ai giữ kết nối tới trò chơi.",
+  "checklist.item.winwin": "Hợp Tác Cùng Thắng",
+  "checklist.detail.no_target": "không có Thủ Lĩnh Chiến Đấu để dùng",
+  "checklist.state.no_target": "không có mục tiêu",
+  "checklist.detail.winwin_next": "lại sau {t}"
 }

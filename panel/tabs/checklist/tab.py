@@ -138,6 +138,10 @@ WIRE_PATTERNS_BY_SOURCE = {
 }
 
 
+#: The errand whose detail carries a countdown of its own (#2598).
+_WINWIN_KEY = "winwin"
+
+
 class ChecklistTab(PanelTab):
     """The day's errands, the game's answer to each, and a countdown to the reset."""
 
@@ -659,11 +663,32 @@ class ChecklistTab(PanelTab):
             return self.t("checklist.detail." + state.errand.closed)
         if state.errand.kind == modelmod.QUOTA:
             if state.used is not None:
-                return self.t("checklist.detail.quota", used=state.used, cap=state.cap)
-            return self.t("checklist.detail.left", n=state.left)
+                return self._with_clock(
+                    state, self.t("checklist.detail.quota",
+                                  used=state.used, cap=state.cap))
+            return self._with_clock(state,
+                                    self.t("checklist.detail.left", n=state.left))
         if state.done:
             return self.t("checklist.detail.nothing")
         return self.t("checklist.detail.left", n=state.left)
+
+    def _with_clock(self, state, text: str) -> str:
+        """…and, for Win-Win, when it comes back (#2598).
+
+        The only errand of the board whose day is its own: a 23.5-hour cooldown rather
+        than the server's midnight, so «потрачено 1 из 1» on its own leaves the one
+        question a person actually has unanswered. Nothing is appended while the charge
+        is banked — «снова через 0:00» about a thing that can be done now would be
+        noise — and nothing is appended when the game did not answer, because a missing
+        clock must never be drawn as a zero.
+        """
+        if state.errand.key != _WINWIN_KEY:
+            return text
+        minutes = modelmod.winwin_next(self._reading)
+        if not minutes:
+            return text
+        return "%s · %s" % (text, self.t("checklist.detail.winwin_next",
+                                         t=modelmod.winwin_clock(minutes)))
 
     def _refresh_status(self) -> None:
         if self._status is None:
@@ -822,6 +847,13 @@ class ChecklistTab(PanelTab):
                 "%d/%d" % (state.used, state.cap)
                 if state.errand.kind == modelmod.QUOTA and state.used is not None
                 else str(state.left))
+            # Win-Win's own clock, on the phone as in the window (#2598) — the counts
+            # here are figures rather than sentences, so the countdown joins them as
+            # one, and the window's wording carries the words.
+            if state.errand.key == _WINWIN_KEY:
+                minutes = modelmod.winwin_next(self._reading)
+                if minutes:
+                    item["detail"] += " · " + modelmod.winwin_clock(minutes)
         # The same press the window draws on this row, offered on the same terms
         # (`_may_run`) — the phone must not be able to reach what the machine cannot.
         if state.errand.runnable and self._may_run(state):

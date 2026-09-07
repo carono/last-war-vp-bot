@@ -2876,5 +2876,9 @@
   "errand.arg.rob.rotations": "Recargas de la lista antes de la pausa",
   "errand.arg.rob.rotations.hint": "Cuántas veces seguidas la lista puede volver sin un objetivo válido antes de que la tarea se rinda y programe su próximo turno. Un robo reinicia la cuenta.",
   "errand.arg.rob.pause_min": "Pausa, minutos",
-  "errand.arg.rob.pause_min.hint": "Es el próximo turno de la tarea, no una espera: nadie retiene el enlace con el juego mientras tanto."
+  "errand.arg.rob.pause_min.hint": "Es el próximo turno de la tarea, no una espera: nadie retiene el enlace con el juego mientras tanto.",
+  "checklist.item.winwin": "Cooperación de Beneficio Mutuo",
+  "checklist.detail.no_target": "no hay Líder de Guerra en quien usarlo",
+  "checklist.state.no_target": "sin objetivo",
+  "checklist.detail.winwin_next": "de nuevo en {t}"
 }
