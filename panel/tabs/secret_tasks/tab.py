@@ -4790,7 +4790,7 @@ class SecretTasksTab(PanelTab):
                                        "value": self.ghost_map.rule_text()}],
                            "empty": "secrettasks.ghost.map.empty",
                            "fields": [{"key": "ghost_autoloot",
-                                       "label": "ghost.autoloot",
+                                       "label": "ghost.autoloot.short",
                                        "hint": "ghost.hint",
                                        "kind": opt_value.SWITCH,
                                        "value": bool(

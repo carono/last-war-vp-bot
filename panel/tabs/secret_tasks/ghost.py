@@ -580,7 +580,7 @@ class GhostMapGrid(_GhostGrid):
         bar.pack(fill="x")
         self.tab.tr(ttk.Checkbutton(bar, variable=self.autoloot_var,
                                     command=self.order.toggle),
-                    "ghost.autoloot").pack(side="left")
+                    "ghost.autoloot.short").pack(side="left")
         self.tab.tr(ttk.Label(bar), "ghost.level_min").pack(side="left", padx=(12, 2))
         NumericEntry(bar, textvariable=self.level_min_var, width=4).pack(side="left")
         self.tab.tr(ttk.Button(bar, width=16, command=self._steal_all),
