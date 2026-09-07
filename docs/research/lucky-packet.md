@@ -240,3 +240,62 @@ refused WITH A POPUP, which is the mistake #2365 paid for on the fireworks.
 **Still open:** how many diamonds a share was worth. The reply was not read (no live
 packet), so the card counts PACKETS and says nothing about diamonds rather than inventing
 a number.
+
+### 7.5 The thank-you, and the window it leaves open (#2603)
+
+Taking a gift is not the whole gesture a person makes: they press the **like** and then
+shut the window the client opened over the chat. Both are done by the ear now, two
+seconds after the press, so neither is in the way of the race the press itself is in.
+
+**The like is a THUMBS-UP of its own kind.** `InteractiveUtil.ThumbsUpType` names sixty
+of them and two are this mechanic — `AllianceLuckSiphonBuff = 60` and
+`AllianceLuckSiphonRedPacket = 61`. That 61 is the gift and not something else is the
+client's own word for it:
+
+```lua
+InteractiveUtil.GetLangKeyByThumbType(61)   -- conveyLuck_like_tips
+-- «Спасибо за Счастливый подарок, которым ты поделился»
+```
+
+The send is
+
+```lua
+InteractiveUtil.DoSendMessage(<sharer uid>, 61, <chat message seqId>, '')
+--  thumbs.up  {targetUid, type, content, extParam}
+```
+
+and **the types are not free**. The uid and the sequence go as STRINGS: passing the
+sequence as a number is refused by the client's own serialiser before a byte leaves —
+`SFSDataSerializer.lua:55: attempt to get length of a number value (local 'val')` — the
+same shape of mistake the fourth field of `open.red.packet` cost in §7.2.
+
+**`InteractiveUtil.TryThumbsUp` is deliberately not used.** It is the front door
+(`TryThumbsUp(targetUid, thumbsUpType, identifier, callback, extParam, notSendMessage_)`)
+and it answers `true` while sending nothing at all: measured three ways — from the VM
+thread, from the main thread through `TimerManager:DelayInvoke`, and with a wrapper on
+`SFSNetwork.SendMessage` watching the wire — the wire stayed empty and the day's count
+did not move.
+
+**The proof is a spent charge, never a send that did not raise.** Likes of a kind are
+capped and the client counts them itself:
+
+| call | answer, measured |
+|---|---|
+| `GetMaxThumbsUpCount(61)` | 10 a day |
+| `GetCanThumbsUpCount(61)` | what is left of them today |
+| `CanThumbsUp(61)` | is the mechanic open at all |
+
+So the ear reads the count, sends, reads it again, and only a count that DROPPED is
+reported as a thank-you. Verified end to end on the ordinary chat like (type 2, the same
+command and the same field types): 20 → 19.
+
+**The window** is `LWUIRedPacketDetails`, with `LWUIRedPacketOperation` beside it, and
+both are closed with the client's own `Ctrl:CloseSelf()` — never `DestroyAllWindow`,
+which takes the HUD with it and does not give it back.
+
+**And the card the ability lives under was a dead one.** `lucky_watch` played
+`watch_lucky_packet`, the ear removed in §5 — the recipe went in #2397 and the row did
+not, so every profile that ever ran it kept failing every five minutes («unrecognised
+statement») under a card showing its bare name, because a listener that is not in the
+code has no label key either. `panel/triggers.py::RETIRED_TRIGGERS` drops it, and
+`red_packet_watch` is the card, named the way the game names the thing.

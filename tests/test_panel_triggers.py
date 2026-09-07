@@ -295,6 +295,38 @@ def test_loading_an_old_file_grows_it_on_disk():
         assert on_disk[0]["enabled"] is True
 
 
+def test_a_retired_listener_is_dropped_from_a_profile_that_still_has_it():
+    """#2603 — `lucky_watch` names a recipe that was deleted in #2397.
+
+    The row survived in every profile that ever ran it, because a profile's catalogue
+    is its own and outlives the built-ins, and it failed every five minutes under a
+    card that showed its bare name. So it goes on the next start, and the list it is
+    written back into keeps everything else.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(Path(tmp) / "triggers.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump([{"name": "lucky_watch", "kind": "poll",
+                        "scenario": "watch_lucky_packet", "enabled": True},
+                       {"name": "alliance_help", "event_pattern": "al.help.new",
+                        "scenario": "help_ally", "enabled": True}], fh)
+        cat = triggersmod.load_catalogue(path)
+        assert "lucky_watch" not in cat.names()
+        assert "lucky_share" not in cat.names()
+        assert cat.by_name("alliance_help").enabled is True
+        # …and it does not come back on the next start
+        assert "lucky_watch" not in [e["name"] for e in settings_files.read(path)]
+        assert "lucky_watch" not in triggersmod.load_catalogue(path).names()
+
+
+def test_the_lucky_gift_watch_has_a_card_of_its_own():
+    """A card without a `.short` draws its whole label and gets no «i» (#2061)."""
+    words = json.loads((_REPO_ROOT / "panel" / "locales" / "en.json").read_text("utf-8"))
+    assert words["triggers.item.red_packet_watch.short"]
+    assert len(words["triggers.item.red_packet_watch.short"]) < \
+        len(words["triggers.item.red_packet_watch"])
+
+
 def test_an_unreadable_file_is_not_grown_or_overwritten():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(Path(tmp) / "triggers.json")

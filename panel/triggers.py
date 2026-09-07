@@ -399,6 +399,24 @@ _KICK_CHECK = (
     "return false end)()"
 )
 
+#: Listeners this version no longer HAS — the old name, mapped to what does the job
+#: instead (or to an empty string when nothing does). A row here is deleted from a
+#: profile's catalogue on the next start, exactly the way `panel/timers.py` retires an
+#: errand: a profile's list is its own and outlives the built-ins (#2017), so dropping a
+#: `Trigger` from the tuple below leaves it running in every account that ever had it.
+#:
+#: Both entries are the lucky gift (#2603). `lucky_watch` played `watch_lucky_packet`,
+#: an ear removed in #2397 on the person's own decision — the recipe went, the row did
+#: not, and it has been failing every five minutes ever since with «unrecognised
+#: statement», under a card that showed its bare name because a listener that is not in
+#: the code has no label key either. `lucky_share` became an ERRAND of the same name
+#: (`panel/timers.py`), and two ways of playing one recipe is two runs over one packet.
+RETIRED_TRIGGERS: dict[str, str] = {
+    "lucky_watch": "red_packet_watch",
+    "lucky_share": "",
+}
+
+
 DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
     Trigger(
         name="alliance_help",
@@ -1105,6 +1123,28 @@ def merge_new(catalogue: TriggerCatalogue,
     return grown, tuple(t.name for t in added)
 
 
+def retire_triggers(catalogue: TriggerCatalogue,
+                    path: str) -> "tuple[TriggerCatalogue, tuple[str, ...]]":
+    """Drop the listeners this version no longer has; say which ones went.
+
+    The profile's catalogue owns its list (:func:`parse_catalogue`) and nothing else
+    may rewrite it — with the one exception `panel/timers.py::retire_errands` already
+    makes for an errand: a row in :data:`RETIRED_TRIGGERS` is not one the operator chose
+    to keep, it is one the panel cannot run at all. Left alone it either fires for ever
+    at a recipe that is not there, or plays a recipe a second door already plays.
+
+    The list is written back without them, so nothing else in it moves, and the names
+    come back for the caller to say out loud.
+    """
+    stale = [t for t in catalogue.triggers if t.name in RETIRED_TRIGGERS]
+    if not stale:
+        return catalogue, ()
+    kept = tuple(t for t in catalogue.triggers if t.name not in RETIRED_TRIGGERS)
+    fresh = TriggerCatalogue(kept, catalogue.path or path, catalogue.errors)
+    save_catalogue(fresh, path)
+    return fresh, tuple(t.name for t in stale)
+
+
 def load_catalogue(path: str, seed_from=None) -> TriggerCatalogue:
     """Read a catalogue file, falling back to ``seed_from`` / the built-in list.
 
@@ -1133,6 +1173,11 @@ def load_catalogue(path: str, seed_from=None) -> TriggerCatalogue:
             return TriggerCatalogue(seed.triggers, path,
                                     [f"{os.path.basename(path)}: {exc}"])
     parsed = parse_catalogue(data, path, fallback=seed)
+    parsed, retired = retire_triggers(parsed, path)
+    if retired:
+        _dbg_window().info("%s: retired listener(s) %s",
+                           os.path.basename(os.path.dirname(path)) or path,
+                           ", ".join(retired))
     # The seed already carries the built-ins (the template is itself loaded through
     # here), so merging against it covers both the template and a profile. A file
     # too broken to parse comes back AS the seed, so nothing is missing, nothing is
