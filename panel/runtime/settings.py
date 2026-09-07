@@ -513,7 +513,9 @@ class SettingsBinder:
     #: still names it in `tabs.enabled` / `tabs.known` / `tabs.order`, and without this
     #: the merge would look, to that profile, like the new tab was never asked for
     #: (task #1240: the standalone "Сценарии" tab became part of "Разработка").
-    _TAB_ID_MERGES = {"scenarios": "develop"}
+    #: …and «Дуэль VS» became «VS» in #2617 — the same plan and the same class, drawn
+    #: as a card per day. A profile that named the old id keeps its answer.
+    _TAB_ID_MERGES = {"scenarios": "develop", "vs_duel": "vs"}
 
     def tab_list(self, key: str) -> "list | None":
         """``tabs.enabled`` / ``tabs.order`` / ``tabs.known``, or ``None`` if absent."""

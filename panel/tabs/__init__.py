@@ -220,8 +220,11 @@ TABS: tuple = (
             order=310),
     TabSpec("command_post", "panel.tabs.command_post", "CommandPostTab",
             order=320, in_development=True),
-    TabSpec("vs_duel",   "panel.tabs.vs_duel",   "VsDuelTab",    order=330,
-            in_development=True),
+    # «VS» — the duel week as six cards, one per day (#2617). It IS the tab that used
+    # to be «Дуэль VS»: the same class and the same plan, drawn the way «Таймеры» draws
+    # a card, and out of development mode. There is no `vs_duel` entry beside it on
+    # purpose — two pages of one plan would be two truths of it.
+    TabSpec("vs",        "panel.tabs.vs",        "VsTab",        order=330),
     TabSpec("treasure_debug", "panel.tabs.treasure_debug", "TreasureDebugTab",
             order=340, default_enabled=False, in_development=True),
     TabSpec("worldview", "panel.tabs.worldview", "WorldViewTab", order=350),
