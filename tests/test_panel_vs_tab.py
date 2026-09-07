@@ -51,7 +51,6 @@ def _tab():
     rt = fake_runtime.cold_runtime(root)
     tab = VsTab(rt, ttk.Frame(root))
     rt.tabs.add(tab)
-    tab.apply_config({})          # the two sets a fresh profile is given
     return root, tab
 
 
@@ -154,6 +153,27 @@ def test_the_words_it_adds_are_in_every_shipped_locale():
         table = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
         for key in NEW_KEYS:
             assert table.get(key), f"{lang}.json has no {key}"
+
+
+def test_a_profile_that_never_saved_this_tab_still_reads_its_plan():
+    """The week is in the variables the moment the tab exists — no block, no drawing.
+
+    `panel/headless.py` restores only a block that is not empty, and the phone has no
+    `build()` to fall back on: without this the screen said «0 / 4» over a plan the
+    panel would have played in full.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        monday = _week(tab.web_view())["items"][0]
+        assert monday["facts"][0]["value"] == "4 / 4", monday["facts"]
+        assert any(field["key"] == "plan.mon.drone_parts" and field["value"] is True
+                   for field in monday["options"]), monday["options"][:3]
+    finally:
+        root.destroy()
 
 
 def _main() -> int:
