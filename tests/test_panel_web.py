@@ -2441,6 +2441,16 @@ def test_a_link_naming_an_account_this_panel_has_not_got_is_corrected_in_silence
     # still replaces so the back button does not walk through the app's own correction.
     assert "go({ ...routeRef.current, profile: want }, true)" in app, \
         "the fallback no longer writes the account it fell back to"
+    # …AND IT HAPPENS AT ALL for an account that is genuinely gone. Every route the page
+    # draws itself with names the profile, and the panel refuses all of them with 409
+    # `no_such_profile` — so before #2593 the poll only ever threw and a link to a closed
+    # account left the page on «нет связи с панелью» for ever, with no list to fall back
+    # to. The refusal carries the accounts there ARE, and the page re-points itself off
+    # that, silently and replacing.
+    api = (_APP_SRC / "api.ts").read_text(encoding="utf-8")
+    assert "export class NoSuchProfile" in api and "said.error === 'no_such_profile'" in api, \
+        "a refused account no longer reaches the page as its own kind of failure"
+    assert "err instanceof NoSuchProfile" in app, "the poll no longer re-points itself"
 
 
 def test_the_page_carries_one_switcher_and_it_is_the_account_face():

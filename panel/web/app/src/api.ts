@@ -23,6 +23,19 @@ export function setProfile(name: string): void {
 /** Raised when the panel says the token is not good — the caller shows the login box. */
 export class Unauthorised extends Error {}
 
+/** Raised when this panel has not got the account the request named (#2593).
+ *
+ * A link is sent to oneself and opened a week later, by which time that profile may have
+ * been closed at the machine — or the link came from another computer altogether. The
+ * refusal carries the accounts there ARE, so the page can re-point itself in silence
+ * instead of sitting on «нет связи с панелью» for ever: every route it draws itself with
+ * names the account, so without this the poll only ever failed. */
+export class NoSuchProfile extends Error {
+  constructor(readonly profiles: string[]) {
+    super('no_such_profile')
+  }
+}
+
 function withProfile(path: string): string {
   if (!profile) return path
   return path + (path.includes('?') ? '&' : '?') + 'profile=' + encodeURIComponent(profile)
@@ -31,6 +44,10 @@ function withProfile(path: string): string {
 export async function get<T>(path: string): Promise<T> {
   const answer = await fetch(withProfile(path), { headers: { Accept: 'application/json' } })
   if (answer.status === 401) throw new Unauthorised('unauthorised')
+  if (answer.status === 409) {
+    const said = (await answer.json().catch(() => ({}))) as { error?: string; profiles?: string[] }
+    if (said.error === 'no_such_profile') throw new NoSuchProfile(said.profiles || [])
+  }
   if (!answer.ok) throw new Error('http ' + answer.status)
   return (await answer.json()) as T
 }

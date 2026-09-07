@@ -486,6 +486,14 @@ names the account on screen at all times, which is the part that actually preven
 mistake. Opening the missing profile is still not offered, because opening one is the
 window's own doing (`Workspace`) and deliberately not a press the phone has (§3.4).
 
+The silence had to be paid for with the correction actually WORKING, which it did not.
+Every route the page draws itself with names the account, and a panel that has not got
+it refuses all of them with `409 no_such_profile` — so a link to a genuinely closed
+profile never reached the list-comparing branch at all: the poll threw, and the page sat
+on «нет связи с панелью» for ever. The refusal carries the accounts there ARE, so `get`
+raises it as its own kind of failure (`NoSuchProfile`) and the poll re-points itself off
+that list — silently, and REPLACING, like the other fallback.
+
 **A tap PUSHES, a correction REPLACES.** Choosing a chip, opening a screen, moving to
 another tab are steps the back button undoes. The panel filling in what the person did
 not type — falling back to the account the window is showing, or off a profile the

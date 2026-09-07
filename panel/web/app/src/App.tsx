@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { get, ping, post, setProfile, Unauthorised } from './api'
+import { get, NoSuchProfile, ping, post, setProfile, Unauthorised } from './api'
 import { useRoute, type Route, type ViewName } from './route'
 import { loadWords, span, t, type Words } from './i18n'
 import { Modal } from './ui/Modal'
@@ -358,6 +358,20 @@ function Panel() {
       setTickCount((n) => n + 1)
     } catch (err) {
       if (err instanceof Unauthorised) location.reload()
+      // THE ADDRESS NAMED AN ACCOUNT THIS PANEL HAS NOT GOT (#2593). Every route the page
+      // draws itself with carries the account, so the refusal came back for all of them
+      // and the poll simply failed — a link to a closed profile left the page saying «нет
+      // связи с панелью» for ever. The refusal names the accounts there are, so the page
+      // re-points itself at the first of them SILENTLY and REPLACES, exactly as the
+      // fallback above does.
+      else if (err instanceof NoSuchProfile) {
+        const want = err.profiles[0] || ''
+        if (want && want !== profile) {
+          setProfile(want)
+          go({ ...routeRef.current, profile: want }, true)
+          return
+        }
+      }
       setOffline(true)
     }
   }, [announce, go, profile, refreshTimers])
