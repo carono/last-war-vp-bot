@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 74 of 194
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 75 of 194
 
-🟩 74 done · 🟨 88 partly · 🟥 32 not automated
+🟩 75 done · 🟨 89 partly · 🟥 30 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -168,7 +168,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 ### Alliance duel (VS)
 
-- ❌ Opening drone chips
+- ✅ Opening the drone's chip chests — one press empties every chest of every grade the bag holds, however many piles they are in, and it does it in a single go rather than one box at a time. A bag with none of them says so and opens nothing. Live: 44 chests of three grades, all opened at once
 - ❌ Training the army
 - ❌ Opening drone components
 - ❌ Collecting duel gifts
@@ -180,7 +180,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 Collecting the base on a schedule — a switch and a period in the panel (an hour by default): once that long has passed since the last collection the sweep happens by itself, so the buildings do not sit full while nobody is looking. Same schedule as the alliance donation and the gifts above, each errand with its own period and the clock kept per account; not yet run through a live session
 - ❌ Researching technology
 - ❌ Upgrading and constructing buildings
-- ❌ Upgrading the drone
+- 🟡 Raising the drone's level — one press spends what the account has on as many levels as it will buy, and it never assumes the price: what a level costs is read from the game each time, so a drone that has grown more expensive is still counted right. It stops and says which of the two ceilings it hit — the drone's own maximum or the level the base building allows — and a press the game refused is reported as a failure rather than as success. Live on the account it read the drone at level 174 of 250 with the exact price of the next one; the raise itself has not yet been watched happen, because the account was being played from another device at the time
 - ❌ Raising the shield
 - ❌ Expedition
 - ❌ Levelling survivors
