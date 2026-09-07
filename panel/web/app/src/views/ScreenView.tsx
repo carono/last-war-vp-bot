@@ -936,13 +936,20 @@ export function ScreenPage({
      one and the chat's — is 88 px of a phone spent saying «Чат» twice, and the person
      asked for one: «вверху кнопки назад и чаты в одну строку сделай». */
   const ownHead = view?.map?.kind === 'chat'
+  /* THE MAP AND VS CARRY NO «НАЗАД» (#2621) — the person's own words: «из вкладок
+     карты, vs убираем кнопку назад». Both are reached straight off the footer now,
+     not through «Ещё», so a back button pointed at a list they were never opened
+     from; «Ещё» itself moved into the header for the same reason. The title stays. */
+  const noBack = id === 'worldview' || id === 'vs'
   return (
     <>
       {ownHead ? null : (
         <div className="row screen-head">
-          <button className="back" onClick={onBack}>
-            {t('web.ui.back')}
-          </button>
+          {noBack ? null : (
+            <button className="back" onClick={onBack}>
+              {t('web.ui.back')}
+            </button>
+          )}
           <b>{t(view?.title || '')}</b>
         </div>
       )}

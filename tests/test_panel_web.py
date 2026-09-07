@@ -2309,32 +2309,56 @@ def test_the_conversation_takes_the_whole_phone_and_reserves_nothing():
 
 
 def test_the_map_and_chat_are_bottom_buttons_and_chat_still_hides_the_bar():
-    """#2593: six one-line cells fit 390 px; open chat deliberately keeps none.
+    """#2593: five one-line cells fit 390 px; open chat deliberately keeps none.
 
-    #2620 added the sixth — VS, beside chat — so the map keeps pointing at the
-    `worldview` screen (the one with the pan and the swept-tile grid) and VS
-    joins it in the footer rather than staying reachable only through «Ещё»."""
+    #2620 added VS beside chat, so the map keeps pointing at the `worldview` screen
+    (the one with the pan and the swept-tile grid). #2621 then moved «Ещё» into the
+    header — the person's words: «в футере кнопку еще переносим в хеадер» — leaving
+    five destinations that each carry a `screen` (or, for state/timers, a `view`) of
+    their own; a plain list has no place fighting them for a footer slot."""
     app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
     nav = app[app.index("const NAV"):app.index("const DEVELOP_SCREEN")]
-    assert nav.count(" id: '") == 6, "the footer does not have exactly six destinations"
+    assert nav.count(" id: '") == 5, "the footer does not have exactly five destinations"
+    assert "id: 'more'" not in nav, "«Ещё» is still a footer destination"
     assert "key: 'web.ui.nav.map'" in nav and "screen: 'worldview'" in nav
     assert "key: 'tab.chat'" in nav and "screen: 'chat'" in nav
     assert "key: 'tab.vs'" in nav and "screen: 'vs'" in nav
     assert (nav.index("id: 'map'") < nav.index("id: 'chat'")
-            < nav.index("id: 'vs'") < nav.index("id: 'more'"))
+            < nav.index("id: 'vs'"))
     assert "(entry.screen ? screen === entry.screen" in app, \
         "the map and chat buttons have no active state"
     assert '<NavIcon id={entry.id} />' in app and 'className="nav-label"' in app
     assert "aria-label={t(entry.key)}" in app, "an icon button has no accessible name"
     assert "stroke-width: 1.8" in _css(), "the footer icons are not one outline family"
     css = _css()
-    assert "grid-template-columns: repeat(6, minmax(0, 80px))" in css, \
-        "the six buttons either overflow a phone or stretch across a wide screen"
+    assert "grid-template-columns: repeat(5, minmax(0, 80px))" in css, \
+        "the five buttons either overflow a phone or stretch across a wide screen"
     assert "padding: 6px 6px" in css and "gap: 2px" in css
     assert "white-space: nowrap" in css, "a footer label may wrap"
     assert "min-height: 52px" in css, "a footer target is shorter than 44 px"
     assert "nav .nav.on::after" in css, "the active destination has no position mark"
     assert "body.chatting nav { display: none; }" in css, "chat shows the footer again"
+
+
+def test_more_moved_into_the_header_and_the_screens_that_replaced_it_lost_back():
+    """#2621: «Ещё» is a header button now, and «Карта»/«VS» — reached straight off
+    the footer, never through «Ещё» — draw no «назад»; the title stays."""
+    app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
+    header = app[app.index("<header>"):app.index("</header>")]
+    assert "className={'head-more'" in header, "«Ещё» is not a header control"
+    assert "view: 'more', screen: null" in header, \
+        "the header button does not drop an open screen"
+    assert '<NavIcon id="more" />' in header
+    assert "aria-label={t('web.ui.nav.more')}" in header
+
+    css = _css()
+    assert ".head-more {" in css and "width: var(--tap)" in css, \
+        "the header button is smaller than a tap target"
+
+    screen_src = (_APP_SRC / "views" / "ScreenView.tsx").read_text(encoding="utf-8")
+    assert "const noBack = id === 'worldview' || id === 'vs'" in screen_src
+    assert "{noBack ? null : (" in screen_src, \
+        "the map or VS screen can still draw a back button"
 
 
 def test_the_pane_is_the_grey_and_the_bubbles_are_the_paper():
