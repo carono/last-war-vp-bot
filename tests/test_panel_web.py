@@ -2319,7 +2319,10 @@ def test_the_map_and_chat_are_bottom_buttons_and_chat_still_hides_the_bar():
     #2622: «Карта» points at `secret_tasks` (the mine/monster/truck GRID tables,
     a coordinate click walks the camera), not `worldview` (the read-only Pixi
     mirror #2593/#2620 had guessed at) — the person's own answer once they saw
-    the wrong one live: «ссылка на карту не изменена»."""
+    the wrong one live: «ссылка на карту не изменена».
+
+    #2623: chat moved to the RIGHTMOST slot — «Чат сделай самым правым» — the
+    rest keep their order."""
     app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
     nav = app[app.index("const NAV"):app.index("const DEVELOP_SCREEN")]
     assert nav.count(" id: '") == 5, "the footer does not have exactly five destinations"
@@ -2329,8 +2332,10 @@ def test_the_map_and_chat_are_bottom_buttons_and_chat_still_hides_the_bar():
         "the footer map button still points at the read-only mirror"
     assert "key: 'tab.chat'" in nav and "screen: 'chat'" in nav
     assert "key: 'tab.vs'" in nav and "screen: 'vs'" in nav
-    assert (nav.index("id: 'map'") < nav.index("id: 'chat'")
-            < nav.index("id: 'vs'"))
+    assert (nav.index("id: 'state'") < nav.index("id: 'timers'")
+            < nav.index("id: 'map'") < nav.index("id: 'vs'")
+            < nav.index("id: 'chat'")), \
+        "chat is not the rightmost footer destination"
     assert "(entry.screen ? screen === entry.screen" in app, \
         "the map and chat buttons have no active state"
     assert '<NavIcon id={entry.id} />' in app and 'className="nav-label"' in app
