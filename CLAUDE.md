@@ -579,7 +579,60 @@ tracker — until:
   base coordinate, IP or user-named path, in code, tests, fixtures, docs, comments or
   example commands. A live reply used as an example is rewritten with invented values of
   the same shape BEFORE it is committed, never after (below);
+- **the work was done on its own branch, in its own worktree, and the branch is gone**
+  — merged into `master`, tested AFTER the merge, deleted local and remote (below);
 - and, once the user has confirmed it live, both farming files say so (below).
+
+## A task is done on its own branch, in its own worktree
+
+**Binding on every agent, and it is the person's decision**, in their words: «С этого
+момента делай задачи в своих ветках, по завершению мерж, тестируй и удаляй ветки».
+
+Why, and it is not hypothetical: several workers share this checkout at the same time.
+Working straight on `master` in the shared tree is how a neighbour's half-written files
+got swept into somebody else's commit, and once that broke `HEAD` for everybody.
+
+**NEVER `git checkout`/`git switch` a branch in the shared checkout.** It rewrites files
+under a neighbour who is mid-edit. A branch is entered by making a WORKTREE of it, and
+the user's rule says where those live: `~/worktrees/task-NNN`, never inside the
+repository.
+
+```bash
+# 1. a branch and a tree of its own — off the CURRENT master, fetched first
+git -C <the shared checkout> fetch origin
+git -C <the shared checkout> worktree add -b task-NNN ~/worktrees/task-NNN origin/master
+cd ~/worktrees/task-NNN
+# 2. work here; stage BY PATH, commit atomically (`git add -A` and `git stash` stay forbidden)
+git add path/one.py path/two.md && git commit -m "fix(area): … (#NNN)"
+# 3. merge back, in the shared checkout, without switching anything
+git -C <the shared checkout> merge --no-ff task-NNN
+# 4. TEST AFTER THE MERGE (see below), then push
+git -C <the shared checkout> push
+# 5. take the tree and the branch away — both ends
+git -C <the shared checkout> worktree remove ~/worktrees/task-NNN
+git -C <the shared checkout> branch -d task-NNN
+git -C <the shared checkout> push origin --delete task-NNN   # only if it was pushed
+```
+
+A merge that reports a conflict is not force-resolved and history is never rewritten: fix
+the conflict in the worktree, merge again, and if it is a neighbour's file — ask them.
+
+### What counts as «протестировано»
+
+Tested means, after the merge and before the push:
+
+* the areas the change touched are green — the specific test files, run by name
+  (`tests/test_<area>.py`), not «it looked fine»;
+* the panel still imports (`python3 -c "import panel.headless"` at minimum, and the
+  registry when a tab moved);
+* the numbers are stated in the report, with any failure that also fails on the merge
+  base named as pre-existing — a suite that was already red is not a licence to add red,
+  and it is not a reason to hold the merge either;
+* **the live panel is restarted** when the change is a fix, because a fix nobody
+  restarted into is not delivered (above).
+
+A branch is deleted only after that. A branch left behind is indistinguishable from work
+in progress, and the next agent has no way to tell whether it is safe to build on.
 
 ## Nothing about one machine is written into the code
 
