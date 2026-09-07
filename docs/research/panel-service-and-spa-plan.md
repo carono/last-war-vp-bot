@@ -303,6 +303,48 @@ answered `unavailable` rather than stopping one that is not running.
 **The first time still costs one elevated press** — the running service predates the route.
 After that a service fix is delivered like a panel fix: press, then probe `head`.
 
+## The service is the ROOT of the tree, and stopping it stops everything (#2613)
+
+    «Питоновские проекты нужно спавнить от службы, чтобы когда я отключаю службу,
+      все дочерние скрипты умирали, а не висели в системе»       — the person
+
+**What was measured.** The shutdown was polite all the way down and stopped there. The
+SCM's stop reaches `Service.stop`, the keeper asks each panel it started to quit through
+that panel's own socket and waits `STOP_WAIT_SEC`, and whatever is still up is *left
+alone* — the right call for a panel writing a profile out, and a leak for everything
+under it. A panel is a tree, not a process: the captures, the sniffers, the robbery
+tools, the Lua connector. Every one of them outlived a service that is STOPPED, went on
+spending the day's budgets, and held the web port the next service has to bind — which
+is exactly the «port 9761 is taken by another process» the service log fills with while
+the machine has no way in.
+
+**The floor.** `panel/service/tree.py`: at the top of `Service.start`, before the door,
+the keeper or anything else exists, the service puts ITSELF in a Windows job object with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. A process created by a member of a job joins that
+job, and so does everything IT creates — `subprocess.Popen`, `CreateProcessAsUserW` into
+a signed-in session (`panel/service/session.py`), detached, windowless, any of it. When
+the last handle to the job closes — when the service process ends, for any reason,
+including being killed — the kernel terminates every member. Measured on this machine
+against a two-level chain (holder → child → grandchild): all of it gone within a second
+of the holder's end (`tests/test_service_tree.py`).
+
+**It replaces nothing.** The orderly shutdown is unchanged and still first: ask, wait,
+and only what ignored all of that meets the job. `taskkill` is not involved and neither
+is a kill of anything by pid — the kernel closes the tree because the root closed.
+
+**What keeps the restarts working.** The job also carries `JOB_OBJECT_LIMIT_BREAKAWAY_OK`,
+and that is the whole of «do not break `POST /api/service`»: the restarter
+(`panel/service/self_control.py`) is a PowerShell running `Restart-Service` that must
+outlive the process asking for it, and it already asks for `CREATE_BREAKAWAY_FROM_JOB`
+with a fallback. The flag makes the ask succeed. `POST /api/panel` is untouched — a panel
+restarting ITSELF spawns its replacement inside the job and is supervised exactly as
+before, because the job fires only when the SERVICE goes.
+
+**What it deliberately does not reach.** A panel a person started themselves is not a
+child of the service and never joins its job, the same way the keeper leaves such a window
+alone. This closes OUR tree, never a stranger's process. A machine that wants the old
+behaviour sets `LW_SERVICE_NO_JOB=1` rather than editing code.
+
 ## 1. Target architecture
 
 **Built and measured, 2026-08-26.** What follows was the design; this is what it is now,

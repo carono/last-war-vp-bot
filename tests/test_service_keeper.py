@@ -188,7 +188,7 @@ def test_going_down_asks_its_own_panels_and_leaves_the_persons_alone():
     assert not theirs.asked, "a panel the PERSON started was shut down by the service"
 
 
-def test_a_panel_that_will_not_go_is_left_alone_and_said():
+def test_a_panel_that_will_not_go_is_left_to_the_job_and_said():
     class _Stubborn(_Panel):
         def ask(self, *a, **k):
             return 200, {"ok": True}          # takes the press and stays up
@@ -197,7 +197,10 @@ def test_a_panel_that_will_not_go_is_left_alone_and_said():
     keep, _, lines = _keeper(_Registry([stuck]))
     keep.own.add(4242)
     keep.stop(wait=0.5)
-    assert any("left alone" in ln for ln in lines), lines
+    # NOT KILLED by the keeper — and no longer left running either: the service holds a
+    # kill-on-close job, so what ignores the ask goes with the service process (#2613,
+    # `panel/service/tree.py`). The line says which of the two happened.
+    assert any("left to the job" in ln for ln in lines), lines
     assert not stuck.closed, "the keeper killed a panel instead of leaving it"
 
 

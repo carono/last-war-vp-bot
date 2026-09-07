@@ -40,6 +40,7 @@ from .api import ServiceApi
 from .door import DEFAULT_DOOR_PORT, DOOR_HOST, Door
 from .keeper import Keeper
 from .registry import Registry
+from . import tree
 
 #: Where the machine's own service settings live: `service.json` in the repository root.
 #:
@@ -205,12 +206,30 @@ class Service:
         self.keeper = Keeper(self.registry, self.config, log=self._log)
 
     def start(self) -> None:
+        # THE FLOOR FIRST, before anything is spawned (#2613): this process becomes the
+        # root of a job that kills on close, so every panel, capture, sniffer and tool
+        # below it dies when the service does instead of hanging about in the system.
+        # It changes nothing about the orderly shutdown below — see `panel/service/tree.py`.
+        self._hold_the_tree()
         self.door.start()
         self._take_the_port()
         self._pinger = threading.Thread(target=self._ping, name="service-ping",
                                         daemon=True)
         self._pinger.start()
         self.keeper.start()
+
+    def _hold_the_tree(self) -> None:
+        """Become the root of the process tree — and never in a test run.
+
+        The guard is `panel/service/session.py`'s, for its reason: a test that starts a
+        real :class:`Service` would put the TEST RUNNER'S process in a kill-on-close job,
+        and the tree it would take down on the way out is the test run's own.
+        """
+        from . import session as sessionmod
+
+        if sessionmod._test_mode().in_test_run():      # noqa: SLF001 — its own package
+            return
+        tree.hold(self._log)
 
     def _take_the_port(self) -> None:
         """Bind the PERSON'S port, waiting out whoever is still letting go of it (#2068).

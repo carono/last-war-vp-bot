@@ -457,6 +457,11 @@ class Keeper:
                 return
             time.sleep(0.25)
         left = [p.pid for p in mine if not p.closed]
-        # NOT KILLED, on purpose. A panel still writing a profile out is a panel to leave
-        # alone; the service is going away either way, and the next one adopts nothing.
-        self._log(f"keeper: still up after {wait:.0f}s and left alone: {left}")
+        # NOT KILLED HERE, on purpose. A panel still writing a profile out is a panel to
+        # leave alone, and the next service adopts nothing. What used to be missing is the
+        # FLOOR under that politeness: one that never went — with its captures, sniffers
+        # and tools under it — outlived the service and went on farming for a machine
+        # whose service is stopped. `panel/service/tree.py` is that floor: the service
+        # holds a job that kills on close, so whatever is still here when this process
+        # ends goes with it, whole tree and all (#2613).
+        self._log(f"keeper: still up after {wait:.0f}s and left to the job: {left}")
