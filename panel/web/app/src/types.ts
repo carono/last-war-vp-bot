@@ -262,6 +262,12 @@ export interface ViewAction {
      arrives a second late every time (#1976). */
   confirm?: string
   confirm_fmt?: Record<string, unknown>
+  /* THE SIGN THIS PRESS WEARS (#2621). Absent, the press is the wide text button a
+     screen's actions have always been. `"run"` draws it as the errand card's own «▶» —
+     the same class, the same size, the same place in the foot as «Таймеры» — because a
+     card that IS the errand card must not carry a different button from it. The label
+     stays: it becomes the button's title and what a screen reader says. */
+  icon?: string
   /* A PRESS THAT IS ALREADY RUNNING, said by the tab rather than by this button (#2593).
      The button's own `busy` lasts only as long as the request; a jump to another warzone
      takes seconds after that, and the person pressed it again because nothing on the
@@ -369,6 +375,13 @@ export interface SortButton {
 
 export interface ViewCard {
   title?: string | null
+  /* THE CARD A SCREEN OPENS ON (#2621) — the person's words: «в vs основным экраном
+     делай неделю». A screen of more than two cards is drawn as a summary of tiles with a
+     chip strip over it, which is right when the cards are peers and wrong when one of
+     them IS the screen. The card that says `main` is what the screen opens on, and the
+     summary chip is not offered at all: a page whose subject is one card does not need
+     an index of itself. */
+  main?: boolean
   /* HOW THE CARD'S ITEMS ARE DRAWN (#1999, #2119). Absent or `rows` is the full-width
      row a list has always been; `tiles` is a wrap of small buttons, for a card whose
      items are PLACES — a coordinate, a level, a state and the press that goes there;
