@@ -39,9 +39,14 @@ const LOG_KEEP = 400 //  lines held for a phone that has been open all evening
 const NAV: { id: string; key: string; view: ViewName; screen?: string }[] = [
   { id: 'state', key: 'web.ui.nav.state', view: 'state' },
   { id: 'timers', key: 'web.ui.nav.timers', view: 'timers' },
-  /* The map is a first-class destination but remains the existing `worldview` screen:
-     no second API surface and no second map state (#2593). */
-  { id: 'map', key: 'web.ui.nav.map', view: 'more', screen: 'worldview' },
+  /* THE MAP MEANS THE GRID, NOT THE MIRROR (#2622). #2593/#2620 pointed «Карта» at
+     `worldview` — the read-only Pixi mirror of the panel's own model — on the
+     reasoning that it panned and drew a grid. The person's own answer, asked
+     directly after seeing it live: «Секретки» — the mine/monster/truck TABLES
+     (`panel/tabs/secret_tasks`) where a coordinate click walks the CAMERA, which is
+     what «ходим по карте» meant. `worldview` stays a screen, reachable through
+     «Ещё»; it is simply not this button any more. */
+  { id: 'map', key: 'web.ui.nav.map', view: 'more', screen: 'secret_tasks' },
   { id: 'chat', key: 'tab.chat', view: 'more', screen: 'chat' },
   { id: 'vs', key: 'tab.vs', view: 'more', screen: 'vs' },
 ]
