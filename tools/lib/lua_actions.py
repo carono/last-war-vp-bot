@@ -1623,12 +1623,26 @@ def win_win_ready() -> str:
 def apply_win_win() -> str:
     """Fire Win-Win at one War Leader of the alliance — one press, one target.
 
-    The call is the game's own click path, proven against the live VM with both senders
-    stubbed out and restored in the same chunk: `MasteryManager:UseSkill(10417, pointId,
-    nil, serverId)` reaches `SendUseSkillMsg` with `use.desert.talent.skill` and a param
-    of `{otherUid, serverId}` — **and never `MarchUtil.OnClickStartMarch`**, so nothing
-    leaves the base and nothing is spent but the charge. The uid is resolved inside
-    `UseSkill` from the point, so the caller passes the tile and not the player.
+    **`UseSkill` is deliberately NOT the call, and the reason cost a whole round of
+    debugging.** The obvious version — `MasteryManager:UseSkill(10417, pointId, nil,
+    serverId)`, the in-game click's own entry point — reaches `SendUseSkillMsg` and then
+    nothing happens: measured live, every `Building`-position skill sends **zero** bytes
+    through that route while every `SkillView` one sends its message, so the send is
+    handed to a later frame that the panel's thread never gives it (the same shape as
+    `SendCreateMarchMessage` needing `DelayInvoke`). A press through `UseSkill` therefore
+    reports success, spends nothing and changes nothing.
+
+    `SendUseSkillMsg` itself is fine and sends synchronously — proven live, and then
+    proven by spending a real charge: `state` 1 → 3, `num` 1/1 → 0/1, `cdEndTime` 0 → a
+    stamp 23 h 29 m out. So the press is the sender, called directly, with exactly the
+    param `UseSkill` builds: `{otherUid, serverId}` off the roster record, and
+    `MsgDefines.MasteryUseSkill`. No march is involved on either route.
+
+    THE FIRST DRY RUN "PROVED" THE BROKEN VERSION, and that is the lesson worth keeping:
+    it stubbed `SendUseSkillMsg` and watched `UseSkill` reach it. What it could not see
+    is that the REAL sender never runs. A stub that replaces the thing under test proves
+    only that its caller was reached — stub the layer BELOW it (`SFSNetwork.SendMessage`)
+    and the emptiness is obvious at once.
 
     WHICH War Leader is chosen deliberately rather than "the first one": somebody who is
     online will actually spend the discount inside the day it lasts, and among those the
@@ -1658,7 +1672,10 @@ def apply_win_win() -> str:
         "if v.online then pick=v end "
         "elseif (v.mainCityLv or 0)>(pick.mainCityLv or 0) then pick=v end end end end) "
         "if pick then M.__lw_fired=f M.__lw_fired[%d]=now "
-        "pcall(function() M:UseSkill(%d, pick.pointId, nil, pick.serverId) end) "
+        "local t=M:GetSkillTemplate(%d) "
+        "pcall(function() M:SendUseSkillMsg(t, "
+        "{otherUid=tostring(pick.uid), serverId=pick.serverId}, "
+        "MsgDefines.MasteryUseSkill) end) "
         'CS.UnityEngine.Debug.LogError("ACT win_win_used point "..tostring(pick.pointId)) '
         'else CS.UnityEngine.Debug.LogError("ACT win_win_no_candidate") end '
         'else CS.UnityEngine.Debug.LogError("ACT win_win_not_ready") end'

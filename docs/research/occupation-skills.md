@@ -236,33 +236,84 @@ for a candidate — the mastery family is `use.desert.talent.skill`, `learn.dese
 camera flight a player sees after picking the skill is the client walking its own roster.
 **Read once, then listen** is satisfied for free: the roster is already there.
 
-### What the press actually is
+### What the press is — and the wrong answer that a dry run "proved" first
 
-Proven the same way the untargeted press was, with `SFSNetwork.SendMessage`,
-`MasteryManager.SendUseSkillMsg` **and `MarchUtil.OnClickStartMarch`** stubbed inside one
-chunk and restored in the same chunk. Calling
+**`UseSkill` is the in-game click's entry point and it is NOT what a recipe may call.**
+That took a spent afternoon to establish, and the way it went wrong is the reusable part.
+
+The first dry run stubbed `SFSNetwork.SendMessage`, `MasteryManager.SendUseSkillMsg` and
+`MarchUtil.OnClickStartMarch` inside one chunk, called
 
 ```lua
 DataCenter.MasteryManager:UseSkill(10417, <pointId>, nil, <serverId>)
 ```
 
-arrived at exactly one call:
+and watched it arrive at exactly one call:
 
 ```
 SendUseSkillMsg id=10417 param={otherUid=<16-digit string>, serverId=<number>}
                 msg=use.desert.talent.skill
 ```
 
-Three things follow, and each closes a worry:
+No march, the uid resolved from the point, the client standing in the city. It read as a
+complete proof. **It was not one, because the stub replaced the thing under test.** All
+it showed is that `UseSkill` REACHES the sender; whether the real sender then does
+anything was exactly the question, and the stub had removed it.
 
-* **No march.** `OnClickStartMarch` was never reached, so nothing leaves the base and no
-  squad is tied up. The «Building» use-position names where the skill is AIMED, not that
-  it travels.
-* **The uid is resolved inside `UseSkill`.** The caller passes the tile and the server;
-  the client turns that into `otherUid` itself. So a recipe never has to hold a player's
-  id — it holds a point.
-* **It is headless and scene-free.** The whole of the above was run with the client
-  standing in the city, no world scene loaded and no window open.
+The live press proved it: `state` stayed `1`, `num` stayed `1/1`, `cdEndTime` stayed `0`.
+The re-fire stamp was on the manager, so the chunk had run — the send simply had not
+happened.
+
+Stubbing the layer BELOW instead — `SFSNetwork.SendMessage` only, with the real
+`SendUseSkillMsg` running — made it obvious in one reading. Over every active node of the
+tree:
+
+| use-position | skills | bytes on the wire through `UseSkill` |
+|---|---|---|
+| `SkillView` | 10113, 10118, 10130, 10225, 10240, 11409, 11410 | **1 each** |
+| `Building`  | 10120, 10133, 10417, 10436, 10450 | **0 each** |
+
+Zero for every targeted skill, including the three whose state was `Normal`. `UseSkill`
+hands a targeted send to a later frame that the panel's thread never gives it — the same
+shape as `SendCreateMarchMessage` needing `DelayInvoke`. **A press through `UseSkill`
+succeeds, logs, spends nothing and changes nothing.**
+
+`SendUseSkillMsg` itself is healthy and sends synchronously. Called directly with the
+param `UseSkill` builds:
+
+```lua
+local t = DataCenter.MasteryManager:GetSkillTemplate(10417)
+DataCenter.MasteryManager:SendUseSkillMsg(
+    t, {otherUid = <the roster record's uid, a string>, serverId = <its serverId>},
+    MsgDefines.MasteryUseSkill)
+```
+
+→ `SEND(use.desert.talent.skill)`, once, in the same frame. That is what
+`lua_actions.apply_win_win()` does.
+
+(`ClickWorldMasteryBtn` is not a way in: called with no arguments it raises
+`attempt to index a nil value (local 'param')` — it is the UI's handler and wants the
+cell's own data.)
+
+Two things the false proof did get right and that still hold: **no march is involved on
+either route** — `OnClickStartMarch` is never reached — and the whole thing is headless
+and scene-free, run with the client in the city and no window open.
+
+### Proven live, by spending a charge (2026-09-07)
+
+One press, on an alliance War Leader who was online, HQ 35. Before and after, read out of
+the client:
+
+| | before | after |
+|---|---|---|
+| `MasterySkillState` | `1` Normal | **`3` CD** |
+| charges `num`/`max` | `1/1` | **`0/1`** |
+| `GetSkillAvailableTime` (= `recover.cdEndTime`) | `0` | **a stamp 1409 min out** |
+| `lastTime` | the previous recovery | **moved to the press** |
+| `duration` | 84 600 000 ms | 84 600 000 ms (23.5 h) |
+
+and the checklist reading followed it: `winwin_left` 1 → **0**, `winwin_next_min` 0 →
+**1407**. So the row now draws «потрачено 1 из 1 · снова через 23:27».
 
 ### The gates, and what each of them says
 
@@ -301,9 +352,8 @@ also draws `winwin_next_min` as a countdown («снова через 20:41»): w
 question a person has after seeing «сделано» has no answer on the page. The `occupation_skills`
 timer counts this charge into its own wake-up clock for the same reason.
 
-**Still unproven:** the server accepting this press. The reading, the candidate list and
-the call path are all confirmed live; the charge had not been spent at the time of
-writing, so the feature stays 🟡 until a run is watched in-game.
+**Proven end to end.** The reading, the candidate list, the call path and the server
+accepting the press are all confirmed against the live game.
 
 ## On a clock — and the clock is the game's
 

@@ -420,7 +420,14 @@ def test_win_win_is_aimed_at_a_war_leader_and_stamps_the_guard():
 
     press = la.apply_win_win()
     assert "GetAllianceMemberListByCareer(%d)" % la.CAREER_WAR_LEADER in press
-    assert "M:UseSkill(%d, pick.pointId, nil, pick.serverId)" % la.WIN_WIN_SKILL_ID in press
+    # The SENDER, called directly — never `UseSkill`. Measured live: a `Building`-position
+    # skill routed through `UseSkill` puts ZERO bytes on the wire (the send is handed to a
+    # frame the panel's thread never gives it), so that version presses, reports success
+    # and spends nothing. Pinned because it looks like the more correct call of the two.
+    assert "M:SendUseSkillMsg(" in press
+    assert "MsgDefines.MasteryUseSkill" in press
+    assert "otherUid=tostring(pick.uid)" in press and "serverId=pick.serverId" in press
+    assert "M:UseSkill(" not in press, "UseSkill silently sends nothing for this skill"
     assert "__lw_fired" in press, "the press must stamp the re-fire guard"
     assert "OnClickStartMarch" not in press, "nothing marches for this one"
 
