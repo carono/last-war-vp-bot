@@ -36,7 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 LOCALES = ROOT / "panel" / "locales"
 
 #: What the tab adds to the words it inherits from the plan it draws.
-NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set")
+NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set",
+            "vs.run", "vs.day.soon", "vsduel.drone_chips")
 
 
 def _tab():
@@ -90,7 +91,8 @@ def test_the_days_switch_is_on_the_card_and_its_knobs_are_behind_the_gear():
         keys = [field["key"] for field in monday["options"]]
         assert "plan.mon.enabled" not in keys, (
             "the day's own switch is on the card, never repeated behind its gear")
-        assert "plan.mon.hero_level" in keys and "plan.mon.hero_exp_m" in keys, keys
+        assert keys == ["plan.mon.drone_chips"], (
+            "only what is wired is drawn (#2617) — %s" % keys)
         assert monday["options_title"] == "vsduel.day.mon"
     finally:
         root.destroy()
@@ -104,11 +106,11 @@ def test_a_press_moves_the_plan_and_the_card_says_so():
         return
     try:
         before = _week(tab.web_view())["items"][0]["facts"][0]["value"]
-        assert before == "4 / 4", before
-        assert tab.web_press("set", {"key": "plan.mon.hero_level",
+        assert before == "1 / 1", before
+        assert tab.web_press("set", {"key": "plan.mon.drone_chips",
                                      "value": False}) == {"ok": True}
         after = _week(tab.web_view())["items"][0]["facts"][0]["value"]
-        assert after == "3 / 4", after
+        assert after == "0 / 1", after
         assert tab.web_press("nope", {}) == {"error": "unknown"}
     finally:
         root.destroy()
@@ -169,11 +171,99 @@ def test_a_profile_that_never_saved_this_tab_still_reads_its_plan():
         return
     try:
         monday = _week(tab.web_view())["items"][0]
-        assert monday["facts"][0]["value"] == "4 / 4", monday["facts"]
-        assert any(field["key"] == "plan.mon.drone_parts" and field["value"] is True
+        assert monday["facts"][0]["value"] == "1 / 1", monday["facts"]
+        assert any(field["key"] == "plan.mon.drone_chips" and field["value"] is True
                    for field in monday["options"]), monday["options"][:3]
     finally:
         root.destroy()
+
+
+def test_only_the_wired_knobs_are_drawn_and_the_rest_of_the_week_says_so():
+    """«Скрой все параметры, что еще не реализованы» (#2617).
+
+    A tick over an ability nobody has written reads as a promise the bot will keep, and
+    the bot will not. So Monday shows the one knob a scenario is behind, and the other
+    five days show none at all and wear a word saying why.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        from panel.tabs.vs import READY, RUNS
+
+        items = {item["label"]: item for item in _week(tab.web_view())["items"]}
+        monday = items["vsduel.day.mon"]
+        assert [f["key"] for f in monday["options"]] == ["plan.mon.drone_chips"]
+        assert monday.get("pill") is None
+        for label in ("vsduel.day.tue", "vsduel.day.wed", "vsduel.day.thu",
+                      "vsduel.day.fri", "vsduel.day.sat"):
+            day = items[label]
+            assert not day.get("options"), (label, day.get("options"))
+            assert day.get("pill") == "vs.day.soon", label
+            assert not day.get("actions"), label
+        assert set(RUNS) <= set(READY), (RUNS, READY)
+    finally:
+        root.destroy()
+
+
+def test_the_wired_knob_carries_the_button_that_plays_its_recipe():
+    """A press runs the scenario and nothing else — no gate of the ability in the tab."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        played = []
+        tab.rt.play_async = lambda name, *a, **k: played.append(name) or True
+
+        monday = _week(tab.web_view())["items"][0]
+        assert monday["actions"] == [{"id": "run", "label": "vs.run",
+                                      "args": {"key": "mon.drone_chips"}}], (
+            monday.get("actions"))
+        assert tab.web_press("run", {"key": "mon.drone_chips"}) == {"ok": True}
+        assert played == ["open_drone_chips"], played
+        # …and nothing else may be started through it, whatever it is asked for.
+        assert tab.web_press("run", {"key": "tue.build_speedup"}) == {"error": "unknown"}
+        assert tab.web_press("run", {}) == {"error": "unknown"}
+        assert played == ["open_drone_chips"], played
+    finally:
+        root.destroy()
+
+
+def test_the_recipe_the_button_plays_exists_and_opens_the_chip_chests():
+    """The ability is a scenario, and the panel only plays it (CLAUDE.md)."""
+    recipe = ROOT / "src" / "lastwar_bot" / "actions" / "open_drone_chips.md"
+    text = recipe.read_text(encoding="utf-8")
+    assert "TAP use_bag_ids" in text, "the press is the catalogue's, never inline Lua"
+    assert "ARGS ids = 540201,540301,540401" in text, (
+        "the chest ids travel as an argument, not written into the press")
+    # The DIFFERENT box is deliberately not opened — the person was asked which (#2617).
+    # The prose says so out loud, so it is the RUNNING lines that are checked.
+    running = "\n".join(line for line in text.splitlines()
+                        if line.strip() and not line.lstrip().startswith("#"))
+    for other in ("630011", "630012", "630013"):
+        assert other not in running, (
+            f"the drone-component chest {other} is not what this recipe opens")
+
+
+def test_the_press_it_names_is_in_the_catalogue():
+    import sys as _sys
+
+    for path in (str(ROOT / "tools"), str(ROOT / "tools" / "lib")):
+        if path not in _sys.path:
+            _sys.path.insert(0, path)
+    from lib import game_buttons
+
+    button = game_buttons.BUTTONS.get("use_bag_ids")
+    assert button is not None, "no such press: use_bag_ids"
+    lua = button.lua
+    assert "__lw_use_ids" in lua, "the ids are parked by the recipe"
+    assert "MsgDefines.ItemUse" in lua, "the send is the bag's own item.use"
+    # One call, not one per stack: the loop is inside the chunk (#2617).
+    assert lua.count("SendMessage") == 1 and "for _, st in ipairs(mine)" in lua
 
 
 def _main() -> int:

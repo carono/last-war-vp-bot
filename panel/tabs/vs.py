@@ -24,6 +24,20 @@ from __future__ import annotations
 
 from .vs_duel import DAYS, VsDuelTab, _Choice, walk_items
 
+#: WHAT IS ACTUALLY WIRED, and nothing else is drawn (#2617). The person's words:
+#: «делаем функциональный первый день, скрой все параметры, что еще не реализованы».
+#: A tick over an ability nobody has written reads as «the bot will do this on Monday»,
+#: and the bot will not. So a day draws the knobs named here and no others, and a day
+#: with none of them says it is still being written instead of showing dead boxes.
+#:
+#: The names are `<day>.<action>`, exactly as the plan spells them.
+READY: frozenset = frozenset({"mon.drone_chips"})
+
+#: …and which scenario each of those knobs RUNS, for the button beside it. The panel
+#: holds no opinion about what the ability is: it plays the recipe and reports what came
+#: back (CLAUDE.md). A ready knob with no recipe here simply has no button.
+RUNS: dict = {"mon.drone_chips": "open_drone_chips"}
+
 
 class VsTab(VsDuelTab):
     """The duel plan, drawn as a card per day of the week."""
@@ -83,30 +97,73 @@ class VsTab(VsDuelTab):
                 "actions": [{"id": "collect", "label": "vsduel.collect"}]}
 
     def _web_day_item(self, day: str) -> dict:
-        """One day, as the card an errand is drawn as."""
+        """One day, as the card an errand is drawn as — with only what is wired on it."""
         fields = self._web_day_card(day)["fields"]
         # The first field IS the day's own switch (`_web_day_card`), and it belongs on
         # the card rather than behind its gear (#2068): a row's one switch is the thing
         # the row is about.
-        toggle, knobs = fields[0], fields[1:]
-        return {"label": f"vsduel.day.{day}", "shape": "cover",
-                "toggle": toggle,
-                "options": knobs, "options_title": f"vsduel.day.{day}",
-                "facts": [{"label": "vs.day.actions", "value": self._day_count(day)},
-                          {"label": "vs.day.set",
+        toggle = fields[0]
+        ready = [f for f in fields[1:] if self._plain_key(f.get("key")) in READY]
+        item = {"label": f"vsduel.day.{day}", "shape": "cover", "toggle": toggle,
+                "facts": [{"label": "vs.day.set",
                            # The set's name is DATA — the operator may have typed it.
                            "value": self._store.name(self._day_set[day].get(),
                                                      self.t)}]}
+        if ready:
+            item["options"] = ready
+            item["options_title"] = f"vsduel.day.{day}"
+            item["facts"].insert(0, {"label": "vs.day.actions",
+                                     "value": self._day_count(day)})
+        else:
+            # A DAY NOBODY HAS WIRED SAYS SO, in one word, rather than offering knobs
+            # that decide nothing.
+            item["pill"] = "vs.day.soon"
+        acts = [{"id": "run", "args": {"key": name}, "label": "vs.run"}
+                for name in (f"{day}.{action.key}"
+                             for action in self._day_actions(day))
+                if name in READY and name in RUNS]
+        if acts:
+            item["actions"] = acts
+        return item
+
+    @staticmethod
+    def _plain_key(key) -> str:
+        """`plan.mon.drone_chips` -> `mon.drone_chips`; a ceiling keeps its own name."""
+        text = str(key or "")
+        return text[len("plan."):] if text.startswith("plan.") else text
+
+    def _day_actions(self, day: str) -> list:
+        """The day's actions in the order the plan lists them, its own picks left out."""
+        return [item for item in walk_items(dict(DAYS)[day])
+                if not isinstance(item, _Choice)]
+
+    def web_press(self, action, args) -> dict:
+        """The week's own presses, plus «run this one now» (#2617).
+
+        The button plays the recipe the knob names and nothing else: no gate of the
+        ability lives here, and the panel does not decide what «opening the chip chests»
+        is (CLAUDE.md). A day switched off is not a refusal either — the person pressed
+        it themselves, and a press is not the schedule.
+        """
+        if action != "run":
+            return super().web_press(action, args)
+        name = str((args or {}).get("key") or "")
+        recipe = RUNS.get(name) if name in READY else None
+        if recipe is None:
+            return {"error": "unknown"}
+        return {"ok": self.rt.play_async(recipe, tag="vs", human=True)}
 
     def _day_count(self, day: str) -> str:
-        """«3 / 6» — how much of the day is ticked, out of what it holds.
+        """«1 / 1» — how much of the day is ticked, out of what the panel can DO.
 
         A pick is not counted: one of its options is always chosen, so it is not
-        something a person switches on or off.
+        something a person switches on or off. Neither is a box no scenario is behind
+        (:data:`READY`) — the card would otherwise say «1 / 4» about a day on which the
+        other three do nothing at all.
         """
         on = total = 0
-        for item in walk_items(dict(DAYS)[day]):
-            if isinstance(item, _Choice):
+        for item in self._day_actions(day):
+            if f"{day}.{item.key}" not in READY:
                 continue
             var = self._flags.get(f"{day}.{item.key}")
             if var is None:
