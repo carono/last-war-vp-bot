@@ -220,6 +220,15 @@ def _launch_as_user(cmd: list, *, cwd: str, session_id: int, log) -> dict:
     CREATE_UNICODE_ENVIRONMENT = 0x00000400
     CREATE_NO_WINDOW = 0x08000000
     DETACHED_PROCESS = 0x00000008
+    # A JOB IS SESSION-SCOPED, AND THIS CALL CROSSES SESSIONS (#2616). The service holds
+    # itself in a kill-on-close job (`panel/service/tree.py`), and a child of a job member
+    # joins that job — but a process in session 1 cannot join a job made in session 0, so
+    # the implicit join is refused and the whole `CreateProcessAsUserW` fails with 5
+    # (`ERROR_ACCESS_DENIED`) and no panel starts at all. Asking to break away is what
+    # makes the call legal; the job carries `JOB_OBJECT_LIMIT_BREAKAWAY_OK` for it. The
+    # fallback below keeps a service whose job forbids breakaway — or that has no job —
+    # starting panels exactly as it did before.
+    CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
     class STARTUPINFOW(ctypes.Structure):
         _fields_ = [("cb", wintypes.DWORD), ("lpReserved", wintypes.LPWSTR),
@@ -265,13 +274,21 @@ def _launch_as_user(cmd: list, *, cwd: str, session_id: int, log) -> dict:
         out = PROCESS_INFORMATION()
         line = subprocess.list2cmdline(cmd)
         flags = CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW | DETACHED_PROCESS
-        ok = advapi32.CreateProcessAsUserW(
-            primary, None, ctypes.create_unicode_buffer(line), None, None, False,
-            flags, env if env else None, (cwd or None), ctypes.byref(info),
-            ctypes.byref(out))
+
+        def _create(extra_flags: int) -> bool:
+            return bool(advapi32.CreateProcessAsUserW(
+                primary, None, ctypes.create_unicode_buffer(line), None, None, False,
+                flags | extra_flags, env if env else None, (cwd or None),
+                ctypes.byref(info), ctypes.byref(out)))
+
+        ok = _create(CREATE_BREAKAWAY_FROM_JOB)
         if not ok:
-            return {"ok": False, "why": "failed", "session": session_id,
-                    "detail": f"CreateProcessAsUserW {ctypes.get_last_error()}"}
+            code = ctypes.get_last_error()
+            ok = _create(0)                  # no job, or a job that forbids breakaway
+            if not ok:
+                return {"ok": False, "why": "failed", "session": session_id,
+                        "detail": f"CreateProcessAsUserW {code}/"
+                                  f"{ctypes.get_last_error()}"}
         pid = int(out.dwProcessId)
         _close(out.hProcess)
         _close(out.hThread)
