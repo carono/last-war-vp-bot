@@ -289,6 +289,24 @@ So the ear reads the count, sends, reads it again, and only a count that DROPPED
 reported as a thank-you. Verified end to end on the ordinary chat like (type 2, the same
 command and the same field types): 20 → 19.
 
+**«Уже поставлен» is NOT a flag the client keeps — measured, and it is a negative
+finding worth stating loudly.** Three candidates were tried on a message this account had
+just liked for real (type 2, the charge spent, 20 → 19):
+
+* `ChatMessage:getLikeNum()` stayed `0` on the liked message and on its neighbours;
+* `ChatManager2:CheckThumbsUp(index, uid, seqId, callback, upType)` is a GATE, not a
+  memory: it needs a callback (without one it raises `attempt to call a nil value (local
+  'callback')`) and it called back — with no arguments — for the liked message exactly as
+  for the four that were not;
+* `GetGiveLikeAnim` / `GetGiveLikeMsgTime` are the popup's own bookkeeping, not the
+  server's.
+
+So there are two things that keep a like from going twice, and neither is a per-gift
+flag: **the day's charges** (`GetCanThumbsUpCount(61)`, ten of them, refused when spent)
+and **the ear's own ring of uuids** — a gift is opened once, so the thank-you that
+follows the opening goes once too. A client restart empties the ring, and the day count
+is what stands behind it.
+
 **The window** is `LWUIRedPacketDetails`, with `LWUIRedPacketOperation` beside it, and
 both are closed with the client's own `Ctrl:CloseSelf()` — never `DestroyAllWindow`,
 which takes the HUD with it and does not give it back.
