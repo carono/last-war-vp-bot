@@ -186,6 +186,10 @@ TABS: tuple = (
     # brought the profiles' copies across and swept the retired id out of their lists.
     TabSpec("chat",      "panel.tabs.chat",      "ChatTab",      order=50,
             in_development=True),
+    # The alert tower and its training run into the forbidden zone (#2084): a page
+    # of readings with the one press that works them, so it sits beside the other
+    # per-building errands rather than among the world pages.
+    TabSpec("alert_tower", "panel.tabs.alert_tower", "AlertTowerTab", order=62),
     # What the shop gives for nothing (#2395): the week-card page's daily free
     # gift and the daily reward of the cards already held. Nothing on it buys
     # anything, which is why it is a page of its own rather than a corner of one
