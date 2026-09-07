@@ -1558,6 +1558,14 @@ BUTTONS["use_item"] = Button(
     lua=_lua_actions.use_bag_item(),
     wait=0.4, label="use an item from the bag",
 )
+BUTTONS["use_bag_ids"] = Button(
+    # Open EVERY stack of a LIST of item ids (#2617) — the duel's Monday pays for opening
+    # a kind of box the account holds several levels of, and one press per stack is one
+    # thread hijack per stack. Which ids are parked in `DataCenter.__lw_use_ids` by the
+    # recipe, as a comma-separated string, and the loop runs inside the one call.
+    lua=_lua_actions.use_bag_ids(),
+    wait=0.6, label="open every stack of the named items",
+)
 BUTTONS["use_stamina"] = Button(
     # Spend bag items for march energy (#1702). The send is `item.use` with a TABLE —
     # `{uuid = <the stack's own uuid>, num = n}` — which is the one shape of five the

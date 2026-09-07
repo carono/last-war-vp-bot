@@ -252,6 +252,11 @@ DAY_COLUMNS = 2
 #: to add one: put its actions here and give them locale keys.
 DAYS: tuple = (
     ("mon", (
+        # FIRST, and the only one of the week that is wired to anything yet (#2617):
+        # «Открыть чипы дрона» opens every chip chest in the bag through
+        # `actions/open_drone_chips.md`. It is NOT `drone_parts` below — the person was
+        # asked which of the two boxes the button opens and named the chip chests.
+        _Action("drone_chips", "vsduel.drone_chips"),
         _drone_parts(),
         _hero_level(),
         _Action("drone_level", "vsduel.drone_level",

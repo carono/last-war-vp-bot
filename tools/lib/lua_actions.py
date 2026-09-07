@@ -11534,6 +11534,93 @@ def use_bag_item() -> str:
     )
 
 
+def use_bag_ids() -> str:
+    """Open EVERY stack of every item id listed in `DataCenter.__lw_use_ids`, in one call.
+
+    The general form of :func:`use_bag_item` for an ability whose answer is «all of
+    them»: the duel's Monday pays for opening a KIND of box, an account holds several
+    levels of it, and each level is several stacks. Done one press at a time that is a
+    thread hijack per stack — half a second each, and the machine makes about 1.4 of them
+    a second in total (docs/research/link-contention.md) — so the loop lives inside the
+    one call, exactly as the alliance donation's thirty attempts do.
+
+    The ids are parked as a comma-separated string, because `TAP` carries no arguments;
+    the send is the same `item.use` table one stack at a time, and a kind the bag will
+    not use is refused per id rather than failing the run.
+
+    It leaves `DataCenter.__lw_use_all` = ``{ids, kinds, used, stacks, why}`` behind,
+    with `used` the total count spent and `why` naming the ids it refused.
+    """
+    return (
+        "local raw = tostring(DataCenter.__lw_use_ids or '') "
+        "local D, T = DataCenter.ItemData, DataCenter.ItemTemplateManager "
+        "local ids, used, stacks, bad = {}, 0, 0, {} "
+        # `[^,]+` and not `[^,%s]+`: this string is %-formatted below, so a Lua
+        # character class of `%s` would be eaten as a format spec. `tonumber` ignores
+        # the spaces anyway.
+        "for piece in string.gmatch(raw, '[^,]+') do "
+        "local n = math.floor(tonumber(piece) or 0) if n > 0 then ids[#ids + 1] = n end end "
+        "local why = '' "
+        "if #ids == 0 then why = 'nothing-asked' "
+        "elseif D == nil then why = 'no-bag' else "
+        "for _, id in ipairs(ids) do "
+        "local kind = -1 "
+        "pcall(function() kind = math.floor(tonumber(T:GetItemTemplate(id).type) or -1) end) "
+        "local ok_kind = false "
+        "for _, k in ipairs({%(kinds)s}) do if k == kind then ok_kind = true end end "
+        "if not ok_kind then bad[#bad + 1] = id .. ':' .. kind else "
+        "local mine = {} "
+        "pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+        "if math.floor(tonumber(v.itemId) or 0) == id then "
+        "mine[#mine + 1] = {uuid = v.uuid, n = math.floor(tonumber(v.count) or 0)} "
+        "end end end) "
+        "for _, st in ipairs(mine) do if st.n > 0 then "
+        "local sent = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.ItemUse, {uuid = st.uuid, num = st.n}) end) "
+        "if sent then used = used + st.n stacks = stacks + 1 end end end end end "
+        "if used == 0 and why == '' then why = 'none-in-bag' end end "
+        "if #bad > 0 then why = why .. (why == '' and '' or ' ') .. 'not-usable=' "
+        ".. table.concat(bad, '/') end "
+        "DataCenter.__lw_use_all = {ids = raw, used = used, stacks = stacks, why = why} "
+        'CS.UnityEngine.Debug.LogError("ACT use_bag_ids ids="..tostring(raw)'
+        '.." used="..tostring(used).." stacks="..tostring(stacks).." why="..tostring(why))'
+        % {"kinds": ", ".join(str(k) for k in USABLE_ITEM_TYPES)}
+    )
+
+
+def bag_use_all_report() -> str:
+    """Lua *expression* -> one line about the last «open all of these» call."""
+    return (
+        "(function() local u = DataCenter.__lw_use_all or {} "
+        "return 'ids=' .. tostring(u.ids or '-') .. "
+        "' used=' .. tostring(math.floor(tonumber(u.used) or 0)) .. "
+        "' stacks=' .. tostring(math.floor(tonumber(u.stacks) or 0)) .. "
+        "' why=' .. tostring((u.why ~= nil and u.why ~= '') and u.why or '-') end)()"
+    )
+
+
+def bag_use_all_used() -> str:
+    """Lua *expression* -> how many items the last «open all of these» call spent."""
+    return ("(function() local u = DataCenter.__lw_use_all or {} "
+            "return math.floor(tonumber(u.used) or 0) end)()")
+
+
+def bag_count_of_ids() -> str:
+    """Lua *expression* -> how many of `DataCenter.__lw_use_ids` the bag holds in total."""
+    return (
+        "(function() local raw = tostring(DataCenter.__lw_use_ids or '') "
+        "local D = DataCenter.ItemData if D == nil then return 0 end "
+        "local want = {} "
+        "for piece in string.gmatch(raw, '[^,]+') do "
+        "local n = math.floor(tonumber(piece) or 0) if n > 0 then want[n] = true end end "
+        "local total = 0 "
+        "pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+        "if want[math.floor(tonumber(v.itemId) or 0)] then "
+        "total = total + math.floor(tonumber(v.count) or 0) end end end) "
+        "return total end)()"
+    )
+
+
 def bag_use_report() -> str:
     """Lua *expression* -> one line about the last item use, for the log and the panel."""
     return (
