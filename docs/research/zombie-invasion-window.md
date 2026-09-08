@@ -96,5 +96,12 @@ zombies were last hunted (2026-08-19…21, days before season 6 began on 2026-08
   the hunt's row on «Таймеры» says «вторжения нет · день сезона 57 (через 41 д)» instead of
   promising attacks the purse cannot spend (`errand_stats._golden_hunt`).
 
+**A REFUSED LOOK IS NOT A TRY** — measured on the live panel the first time this shipped
+(#2647). The bounded first look of #2636 gave up after six, and all six were spent inside
+two minutes of a restart on «занят — дождись завершения текущего действия» while three
+profiles did their own boot work: nothing was asked of the game and the ear stopped
+having read nothing. A play that never started does not count against the six now; the
+waiting is bounded by `GATE_WAIT_TRIES` instead, exactly as a shut gate is.
+
 `tests/test_invasion_live.py` pins all of it, including that no date or epoch is written
 into the Lua.
