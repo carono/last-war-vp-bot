@@ -51,6 +51,21 @@ PUSH = "push.blue.shop.sc"
 #: reading — the rule every wire subscriber in this panel obeys.
 DEBOUNCE_SEC = 20.0
 
+#: The one-shot first look, and how many times it may come back BEFORE it has ever read
+#: anything. It is not a poll and it is not a clock over the game: `bus.GAME_READY` is
+#: published on the EDGE of entering the game, and a panel restarted over a client that
+#: was already playing never sees that edge — the same gap `panel/tabs/vs.py` arms
+#: `_first_look` for. The one that bit here is narrower still: the edge DOES arrive after
+#: a restart, and the play is refused because the panel's own gate is still amber that
+#: early («нет связи с игрой — ничего автоматического не стартует»), and an edge does not
+#: come round again. So this waits for the PANEL's link rather than asking the GAME
+#: anything, and it stops the moment a reading lands or after the last try.
+FIRST_LOOK_MS = 20_000
+FIRST_LOOK_TRIES = 6
+
+#: The tick chain the first look uses. One per profile's runtime, like every other.
+CHAIN_FIRST = "market_first_read"
+
 #: What a numeric field of the line looks like.
 _NUM = re.compile(r"\b([a-z_]+)=(-?\d+)\b")
 
@@ -118,6 +133,8 @@ class MarketWatch:
         self._last = 0.0
         self._busy = False
         self._offs: list = []
+        self._read_once = False
+        self._tries = 0
 
     # -- wiring --------------------------------------------------------------
     def start(self) -> None:
@@ -132,6 +149,28 @@ class MarketWatch:
             self._offs.append(self._rt.wire.subscribe(PUSH, self._on_push))
         except Exception:                # noqa: BLE001 — the push is a bonus
             self._rt.dbg("market").error("could not listen for the push", exc_info=True)
+        self._arm_first()
+
+    def _arm_first(self) -> None:
+        """Book the one-shot first look. Does nothing where there is no queue at all."""
+        try:
+            self._rt.tick.arm(CHAIN_FIRST, FIRST_LOOK_MS, self._first_look)
+        except Exception:                # noqa: BLE001 — then the ready fact is the only
+            pass                         #   door, which is the ordinary case
+
+    def _first_look(self) -> None:
+        """Read once if nothing has been read yet, and come back only until it has.
+
+        It does NOT re-arm after a reading lands, and it does not re-arm after the last
+        try: what it is waiting out is the few seconds between the panel coming up and
+        its own game link being usable, not the game.
+        """
+        if self._read_once or self._tries >= FIRST_LOOK_TRIES:
+            return
+        self._tries += 1
+        self.refresh("first")
+        if not self._read_once:
+            self._arm_first()
 
     def stop(self) -> None:
         for off in self._offs:
@@ -165,6 +204,11 @@ class MarketWatch:
                 on_result=self._back, on_done=self._done)
         finally:
             if not started:
+                # A REFUSAL DOES NOT BURN THE DEBOUNCE. The gate says no while the link
+                # is not up yet, and holding the next signal off for twenty seconds
+                # because of that is how a panel ends up never reading at all.
+                with self._lock:
+                    self._last = 0.0
                 self._done()
         return started
 
@@ -180,3 +224,4 @@ class MarketWatch:
         raw = values.get(VARIABLE)
         if raw:
             record(self._rt, raw)
+            self._read_once = True
