@@ -155,14 +155,9 @@ class StatsTab(PanelTab):
             })
         if not cards:
             cards = [{"title": "stats.frame", "empty": "stats.empty"}]
-        return {"cards": cards,
-                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
-
-    def web_press(self, action: str, args: dict) -> dict:
-        if action != "refresh":
-            return {"error": "unknown"}
-        self.refresh()
-        return {"ok": True}
+        # NO «ОБНОВИТЬ» (#2633): the tally only ever moves when a balance push is
+        # priced, and `track` repaints the page itself when it does.
+        return {"cards": cards}
 
     def redraw(self) -> None:
         """Repaint the per-day table from the tally."""

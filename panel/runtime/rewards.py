@@ -100,6 +100,13 @@ class RewardBook:
         """Be told the rows of every drain. Never raises out of the book."""
         self._watchers.append(on_rows)
 
+    def unwatch(self, on_rows) -> None:
+        """…and off again, so a closed page is not repainted for ever."""
+        try:
+            self._watchers.remove(on_rows)
+        except ValueError:
+            pass
+
     def _heard(self, line: str) -> None:
         """One log line. Cheap and total: everything the panel says passes through here."""
         if MARK not in (line or ""):
