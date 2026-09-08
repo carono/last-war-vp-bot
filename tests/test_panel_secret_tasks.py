@@ -73,7 +73,7 @@ def test_the_schedule_calls_the_tab_and_skips_the_daemon_gate():
     sched.rt = types.SimpleNamespace(
         game=types.SimpleNamespace(
             claim=lambda _o, _p=0: True, release=lambda: None,
-            on_settled=lambda: None,
+            on_settled=lambda: None, settled=lambda: None,
             # The claim registry is keyed by the CLIENT this profile drives (#1252), so
             # the schedule asks the link which one that is — a dictionary lookup, not
             # the daemon gate the assertion below is watching for.
@@ -83,6 +83,10 @@ def test_the_schedule_calls_the_tab_and_skips_the_daemon_gate():
         # `post` is how the runtime hands work to the Tk thread now (#1226);
         # here it simply runs it, which is what this double always meant.
         post=lambda fn: fn(),
+        # …and the player, which `run_errand` asks whether the errand's scenario shares
+        # the client. This errand is a TAB HANDLER and names no scenario, so the honest
+        # double answers «no» rather than being absent (#2660).
+        actions=types.SimpleNamespace(shares=lambda _name: False),
         root=types.SimpleNamespace(after=lambda _ms, fn: fn()))
     sched._handlers, sched._needs_game = {}, set()
     sched._gates, sched._args = {}, {}
@@ -3011,6 +3015,11 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab.trains = _world("#1 X:6 Y:7")
     tab.trucks = _world("#1 X:8 Y:9")
 
+    # THE JUMP'S OWN THREE (#2593), which `web_view` reads at the end. A tab built
+    # without `__init__` has none of them, and the file used to stop dead here — every
+    # test below this one went unrun for months, in silence.
+    tab._jump_busy, tab._jump_note, tab._jump_header_server = 0, "", 0
+
     view = tab.web_view()
     cards = {c.get("title"): c for c in view["cards"]}
     assert "secrettasks.alliance" in cards, cards
@@ -5657,8 +5666,21 @@ def test_the_phone_sorts_the_grid_it_pressed_on_and_no_other():
 
 
 if __name__ == "__main__":
+    # ONE BROKEN TEST USED TO TAKE THE FILE WITH IT (#2660). The loop called every test
+    # bare, so the first exception ended the process — and every test whose name sorts
+    # after it went unrun, in silence, for as long as the breakage lasted. A failure is
+    # printed and counted now, and the run says how many there were.
+    _failed = 0
+    _ran = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
-            fn()
-            print("ok", name)
-    print("all passed")
+            _ran += 1
+            try:
+                fn()
+            except Exception as exc:                   # noqa: BLE001 — a runner
+                _failed += 1
+                print("FAIL %s: %s: %s" % (name, type(exc).__name__, exc))
+            else:
+                print("ok", name)
+    print("\n%d/%d passed" % (_ran - _failed, _ran))
+    raise SystemExit(1 if _failed else 0)

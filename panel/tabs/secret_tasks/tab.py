@@ -4972,8 +4972,12 @@ class SecretTasksTab(PanelTab):
                     getattr(self, page).web_flow() if page else None)
             if said:
                 card["flow"] = said
-        if self._jump_header_server:
-            screen["header_server"] = self._jump_header_server
+        # `getattr`, because a screen is asked of tabs that were never `__init__`ed —
+        # the standalone runner and every stub in the tests do exactly that, and an
+        # AttributeError here took the rest of a test FILE with it, unrun and unnoticed.
+        header_server = getattr(self, "_jump_header_server", 0)
+        if header_server:
+            screen["header_server"] = header_server
         return screen
 
     def _order_fields(self, order: str) -> list:
