@@ -59,11 +59,24 @@ class RewardsTab(PanelTab):
         frame.pack(fill="both", expand=True, padx=8, pady=8)
         self._grid = ttk.Frame(frame)
         self._grid.pack(fill="x")
-        self.rt.tr(ttk.Button(frame, command=self.redraw), "tabx.refresh").pack(
-            anchor="w", pady=(8, 0))
         self.rt.tr(ttk.Label(frame, foreground="#888", wraplength=620, justify="left"),
                    "rewards.hint").pack(anchor="w", pady=(8, 0))
         self.redraw()
+        # A STATISTIC IS NOT REFRESHED BY HAND (#2633). The book is written when a recipe
+        # drains the ear's ring, and it says so — so the page listens instead of offering
+        # a button whose only job was to ask again.
+        book = getattr(self.rt, "rewards", None)
+        if book is not None:
+            book.watch(self._booked)
+
+    def _booked(self, _rows) -> None:
+        """One drain, booked: repaint on the Tk thread."""
+        self.post(self.redraw)
+
+    def shutdown(self) -> None:
+        book = getattr(self.rt, "rewards", None)
+        if book is not None and hasattr(book, "unwatch"):
+            book.unwatch(self._booked)
 
     # -- reading ------------------------------------------------------------
     def rows(self) -> list:
@@ -142,15 +155,9 @@ class RewardsTab(PanelTab):
             })
         else:
             cards.append({"title": "rewards.list", "empty": "rewards.empty"})
-        return {"cards": cards,
-                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
-
-    def web_press(self, action: str, args: dict) -> dict:
-        """The one press there is, and it presses nothing in the game: a repaint."""
-        if action != "refresh":
-            return {"error": "unknown"}
-        self.rt.post(self.redraw)
-        return {"ok": True}
+        # NO «ОБНОВИТЬ» (#2633): the rows arrive when the ear's ring is drained and the
+        # page is told; a button whose only job is to ask again is what that rule removes.
+        return {"cards": cards}
 
 
 if __name__ == "__main__":
