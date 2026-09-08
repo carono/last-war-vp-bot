@@ -50,8 +50,10 @@
 # from the command line is tools/rally_create.py, and the panel's «Ралли» tab runs it
 # in a loop — this recipe is the one-shot form, so a scenario or a timer can raise one.
 #
-# UNPROVEN as a recipe: every call behind it is the one a live level-35 rally went out
-# with, but this file has not itself raised a banner yet.
+# PROVEN as a recipe (2026-09-08, #2646): played with `target = auto` at level 58 — the
+# very level that had come back empty the day before on a pinned ordinary-monster tab —
+# it read the season's ceiling (60), found this season's elite in three seconds and put
+# the banner up with squad 4.
 
 ARGS squad = 1
 ARGS level = 35
@@ -212,4 +214,4 @@ WHILE raised < 1 LIMIT 5
 IF raised < 1
     FAIL "everything was pressed and no rally came out"
 
-LOG "The banner is up: a level {level} {target}, raised by squad {squad}"
+LOG "The banner is up: a level {level} target (searched as «{target}»), raised by squad {squad}"
