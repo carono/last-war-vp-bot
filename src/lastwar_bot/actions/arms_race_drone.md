@@ -116,7 +116,15 @@ LUA (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = n
 # lives in the phase purse above, not here.
 LUA DataCenter.__lw_arms_dr = {cap = tonumber("{stamina}") or 0, cost = 0, made = 0, sc0 = -1, paid = 1}
 
-LUA DataCenter.__lw_arms_dr.cost = math.floor(tonumber("{rally_cost}") or 0)
+# THE PRICE TRAVELS BY `PARK`, AND NOT BY A PLACEHOLDER (#2649). `{name}` is substituted
+# when the FILE IS PARSED, so a value the run has only just READ cannot go into a `LUA`
+# chunk that way: what reached the game was the literal text of the name, and
+# `tonumber("{rally_cost}")` is nil. The cost stayed 0, every gate answered «the game
+# prices a rally at no stamina», and the drone phase raised NOTHING — measured live on
+# 2026-09-08 with the game pricing a rally at 20. `PARK` is the primitive for exactly
+# this (docs/dsl.md); the value arrives as a string and the gate reads it back with the
+# `tonumber` it already used.
+PARK rally_cost INTO DataCenter.__lw_arms_dr.cost
 
 # May another banner go out? Everything the answer needs is read in ONE call: the four
 # ceilings, whether the last rally actually paid, and — since #2574 — the WORD for
