@@ -17,6 +17,11 @@
 # the row's own «Открыть» sends. Nothing else narrows it: the panel draws what
 # `read_ready_buildings.md` read and passes back one of those uuids.
 #
+# WHAT COUNTS AS FINISHED is the same definition that recipe uses (#2641): the slot is in
+# `Finish`, OR it is still in `Work` with its timer already run out — the client can be
+# minutes behind the server on that flip, and a building the server has not finished is
+# refused by the server rather than guessed at here.
+#
 # THE SEND GOES THROUGH THE GAME'S OWN TIMER. `BuildManager:CheckSendBuildFinish(uuid)`
 # is the client's own claim (its parameters are `uuid, isDelaySend, info`, read off the
 # live function), and it is scheduled with `TimerManager:DelayInvoke` rather than called
@@ -41,14 +46,14 @@ IF arms_event != 120001
 
 # 2. What is waiting, before anything is claimed.
 LUA DataCenter.__lw_open_build = '{uuid}'
-READ_LUA (function() local Q = DataCenter.QueueDataManager if Q == nil or NewQueueType == nil or NewQueueState == nil then return 0 end local n = 0 pcall(function() for _, v in pairs(Q.queueDic or {}) do if type(v) == 'table' and v.type == NewQueueType.Default and v.state == NewQueueState.Finish then n = n + 1 end end end) return n end)() INTO ready_before
+READ_LUA (function() local Q = DataCenter.QueueDataManager if Q == nil or NewQueueType == nil or NewQueueState == nil then return 0 end local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) local n = 0 pcall(function() for _, v in pairs(Q.queueDic or {}) do if type(v) == 'table' and v.type == NewQueueType.Default and (v.state == NewQueueState.Finish or (v.state == NewQueueState.Work and now > 0 and math.floor(((v.endTime or 0) + 0) / 1000) <= now)) then n = n + 1 end end end) return n end)() INTO ready_before
 LOG "finished buildings waiting: {ready_before}"
 
 IF ready_before == 0
     STOP "no building has finished — nothing to open"
 
 # 3. Claim them, on the game's own thread.
-READ_LUA (function() local Q, M = DataCenter.QueueDataManager, DataCenter.BuildManager if Q == nil or M == nil then return 0 end local want = tostring(DataCenter.__lw_open_build or '') local list = {} pcall(function() for _, v in pairs(Q.queueDic or {}) do if type(v) == 'table' and v.type == NewQueueType.Default and v.state == NewQueueState.Finish then local u = v.itemId if want == '' or tostring(u) == want then list[#list + 1] = u end end end end) local n = 0 local tm = TimerManager:GetInstance() for _, u in ipairs(list) do n = n + 1 tm:DelayInvoke(function() pcall(function() M:CheckSendBuildFinish(u) end) end, 0) end return n end)() INTO opened
+READ_LUA (function() local Q, M = DataCenter.QueueDataManager, DataCenter.BuildManager if Q == nil or M == nil then return 0 end local want = tostring(DataCenter.__lw_open_build or '') local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) local list = {} pcall(function() for _, v in pairs(Q.queueDic or {}) do if type(v) == 'table' and v.type == NewQueueType.Default and (v.state == NewQueueState.Finish or (v.state == NewQueueState.Work and now > 0 and math.floor(((v.endTime or 0) + 0) / 1000) <= now)) then local u = v.itemId if want == '' or tostring(u) == want then list[#list + 1] = u end end end end) local n = 0 local tm = TimerManager:GetInstance() for _, u in ipairs(list) do n = n + 1 tm:DelayInvoke(function() pcall(function() M:CheckSendBuildFinish(u) end) end, 0) end return n end)() INTO opened
 LOG "claims sent: {opened}"
 
 IF opened == 0
@@ -57,7 +62,7 @@ IF opened == 0
 WAIT 2
 
 # 4. …and whether the game took them. The queue slot goes back to Free when it did.
-READ_LUA (function() local Q = DataCenter.QueueDataManager if Q == nil or NewQueueType == nil or NewQueueState == nil then return 0 end local n = 0 pcall(function() for _, v in pairs(Q.queueDic or {}) do if type(v) == 'table' and v.type == NewQueueType.Default and v.state == NewQueueState.Finish then n = n + 1 end end end) return n end)() INTO ready_left
+READ_LUA (function() local Q = DataCenter.QueueDataManager if Q == nil or NewQueueType == nil or NewQueueState == nil then return 0 end local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) local n = 0 pcall(function() for _, v in pairs(Q.queueDic or {}) do if type(v) == 'table' and v.type == NewQueueType.Default and (v.state == NewQueueState.Finish or (v.state == NewQueueState.Work and now > 0 and math.floor(((v.endTime or 0) + 0) / 1000) <= now)) then n = n + 1 end end end) return n end)() INTO ready_left
 LOG "still waiting: {ready_left}"
 
 IF ready_left == ready_before

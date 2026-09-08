@@ -35,14 +35,34 @@
 # **It never spends diamonds.** `useGold` is false and the gold-for-time argument is `0`,
 # as on every send this repository makes.
 #
-# ## The send
+# ## The send, and what proves it
 #
 # `build.ccd.m.new` — the build queue's own speed-up, `{bUUID, isFixRuins, itemIDs,
 # useGold}`, where `bUUID` is the BUILDING's uuid (a build queue names the building it
 # occupies; every other queue names itself) and `itemIDs` is the game's own
-# `"<itemId>;<count>"`. One send per denomination, and the proof is the queue: the slot
-# either leaves `Work` for `Finish` or the run FAILS, because a send the server drops
-# returns as cleanly as one it takes.
+# `"<itemId>;<count>"`. One send per denomination.
+#
+# **THE PROOF IS THE SERVER'S OWN REPLY, AND IT HAD TO BE (#2641).** It used to be the
+# queue: the slot either left `Work` for `Finish` or the run failed. That reported a
+# failure over a construction the server had already closed, because the CLIENT does not
+# apply what it is told. Measured live: four minutes of speed-ups poured into one build
+# over fourteen minutes moved `queueDic`'s `endTime` by nothing at all, while the server
+# answered `push.build.queue.info` with the new `uT` every time. `GetAllQueue`,
+# `GetQueueDatasByType` and `GetAllQueueByType` are the same stale table, and
+# `CheckAllQueueTimeFinish` only compares it against the clock — there is no client-side
+# reading that is fresher than the one the client dropped.
+#
+# So the run listens for its own answer instead: `build.ccd.m.new` comes back carrying
+# `finished` and a `buildInfo` with the building's `uuid` and its new `uT`. `finished`
+# is the whole verdict, and the ear is taken down again the moment it has one.
+#
+# **AND THE ANSWER IS THEN WRITTEN WHERE THE CLIENT KEEPS IT.** The slot's `endTime` and
+# the building's `updateTime` are set to the `uT` the server just sent, and the client's
+# own `CheckAllQueueTimeFinish` is asked to look again — so the slot flips to `Finish`
+# and `read_ready_buildings.md` sees the finished building at once instead of in eight
+# minutes' time. Nothing is invented: it is the server's number, in the field the client
+# itself keeps it in, and it is only ever moved EARLIER. A building the server would
+# refuse to hand over is refused by `open_ready_buildings.md` exactly as before.
 #
 # ## Arguments
 #
@@ -68,18 +88,31 @@ IF finish_go == 0
 READ_LUA (function() local p = DataCenter.__lw_fin or {} local bits = {} for _, it in ipairs(p.plan or {}) do bits[#bits + 1] = tostring(it.num) .. 'x' .. tostring(math.floor(it.sec / 60)) .. 'min#' .. tostring(it.id) .. (it.own == 1 and '(build)' or '(any)') end return 'left=' .. math.floor(tonumber(p.left) or 0) .. 's pieces=' .. math.floor(tonumber(p.num) or 0) .. ' minutes=' .. math.floor((tonumber(p.sec) or 0) / 60) .. ' parcel=[' .. table.concat(bits, ' ') .. ']' end)() INTO finish_plan
 LOG "finish building: {finish_plan}"
 
-# 2. The parcel itself — one send per denomination, no diamonds.
+# 2. THE EAR, raised before the send — the reply is the only fresh word there is.
+#    It takes itself down after 60 seconds even if the run dies, so a wrapper can never
+#    outlive the scenario that put it there.
+LUA local p = DataCenter.__lw_fin p.fin = -1 p.newT = 0 local orig = SFSNetwork.HandleMessage local until_at = os.time() + 60 SFSNetwork.HandleMessage = function(...) local a = {...} pcall(function() local nm = '' for i = 1, 3 do if type(a[i]) == 'string' then nm = a[i] break end end if nm == 'build.ccd.m.new' then for i = 1, #a do local m = a[i] if type(m) == 'table' and type(m.buildInfo) == 'table' then local b = m.buildInfo if tostring(b.uuid) == tostring(p.uuid) then p.fin = (m.finished == true) and 1 or 0 p.newT = math.floor((b.uT or 0) + 0) end end end end end) if os.time() > until_at then SFSNetwork.HandleMessage = orig end return orig(...) end p.unhook = function() SFSNetwork.HandleMessage = orig end
+
+# 3. The parcel itself — one send per denomination, no diamonds.
 LUA local p = DataCenter.__lw_fin local ok, err = true, '' if p ~= nil and p.plan ~= nil then for _, it in ipairs(p.plan) do local ids = tostring(math.floor(it.id)) .. ';' .. tostring(math.floor(it.num)) local good, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.BuildCcdMNew, {bUUID = tostring(p.uuid), isFixRuins = false, itemIDs = ids, useGold = false}, 0) end) if not good then ok = false err = tostring(why) end end end p.sent_ok = ok and 1 or 0 p.sent_err = err
 
-WAIT 2
+# 4. …and the answer. `finished` is the verdict; `-1` is «the game has not spoken yet».
+READ_LUA (function() local p = DataCenter.__lw_fin or {} return math.floor(tonumber(p.fin) or -1) end)() INTO finish_reply
+WHILE finish_reply == -1 LIMIT 15
+    WAIT 1
+    READ_LUA (function() local p = DataCenter.__lw_fin or {} return math.floor(tonumber(p.fin) or -1) end)() INTO finish_reply
 
-# 3. …and whether the game took it. The slot leaves `Work` when it did.
-READ_LUA (function() local p = DataCenter.__lw_fin or {} if math.floor(tonumber(p.sent_ok) or 0) == 0 then p.after = -2 return 0 end local Q = DataCenter.QueueDataManager if Q == nil or NewQueueType == nil or NewQueueState == nil then p.after = -3 return 0 end local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) local want_uuid = tostring(p.uuid or '') local slot = nil pcall(function() for _, v in pairs(Q.queueDic or {}) do if type(v) == 'table' and v.type == NewQueueType.Default and tostring(v.itemId) == want_uuid and v.state ~= NewQueueState.Free then slot = v break end end end) if slot == nil then p.after = -1 return 1 end if math.floor((slot.state or 0) + 0) == math.floor((NewQueueState.Finish or 3) + 0) then p.after = 0 return 1 end local left = math.floor(((slot.endTime or 0) + 0) / 1000) - now if left < 0 then left = 0 end p.after = left if left <= 0 then return 1 end return 0 end)() INTO finish_done
-READ_LUA (function() local p = DataCenter.__lw_fin or {} return math.floor(tonumber(p.after) or 0) end)() INTO finish_left
+# 5. Down with the ear, and the server's own number into the field the client dropped it
+#    from — never later than what is already there, and never without a `finished` yes.
+READ_LUA (function() local p = DataCenter.__lw_fin or {} pcall(function() if type(p.unhook) == 'function' then p.unhook() end end) p.unhook = nil if math.floor(tonumber(p.fin) or -1) ~= 1 then return 0 end local newT = math.floor(tonumber(p.newT) or 0) if newT <= 0 then return 0 end local Q, M = DataCenter.QueueDataManager, DataCenter.BuildManager local moved = 0 pcall(function() for _, v in pairs(Q.queueDic or {}) do if type(v) == 'table' and v.type == NewQueueType.Default and tostring(v.itemId) == tostring(p.uuid) then if newT < math.floor((v.endTime or 0) + 0) then v.endTime = newT moved = 1 end end end end) pcall(function() local b = M:GetBuildingDataByUuid(tonumber(tostring(p.uuid)) or 0) if b ~= nil and newT < math.floor((b.updateTime or 0) + 0) then b.updateTime = newT end end) pcall(function() Q:CheckAllQueueTimeFinish() end) return moved end)() INTO finish_applied
 READ_LUA (function() local p = DataCenter.__lw_fin or {} return tostring(p.sent_err or '') end)() INTO finish_err
 
-IF finish_done == 0
-    LOG "finish building: the slot is still running, {finish_left}s left {finish_err}"
+IF finish_reply == -1
+    LOG "finish building: the parcel went out and the game said nothing back {finish_err}"
+    FAIL "the speed-ups went out and the game did not answer"
+
+IF finish_reply == 0
+    LOG "finish building: the game answered, and the construction is still running {finish_err}"
     FAIL "the speed-ups went out and the construction did not close"
 
-LOG "finish building: closed — {finish_plan}"
+LOG "finish building: closed — {finish_plan} (queue corrected: {finish_applied})"

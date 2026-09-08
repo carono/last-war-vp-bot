@@ -92,7 +92,56 @@ never read as «go ahead».
 * the panel — the «VS» tab's Tuesday (`panel/tabs/vs.py`), which reads with the first,
   presses the second, and holds no gate of its own.
 
-## 5. There is no push behind it, and what is done about that (#2633)
+## 5. There IS a push, and the client drops it (#2641)
+
+The section below was written on a measurement that was right about the LIST and wrong
+about the wire, and it is left standing because the correction only makes sense beside
+it. `MsgDefines` names three of them — `PushBuildQueueInfo = push.build.queue.info`,
+`PushQueueAdd = push.queue.add`, `PushQueueDelete = push.queue.del` — and the first one
+arrives every time a build queue slot moves. Hooking `SFSNetwork.HandleMessage` around
+one speed-up caught it whole:
+
+```
+push.build.queue.info -> {updateQueues = {{qid = 1002, uuid = <the slot>, type = 0,
+                                           sT = <start, ms>, uT = <the NEW end, ms>,
+                                           unlock = 1, rentPrice = 500, rentTime = 120,
+                                           expireTime = 0, gift = <an item id>}}}
+```
+
+…and the reply to the send itself carries the same number a second way:
+
+```
+build.ccd.m.new -> {finished = false, isFixRuins = false, _time = 12, _id = 259,
+                    itemCostArr = {{itemId = <the piece>, costNum = 1, count = <left>}},
+                    buildInfo = {uuid = <the building>, bId = <its id>, lv = 30,
+                                 sT = <start>, uT = <the NEW end>, state = 1, ...}}
+```
+
+**And the client does not apply it.** Four minutes of speed-ups poured into one
+construction over fourteen minutes moved `queueDic`'s `endTime` by nothing at all, while
+the server's `uT` came back four minutes shorter every time. It is not a stale reference
+either: `GetAllQueue()`, `GetQueueDatasByType()` and `GetAllQueueByType()` all answer the
+same table with the same stale numbers, `BuildManager`'s own `updateTime` matches it, and
+`CheckAllQueueTimeFinish()` only compares that table against the clock. The slot's fields
+are `{type, qid, state, itemId, funcUuid, startTime, endTime, isHelped, helpNum,
+lastHelpTime, newItemId, para, para2, uuid}` — there is no fresher field hiding in it.
+
+That is the whole of #2641: four constructions were closed on the server by presses on
+the panel, `finish_building.md` read the client's cache two seconds later, saw them still
+running and reported FAILED four times over, and the finished buildings did not appear on
+the page for another eight minutes — by which time the client had resynced on its own.
+
+**What is done about it.** The recipe stops asking the cache and listens for its own
+answer: it raises an ear on `SFSNetwork.HandleMessage` before the send, reads `finished`
+off the `build.ccd.m.new` reply, and takes the ear down again. When the answer is yes it
+writes the server's `uT` into the slot's `endTime` and the building's `updateTime` —
+never later than what is there — and asks `CheckAllQueueTimeFinish()` to look again, so
+the slot flips to `Finish` and the page is right at once instead of in eight minutes.
+`read_ready_buildings.md` and `open_ready_buildings.md` also count a slot whose timer has
+run out as finished whatever its `state` says, and the «VS» page subscribes to
+`push.build.queue.info` so the list moves without anybody pressing anything.
+
+## 5b. What the decision of #2633 was, and what still holds
 
 A construction finishing announces **nothing**. The server sets the slot's `state` to
 `Finish` and no command crosses the wire — the client redraws off its own timer, so a
