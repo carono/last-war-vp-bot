@@ -2252,7 +2252,7 @@ def test_the_picker_is_one_button_in_the_field_and_one_modal_with_tabs():
     chat = (_APP_SRC / "views" / "ChatView.tsx").read_text(encoding="utf-8")
     assert 'className="chattools"' not in chat, "the row of pickers is back"
     assert 'className="go icon sprites-open"' in chat, "no picker button in the field"
-    assert chat.count("<Modal") == 3, "the chat grew or lost a sheet"
+    assert chat.count("<Modal") == 4, "the chat grew or lost a sheet"
     assert "setPicker('emoji')" in chat and "setPicker('sticker')" in chat, \
         "the two sets are not tabs of one modal"
     assert "void send('coords')" in chat, "sharing coordinates is unreachable"
@@ -3106,9 +3106,15 @@ def test_the_chat_list_is_on_the_left_in_the_order_the_person_asked_for():
     assert "<Face label={row.who} face={row.face} />" in chat, "a message has no face"
     # SIXTY CONVERSATIONS ARE NOT A FIRST SCREEN: the people fold.
     assert "PEOPLE_FOLD" in chat and "chat.list.more" in chat, "the people never fold"
-    # …and on a phone the list is a drawer, so the conversation is what opens.
+    # …and on a phone the list is THE modal (#2660), so the conversation is what opens.
+    # It used to be a drawer with a scrim of its own — a second overlay, which CLAUDE.md
+    # forbids: one sheet component, closing three ways.
     css = _css()
-    assert ".chatlist.open" in css and ".chatscrim" in css, "the list is not a drawer"
+    assert ".chatlist.open" not in css and ".chatscrim" not in css, \
+        "the room list grew a drawer of its own again"
+    assert ".chatrooms" in css, "the room list has no styles"
+    assert "const drawer = open ? (" in chat and "<Modal title={t('chat.list.open')}" in chat, \
+        "the phone opens the room list with something other than the one modal"
     assert "@media (min-width: 721px)" in css, \
         "the wide screen does not put the list beside the conversation"
 
@@ -3141,7 +3147,7 @@ def test_the_sprites_are_behind_one_button_in_the_one_modal():
     # THE ONE MODAL, never a second component (CLAUDE.md). Three sheets use it now —
     # the picker, a photograph opened full-size, and the ⚙ that holds the chat's own
     # service presses (#2418) — and all three are the SAME component.
-    assert chat.count("<Modal") == 3 and "from '../ui/Modal'" in chat, \
+    assert chat.count("<Modal") == 4 and "from '../ui/Modal'" in chat, \
         "the picker did not reuse the panel's one modal"
     assert "className=\"go icon gear\"" in chat, \
         "the service presses have no ⚙ to open them"

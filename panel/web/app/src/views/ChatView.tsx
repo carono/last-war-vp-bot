@@ -748,8 +748,13 @@ export function ChatView({
       </div>
     ) : null
 
-  const sidebar = (
-    <aside className={'chatlist' + (open ? ' open' : '')}>
+  /* THE ROOM LIST, drawn twice over: as the column a wide screen has room for, and as
+     THE modal on a phone (#2660). It used to be a drawer of its own — a second overlay
+     with its own scrim, which closed on the dark and on nothing else: no ✕, no Esc, and
+     the page scrolling away underneath it. `CLAUDE.md` allows exactly one sheet
+     component, so the phone opens this one. */
+  const roomList = (
+    <div className="chatrooms">
       {/* PINNED FIRST — the client's own `isPin`, so what the person pinned in the game
           is what is at the top here (#2418). */}
       {section('pin', 'chat.list.pinned', rooms.filter((r) => r.section === 'pin'))}
@@ -765,8 +770,14 @@ export function ChatView({
       <button className={'chip ear' + (ear ? ' on' : '')} onClick={() => void hear(!ear)}>
         {t('chat.monitor')}
       </button>
-    </aside>
+    </div>
   )
+  const sidebar = <aside className="chatlist">{roomList}</aside>
+  const drawer = open ? (
+    <Modal title={t('chat.list.open')} onClose={() => setOpen(false)}>
+      {roomList}
+    </Modal>
+  ) : null
 
   /** The strip over the conversation: what is open, and the way back to the list. */
   const bar = (
@@ -821,7 +832,7 @@ export function ChatView({
     return (
       <div className="chatwrap">
         {sidebar}
-        {open ? <div className="chatscrim" onClick={() => setOpen(false)} /> : null}
+        {drawer}
         <div className="chat">
           {bar}
           {state}
@@ -850,7 +861,7 @@ export function ChatView({
   return (
     <div className="chatwrap">
       {sidebar}
-      {open ? <div className="chatscrim" onClick={() => setOpen(false)} /> : null}
+      {drawer}
       <div className="chat">
         {bar}
         {state}
