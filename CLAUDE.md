@@ -942,6 +942,31 @@ What is NOT forbidden: reading in response to a person's press, reading once whe
 is first opened, and a scenario doing whatever it needs while it runs. The rule is about
 what the panel does when nobody asked it to do anything.
 
+### A STATISTIC IS NOT REFRESHED BY HAND, AND «при старте клиента» IS WHERE IT STARTS
+
+**Binding, and it is the person's decision (#2633)**, in their words: «Статка по билетам
+работает плохо, я ожидаю, что любые статистики я не должен обновлять, все данные должны
+подтягиваться при старте клиента, а их изменение проводиться по пушам». Any statistic —
+not the tickets alone.
+
+So a board of readings has **no «Обновить» button**. It has:
+
+* **one first reading, at the moment the client gets into the game** — `bus.GAME_READY`,
+  published on that edge by `panel/runtime/status.py` and by nothing else. A subscriber
+  hears it again after a link was lost and came back, which is the other moment
+  everything it holds may have moved unheard;
+* **the wire for everything after that** — `rt.wire.subscribe(...)`, debounced, because a
+  burst of one push (a harvest emits 25) must cost ONE reading;
+* **the age of the reading, drawn beside it**, so a number that somehow stopped moving is
+  visibly old rather than quietly wrong.
+
+A button that STARTS an ability still belongs there and always did — what is gone is the
+button whose only job was to ask again. And when a reading genuinely has no push behind
+it, that is the conversation the section above demands, not a licence for a clock: the
+build queue announces nothing, and the person's answer was one alarm at the slot's own
+`endTime` (`docs/research/ready-buildings.md` §5) — a known moment, not a question asked
+on repeat.
+
 ## Game data lives only in the database
 
 **This rule is binding on every agent working in this repository — dispatcher, worker,

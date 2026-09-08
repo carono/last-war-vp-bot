@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import time
 
+from ..runtime import bus
 from ..runtime import store
 from .inventory import cell_url
 from .vs_duel import DAYS, VsDuelTab, _Choice, walk_items
@@ -68,6 +69,43 @@ CHIP_READ = "read_drone_chips"
 #: scenario or not at all).
 TICKETS_READ = "read_survivor_tickets"
 BUILDS_READ = "read_ready_buildings"
+
+#: WHAT THE GAME ITSELF SAYS WHEN THESE READINGS MOVE (#2633), and the whole reason
+#: this page has no «Обновить» any more. The person's rule: «любые статистики я не
+#: должен обновлять, все данные должны подтягиваться при старте клиента, а их изменение
+#: проводиться по пушам».
+#:
+#: * `push.resource.item.update` — a bag count moved. BOTH of Tuesday's numbers and the
+#:   chests are bag items (a recruit ticket is an item; so is a chest), and the client
+#:   applies the push to its own `ItemInfos` table, which is what the recipes read
+#:   (`docs/research/inventory.md`). So the honest re-read is the table, told by the push.
+#: * `push.uav.skillchip.changes` — the drone's own chips changed, which is what OPENING
+#:   a chest ends in (`docs/research/drone-upgrade.md`).
+BAG_PUSH = "push.resource.item.update"
+CHIP_PUSH = "push.uav.skillchip.changes"
+
+#: How long after a push before the re-read, in milliseconds. Re-armed by every push
+#: that arrives inside the window, so a BURST — one harvest emits 25 of them
+#: (`docs/research/base-resources.md`) — costs exactly one reading.
+PUSH_DELAY_MS = 3_000
+
+#: The tick chains this page owns: the debounce above, the build queue's own alarm, and
+#: the one late look that covers a panel started over a client that was already playing.
+CHAIN_PUSH = "vs_push"
+CHAIN_BUILD = "vs_build_due"
+CHAIN_FIRST = "vs_first_read"
+
+#: How long after the tab exists before it checks whether the client is ALREADY in the
+#: game, in milliseconds. Not a poll: it fires once and never re-arms — the wire's own
+#: moment (`bus.GAME_READY`) is the mechanism, and this only covers the panel that was
+#: restarted under a client that never went away.
+FIRST_LOOK_MS = 20_000
+
+#: The longest a single build alarm may sleep, in seconds. A construction can be a day
+#: long and a `after()` that far out is a promise nobody should make, so the wait is
+#: served in hour-long legs — and a leg that arrives early re-arms WITHOUT reading
+#: anything, so the game is asked once, at the moment the slot is actually due.
+BUILD_LEG_SEC = 3_600.0
 
 #: WHAT THE PRESS INSIDE THE SHEET CALLS ITSELF (#2624). The switch above it already
 #: says what the ability IS — «Открыть чипы дрона» — so the button says what pressing it
@@ -116,6 +154,21 @@ class VsTab(VsDuelTab):
         #: have finished. `None` until either has been asked for the first time.
         self._tickets = None
         self._builds = None
+        #: THE EAR AND ITS ALARM (#2633). Nothing here reads on a clock: the first
+        #: reading is taken when the client gets into the game (`bus.GAME_READY`), and
+        #: after that the wire says when a number moved. `_build_due` is the one
+        #: exception the person decided on — the build queue announces nothing, so its
+        #: own `endTime` is the alarm, which is a known moment and not a question.
+        self._wire_off: list = []
+        self._build_due: "float | None" = None
+        try:
+            self._ready_off = self.rt.bus.subscribe(bus.GAME_READY, self._on_game_ready)
+        except Exception:                # noqa: BLE001 — a board, never the panel
+            self._ready_off = None
+        try:
+            self.rt.tick.arm(CHAIN_FIRST, FIRST_LOOK_MS, self._first_look)
+        except Exception:                # noqa: BLE001 — no clock only means the ready
+            pass                         #   fact is the only door, which is the normal one
         try:
             old = self.rt.settings.tab_config("vs_duel")
         except Exception:                # noqa: BLE001 — a profile, never the panel
@@ -372,6 +425,10 @@ class VsTab(VsDuelTab):
         state["rows"] = rows
         state["at"] = int(time.time())
         self._builds_save(state)
+        # …AND THE NEXT ALARM, out of the same answer. The recipe says how long the
+        # earliest slot still has to run, so the panel knows the exact second the list
+        # will be wrong and asks then — never in between (#2633).
+        self._arm_build_alarm(_int(variables.get("next_ready_sec"), -1))
 
     @staticmethod
     def _build_icon(stem: str) -> "str | None":
@@ -419,6 +476,147 @@ class VsTab(VsDuelTab):
         if not when:
             return self.t("vs.builds.never")
         return self.t("vs.builds.read_at", ago=self._ago(when))
+
+    # -- read once, then listen ------------------------------------------------
+    #
+    # THE RULE, IN THE PERSON'S OWN WORDS (#2633): «я ожидаю, что любые статистики я не
+    # должен обновлять, все данные должны подтягиваться при старте клиента, а их
+    # изменение проводиться по пушам». So this page has no «Обновить» at all. Every
+    # number on it is taken once, when the client gets into the game, and moved after
+    # that by the game's own announcements — which is what `CLAUDE.md` has always asked
+    # for and what a refresh button quietly replaced.
+    #
+    # Nothing here ticks for its own sake. The three chains are a DEBOUNCE (a burst of
+    # pushes must cost one reading), the build queue's ALARM (a known moment, see
+    # `_arm_build_alarm`) and ONE late look for a panel restarted under a client that
+    # was already playing.
+
+    def _on_game_ready(self, _payload=None) -> None:
+        """The client is in the game — raise the ear and take the first reading."""
+        self._listen()
+        self._read_all()
+
+    def _first_look(self) -> None:
+        """Fires ONCE, and only matters when the panel was restarted mid-game.
+
+        `bus.GAME_READY` is published on the edge of entering the game, so a panel that
+        came up over a client which was already playing would never hear it and would
+        draw whatever the store remembered until the next login. This asks the link that
+        one question and then never runs again — it does not re-arm.
+        """
+        try:
+            ready = bool(self.rt.game.ready())
+        except Exception:                    # noqa: BLE001 — a look, never the tab
+            ready = False
+        if ready:
+            self._on_game_ready()
+
+    def _listen(self) -> None:
+        """Subscribe to the pushes these numbers move on. Idempotent."""
+        if self._wire_off:
+            return
+        for pattern in (BAG_PUSH, CHIP_PUSH):
+            try:
+                self._wire_off.append(self.rt.wire.subscribe(pattern, self._on_push))
+            except Exception:                # noqa: BLE001 — no capture is not no page:
+                break                        #   the reading stands with its age on it
+
+    def _unlisten(self) -> None:
+        """Close this page's ear. The capture stops with its last subscriber."""
+        for off in self._wire_off:
+            try:
+                off()
+            except Exception:                # noqa: BLE001 — already closed
+                pass
+        self._wire_off.clear()
+
+    def _on_push(self, command) -> None:
+        """A push crossed — ON THE CAPTURE'S READER THREAD, so nothing is done here.
+
+        `None` is the ear closing rather than a command; the subscription stays and the
+        next sync brings the capture back, so there is nothing to do but not treat it as
+        news.
+        """
+        if command is None:
+            return
+        self.post(self._push_soon)
+
+    def _push_soon(self) -> None:
+        """Re-read shortly. Re-armed by each push, so a burst costs ONE reading."""
+        try:
+            self.rt.tick.arm(CHAIN_PUSH, PUSH_DELAY_MS, self._read_bag)
+        except Exception:                    # noqa: BLE001 — no clock, read at once
+            self._read_bag()
+
+    def _read_bag(self) -> None:
+        """What the bag holds: the survivors' tickets and the chip chests.
+
+        Not the buildings: a construction finishing moves no item, and asking for it on
+        somebody else's push is exactly the wasted question this rule forbids.
+        """
+        self.rt.play_async(CHIP_READ, args={"ids": ",".join(CHIP_IDS)}, tag="vs",
+                           on_result=self._chips_rows_back)
+        self.rt.play_async(TICKETS_READ, tag="vs", on_result=self._tickets_back)
+
+    def _read_all(self) -> None:
+        """The whole page, once — the bag and the build queue."""
+        self._read_bag()
+        self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
+
+    # -- the one reading with no push behind it --------------------------------
+    #
+    # The build queue announces NOTHING: the server sets the slot to `Finish` and no
+    # command crosses the wire (`docs/research/ready-buildings.md`). It was taken to the
+    # person rather than answered with a poll, and the decision was «по endTime слота» —
+    # the slot already carries the second it is due, so the panel sleeps until exactly
+    # that second and asks once. A day-long construction is waited out in hour-long
+    # legs, and a leg that arrives early re-arms without asking the game anything.
+
+    def _arm_build_alarm(self, next_sec: int) -> None:
+        """Wake when the earliest slot is due. `-1` — nothing is building, so no alarm."""
+        if next_sec is None or next_sec < 0:
+            self._build_due = None
+            try:
+                self.rt.tick.disarm(CHAIN_BUILD)
+            except Exception:                # noqa: BLE001
+                pass
+            return
+        # A second of grace: the slot is set to `Finish` by the server, and asking on the
+        # exact tick of its own clock is asking a hair too early.
+        self._build_due = time.time() + max(0, int(next_sec)) + 1.0
+        self._build_tick()
+
+    def _build_tick(self) -> None:
+        """A leg of the wait, or the reading it was waiting for."""
+        due = self._build_due
+        if due is None:
+            return
+        left = due - time.time()
+        if left > 0:
+            try:
+                self.rt.tick.arm(CHAIN_BUILD, int(min(left, BUILD_LEG_SEC) * 1000),
+                                 self._build_tick)
+            except Exception:                # noqa: BLE001 — no clock, no alarm
+                self._build_due = None
+            return
+        self._build_due = None
+        self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
+
+    def shutdown(self) -> None:
+        """Give the ear and the alarms back — a listener outliving its tab is a leak."""
+        for chain in (CHAIN_PUSH, CHAIN_BUILD, CHAIN_FIRST):
+            try:
+                self.rt.tick.disarm(chain)
+            except Exception:                # noqa: BLE001
+                pass
+        self._unlisten()
+        off, self._ready_off = getattr(self, "_ready_off", None), None
+        if off is not None:
+            try:
+                off()
+            except Exception:                # noqa: BLE001
+                pass
+        super().shutdown()
 
     # -- the phone's copy ------------------------------------------------------
     def web_view(self) -> "dict | None":
@@ -483,8 +681,10 @@ class VsTab(VsDuelTab):
                 # …and under the press, what it is about: one row per grade, with the
                 # game's own picture, how many are in the bag and how many were opened.
                 group["items"] = self._chips_rows()
-                group["actions"].append({"id": "chips_read",
-                                         "label": "vs.chips.refresh"})
+                # NO «Обновить» (#2633). The count moves by itself: it is read when the
+                # client gets into the game and again whenever the game says a bag count
+                # changed. The note under it carries the age, so a reading that somehow
+                # stopped moving is visibly old rather than quietly wrong.
                 group["note"] = self._chips_note()
             if action.key == "survivor_tickets":
                 # THE STATISTICS THE PERSON ASKED FOR (#2632): «сколько билетов, сколько
@@ -492,8 +692,6 @@ class VsTab(VsDuelTab):
                 # under it — a stale count is visibly stale rather than quietly wrong.
                 group["items"] = [{"label": "vs.tickets.stats",
                                    "facts": self._tickets_facts()}]
-                group["actions"].append({"id": "tickets_read",
-                                         "label": "vs.tickets.refresh"})
                 group["note"] = self._tickets_note()
             if action.key == "build_collect":
                 # THE FINISHED BUILDINGS, one row each — the game's own picture, the
@@ -505,8 +703,6 @@ class VsTab(VsDuelTab):
                 for press in group["actions"]:
                     if press.get("id") == "run":
                         press["disabled"] = not rows
-                group["actions"].append({"id": "builds_read",
-                                         "label": "vs.builds.refresh"})
                 group["note"] = self._builds_note()
             groups.append(group)
         if groups:
@@ -539,16 +735,6 @@ class VsTab(VsDuelTab):
         is (CLAUDE.md). A day switched off is not a refusal either — the person pressed
         it themselves, and a press is not the schedule.
         """
-        if action == "chips_read":
-            return {"ok": self.rt.play_async(
-                CHIP_READ, args={"ids": ",".join(CHIP_IDS)}, tag="vs", human=True,
-                on_result=self._chips_rows_back)}
-        if action == "tickets_read":
-            return {"ok": self.rt.play_async(TICKETS_READ, tag="vs", human=True,
-                                             on_result=self._tickets_back)}
-        if action == "builds_read":
-            return {"ok": self.rt.play_async(BUILDS_READ, tag="vs", human=True,
-                                             on_result=self._builds_back)}
         if action == "open_one":
             # ONE BUILDING, named by the row that drew it. The gate is the recipe's, so a
             # press outside the arms race's building hour is refused by the ability and

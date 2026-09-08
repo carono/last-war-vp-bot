@@ -39,14 +39,14 @@ LOCALES = ROOT / "panel" / "locales"
 NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set",
             "vs.day.soon", "vsduel.drone_chips", "vsduel.drone_level",
             "vs.chips.title", "vs.chips.in_bag", "vs.chips.opened",
-            "vs.chips.refresh", "vs.chips.read_at", "vs.chips.never",
+            "vs.chips.read_at", "vs.chips.never",
             "vs.chips.open_all", "vs.drone.raise_now",
             "vs.age.sec", "vs.age.min", "vs.age.hour", "vs.age.day",
             "vsduel.survivor_tickets", "vsduel.build_collect",
             "vs.tickets.stats", "vs.tickets.have", "vs.tickets.spent_today",
-            "vs.tickets.spend_now", "vs.tickets.refresh", "vs.tickets.read_at",
+            "vs.tickets.spend_now", "vs.tickets.read_at",
             "vs.tickets.never", "vs.builds.open_all", "vs.builds.open",
-            "vs.builds.refresh", "vs.builds.level", "vs.builds.read_at",
+            "vs.builds.level", "vs.builds.read_at",
             "vs.builds.never")
 
 
@@ -255,7 +255,7 @@ def test_the_wired_knob_carries_the_button_that_plays_its_recipe():
         # ability, under that ability's own switch.
         assert not monday.get("actions"), monday.get("actions")
         assert [a["label"] for g in monday["options_groups"]
-                for a in g["actions"]] == ["vs.chips.open_all", "vs.chips.refresh",
+                for a in g["actions"]] == ["vs.chips.open_all",
                                            "vs.drone.raise_now"]
         assert tab.web_press("run", {"key": "mon.drone_chips"}) == {"ok": True}
         assert tab.web_press("run", {"key": "mon.drone_level"}) == {"ok": True}
@@ -380,7 +380,7 @@ def test_the_chests_are_counted_under_the_knob_even_before_anything_is_read():
             assert item["facts"][0]["value"] == "—"
             assert item["facts"][1]["value"] == "0"
             assert "icon" not in item, "no picture is drawn rather than a wrong one"
-        assert [a["id"] for a in card["actions"]] == ["run", "chips_read"]
+        assert [a["id"] for a in card["actions"]] == ["run"]
         assert card["note"] == tab.t("vs.chips.never")
     finally:
         root.destroy()
@@ -427,7 +427,8 @@ def test_a_reading_fills_the_rows_and_an_opening_adds_to_the_tally():
         root.destroy()
 
 
-def test_the_refresh_press_plays_the_reading_recipe_with_the_same_ids():
+def test_the_bag_reading_is_taken_by_the_wire_and_the_run_carries_the_same_ids():
+    """No «Обновить» anywhere: the reading is played by the push and by the start."""
     try:
         root, tab = _tab()
     except Exception as exc:                       # noqa: BLE001
@@ -439,15 +440,17 @@ def test_the_refresh_press_plays_the_reading_recipe_with_the_same_ids():
         seen = []
         tab.rt.play_async = lambda name, args=None, **k: (
             seen.append((name, args, sorted(k))) or True)
-        assert tab.web_press("chips_read", {}) == {"ok": True}
+        tab._read_bag()
         name, args, kw = seen[0]
         assert name == "read_drone_chips" and args == {"ids": ",".join(CHIP_IDS)}
         assert "on_result" in kw, "what came back has to reach the store"
         # …and the opening run carries the same list and its own tally callback.
         assert tab.web_press("run", {"key": "mon.drone_chips"}) == {"ok": True}
-        name, args, kw = seen[1]
+        name, args, kw = seen[-1]
         assert name == "open_drone_chips" and args == {"ids": ",".join(CHIP_IDS)}
         assert "on_result" in kw
+        # …and the press that used to take it is not a press any more.
+        assert tab.web_press("chips_read", {}) != {"ok": True}
     finally:
         root.destroy()
 
@@ -523,8 +526,9 @@ def test_tuesdays_two_abilities_are_each_a_block_behind_the_gear():
         groups = {g["title"]: g for g in tuesday["options_groups"]}
         tickets = groups["vsduel.survivor_tickets"]
         assert [f["key"] for f in tickets["fields"]] == ["plan.tue.survivor_tickets"]
-        assert [a["label"] for a in tickets["actions"]] == [
-            "vs.tickets.spend_now", "vs.tickets.refresh"]
+        # NO «Обновить» anywhere on this page (#2633): the numbers are read when the
+        # client gets into the game and moved by the game's own pushes after that.
+        assert [a["label"] for a in tickets["actions"]] == ["vs.tickets.spend_now"]
         # …and the statistics the person asked for, in one row of two numbers.
         facts = tickets["items"][0]["facts"]
         assert [f["label"] for f in facts] == ["vs.tickets.have",
@@ -534,8 +538,7 @@ def test_tuesdays_two_abilities_are_each_a_block_behind_the_gear():
 
         builds = groups["vsduel.build_collect"]
         assert [f["key"] for f in builds["fields"]] == ["plan.tue.build_collect"]
-        assert [a["label"] for a in builds["actions"]] == [
-            "vs.builds.open_all", "vs.builds.refresh"]
+        assert [a["label"] for a in builds["actions"]] == ["vs.builds.open_all"]
         # NOTHING TO OPEN -> the press is dead rather than absent (#2632).
         assert builds["actions"][0]["disabled"] is True
         assert builds["items"] == []
@@ -586,18 +589,17 @@ def test_tuesdays_presses_play_the_recipes_and_nothing_else():
 
         assert tab.web_press("run", {"key": "tue.survivor_tickets"}) == {"ok": True}
         assert tab.web_press("run", {"key": "tue.build_collect"}) == {"ok": True}
-        assert tab.web_press("tickets_read", {}) == {"ok": True}
-        assert tab.web_press("builds_read", {}) == {"ok": True}
         assert tab.web_press("open_one", {"uuid": "1000000000000001"}) == {"ok": True}
         assert played == [("spend_survivor_tickets", None),
                           ("open_ready_buildings", None),
-                          ("read_survivor_tickets", None),
-                          ("read_ready_buildings", None),
                           ("open_ready_buildings", "1000000000000001")], played
         # A uuid that is not one is refused rather than handed to a recipe.
         assert tab.web_press("open_one", {"uuid": "; drop"}) == {"error": "unknown"}
         assert tab.web_press("open_one", {}) == {"error": "unknown"}
-        assert len(played) == 5, played
+        # …and neither reading is a press any more (#2633).
+        assert tab.web_press("tickets_read", {}) != {"ok": True}
+        assert tab.web_press("builds_read", {}) != {"ok": True}
+        assert len(played) == 3, played
     finally:
         root.destroy()
 
@@ -687,6 +689,105 @@ def test_a_building_draws_the_games_own_picture_or_none_at_all():
     link = VsTab._build_icon("UI_building_10310000")
     assert link is None or link.startswith("/api/buildingicon?icon="), link
 
+
+
+# ---------------------------------------------------------------------------
+# Read once, then listen (#2633)
+# ---------------------------------------------------------------------------
+
+
+def test_the_client_getting_into_the_game_takes_every_reading_once():
+    """`bus.GAME_READY` is the first reading's only door — no button, no clock."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        from panel.runtime import bus as busmod
+
+        played, heard = [], []
+        tab.rt.play_async = lambda name, *a, **k: played.append(name) or True
+        tab.rt.wire.subscribe = lambda pattern, fn: (
+            heard.append(pattern) or (lambda: None))
+        tab._on_game_ready()
+        assert played == ["read_drone_chips", "read_survivor_tickets",
+                          "read_ready_buildings"], played
+        # …and the ear is up, on the two announcements these numbers move on.
+        assert busmod.GAME_READY == "game.ready"
+        assert heard == ["push.resource.item.update",
+                         "push.uav.skillchip.changes"], heard
+        # Raised ONCE: a second ready does not open a second capture.
+        tab._on_game_ready()
+        assert heard == ["push.resource.item.update",
+                         "push.uav.skillchip.changes"], heard
+    finally:
+        root.destroy()
+
+
+def test_a_burst_of_pushes_costs_one_reading():
+    """The debounce is re-armed by every push, so a harvest is one re-read."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        armed = []
+        tab.rt.tick.arm = lambda name, delay, fn: armed.append((name, delay))
+        for _ in range(25):
+            tab._push_soon()
+        assert len(armed) == 25, armed
+        assert {name for name, _delay in armed} == {"vs_push"}, armed
+        # The ear closing is not news, and it starts nothing.
+        armed.clear()
+        tab._on_push(None)
+        assert armed == [], armed
+    finally:
+        root.destroy()
+
+
+def test_the_build_queue_is_woken_by_its_own_end_time_and_not_by_a_clock():
+    """The one reading with no push behind it — the person's answer was «по endTime»."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        import time as timemod
+
+        armed = []
+        tab.rt.tick.arm = lambda name, delay, fn: armed.append((name, delay))
+        tab.rt.tick.disarm = lambda name: armed.append((name, None))
+
+        # Nothing building: no alarm at all.
+        tab._arm_build_alarm(-1)
+        assert tab._build_due is None
+        assert armed == [("vs_build_due", None)], armed
+
+        # A slot due in a minute: one alarm, at that minute.
+        armed.clear()
+        tab._arm_build_alarm(60)
+        assert armed and armed[0][0] == "vs_build_due"
+        assert 55_000 < armed[0][1] <= 62_000, armed
+
+        # A day-long construction is waited out in legs of an hour, and a leg that
+        # arrives early re-arms rather than asking the game anything.
+        armed.clear()
+        played = []
+        tab.rt.play_async = lambda name, *a, **k: played.append(name) or True
+        tab._arm_build_alarm(86_400)
+        assert armed[0][1] == 3_600_000, armed
+        assert played == [], "an early leg reads nothing"
+
+        # …and when the moment has actually come, the queue is read once.
+        tab._build_due = timemod.time() - 1
+        tab._build_tick()
+        assert played == ["read_ready_buildings"], played
+        assert tab._build_due is None
+    finally:
+        root.destroy()
 
 
 if __name__ == "__main__":

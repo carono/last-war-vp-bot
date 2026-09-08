@@ -91,3 +91,26 @@ never read as «go ahead».
   the `/api/buildingicon` route in `panel/web/server.py`;
 * the panel — the «VS» tab's Tuesday (`panel/tabs/vs.py`), which reads with the first,
   presses the second, and holds no gate of its own.
+
+## 5. There is no push behind it, and what is done about that (#2633)
+
+A construction finishing announces **nothing**. The server sets the slot's `state` to
+`Finish` and no command crosses the wire — the client redraws off its own timer, so a
+panel that only listens would go on showing the list it read at login for the rest of the
+day. That is the one reading on the «VS» page in that position: the survivors' tickets and
+the chip chests are bag items, and the bag has `push.resource.item.update` behind it
+(`docs/research/inventory.md`).
+
+It was taken to the person rather than answered with a poll, and the decision was **«по
+endTime слота»**: the slot already carries the millisecond it is due, so the panel sleeps
+until exactly that second and asks once. `read_ready_buildings.md` therefore answers
+`next_ready_sec` beside the list — how long the earliest slot that is still WORKING has
+left, by the GAME's clock (`UITimeManager:GetInstance():GetServerSeconds()`; the PC's
+disagrees and the PC is the one that lies), or `-1` when nothing is building at all.
+
+The tab arms one alarm off that number (`panel/tabs/vs.py::_arm_build_alarm`). A
+day-long construction is waited out in legs of an hour because an `after()` a day out is
+a promise nobody should make — and **a leg that arrives early re-arms without asking the
+game anything**, so the queue is read once, at the moment it becomes wrong, and never in
+between. `-1` arms nothing: an account with an empty queue asks no questions at all until
+its next login or its next press.
