@@ -16896,6 +16896,11 @@ REWARD_WINDOWS = (
     "UIDispatchTaskReward",
     # The abilities that already end in a reward list of their own.
     "UILWTruckRewardGet", "UIGhostreconReward", "UIGhostreconGetBoxReward",
+    # The base truck's idle accumulator, added on the evidence the ear itself wrote
+    # (#2642): two `unknown|UIZombieBattleHangUpReward` rows, both microseconds after a
+    # `ShowCommonReward` fired by `collect_truck_resources.md`. It is the window the
+    # person kept finding on screen, and until now only the sweep could shut it.
+    "UIZombieBattleHangUpReward",
     "UIDispatchTreasureReward", "UIDispatchTreasureGetBoxReward", "UICollectReward",
     # The generic «here is what you got» tips the client reuses across features.
     "UICommonRewardTip", "UIRewardShow", "UIRewardTip", "UIRewardContentTip",
