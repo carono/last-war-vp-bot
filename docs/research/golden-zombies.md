@@ -9,6 +9,11 @@ Companion to [`world-monsters.md`](world-monsters.md), which is where the no-cli
 and the launch primitive were worked out over seventeen findings. Nothing here re-opens
 those; it uses them.
 
+**And they exist only while «Вторжение зомби» runs** — what says so, and when the next
+window falls, is [`zombie-invasion-window.md`](zombie-invasion-window.md) (#2647). Every
+chain here opens with that reading and stops on a closed one, so a hunt outside the event
+costs one round trip instead of a lap of the map.
+
 Everything below marked **live** was measured against a running client on 2026-08-19,
 through the panel's own web API (`docs/research/panel-web.md`) because Windows interop
 was down that day and the daemon could not be reached from WSL directly.

@@ -1628,6 +1628,10 @@ class EventsTab(PanelTab):
 
         rows = ttk.Frame(self._body)
         rows.pack(fill="x", padx=4, pady=(0, 2))
+        # WHETHER THERE IS ANYTHING TO HUNT AT ALL (#2647), above the purse: the
+        # golden zombies belong to «Вторжение зомби» and exist only while it runs.
+        for row in self.invasion_rows():
+            self._row(rows, row["label"], row["value"], grey)
         self._row(rows, "events.golden.energy", modelmod.energy(state), grey)
         self._row(rows, "events.golden.affordable", modelmod.affordable(state), grey)
         self._row(rows, "events.golden.seen", modelmod.seen(state), grey)
@@ -1937,6 +1941,45 @@ class EventsTab(PanelTab):
         except tk.TclError:                 # the window is going away
             pass
 
+    def invasion_rows(self) -> list:
+        """Two readings about «Вторжение зомби», for both front-ends (#2647).
+
+        The golden zombies are that event's own monsters, so a card that says how much
+        energy the purse holds and never says whether there is anything to spend it on
+        reads as broken every time the hunt stops with «событие не идёт». The state is
+        the GAME's own answer, kept by `panel/runtime/invasion_live.py` — taken when the
+        client gets into the game, when the invasion's record arrives and on every hunt
+        run, never on a clock — and its AGE is drawn beside it, so a reading that somehow
+        stopped moving is visibly old rather than quietly wrong (`CLAUDE.md`, «A
+        STATISTIC IS NOT REFRESHED BY HAND»).
+
+        The next window is said in SEASON DAYS and not as a date: the client's own
+        `advanced_monster_invasion` table names the season day the invasion falls on, and
+        the game says which day the season is on today. A date would be a claim about a
+        clock nobody here has checked.
+        """
+        from ...runtime import invasion_live
+        fields, age = invasion_live.state(self.rt)
+        if not fields:
+            return [{"label": "events.golden.invasion", "value": "—"},
+                    {"label": "events.golden.invasion.next", "value": "—"}]
+        running = int(fields.get("open", 0) or 0) == 1
+        words = self.t("events.golden.invasion.on" if running
+                       else "events.golden.invasion.off")
+        if age is not None:
+            words = "%s · %s" % (words, modelmod.ago(age))
+        day = int(fields.get("day", 0) or 0)
+        next_day = int(fields.get("next_day", 0) or 0)
+        if running:
+            when = self.t("events.golden.invasion.running")
+        elif next_day > day > 0:
+            when = self.t("events.golden.invasion.in",
+                          day=next_day, left=next_day - day)
+        else:
+            when = "—"
+        return [{"label": "events.golden.invasion", "value": words},
+                {"label": "events.golden.invasion.next", "value": when}]
+
     def _golden_words(self, state) -> str:
         if state.state == modelmod.OPEN:
             return self.t("events.golden.state.open")
@@ -2169,7 +2212,7 @@ class EventsTab(PanelTab):
         # runs the chain — the row says what it is worth right now in one line
         # (`panel/runtime/errand_stats.py`).
         gold = self.golden()
-        facts = [
+        facts = self.invasion_rows() + [
             {"label": "events.golden.energy", "value": modelmod.energy(gold)},
             {"label": "events.golden.affordable", "value": modelmod.affordable(gold)},
             {"label": "events.golden.seen", "value": modelmod.seen(gold)},

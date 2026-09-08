@@ -318,12 +318,30 @@ def _from_daily(key: str, field: str, *extra):
 def _golden_hunt(rt) -> "dict | None":
     """«412 атак · 6 сегодня» — what the energy still buys, and what today has spent.
 
+    …or, while «Вторжение зомби» is not running, that fact and when the next window is:
+    a purse nobody can spend is not news (#2647).
+
     Off the reading «События» already holds and the day's own tally beside it, so the
     line costs the game nothing: an errand nobody can answer for free has no line at
     all, which is this module's whole rule. A profile with the tab switched off, or one
     where nobody has read the board yet, gets `None` rather than a zero that would read
     as «энергии нет».
     """
+    # THE EVENT FIRST, AND IT OUTRANKS THE PURSE (#2647). The golden zombies are
+    # «Вторжение зомби»'s own monsters: outside its window the energy line is true and
+    # useless, and a card promising «412 атак» while every run stops at the gate is
+    # exactly the «работает и без события» the person reported. The reading is
+    # `invasion_live` — the client entering the game, the invasion's own record, and
+    # each hunt run; never a clock — and it carries its age like every other.
+    from . import invasion_live
+
+    inv, inv_age = invasion_live.state(rt)
+    if inv and inv_age is not None and not inv.get("open"):
+        day, next_day = _int(inv.get("day")), _int(inv.get("next_day"))
+        if next_day > day > 0:
+            return {"key": "timers.stat.golden.closed",
+                    "fmt": {"day": next_day, "left": next_day - day}, "age": inv_age}
+        return {"key": "timers.stat.golden.off", "fmt": {}, "age": inv_age}
     tab = rt.tabs.get("events") if rt.tabs is not None else None
     if tab is None:
         return None
