@@ -107,3 +107,36 @@ branches on ([`rally-create.md`](rally-create.md)).
 Tool: `tools/rally_create.py` (`spawn_elite` drives the search; `create_on_level` searches then
 raises). `python tools/rally_create.py --find --level N [--type monster|boss]` reports what the
 search returns without raising anything.
+
+## What a season moves, measured live (#2646)
+
+The report was «открывается окно с поиском монстра, но он не находится», read as «the
+season changed the Fatal Elite's type and the bot is looking for the old one». Read off
+the live client (three probes, `LocalController` and the open `UISearch`, nothing sent
+but the searches themselves):
+
+* **`UISearchType` has not moved** — `None=0 Monster=1 Oil=2 Metal=3 Water=4 Boss=5
+  Resource=6 WorldDesert=7`, the same eight as when this file was written.
+* **The Boss tab's LEVEL CEILING has.** `GetMaxNumBySearchType(Boss)` answers **60** on
+  the live season; it was 35 when the flow was written, and the recipe's own default
+  still is. A level above the ceiling is a request the server answers with nothing, and
+  the person sees an open search window and no monster.
+* **The sub-tab does NOT decide the species.** `SearchPanelDataManager.map` is
+  `{search type -> {sub type -> the level last typed there}}`, and the live Boss row held
+  `{0: 35, 3: 58, 17: 60, 1001: 30}`. Searching under 0, 3 and 17 in turn returned three
+  different tiles of **the same species** — `name = s6_monster_eliteboss_name`,
+  `special = 0`, `monsterType = 3`, button `RallyBoss` — at levels 35, 58 and 60. So the
+  Boss tab is «this season's elite, at the level you asked for», whatever sub-tab is used.
+* **The elite line is readable on the popup itself.** `GetMonsterData(uuid)` carries
+  `special` and the `name` KEY, so what came back can be judged by the config's own mark
+  (`special == 0`, docs/research/rally-monster-groups.md) instead of by a species name
+  written down last season.
+* **What actually failed was the TAB.** The person's saved form pinned `monster` and
+  level 58; `find.monster` at 58 leaves `UISearch` on screen and never opens a
+  `UIWorldPoint`, while `find.monster.boss` at that very level opened this season's
+  elite in under four seconds. That is the whole of the bug: an ordinary-monster tab
+  aimed at a level only the elite tab has.
+
+Which is why `actions/create_rally.md` takes `target = auto` since #2646: it reads the
+ceiling live and clamps to it, judges what came back by `special`, and tries the other
+tab before giving up. `boss` and `monster` still pin one tab each.

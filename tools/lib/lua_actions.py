@@ -8273,8 +8273,22 @@ def join_next_rally() -> str:
 # The parked run, and the «лупа» tab its kind maps to. The tab numbers are the
 # UISearchType enum read live: 5 = Boss (the Fatal Elite, `find.monster.boss`),
 # 1 = Monster (ordinary field monsters, `find.monster`) — docs/research/rally-elite-search.md.
+#
+# NOTHING SEASONAL IS SPELLED OUT HERE ANY MORE (#2646). A season renames the Fatal
+# Elite, gives it a new portrait and moves its `type` (the config carries 1, 3, 17 and
+# 21 across six seasons), and it moves the search's own LEVEL CEILING with it — the Boss
+# tab took 35 when this code was written and takes 60 today. What does NOT move is the
+# config's own mark for the elite line, `special == 0` (#2051), and the ceiling the game
+# will answer for the tab, which it is happy to be asked. So the level is clamped to what
+# the live client says the tab accepts, and what came back is judged by `special`, never
+# by a species name or a `type` written down last season.
 _RALLY_CREATE_PARAMS = "local p = DataCenter.__lw_rally_create or {} "
-_RALLY_SEARCH_TAB = "local st = 5 if tostring(p.kind) == 'monster' then st = 1 end "
+#: `auto` (the default) and the legacy `boss` both mean «this season's Fatal Elite,
+#: whatever it is called» — the Boss tab. Only an explicit `monster` asks for the
+#: ordinary-monster tab; `auto` falls back to it when the elite tab answers nothing.
+_RALLY_SEARCH_TAB = ("local st = 5 if tostring(p.kind) == 'monster' then st = 1 end "
+                     "if tonumber(p.flip) == 1 then "
+                     "if st == 5 then st = 1 else st = 5 end end ")
 
 # The two windows the squad screen can be, depending on the `formation_v2_switch` config.
 _FORMATION_WIN = (
@@ -8329,6 +8343,107 @@ def rally_raised() -> str:
     return "(%s - ((DataCenter.__lw_rally_create or {}).before or 0))" % own_rally_count()
 
 
+def rally_search_probe() -> str:
+    """With the «лупа» open: read the tab's LIVE level ceiling and the elite's name keys.
+
+    Both answers move with the season and neither is guessable (#2646):
+
+    * `GetMaxNumBySearchType(tab)` is what the client will let a person type into that
+      tab today — 35 for the Boss tab when the rally code was written, 60 on the live
+      season. A level above it is a search the server has nothing for, which is exactly
+      the «окно открылось, монстр не нашёлся» the person reported.
+    * the elite line is every `lw_world_monster` row with `boss = 1` and `special = 0`
+      (docs/research/rally-monster-groups.md, Finding 1). The name keys are read once
+      here so that what the search brings back can be JUDGED rather than assumed: a
+      season's replacement carries a new key and the same `special`.
+
+    Parked beside the rest of the run, so the presses after it carry no arguments.
+    """
+    return (
+        _RALLY_CREATE_PARAMS + _RALLY_SEARCH_TAB +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "local mx = 0 "
+        "if w ~= nil and w.Name == 'UISearch' then "
+        "pcall(function() mx = math.floor((w.Ctrl:GetMaxNumBySearchType(st) or 0) + 0) end) end "
+        "p.max_level = mx "
+        "local keys = {} "
+        "pcall(function() local inst = LocalController.instance() "
+        "local data = inst:getTable('lw_world_monster').data "
+        "local md = inst:getLine('lw_world_monster', 1030000):getMetaData() "
+        "local function col(n) local c = md[n] if type(c) == 'table' then c = c[1] end "
+        "return tonumber(c) end "
+        "local cb, cn, csp = col('boss'), col('name'), col('special') "
+        "for id, row in pairs(data) do local ld = row "
+        "if type(row) == 'table' and row._lineData ~= nil then ld = row._lineData end "
+        "if type(ld) == 'table' and tostring(ld[cb]) == '1' and tostring(ld[csp]) == '0' "
+        "then local k = nil pcall(function() k = inst:getValue('lw_world_monster', id, 'name') end) "
+        "if k ~= nil then keys[tostring(k)] = 1 end end end end) "
+        "p.elite_keys = keys "
+        "DataCenter.__lw_rally_create = p "
+        'CS.UnityEngine.Debug.LogError("ACT rally_probe tab="..st.." max="..tostring(mx))'
+    )
+
+
+def rally_search_max() -> str:
+    """Lua *expression* -> the level ceiling the live client gives the chosen tab."""
+    return "math.floor(((DataCenter.__lw_rally_create or {}).max_level or 0) + 0)"
+
+
+def rally_search_flip() -> str:
+    """Swap to the OTHER «лупа» tab and forget what the first one answered.
+
+    Only `auto` reaches this: the elite tab found nothing at that level, so the run
+    tries the ordinary-monster one before giving up. An explicit `boss` or `monster`
+    stays where the person put it.
+    """
+    return (
+        "local p = DataCenter.__lw_rally_create or {} "
+        "p.flip = 1 p.max_level = 0 "
+        "DataCenter.__lw_rally_create = p "
+        # The search a moment ago found nothing, so its own window is still the top one
+        # — that is what the person sees and what the failed poll read. Re-opening it
+        # would stack a second copy, so this opens one only when it is gone.
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not w or w.Name ~= 'UISearch' then "
+        "UIManager.Instance:OpenWindow(UIWindowNames.UISearch) end "
+        'CS.UnityEngine.Debug.LogError("ACT rally_flip")'
+    )
+
+
+def rally_flipped() -> str:
+    """Lua *expression* -> 1 once the run has swapped tabs, 0 while it is on its first."""
+    return "((tonumber((DataCenter.__lw_rally_create or {}).flip) == 1) and 1 or 0)"
+
+
+def rally_found_desc() -> str:
+    """Lua *expression* -> what the open popup is, in the config's own words.
+
+    `<name key> lvl <n> elite=yes|no` — the key is the game's, and `elite` is the
+    `special == 0` mark read off the live monster rather than a species this code was
+    taught. A popup that is not there answers an empty string.
+    """
+    return (
+        "(function() local p = DataCenter.__lw_rally_create or {} "
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not w or w.Name ~= 'UIWorldPoint' then return '' end "
+        "local md = nil pcall(function() md = w.Ctrl:GetMonsterData(w.Ctrl.uuid) end) "
+        "if md == nil then return '' end "
+        "local nm = tostring(md.name) local lv = tostring(md.level) "
+        "local elite = 'no' "
+        "if tostring(md.special) == '0' or (p.elite_keys or {})[nm] == 1 then elite = 'yes' end "
+        "return nm..' lvl '..lv..' elite='..elite end)()"
+    )
+
+
+def rally_elite_names() -> str:
+    """Lua *expression* -> the elite line's name keys, comma-joined (for a message)."""
+    return (
+        "(function() local p = DataCenter.__lw_rally_create or {} "
+        "local out = {} for k, _ in pairs(p.elite_keys or {}) do out[#out+1] = tostring(k) end "
+        "table.sort(out) return table.concat(out, ',') end)()"
+    )
+
+
 def rally_search_open() -> str:
     """Open the world-map search («лупа») — the window the level is typed into."""
     return "UIManager.Instance:OpenWindow(UIWindowNames.UISearch)"
@@ -8350,6 +8465,14 @@ def rally_search_fire() -> str:
         _RALLY_CREATE_PARAMS + _RALLY_SEARCH_TAB +
         "local lvl = tonumber(p.level) or 1 "
         "if lvl < 1 then lvl = 1 end if lvl > 200 then lvl = 200 end "
+        # …AND TO WHAT THIS SEASON'S TAB ACTUALLY TAKES (#2646). The ceiling is the
+        # live client's own answer, parked by `rally_search_probe`; a level above it
+        # is a request the server has nothing for and the person sees an open search
+        # window and no monster. Clamping is how a new season is followed without
+        # anybody editing a number here.
+        "local mx = tonumber(p.max_level) or 0 "
+        "if mx > 0 and lvl > mx then lvl = mx end "
+        "p.sent_level = lvl DataCenter.__lw_rally_create = p "
         "local w = UIManager.Instance:GetStackTopWindow() "
         "if not w or w.Name ~= 'UISearch' then "
         "error('the search window is not open (top is '..tostring(w and w.Name)..')') end "

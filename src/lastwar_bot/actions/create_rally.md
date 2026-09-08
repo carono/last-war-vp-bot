@@ -13,9 +13,13 @@
 #   * `level`  — the target's level, 1 to 200. A season puts monsters far above the
 #                everyday range on the map, so the range is wide on purpose; a level
 #                the server has nothing for simply comes back empty.
-#   * `target` — what to look for: `boss` is a «Роковая Элита», `monster` an ordinary
-#                field monster. They differ only in which «лупа» tab is used;
-#                anything else reads as `boss`.
+#   * `target` — which «лупа» tab to look in. `auto` (the default) asks for this
+#                season's «Роковая Элита» and, finding nothing of that level, tries
+#                the ordinary-monster tab before giving up; `boss` and `monster` pin
+#                one tab each. WHICH species the elite is this season is never written
+#                down — a season renames it, redraws it and moves its `type` — so it is
+#                read off the client's own config (`special == 0`, #2051) and the level
+#                is clamped to the ceiling the live client gives that tab.
 #
 # It does what a player does, in the same order, and each step waits for the game to
 # actually be in the next state rather than sleeping a guessed amount — starting with
@@ -51,7 +55,7 @@
 
 ARGS squad = 1
 ARGS level = 35
-ARGS target = boss
+ARGS target = auto
 
 # --- 0. The squad has to be standing in the base ----------------------------------
 # FIRST, before the camera moves and before anything is pressed. A rally is raised BY a
@@ -116,11 +120,26 @@ READ_LUA (((DataCenter.__lw_rally_create or {}).formation ~= nil) and 1 or 0) IN
 IF armed == 0
     FAIL "squad {squad} is not one the game knows — nothing was searched for"
 
+# Which tab the run may swap to, as a NUMBER — the DSL compares numbers, and the
+# alternative («ask the game a second time») costs a call to learn what was typed here.
+READ_LUA ((tostring((DataCenter.__lw_rally_create or {}).kind) == 'auto') and 1 or 0) INTO auto_kind
+
 # --- 1. Find a target -------------------------------------------------------------
 # The magnifier only sends the request; the answer opens the target's window on its
 # own a round trip later. Poll for that window AND for its monster data, which lands a
 # beat after the window itself — a window read too early looks empty, not absent.
+#
+# NOTHING ABOUT THE SEASON IS ASSUMED HERE (#2646). With the window open, the run asks
+# the client what THIS season allows: the tab's own level ceiling — 35 when this recipe
+# was written, 60 on the live season — and the config's elite line (`special == 0`).
+# The level is clamped to that ceiling, so a level the season has no monster for is
+# followed down instead of firing a request the server answers with nothing.
 TAP rally_search_window
+TAP rally_search_probe
+
+READ_LUA math.floor(((DataCenter.__lw_rally_create or {}).max_level or 0) + 0) INTO search_max
+LOG "the game lets this search go up to level {search_max}; asked for {level}"
+
 TAP rally_search
 
 READ_LUA (function() local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UIWorldPoint' then return 0 end local c = w.Ctrl local lvl = nil pcall(function() lvl = c:GetMonsterData(c.uuid).level end) if lvl == nil then return 0 end local b = '?' pcall(function() b = tostring(c:GetPointBtnEnumName(w.View.btnList[1])) end) if b == 'RallyBoss' then return 1 end return -1 end)() INTO found
@@ -129,9 +148,24 @@ WHILE found == 0 LIMIT 12
     WAIT 1
     READ_LUA (function() local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UIWorldPoint' then return 0 end local c = w.Ctrl local lvl = nil pcall(function() lvl = c:GetMonsterData(c.uuid).level end) if lvl == nil then return 0 end local b = '?' pcall(function() b = tostring(c:GetPointBtnEnumName(w.View.btnList[1])) end) if b == 'RallyBoss' then return 1 end return -1 end)() INTO found
 
+# NOTHING FOUND ON THE FIRST TAB, AND `auto` HAS ANOTHER ONE. The «лупа» has two that
+# can hold a rally target — the elite's and the ordinary monsters' — and which one a
+# season's target sits behind is not this file's business to know. `boss` and `monster`
+# stay exactly where the person put them; only `auto` swaps and tries again.
+IF found == 0
+    IF auto_kind == 1
+        TAP rally_search_flip
+        TAP rally_search_probe
+        TAP rally_search
+        READ_LUA (function() local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UIWorldPoint' then return 0 end local c = w.Ctrl local lvl = nil pcall(function() lvl = c:GetMonsterData(c.uuid).level end) if lvl == nil then return 0 end local b = '?' pcall(function() b = tostring(c:GetPointBtnEnumName(w.View.btnList[1])) end) if b == 'RallyBoss' then return 1 end return -1 end)() INTO found
+        WHILE found == 0 LIMIT 10
+            WAIT 1
+            READ_LUA (function() local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UIWorldPoint' then return 0 end local c = w.Ctrl local lvl = nil pcall(function() lvl = c:GetMonsterData(c.uuid).level end) if lvl == nil then return 0 end local b = '?' pcall(function() b = tostring(c:GetPointBtnEnumName(w.View.btnList[1])) end) if b == 'RallyBoss' then return 1 end return -1 end)() INTO found
+
 IF found == 0
     TAP close
-    FAIL "the search turned up no {target} of level {level}"
+    READ_LUA (function() local p = DataCenter.__lw_rally_create or {} local out = {} for k, _ in pairs(p.elite_keys or {}) do out[#out+1] = tostring(k) end table.sort(out) return table.concat(out, ',') end)() INTO elite_names
+    FAIL "nothing of level {level} answered the search (the game's own ceiling for it is {search_max}); this season's rally line in the config is {elite_names}"
 
 # A window carrying «Атаковать» instead of «Стягивание» is a soloable monster, and no
 # amount of pressing turns that into a rally. Which button the window carries is the
