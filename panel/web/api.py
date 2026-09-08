@@ -757,6 +757,11 @@ class WebApi:
                 continue
             item = config.get(timer.name) or {}
             state, when = timersmod.last_attempt(records, timer.name)
+            # WHAT «Гонка вооружений» IS DOING RIGHT NOW (#2635), and nothing at all for
+            # every other row: the hour, its three chests, its points and the day behind
+            # the «i». Nothing here asks the game — it is the last reading, kept
+            # (`panel/runtime/arms_live.py`).
+            arms = self._arms_card(rt, timer.name)
             rows.append({
                 "name": timer.name,
                 "title": self._timer_title(rt, timer),
@@ -814,7 +819,7 @@ class WebApi:
                 # часе». Empty for every other errand, and empty here too until the day's
                 # book has something in it — so the sheet grows a section rather than
                 # showing an empty table.
-                **self._arms_phases(rt, timer.name),
+                **arms,
                 # …and the picture drawn for its card (#2019, #2340), as a NAME the
                 # phone fetches once off `/api/errandicon` — a picture inside the view
                 # would be tens of kilobytes on every poll of the page.
@@ -824,7 +829,12 @@ class WebApi:
                 # which files happened to be on the disk. A row with no cover now sends
                 # nothing at all and the card draws the one placeholder every front-end
                 # card without a picture draws.
-                "icon": artmod.cover_for(timer.name),
+                # …AND THE ARMS RACE WEARS THE HOUR IT IS IN (#2635) — the person's
+                # words: «пусть картинка меняется в соответствии с часом гонки». The
+                # game's own picture for the phase, where this machine has one; a phase
+                # with no sprite keeps the errand's cover rather than borrowing another
+                # phase's picture (`panel/runtime/arms_art.py`).
+                "icon": (arms.get("arms") or {}).get("icon") or artmod.cover_for(timer.name),
                 # …and WHERE the card crops it, which belongs to the picture rather than
                 # to the stylesheet: crates sit low in one, a loaded bed high in another.
                 "focus": artmod.cover_focus(timer.name),
@@ -834,48 +844,81 @@ class WebApi:
                 "time": time.time()}
 
     @staticmethod
-    def _arms_phases(rt, name: str) -> dict:
-        """`{"phases": [...]}` for «Гонка вооружений», `{}` for everything else (#2579).
+    def _arms_card(rt, name: str) -> dict:
+        """What «Гонка вооружений» carries beyond an errand's row — `{}` for the rest.
 
-        Each row is one of the day's six windows: its kind as a locale KEY (a phase the
-        server invents tomorrow says so in words rather than putting a bare number where
-        a key belongs), its hours, how many of its three chests were taken, and the LINK
-        to the game's own picture for it — empty where this machine has no such picture,
-        and then the phone draws the row without one rather than borrowing another
-        phase's.
+        Two things, and both come out of the ONE reading the panel already holds
+        (`panel/runtime/arms_live.py`, #2635): `arms` is the HOUR running now — its
+        name, its window, its three chests as the SERVER flags them, the points it has
+        scored, the picture for its kind and how old the reading is — and `phases` is the
+        whole day for the sheet behind the «i» (#2579).
 
-        Nothing here asks the game: the book is what the panel already wrote down when a
-        reading landed (`panel/runtime/arms_book.py`) and the calendar is what the
-        «События» tab already holds.
+        Nothing here asks the game. The reading is whatever landed last, the day's chests
+        are the book the panel wrote while each hour was the current one
+        (`panel/runtime/arms_book.py`), and the calendar is the six borders the server
+        fixed a week ago.
+
+        A DASH IS NOT A ZERO anywhere in it. A client that has not answered leaves the
+        chests `None` and the points empty, so the card says «nobody has asked» instead
+        of «nothing has been taken» — which on this card would be a lie about an hour
+        that may well have paid all three.
         """
         if name != "perform_arms_race":
             return {}
         try:
-            from ..runtime import arms_book, arms_art
+            from ..runtime import arms_art, arms_book, arms_live
             from ..tabs.events import model as eventsmod
 
             calendar = ()
             tab = rt.tabs.get("events") if rt.tabs is not None else None
             if tab is not None:
                 calendar = tab.arms().phases
-            rows = arms_book.phases(rt, calendar)
-        except Exception:                # noqa: BLE001 — a sheet, never the page
+            state, age = arms_live.state(rt, calendar)
+            rows = arms_book.phases(rt, state.phases)
+        except Exception:                # noqa: BLE001 — a card, never the page
             return {}
-        if not rows:
-            return {}
-        out = []
-        for row in rows:
-            kind = row.get("kind")
-            out.append({"stage": row.get("stage"),
-                        "label": (eventsmod.ARMS_KINDS.get(kind)
-                                  or "events.arms.kind.other"),
-                        "clock": (eventsmod.arms_phase_clock(row.get("start"),
-                                                             row.get("end"))
-                                  if row.get("end") else ""),
-                        "chests": row.get("chests"),
-                        "all": row.get("all"),
-                        "icon": arms_art.name_for(kind)})
-        return {"phases": out}
+        out: dict = {}
+        if rows:
+            day = []
+            for row in rows:
+                kind = row.get("kind")
+                day.append({"stage": row.get("stage"),
+                            "label": (eventsmod.ARMS_KINDS.get(kind)
+                                      or "events.arms.kind.other"),
+                            "clock": (eventsmod.arms_phase_clock(row.get("start"),
+                                                                 row.get("end"))
+                                      if row.get("end") else ""),
+                            "chests": row.get("chests"),
+                            "all": row.get("all"),
+                            "icon": arms_art.name_for(kind)})
+            out["phases"] = day
+        if state.kind is None and age is None:
+            return out
+        clock = ""
+        for entry in state.phases:
+            try:
+                stage, _kind, start, end = entry
+            except (TypeError, ValueError):
+                continue
+            if state.stage is not None and int(stage) == int(state.stage):
+                clock = eventsmod.arms_phase_clock(start, end)
+                break
+        kind = state.kind
+        out["arms"] = {
+            "label": ((eventsmod.ARMS_KINDS.get(kind) or "events.arms.kind.other")
+                      if kind is not None else ""),
+            "clock": clock,
+            # The points as the model already words them — `800 / 12000`, ungrouped,
+            # because a grouped number reads to the coordinate parser as a tile (#1982).
+            "points": eventsmod.arms_points(state) if state.score is not None else "",
+            # One flag per chest of the hour, smallest total first; `None` where the
+            # game would not say, and then the card draws no chests at all.
+            "chests": ([1 if v else 0 for v in state.taken] if state.taken else None),
+            "icon": arms_art.name_for(kind) if kind is not None else "",
+            "until": state.seconds,
+            "age": age,
+        }
+        return out
 
     def _timer_title(self, rt, timer) -> str:
         """What the row is CALLED — short, because it is a card's head (#2061)."""

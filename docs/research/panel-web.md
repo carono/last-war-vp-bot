@@ -562,6 +562,36 @@ so this reaches the phone on a PANEL restart (§3.14) plus a rebuilt bundle.
 The window is untouched: the «Таймеры» tab's own grid still lists every errand, which is
 where control at the machine lives until Tk goes (CLAUDE.md).
 
+### 3.13b …and it stands UNDER the screen's links, carrying the hour (#2635)
+
+Two corrections to the paragraph above, both the person's: «Вверх то не настолько, уж под
+ссылками, перед карточками vs просто. В карточке гонки выведи текущий час, сундуки
+которые взяты, прямо как в игре, 3 сундука, серые и цветные… Так же текущие очки гонки.
+Саму карточку обновляем, пусть картинка меняется в соответствии с часом гонки».
+
+**Where.** It was rendered beside `ScreenPage`, which put it over the screen's own head
+and its strip of links. It travels INTO the screen now as its `lead` — drawn under the
+title and the chips, above the week — and every other screen passes nothing and looks
+exactly as it did. A row of `/api/timers` cannot come out of a tab's `web_view`, so this
+is how an errand's card leads a page that is not the errands page.
+
+**What it carries.** The hour running now with its window, the hour's three chests as the
+SERVER flags them (grey until taken, gold once it is — drawn as a shape of our own,
+because the client's art for this event has no chest in it and a picture that is probably
+a chest is precisely what `arms_icons.json` refuses to hold), the points against the top
+chest, and the age of the reading. The card's picture is the game's own art for the KIND
+of the hour, and an hour with no sprite keeps the errand's cover rather than borrowing
+another hour's.
+
+**Where the numbers come from, and what does not happen.** One reading
+(`actions/read_arms_race.md`), kept in `panel/runtime/arms_live.py` — a row of `blobs`,
+so both pages that take one write the same state and neither re-asks. It is taken when
+the client gets into the game, on the event's own push (`push.person.arms.sc.change`,
+debounced) and at the border of the hour, which is a second the reading already carries
+(`until`) and so is slept until rather than watched for. There is no «Обновить» on the
+card and no clock behind it (#2633); what the card owes the reader instead is how old the
+answer is, and it says so.
+
 ### 3.14 THE ROUTES LIVE IN THE SERVICE, and that is which restart a change needs (#2579)
 
 **Read this before deciding that a web change «did not take».** It has cost time twice —

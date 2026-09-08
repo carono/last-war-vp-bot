@@ -868,6 +868,7 @@ function Card({
 
 export function ScreenPage({
   id,
+  lead,
   onBack,
   pollKey,
   part: asked,
@@ -877,6 +878,13 @@ export function ScreenPage({
   onServer,
 }: {
   id: string
+  /** WHAT STANDS BEFORE THIS SCREEN'S OWN CARDS (#2635) — drawn under the head and the
+   *  strip of links, above everything the tab sent. It is how the arms race's errand
+   *  card leads the «VS» page without being a card of that screen: the row belongs to
+   *  `/api/timers`, so it cannot come out of a tab's `web_view` — and it must not stand
+   *  over the page's links either. Every other screen passes nothing and draws as it
+   *  always has. */
+  lead?: ReactNode
   onBack: () => void
   pollKey: number
   /** Which part of the screen is open: 0 is the summary, i+1 is card i. */
@@ -1033,6 +1041,7 @@ export function ScreenPage({
           ))}
         </div>
       ) : null}
+      {lead ? <div className="tiles lead">{lead}</div> : null}
       {searchable ? (
         <input
           type="search"

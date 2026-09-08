@@ -542,21 +542,26 @@ function Panel() {
       <main>
         {screen ? (
           <>
-            {/* THE ARMS RACE, ABOVE THE WEEK (#2634). The same card the errands page
-                draws, over the same row of `/api/timers`: its switch, its period, its
-                ▶ and its knobs all reach the one place they always did. */}
-            {screen === VS_SCREEN ? (
-              <div className="tiles">
-                {timers
-                  .filter((row) => row.name === ARMS_ERRAND)
-                  .map((row) => (
-                    <TimerItem key={row.name} row={row} now={state?.time || 0}
-                               refresh={refreshTimers} />
-                  ))}
-              </div>
-            ) : null}
             <ScreenPage
               id={screen}
+              /* THE ARMS RACE, FIRST AMONG THE CARDS (#2634, moved #2635). It used to be
+                 drawn HERE — above the whole page, over the screen's own head and its
+                 strip of links — and the person's words were «Вверх то не настолько, уж
+                 под ссылками, перед карточками vs просто». So it travels INTO the screen
+                 as its lead card: below the title and the chips, above the week. It is
+                 still the same card the errands page draws, over the same row of
+                 `/api/timers` — the switch, the period, the ▶ and the knobs behind its
+                 gear all reach the one place they always did. */
+              lead={
+                screen === VS_SCREEN
+                  ? timers
+                      .filter((row) => row.name === ARMS_ERRAND)
+                      .map((row) => (
+                        <TimerItem key={row.name} row={row} now={state?.time || 0}
+                                   refresh={refreshTimers} />
+                      ))
+                  : null
+              }
               pollKey={tickCount}
               part={route.part}
               onPart={(n) => go({ ...route, part: n })}

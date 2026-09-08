@@ -1,7 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { span, t } from '../i18n'
 import { Modal } from './Modal'
-import type { ArmsPhase, ErrandStat } from '../types'
+import type { ArmsNow, ArmsPhase, ErrandStat } from '../types'
 
 /* THE CARD EVERY SELF-RUNNING THING IS DRAWN AS — and since #2119 every LIST is too.
  *
@@ -206,6 +206,59 @@ function Phases({ rows }: { rows: ArmsPhase[] }) {
   )
 }
 
+/* ONE CHEST OF THE HOUR (#2635) — grey while it is unclaimed, gold once the game says
+ * it is taken. The person asked for «3 сундука, серые и цветные, в зависимости от того
+ * взяты или нет», and the chest is DRAWN here rather than fetched: the client's own art
+ * for this event is four phase pictures and no chest among them, and a picture that is
+ * probably a chest is exactly what `arms_icons.json` refuses to hold. A shape of our own
+ * is honest; another sprite standing in for it would not be. */
+function Chest({ taken }: { taken: boolean }) {
+  return (
+    <svg className={'chest' + (taken ? ' on' : '')} viewBox="0 0 24 20" aria-hidden="true">
+      <path d="M2 8a4 4 0 0 1 4-4h12a4 4 0 0 1 4 4v2H2z" />
+      <path d="M2 11h20v5a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3z" />
+      <rect className="lock" x="10" y="7" width="4" height="7" rx="1" />
+    </svg>
+  )
+}
+
+/* THE HOUR OF «Гонка вооружений», ON THE FACE OF ITS CARD (#2635).
+ *
+ * Three readings and no button: which hour is running (with its window in the reader's
+ * own time), which of its three chests have been taken, and the points the SERVER has
+ * for it. There is nothing to press here and nothing to refresh — the reading is taken
+ * when the client gets into the game and moved by the event's own push (#2633), so what
+ * the card owes the reader instead is HOW OLD it is, and that is the line under it.
+ *
+ * WHAT IS UNKNOWN IS NOT DRAWN. No chest flags means the game has not answered, and
+ * three grey chests would say «ничего не взято» about an hour that may have paid all
+ * three. */
+function ArmsHour({ arms }: { arms: ArmsNow }) {
+  const chests = arms.chests
+  const head = [arms.label ? t(arms.label) : '', arms.clock || ''].filter(Boolean).join(' · ')
+  const age = typeof arms.age === 'number' && arms.age >= 0
+    ? t('timers.stat.age', { span: span(arms.age) })
+    : ''
+  if (!head && !arms.points && !chests) return null
+  return (
+    <div className="arms-now">
+      {head ? <p className="hour small">{head}</p> : null}
+      <p className="stat small">
+        {chests && chests.length ? (
+          <span className="chests" title={t('events.arms.chests')}
+                aria-label={t('events.arms.chests')}>
+            {chests.map((one, i) => <Chest key={i} taken={!!one} />)}
+          </span>
+        ) : null}
+        {arms.points ? (
+          <b title={t('events.arms.points')}>{arms.points}</b>
+        ) : null}
+        {age ? <span className="muted"> · {age}</span> : null}
+      </p>
+    </div>
+  )
+}
+
 function Reading({ stat, queued }: { stat?: ErrandStat | null; queued?: boolean }) {
   if (queued) {
     return (
@@ -243,6 +296,7 @@ export function ErrandCard({
   state,
   stat,
   phases,
+  arms,
   switchNode,
   acts,
   sheets,
@@ -277,6 +331,9 @@ export function ErrandCard({
    *  «Гонка вооружений» alone; every other card leaves it out and the sheet is what it
    *  always was. */
   phases?: ArmsPhase[]
+  /** THE HOUR RUNNING NOW (#2635), drawn ON the card. Sent by «Гонка вооружений» alone;
+   *  every other card leaves it out and looks exactly as it did. */
+  arms?: ArmsNow
   /** The one switch this card is about, drawn in the top-right corner. */
   switchNode?: ReactNode
   /** The row of signs at the bottom: «⚙», «▶», a press of the list's own. */
@@ -344,6 +401,9 @@ export function ErrandCard({
           </p>
         ) : null}
         {state ? <p className="muted small">{state}</p> : null}
+        {/* THE HOUR OF THE ARMS RACE (#2635) — readings, never a press: what is running,
+            which of its chests are in, how many points and how old the answer is. */}
+        {arms ? <ArmsHour arms={arms} /> : null}
         {/* THE READING SHARES THE FOOT WITH THE SIGNS ON A COVER CARD (#2340) — the
             person's words: «данные со статистикой давай перенесем в линию, где кнопка
             запуска, пусть будет слева». It is a line of its own on every other card, and

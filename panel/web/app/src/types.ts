@@ -138,6 +138,27 @@ export interface ArmsPhase {
   icon?: string
 }
 
+/* THE HOUR OF «Гонка вооружений», ON THE CARD ITSELF (#2635).
+ *
+ * The person's words: «В карточке гонки выведи текущий час, сундуки которые взяты,
+ * прямо как в игре, 3 сундука, серые и цветные, в зависимости от того взяты или нет.
+ * Так же текущие очки гонки».
+ *
+ * `label` is a locale KEY for the kind of hour, `clock` its window in the reader's own
+ * time, `points` the score against the top chest as the panel already words it (data,
+ * ungrouped), `chests` one flag per chest of the hour — `null` where the game would not
+ * say, which is NOT «none taken» — `icon` the game's own picture for the kind, `until`
+ * the seconds the hour has left and `age` how old the reading is. */
+export interface ArmsNow {
+  label?: string
+  clock?: string
+  points?: string
+  chests?: number[] | null
+  icon?: string
+  until?: number | null
+  age?: number | null
+}
+
 export interface TimerRow {
   name: string
   title: string
@@ -178,6 +199,9 @@ export interface TimerRow {
      the day's book has something in it. Every other errand sends nothing and the sheet
      grows no section. */
   phases?: ArmsPhase[]
+  /* …and the hour running RIGHT NOW (#2635), on the face of the card rather than behind
+     the «i». The same one row sends it and every other one leaves it out. */
+  arms?: ArmsNow
 }
 
 export interface TriggerRow {

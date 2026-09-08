@@ -10,6 +10,7 @@ import { FieldRow } from '../ui/FieldRow'
 import { Modal } from '../ui/Modal'
 import { useToast } from '../ui/Toast'
 import type {
+  ArmsNow,
   ArmsPhase,
   ErrandStat,
   Field,
@@ -88,6 +89,7 @@ function ErrandBlock({
   queued,
   stat,
   phases,
+  arms,
   errand,
   options,
   refresh,
@@ -103,6 +105,7 @@ function ErrandBlock({
   queued?: boolean
   stat?: ErrandStat | null
   phases?: ArmsPhase[]
+  arms?: ArmsNow
   errand: string
   options?: Field[]
   refresh: () => Promise<void>
@@ -129,6 +132,10 @@ function ErrandBlock({
          drawn in the sheet the «i» opens rather than on the card: six rows with pictures
          are a screen of their own, and the card is a picture with three lines on it. */
       phases={phases}
+      /* THE HOUR RUNNING NOW, ON THE FACE OF THE CARD (#2635) — «Гонка вооружений»
+         alone sends it. The day behind the «i» answers «что было», this answers «что
+         идёт»: the hour, its three chests and its points. */
+      arms={arms}
       /* THE CARD IS THE PICTURE (#2370): the schedule — or, for a listener, what it is
          waiting for — travels under the «i» instead of standing over the art. */
       factsInSheet
@@ -198,6 +205,7 @@ export function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; r
       queued={row.queued}
       stat={row.stat}
       phases={row.phases}
+      arms={row.arms}
       errand={row.name}
       options={row.options}
       refresh={refresh}
