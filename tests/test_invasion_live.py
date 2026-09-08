@@ -254,7 +254,7 @@ def test_a_shut_gate_is_waited_out_and_never_played_into():
 def test_a_gate_that_never_opens_does_not_wait_for_ever():
     rt = _Runtime(gate_held=True)
     inv.InvasionWatch(rt).start()
-    for _ in range(inv.GATE_WAIT_TRIES + 5):
+    for _ in range(inv.FIRST_LOOK_TRIES + 5):
         rt.tick.fire()
     assert rt.plays == [], rt.plays
     assert rt.tick.armed == [], "a client that never comes back leaves no booking"
@@ -277,14 +277,16 @@ def test_every_locale_has_the_words_for_it():
 def test_a_busy_client_is_waited_out_too_and_never_burns_the_looks():
     """Measured live (#2647): six looks spent on «занят» inside two minutes of a restart.
 
-    A play that was refused asked the game nothing, so it is not a try — the look books
-    itself again and the six real ones are still there when the client is free.
+    Three profiles were doing their own boot work and every look was refused, so the ear
+    stopped having read nothing. Only a reading landing — or the half-hour ceiling — ends
+    the waiting now.
     """
     rt = _Runtime(refuse=True)
     watch = inv.InvasionWatch(rt)
     watch.start()
-    for _ in range(inv.FIRST_LOOK_TRIES + 4):
+    for _ in range(10):
         rt.tick.fire()
+    assert len(rt.plays) == 10, "a refused look is tried again, not given up on"
     assert len(rt.tick.armed) == 1, "a refused look must still be waiting"
     rt.refuse = False
     rt.tick.fire()

@@ -71,12 +71,15 @@ STALE_SEC = 6 * 3600.0
 #: The one-shot first look, exactly as `market_live` arms it and for the same reasons:
 #: `bus.GAME_READY` is an EDGE, and a panel that has just restarted is refused by its own
 #: link gate for as long as the attachment takes.
-#: …and a look that was REFUSED — a shut gate, or a client somebody else is holding —
-#: does not count as one of them: it asked the game nothing. `GATE_WAIT_TRIES` is what
-#: bounds the waiting instead, so a client that never comes back leaves no booking.
+#: …and it comes back until a reading LANDS, bounded by :data:`FIRST_LOOK_TRIES` looks
+#: and by nothing else. There is no separate count of «real» tries any more, and the
+#: reason is a measurement rather than taste: on the live panel every refusal shape —
+#: a shut link gate, a client another profile was holding, a run refused at the claim
+#: with «занят» — came back through this same path within two minutes of a restart, and
+#: a counter that treated any of them as a try gave up having read nothing at all.
+#: Twenty seconds apart, thirty minutes of it, and it stops the moment it has read.
 FIRST_LOOK_MS = 20_000
-FIRST_LOOK_TRIES = 6
-GATE_WAIT_TRIES = 90
+FIRST_LOOK_TRIES = 90
 
 #: The tick chain the first look uses. One per profile's runtime, like every other.
 CHAIN_FIRST = "invasion_first_read"
@@ -194,7 +197,6 @@ class InvasionWatch:
         self._offs: list = []
         self._read_once = False
         self._tries = 0
-        self._waited = 0
 
     # -- wiring --------------------------------------------------------------
     def start(self) -> None:
@@ -229,11 +231,12 @@ class InvasionWatch:
         """Read once if nothing has been read yet, and come back only until it has."""
         if self._read_once:
             return
-        self._waited += 1
-        if self._waited > GATE_WAIT_TRIES:
+        self._tries += 1
+        if self._tries > FIRST_LOOK_TRIES:
             return
-        # A SHUT GATE IS NOT A TRY (#2636): playing into it only prints «нет связи с
-        # игрой» once a look, about a state the panel already knows.
+        # A SHUT GATE COSTS NOTHING AT ALL (#2636): playing into it only prints «нет
+        # связи с игрой» once a look, about a state the panel already knows and is
+        # already showing. So the look books itself again and plays nothing.
         held = False
         try:
             held = bool(self._rt.gate.held())
@@ -242,17 +245,13 @@ class InvasionWatch:
         if held:
             self._arm_first()
             return
-        if self._tries >= FIRST_LOOK_TRIES:
-            return
-        # …AND NEITHER IS A REFUSAL, WHICH IS THE SAME LESSON ONE STEP ON (#2647). The
-        # shut gate above is not the only way a look can cost nothing: measured on the
-        # live panel right after a restart, all six looks came back «занят — дождись
-        # завершения текущего действия» inside two minutes, while three profiles were
-        # still doing their own boot work, and the ear then gave up having read nothing.
-        # A play that never started asked the game nothing, so it is not a try — the
-        # look simply books itself again, under the same `GATE_WAIT_TRIES` ceiling.
-        if self.refresh("first"):
-            self._tries += 1
+        # …AND A REFUSAL IS NOT AN ANSWER EITHER, WHICH IS WHAT WAS MEASURED (#2647).
+        # The first version of this ear stopped after six looks; on the live panel all
+        # six were spent inside two minutes of a restart — three profiles doing their
+        # own boot work, every look answered «занят — дождись завершения текущего
+        # действия» — and it gave up having read nothing. What ends the waiting is a
+        # reading landing, or the ceiling above.
+        self.refresh("first")
         if not self._read_once:
             self._arm_first()
 
