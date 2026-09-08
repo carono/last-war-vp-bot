@@ -216,3 +216,25 @@ a person read a minute ago is a plan the clock has already moved.
 **Nothing plays it by itself.** It is an irreversible spend, so it ships as a press with
 a confirmation and no schedule anywhere near it (CLAUDE.md, «A new ability ships SWITCHED
 ON» and its one exception).
+
+## 7. A slot that APPEARS or GOES AWAY is a different push (#2645)
+
+§5 is right that `push.build.queue.info` arrives when a slot MOVES — a speed-up, a new
+end time — and it is not the only one `MsgDefines` names. `PushQueueAdd = push.queue.add`
+and `PushQueueDelete = push.queue.del` are the other two, and between them they are the
+moments this page had no ear for: a construction being STARTED, and a finished one being
+TAKEN.
+
+It is not a nicety. The alarm that catches a construction finishing is armed off
+`next_ready_sec`, which comes out of a READING — so a queue that was empty when the last
+reading was taken arms no alarm, and the only thing that could have re-read it was a push
+nobody was listening for. Measured on the live panel: the list on the page was **four
+hours older than the game**, with the last reading at 16:41 and the page drawn at 20:48.
+
+The second half of the same fault: a push CAN arrive while the game link is down, and the
+gate then refuses the reading and the moment does not come round again — the live log has
+exactly that twice inside four minutes («нет связи с игрой»). A refused queue reading is
+now asked again a minute later, ten times, and the net comes down the moment one lands.
+
+Both are `panel/tabs/vs.py`: three patterns on one handler and one debounce, so a burst
+still costs a single reading.

@@ -142,3 +142,34 @@ python tools/vs_rankings.py --sqlite profiles/<name>/leaderboard_history.db
 
 or the scenario, which is what the panel's «Записать дуэль» plays:
 `src/lastwar_bot/actions/collect_vs_duel.md`.
+
+## The score the PAGE draws, with no request at all (#2645)
+
+The whole read above sends two `FetchRankList` round trips. The «VS» page does not need
+them: `DataCenter.GetDuelScoreManager.duelInfos[2].scoreData` is already filled in when
+the client is in the game, and it holds everything the person asked for — «мои очки дуэли
+и альянса, прогресс… в виде процентов».
+
+Measured live on 2026-09-08; the numbers below are of the right SHAPE and invented:
+
+| Field | What it is |
+|---|---|
+| `curScore` (= `currentScore`) | THE PLAYER'S OWN duel score — what the personal reward ladder is paid against |
+| `target` | that ladder, the game's own `\|`-joined milestones, e.g. `40000\|150000\|…\|7200000` |
+| `vsAllianceInfo[i]` | a SIDE: `abbr`, `alName`, `allianceId`, `alScore`, `power`, `win` (days won) |
+| `targetAllianceId` | the OPPONENT's alliance id — the only thing that says which side is ours |
+| `minDayScore` / `minWeekScore` | what an alliance must reach for the event to pay out |
+| `readyTime`, `fightStartTime`, `fightEndTime`, `weekEndTime` | the week's own clock, in ms |
+
+**`duelInfos[1]` is NOT the duel.** It is the arms race (`eventId = 120004`, `curStage`,
+`scores`), and reading the two the same way is the easy mistake: the alliance duel is
+`eventId = 110001`, in `duelInfos[2]`.
+
+The percentages the page draws are arithmetic on those three numbers and nothing more:
+our share of the duel is `alScore / (ours + theirs)`, and the personal bar is `curScore`
+against the LAST milestone of `target`. `actions/read_vs_score.md` is the whole reading —
+one `READ_LUA`, no send, and the side is derived from `targetAllianceId`, never guessed.
+
+**There is no push behind it that we have found.** The score is therefore read when the
+client gets into the game (`bus.GAME_READY`) and drawn with its AGE beside it, which is
+what `CLAUDE.md` asks for when a reading has no signal to subscribe to.
