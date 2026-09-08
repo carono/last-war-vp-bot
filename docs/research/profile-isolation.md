@@ -311,6 +311,14 @@ Pinned in `tests/test_profile_isolation.py` for exactly that reason.
   because it is one interpreter.
 * **`children._SWEPT`** — the machine-wide orphan sweep. The second profile would only
   walk the same process list to find the first had tidied it.
+* **`panel/runtime/lua_service.py::local()`** — one Lua VM attach per Windows session,
+  because one session holds one client. Shared on purpose, like the claims above; what
+  was NOT on purpose is that it kept the FIRST profile's log and debug sinks and wrote
+  «порт занят» about a client three accounts drive into one account's file, telling the
+  other two nothing. Since #2660 the sinks are a list every profile is added to, and a
+  link with no profile attached yet writes to the WINDOW's own debug file
+  (`debug_log.panel_logger`) — the rule `CLAUDE.md` states for anything that belongs to
+  the window rather than to an account.
 * **`web._SERVING`** — one socket per window. A second panel is a second process and
   gets its own registry.
 * **The relaunch lock is NOT one of these.** `PanelRuntime._relaunch_at_lock` is an

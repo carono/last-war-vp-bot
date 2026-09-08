@@ -141,6 +141,7 @@ exists to remove in the first place.
 | `panel_alive.json` | the heartbeat the open panel rewrites once a minute |
 | `autostart.json` | what the hourly check last made of that heartbeat |
 | `children-<pid>.json` | which child processes that panel process started, so a crashed panel's children can be cleaned up |
+| `maintenance/<stamp>-<state>.json` | ONE RAW RECORDING of a real server maintenance — everything the client answered, verbatim, plus what the light said at the time (`panel/runtime/status.py::_record`). A sample, not a store: nothing reads it back, it is never rewritten, and it exists because every word of the detector was inferred from the game's own tables rather than from a recording. Git-ignored, and a file for the same reason a capture is one — putting it in the database would make durable and trustworthy a thing whose only value is that it is a raw dump somebody opens by hand (#2660) |
 
 ## Beside the profiles — `profiles/`
 

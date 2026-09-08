@@ -219,6 +219,15 @@ class LuaService:
 
     def __init__(self, host: str = "", log=None, debug=None) -> None:
         self._host = host or lua_client.HOST
+        # THE SINKS ARE A LIST, NOT THE FIRST PROFILE'S (#2660). One Windows session holds
+        # one client, so every profile open on it shares this service — and it used to
+        # keep whichever profile happened to attach first, which meant «порт занят» about
+        # a client THREE accounts drive was written into ONE account's log, and the other
+        # two were told nothing. A fact about the shared link belongs in every log that
+        # shares it; the machine's own debug file gets it too, because the service is the
+        # window's rather than an account's (`CLAUDE.md`, «A profile is a whole panel»).
+        self._logs: list = [log] if log is not None else []
+        self._dbgs: list = [debug] if debug is not None else []
         self._log, self._dbg = log, debug
         self._mod = _daemon_module()
         self._daemon = self._mod.Daemon()
@@ -627,11 +636,29 @@ class LuaService:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     # -- diagnostics ---------------------------------------------------------
+    def add_sinks(self, log=None, debug=None) -> None:
+        """Another profile started driving this client: it hears about it too."""
+        if log is not None and log not in self._logs:
+            self._logs.append(log)
+            if self._log is None:
+                self._log = log
+        if debug is not None and debug not in self._dbgs:
+            self._dbgs.append(debug)
+            if self._dbg is None:
+                self._dbg = debug
+
     def _say_once(self, fingerprint: str, key: str, **fmt) -> None:
-        if self._said == fingerprint or self._log is None:
+        logs = tuple(getattr(self, "_logs", None) or ())
+        if not logs and getattr(self, "_log", None) is not None:
+            logs = (self._log,)
+        if self._said == fingerprint or not logs:
             return
         self._said = fingerprint
-        self._log.say("link", key, **fmt)
+        for log in logs:
+            try:
+                log.say("link", key, **fmt)
+            except Exception:            # noqa: BLE001 — one closed profile, never the link
+                pass
 
     def _relay(self, msg: str) -> None:
         """One line the `Daemon` wanted to print, put where a person can read it (#2060).
@@ -641,13 +668,39 @@ class LuaService:
         """
         self._note_warn("%s", str(msg).replace("[daemon] ", ""))
 
+    def _sinks(self) -> tuple:
+        """Every debug sink this link writes to — the window's own when there is none.
+
+        `getattr` because a service can be built without `__init__` (a test that wants
+        one method), and a diagnosis is the last thing that may raise.
+        """
+        wired = tuple(getattr(self, "_dbgs", None) or ())
+        one = getattr(self, "_dbg", None)
+        if not wired and one is not None:
+            wired = (one,)
+        return wired or (_panel_dbg(),)
+
     def _note(self, msg, *args) -> None:
-        if self._dbg is not None:
-            self._dbg.info(msg, *args)
+        for dbg in self._sinks():
+            _quietly(dbg.info, msg, *args)
 
     def _note_warn(self, msg, *args) -> None:
-        if self._dbg is not None:
-            self._dbg.warning(msg, *args)
+        for dbg in self._sinks():
+            _quietly(dbg.warning, msg, *args)
+
+
+def _quietly(call, msg, *args) -> None:
+    """Say it, and never let a closed profile's handler out into the link."""
+    try:
+        call(msg, *args)
+    except Exception:                    # noqa: BLE001
+        pass
+
+
+def _panel_dbg():
+    """The WINDOW's own debug file — where a link with no profile attached yet writes."""
+    from .. import debug_log
+    return debug_log.panel_logger("link")
 
 
 #: The one attach this process has. A Windows session holds one client, so every profile
@@ -658,11 +711,18 @@ _LOCAL_LOCK = threading.Lock()
 
 
 def local(log=None, debug=None) -> LuaService:
-    """This process's service, made on first use."""
+    """This process's service, made on first use — and told about every profile.
+
+    The sinks are ADDED rather than dropped (#2660): the second profile to drive this
+    client used to be silently written out of the link's commentary, which is how «нет
+    связи» could be diagnosed in a log the person was not reading.
+    """
     global _LOCAL
     with _LOCAL_LOCK:
         if _LOCAL is None:
             _LOCAL = LuaService(log=log, debug=debug)
+        else:
+            _LOCAL.add_sinks(log=log, debug=debug)
         return _LOCAL
 
 
