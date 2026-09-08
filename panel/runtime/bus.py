@@ -16,6 +16,17 @@ destroyed widget.
 """
 from __future__ import annotations
 
+#: «The client is up, logged in and answering» — published once per appearance by
+#: :class:`~panel.runtime.status.StatusPoll`, on the edge and never on the clock.
+#:
+#: It exists because a reading has to start somewhere. The panel does not poll for what
+#: the game already knows (`CLAUDE.md`, «Read once, then LISTEN»), so every board that
+#: is kept current by pushes needs ONE moment to take its first reading — and that
+#: moment is the client becoming usable, not somebody opening a page and not a button
+#: called «Обновить». A subscriber hears it again after a link is lost and comes back,
+#: which is the other time everything it holds may have moved unheard.
+GAME_READY = "game.ready"
+
 
 class EventBus:
     def __init__(self, widget=None, post=None) -> None:

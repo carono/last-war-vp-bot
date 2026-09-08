@@ -38,6 +38,7 @@ from dataclasses import dataclass
 
 import profile_health
 
+from . import bus
 from . import game_process
 from . import recovery as recoverymod
 
@@ -225,6 +226,19 @@ class StatusPoll:
             try:
                 rt.header.mark_stale(place=True, who=True)
             except Exception:                 # noqa: BLE001 — a hint, never the poll
+                pass
+            # …AND IT IS THE MOMENT EVERY PUSH-DRIVEN BOARD TAKES ITS FIRST READING
+            # (#2633). The person's rule: «все данные должны подтягиваться при старте
+            # клиента, а их изменение проводиться по пушам» — so a statistic is read
+            # once, here, and moved by the wire after that. Nothing is read ON this
+            # thread: a subscriber hangs its play on a worker like any other press.
+            #
+            # The SAME edge as the header's, deliberately: «вошёл в игру» is the only
+            # instant at which a client both exists and can answer, and a second
+            # detector for the same fact is a second answer to «когда panель читает».
+            try:
+                rt.bus.publish(bus.GAME_READY)
+            except Exception:                 # noqa: BLE001 — a fact, never the poll
                 pass
         self._was_playing = playing
         # …AND WHETHER THE ACCOUNT HAS BEEN TAKEN (#2061). The kick was read on every
