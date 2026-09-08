@@ -91,6 +91,17 @@ BUILD_FINISH = "finish_building"
 BAG_PUSH = "push.resource.item.update"
 CHIP_PUSH = "push.uav.skillchip.changes"
 
+#: THE HOUR OF «Гонка вооружений», ON THE PAGE THAT SHOWS IT (#2635). The errand's card
+#: stands on this page, so the reading behind it is taken here: the phase running now,
+#: its three chests as the server flags them, and the points it has scored. It presses
+#: nothing and opens nothing — `actions/read_arms_race.md` is a read.
+ARMS_READ = "read_arms_race"
+
+#: …and what the game says when those numbers move: a score that changed announces
+#: itself (`docs/research/arms-race.md`). So the points and the chests follow the game
+#: rather than a clock, exactly like everything else on this page.
+ARMS_PUSH = "push.person.arms.sc.change"
+
 #: How long after a push before the re-read, in milliseconds. Re-armed by every push
 #: that arrives inside the window, so a BURST — one harvest emits 25 of them
 #: (`docs/research/base-resources.md`) — costs exactly one reading.
@@ -101,6 +112,9 @@ PUSH_DELAY_MS = 3_000
 CHAIN_PUSH = "vs_push"
 CHAIN_BUILD = "vs_build_due"
 CHAIN_FIRST = "vs_first_read"
+#: …and the arms race's two: its own debounce, and the alarm on the border of the hour.
+CHAIN_ARMS_PUSH = "vs_arms_push"
+CHAIN_ARMS = "vs_arms_due"
 
 #: How long after the tab exists before it checks whether the client is ALREADY in the
 #: game, in milliseconds. Not a poll: it fires once and never re-arms — the wire's own
@@ -117,6 +131,10 @@ FIRST_LOOK_MS = 20_000
 FIRST_RETRY_MS = 60_000
 FIRST_TRIES = 10
 
+#: How many readings a full round is — the chests, the tickets, the build queue and the
+#: arms race. The retry stops when they have all answered.
+FIRST_READS = 4
+
 #: The floor between two «read the whole page» rounds, in seconds. A profile can be told
 #: it is ready more than once inside a second (the bus is not de-duplicated), and three
 #: scenarios per telling is three round trips of an exclusive link for the same numbers.
@@ -127,6 +145,11 @@ READ_ALL_GAP_SEC = 20.0
 #: served in hour-long legs — and a leg that arrives early re-arms WITHOUT reading
 #: anything, so the game is asked once, at the moment the slot is actually due.
 BUILD_LEG_SEC = 3_600.0
+
+#: The same for the arms race's own alarm. A phase is four hours long and its end is a
+#: number the server already handed over (`until`), so the hour is not watched for — it
+#: is slept until, in legs, and the reading is taken once when it turns over.
+ARMS_LEG_SEC = 3_600.0
 
 #: WHAT THE PRESS INSIDE THE SHEET CALLS ITSELF (#2624). The switch above it already
 #: says what the ability IS — «Открыть чипы дрона» — so the button says what pressing it
@@ -182,6 +205,9 @@ class VsTab(VsDuelTab):
         #: own `endTime` is the alarm, which is a known moment and not a question.
         self._wire_off: list = []
         self._build_due: "float | None" = None
+        #: …and the border of the arms race's own hour, which is the other moment with
+        #: no push behind it: the phase's end is in the reading itself.
+        self._arms_due: "float | None" = None
         #: The first reading's own bookkeeping: when the last full round was played,
         #: how many have been tried, and which of the three have actually answered.
         self._read_all_at = 0.0
@@ -645,6 +671,13 @@ class VsTab(VsDuelTab):
                 self._wire_off.append(self.rt.wire.subscribe(pattern, self._on_push))
             except Exception:                # noqa: BLE001 — no capture is not no page:
                 break                        #   the reading stands with its age on it
+        # …AND THE ARMS RACE'S OWN, ON ITS OWN HANDLER (#2635). A score that moved says
+        # nothing about the bag, and re-reading the bag on it would be a question the
+        # game did not ask for — one push, one reading.
+        try:
+            self._wire_off.append(self.rt.wire.subscribe(ARMS_PUSH, self._on_arms_push))
+        except Exception:                    # noqa: BLE001 — no ear, the age says so
+            pass
 
     def _unlisten(self) -> None:
         """Close this page's ear. The capture stops with its last subscriber."""
@@ -683,6 +716,95 @@ class VsTab(VsDuelTab):
                            on_result=self._chips_rows_back)
         self.rt.play_async(TICKETS_READ, tag="vs", on_result=self._tickets_back)
 
+    # -- «Гонка вооружений»: the hour, its chests and its points -----------------
+    #
+    # The card is the errand's own row (`ui/ErrandCard`), drawn at the top of this page,
+    # and what it draws comes from here. Three doors and not one of them is a poll: the
+    # client getting into the game, the event's own push, and the border of the hour —
+    # which is a second the server already named, so it is slept until rather than
+    # watched for (`_arm_arms_alarm`).
+
+    def _on_arms_push(self, command) -> None:
+        """The score moved — on the capture's reader thread, so nothing is done here."""
+        if command is None:
+            return
+        self.post(self._arms_push_soon)
+
+    def _arms_push_soon(self) -> None:
+        """Re-read shortly. Re-armed by each push, so a burst costs ONE reading."""
+        try:
+            self.rt.tick.arm(CHAIN_ARMS_PUSH, PUSH_DELAY_MS, self._read_arms)
+        except Exception:                    # noqa: BLE001 — no clock, read at once
+            self._read_arms()
+
+    def _read_arms(self) -> None:
+        """Ask which phase is running, what it has paid and what it has scored."""
+        self.rt.play_async(ARMS_READ, tag="vs", on_result=self._arms_back)
+
+    def _arms_back(self, outcome) -> None:
+        """The reading landed: keep it, book its chests, and set the hour's alarm.
+
+        The reading is kept where BOTH pages find it (`panel/runtime/arms_live.py`) —
+        the card on this page and the sheet behind its «i» read that one state, and
+        «События» writes the same row when its own card is read.
+        """
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        raw = variables.get("arms")
+        if not raw:
+            # A RUN THAT DID NOT HAPPEN IS NOT A CLOSED EVENT (#2633). The gate refuses
+            # a scenario while the light is not green and the recipe leaves nothing
+            # behind; writing that down would age-stamp «неизвестно» as a fresh answer.
+            return
+        from ..runtime import arms_book, arms_live       # noqa: PLC0415 — one reading
+        arms_live.record(self.rt, raw, variables.get("arms_day"))
+        self._first_ok.add("arms")
+        state, _age = arms_live.state(self.rt)
+        # WHAT THIS HOUR HAS PAID, WRITTEN DOWN WHILE IT IS STILL RUNNING (#2579): the
+        # client keeps no history of a phase that ended, so a chest nobody saw taken is
+        # a chest nobody can ask about afterwards.
+        if state.stage is not None:
+            try:
+                arms_book.record(self.rt, state.stage, state.kind,
+                                 sum(1 for v in state.taken if v),
+                                 ladder=sum(1 for v in state.day_taken if v))
+            except Exception:                # noqa: BLE001 — a tally, never the run
+                pass
+        self._arm_arms_alarm(state.seconds)
+
+    def _arm_arms_alarm(self, left) -> None:
+        """Wake when the hour turns over. `None` — nobody knows, so no alarm."""
+        try:
+            left = int(left)
+        except (TypeError, ValueError):
+            left = -1
+        if left < 0:
+            self._arms_due = None
+            try:
+                self.rt.tick.disarm(CHAIN_ARMS)
+            except Exception:                # noqa: BLE001
+                pass
+            return
+        # Two seconds of grace: the phase's own end is the server's second, and asking
+        # on the exact tick of it is asking a hair before the next one has started.
+        self._arms_due = time.time() + left + 2.0
+        self._arms_tick()
+
+    def _arms_tick(self) -> None:
+        """A leg of the wait, or the reading it was waiting for."""
+        due = self._arms_due
+        if due is None:
+            return
+        left = due - time.time()
+        if left > 0:
+            try:
+                self.rt.tick.arm(CHAIN_ARMS, int(min(left, ARMS_LEG_SEC) * 1000),
+                                 self._arms_tick)
+            except Exception:                # noqa: BLE001 — no clock, no alarm
+                self._arms_due = None
+            return
+        self._arms_due = None
+        self._read_arms()
+
     def _read_all(self) -> None:
         """The whole page, once — the bag and the build queue.
 
@@ -696,6 +818,9 @@ class VsTab(VsDuelTab):
         self._tries += 1
         self._read_bag()
         self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
+        # …AND THE HOUR OF THE ARMS RACE (#2635), which is the first reading of the card
+        # standing at the top of this page. After this one the game says when it moved.
+        self._read_arms()
         # …AND THE NET UNDER IT. A scenario refused by the gate answers nothing and says
         # so in the log; the edge that started this does not come round again, so a page
         # that was unlucky once would stay on yesterday's numbers all day. This asks
@@ -703,7 +828,7 @@ class VsTab(VsDuelTab):
         self._arm_retry()
 
     def _arm_retry(self) -> None:
-        if len(self._first_ok) >= 3 or self._tries >= FIRST_TRIES:
+        if len(self._first_ok) >= FIRST_READS or self._tries >= FIRST_TRIES:
             return
         try:
             self.rt.tick.arm(CHAIN_FIRST, FIRST_RETRY_MS, self._retry)
@@ -712,7 +837,7 @@ class VsTab(VsDuelTab):
 
     def _retry(self) -> None:
         """One more attempt at the first reading, if any of it is still missing."""
-        if len(self._first_ok) >= 3:
+        if len(self._first_ok) >= FIRST_READS:
             return
         self._read_all_at = 0.0              # a retry is not held by its own floor
         self._read_all()
@@ -758,7 +883,8 @@ class VsTab(VsDuelTab):
 
     def shutdown(self) -> None:
         """Give the ear and the alarms back — a listener outliving its tab is a leak."""
-        for chain in (CHAIN_PUSH, CHAIN_BUILD, CHAIN_FIRST):
+        for chain in (CHAIN_PUSH, CHAIN_BUILD, CHAIN_FIRST, CHAIN_ARMS_PUSH,
+                      CHAIN_ARMS):
             try:
                 self.rt.tick.disarm(chain)
             except Exception:                # noqa: BLE001

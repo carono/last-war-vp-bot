@@ -997,6 +997,16 @@ class EventsTab(PanelTab):
         calendar = modelmod.arms_calendar(values.get(modelmod.ARMS_DAY_VARIABLE))
         if calendar:
             self._arms_cal = calendar
+        # …AND THE SAME ANSWER WHERE THE OTHER PAGE FINDS IT (#2635). The card on «VS»
+        # draws the hour, its three chests and its points off the last reading, and this
+        # tab's memory is not reachable from a panel that has this page switched off. One
+        # state, several places that draw it: nothing is copied and nothing re-asked.
+        try:
+            from ...runtime import arms_live
+            arms_live.record(self.rt, values.get(modelmod.ARMS_VARIABLE),
+                             values.get(modelmod.ARMS_DAY_VARIABLE))
+        except Exception:                   # noqa: BLE001 — a tally, never the run
+            pass
         # …AND WHAT THIS PHASE HAS PAID, WRITTEN INTO THE DAY'S BOOK (#2579). The game
         # keeps no history of it — a phase that ended an hour ago is gone from the
         # client — so the card on «Таймеры» can only say «сколько сундуков за день» if

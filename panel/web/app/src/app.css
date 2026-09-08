@@ -2182,6 +2182,22 @@ body.chatting .head-row .status { padding-top: 0; }
    different art still line up, and a phase this machine has no sprite for keeps the
    square empty rather than closing the column up — the words must stay in one place
    whether or not the extractor has ever run. */
+/* THE HOUR OF «Гонка вооружений», ON THE CARD (#2635). Two short lines inside the
+   card's own bubble: which hour it is with its window, and then the chests, the points
+   and how old the reading is — the same `stat` line every other card's reading uses, so
+   the two cannot drift apart by a font size. */
+.arms-now { margin-top: 2px; }
+.arms-now .hour { margin: 0; font-weight: 600; }
+.arms-now .stat { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; }
+.arms-now .chests { display: inline-flex; gap: 3px; }
+/* GREY UNTIL THE GAME SAYS IT IS TAKEN, and gold once it does — «серые и цветные, в
+   зависимости от того взяты или нет». Painted by the stylesheet out of one shape, so a
+   machine with no extracted art draws exactly the same three chests. */
+.chest { width: 17px; height: 15px; fill: var(--ink-soft); opacity: 0.5; }
+.chest .lock { fill: var(--card); }
+.chest.on { fill: var(--warn); opacity: 1; }
+.chest.on .lock { fill: var(--card); }
+
 .phases { display: grid; gap: 6px; margin-top: 8px; }
 .phase {
   display: grid;

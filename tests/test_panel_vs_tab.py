@@ -792,16 +792,20 @@ def test_the_client_getting_into_the_game_takes_every_reading_once():
         tab.rt.wire.subscribe = lambda pattern, fn: (
             heard.append(pattern) or (lambda: None))
         tab._on_game_ready()
+        # …and the arms race with them since #2635: the errand's card stands on this
+        # page, so the hour it draws is read where the rest of the page is read.
         assert played == ["read_drone_chips", "read_survivor_tickets",
-                          "read_ready_buildings"], played
-        # …and the ear is up, on the two announcements these numbers move on.
+                          "read_ready_buildings", "read_arms_race"], played
+        # …and the ear is up, on the three announcements these numbers move on.
         assert busmod.GAME_READY == "game.ready"
         assert heard == ["push.resource.item.update",
-                         "push.uav.skillchip.changes"], heard
+                         "push.uav.skillchip.changes",
+                         "push.person.arms.sc.change"], heard
         # Raised ONCE: a second ready does not open a second capture.
         tab._on_game_ready()
         assert heard == ["push.resource.item.update",
-                         "push.uav.skillchip.changes"], heard
+                         "push.uav.skillchip.changes",
+                         "push.person.arms.sc.change"], heard
     finally:
         root.destroy()
 
@@ -909,7 +913,7 @@ def test_being_told_ready_twice_costs_one_round_of_readings():
         tab._on_game_ready()
         tab._on_game_ready()
         assert played == ["read_drone_chips", "read_survivor_tickets",
-                          "read_ready_buildings"], played
+                          "read_ready_buildings", "read_arms_race"], played
     finally:
         root.destroy()
 

@@ -180,7 +180,7 @@ def test_the_route_is_the_sixth_of_the_same_shape():
 def test_the_phones_sheet_gets_the_rows_and_the_window_is_left_alone():
     """The web is the front-end being built on (`CLAUDE.md`), and the «i» is the one sheet."""
     api = (_REPO / "panel" / "web" / "api.py").read_text(encoding="utf-8")
-    assert "def _arms_phases" in api and "self._arms_phases(rt, timer.name)" in api
+    assert "def _arms_card" in api and "self._arms_card(rt, timer.name)" in api
     card = (_REPO / "panel" / "web" / "app" / "src" / "ui"
             / "ErrandCard.tsx").read_text(encoding="utf-8")
     assert "function Phases(" in card, "the sheet must draw the day"

@@ -570,3 +570,20 @@ rather than once at the start of a run.
 * **The stamina bar is shared with the golden-zombie hunt and nothing shares it out.**
   Written down here rather than solved: which of the two gets the bar on a day both want
   it is the person's call.
+
+## The card on «VS» reads it once and then listens (#2635)
+
+The errand's own card stands at the top of the «VS» page and draws three things off the
+reading above: which hour is running (with the window the calendar gives it), which of the
+hour's three chests the server has flagged `receive`, and `sc` against the top chest.
+
+It costs no question of its own. The reading is played by the «VS» tab on three occasions
+and no others — the client getting into the game (`bus.GAME_READY`), the event's own
+`push.person.arms.sc.change` (debounced, so a burst is one reading), and the border of the
+hour, which `until` already names — and lands in `panel/runtime/arms_live.py`, one row of
+this profile's `blobs`. «События» writes the same row when its own card is read, so there
+is one state and two drawings of it, never two states.
+
+Two things stay dashes rather than becoming zeros, for the reason this file has already
+measured: an hour nobody read while it ran has no chest count anywhere in the client, and
+a client that has not answered has no score. Both draw as «nobody asked».
