@@ -11,7 +11,7 @@ import { LogView } from './views/LogView'
 import { MoreView } from './views/MoreView'
 import { ScreenPage } from './views/ScreenView'
 import { StateView } from './views/StateView'
-import { TimersView } from './views/TimersView'
+import { ARMS_ERRAND, TimersView, TimerItem } from './views/TimersView'
 import type {
   Account,
   ActionRow,
@@ -70,6 +70,13 @@ function NavIcon({ id }: { id: string }) {
 /* Which screen the scenarios live under — the window's own tab id, so a rename there is
  * a rename here rather than a list that quietly stops matching. */
 const DEVELOP_SCREEN = 'develop'
+
+/* …and the screen the arms race's own card stands on top of (#2634). The person's words:
+ * «Перенеси карточку гонки вооружений из таймеров во вкладку vs на самый вверх». The card
+ * is the errands page's own `TimerItem` over the errands page's own row — one component,
+ * one state, drawn where the person looks for it — and the errands list leaves it out
+ * (`ARMS_ERRAND`), so it is a move rather than a second copy. */
+const VS_SCREEN = 'vs'
 
 /* THE ACCOUNT, DRAWN AS ITSELF (#2061) — the person's words: «слева выводим иконку
  * нашего аккаунта, внутри нее указываем уровень, под ней ник аккаунта. Клик по картинке
@@ -361,7 +368,9 @@ function Panel() {
         for (const line of fresh) if (line.sev === 'error') announce(line.text)
       }
       logAt.current = log.next
-      if (viewRef.current === 'timers') await refreshTimers()
+      if (viewRef.current === 'timers' || routeRef.current.screen === VS_SCREEN) {
+        await refreshTimers()
+      }
       setOffline(false)
       setTickCount((n) => n + 1)
     } catch (err) {
@@ -425,6 +434,12 @@ function Panel() {
     if (view === 'timers') void refreshTimers()
     if (view === 'more') void refreshScreens()
   }, [view, refreshTimers, refreshScreens])
+
+  // …and the arms race's card is on the «VS» screen now, so that screen needs the
+  // errands the moment it is opened rather than only while the errands page is up.
+  useEffect(() => {
+    if (screen === VS_SCREEN) void refreshTimers()
+  }, [screen, refreshTimers])
 
   // The scenario list is fetched when the develop screen is opened — it used to be
   // fetched when its own tab was, and that tab is gone (see `NAV`).
@@ -527,6 +542,19 @@ function Panel() {
       <main>
         {screen ? (
           <>
+            {/* THE ARMS RACE, ABOVE THE WEEK (#2634). The same card the errands page
+                draws, over the same row of `/api/timers`: its switch, its period, its
+                ▶ and its knobs all reach the one place they always did. */}
+            {screen === VS_SCREEN ? (
+              <div className="tiles">
+                {timers
+                  .filter((row) => row.name === ARMS_ERRAND)
+                  .map((row) => (
+                    <TimerItem key={row.name} row={row} now={state?.time || 0}
+                               refresh={refreshTimers} />
+                  ))}
+              </div>
+            ) : null}
             <ScreenPage
               id={screen}
               pollKey={tickCount}
