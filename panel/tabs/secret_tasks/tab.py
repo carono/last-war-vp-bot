@@ -4196,7 +4196,10 @@ class SecretTasksTab(PanelTab):
         (a dict; a bare list is the shape written before #1280 and is still read, see
         :meth:`_load_persisted`) has not changed — only where it lands.
         """
-        self.rt.store.blob_set(self.STATE_BLOB, {
+        # Handed to the writer, not written here (#2660): this runs on the Tk thread
+        # every time the capture moves a row, and the window is not drawing while it
+        # serialises. The snapshot below is built fresh and never touched again.
+        self.rt.store.blob_submit(self.STATE_BLOB, {
             "robbed": self._robbed_book(),
             # …AND THE BOOK OF REMOVALS (#1416). It has to outlive the session for the
             # same reason the robbed one does: the capture's checkpoint survives a

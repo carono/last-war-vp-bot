@@ -685,7 +685,8 @@ class GhostMapGrid(_GhostGrid):
     def persist(self) -> None:            # noqa: D102 — overrides the no-op above
         """Checkpoint this page's own list, whole — into the database, not a file."""
         try:
-            self.tab.rt.store.blob_set(
+            # Off the Tk thread (#2660) — see `Store.blob_submit`.
+            self.tab.rt.store.blob_submit(
                 self.STATE_BLOB,
                 [{k: row.get(k) for k in
                   ("uuid", "server", "owner_server", "target_server", "x", "y",
