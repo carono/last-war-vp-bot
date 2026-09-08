@@ -85,6 +85,24 @@ def test_a_day_is_added_up_from_the_log() -> None:
     assert all_n == 108
 
 
+def test_a_label_with_a_space_is_not_cut_in_half() -> None:
+    if hijack_call is None:
+        print("       (skipped — no Windows here)")
+        return
+    _clear()
+    hijack_call._count("LuaEnv cls")
+    hijack_call._count("LuaEnv cls")
+    by = hijack_call.stats()["by_label"]
+    assert by == {"LuaEnv_cls": 2}, by
+    # …because the reader splits the minute's line on whitespace, and a raw space would
+    # have filed both of these under «cls».
+    read, n, _ = hijack_tally.tally(
+        ["[2026-01-02 10:00:00.001] [INFO] [link] hijack labels 60s: "
+         + " ".join(f"{k}={v}" for k, v in by.items())])
+    assert read == {"LuaEnv_cls": 2} and n == 2
+    _clear()
+
+
 def test_a_label_with_odd_characters_survives() -> None:
     by, n, _ = hijack_tally.tally(
         ["[2026-01-02 10:00:00.001] [INFO] [link] hijack labels 60s: "
