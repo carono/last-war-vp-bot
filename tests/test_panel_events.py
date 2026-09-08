@@ -1485,6 +1485,25 @@ def test_the_saved_block_names_every_arms_knob_the_gear_can_move():
         assert option.key in block, option.key
 
 
+def test_moving_a_knob_asks_for_the_profile_to_be_written():
+    """A knob that only `remember`s is a knob that is gone at the next restart (#2657).
+
+    On a panel with no window nothing writes a tab's block until `settings.changed()`
+    is called — that is the whole of what `panel/headless.py` hangs its saver on. The
+    arms and hunt savers merged the value into their block and told nobody, so the
+    live answer to «включаю „Обучать юнитов"» was on until a restart and off after it.
+    """
+    tab = _tab()
+    before = tab.rt.settings.saves
+    assert tab.web_press("set", {"key": modelmod.ARMS_UNITS_KEY,
+                                 "value": True})["ok"] is True
+    assert tab.rt.settings.saves > before, "arms knob did not ask for a save"
+    before = tab.rt.settings.saves
+    knobs = {o.key: o for o in tab.errand_options()[modelmod.GOLDEN_ATTACK]}
+    assert knobs[modelmod.GOLDEN_SQUAD_KEY].write(tab.rt, "3") is True
+    assert tab.rt.settings.saves > before, "hunt knob did not ask for a save"
+
+
 # THE RUNNER STAYS LAST, and it is not a matter of taste (#2657): it collects the
 # `test_*` names that EXIST when it runs, so anything written below the
 # `__main__` guard is defined after the process has already exited. Three tests
