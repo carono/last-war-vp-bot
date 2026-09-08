@@ -16940,9 +16940,18 @@ def reward_watch_install() -> str:
     return (
         "pcall(function() "
         "local D=DataCenter local B=D.__lw_rewards "
-        "if B and B.on then return end "
+        # THE LIST IS REFRESHED EVEN WHEN THE EAR IS ALREADY IN (#2642). The wrappers
+        # are put in once — re-wrapping a wrapper would stack it — but the whitelist is
+        # DATA, and it grows in this file whenever an `unknown` row has been read. An
+        # install that returned early left a running client on the list it was taught at
+        # start-up, so a name added today first closed a window after the client next
+        # restarted, which can be days. Measured live: the truck's own
+        # `UIZombieBattleHangUpReward` still came back `unknown` from a panel that had
+        # been restarted onto the commit adding it.
+        f"local W={{}} {allow} "
+        "if B and B.on then B.allow=W return end "
         "B={rows={},lost=0,closed=0,seen=0} D.__lw_rewards=B "
-        f"local W={{}} {allow} B.allow=W "
+        "B.allow=W "
         "local function now() local t=0 "
         "pcall(function() t=UITimeManager.Instance:GetServerTime() end) "
         "return math.floor((tonumber(tostring(t)) or 0)+0) end "
@@ -17001,7 +17010,7 @@ def reward_watch_install() -> str:
         # deafen the ear until the client restarts.
         "if B.hold and now()<B.hold then add('held',s) return end "
         # guard 1: the name, explicitly. An unknown one is REPORTED, never closed.
-        "if not W[s] then add('unknown',s) return end "
+        "if not (B.allow or {})[s] then add('unknown',s) return end "
         "local w=self:GetWindow(name) "
         "if w and w.Ctrl and w.Ctrl.CloseSelf then "
         "local ok=pcall(function() w.Ctrl:CloseSelf() end) "

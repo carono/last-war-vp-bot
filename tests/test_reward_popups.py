@@ -242,6 +242,34 @@ def test_install_is_idempotent_and_the_recipe_drains() -> None:
     print("ok  a second install is a no-op, and the recipe's drain empties the ring")
 
 
+def test_a_second_install_refreshes_the_whitelist() -> None:
+    """A name added to the list reaches a client that already has the ear (#2642).
+
+    The wrappers are put in once, and for a while the whole install returned early when
+    it found them — so a window added to :data:`REWARD_WINDOWS` was `unknown` on every
+    running client until it happened to restart. The list is data; only the wrapping is
+    once.
+    """
+    rt = _vm()
+    rt.execute(lua_actions.reward_watch_install())
+    rt.execute("DataCenter.RewardManager:ShowCommonReward({{id=1,num=1}})")
+    rt.execute("UIManager.Instance:OpenWindow('UILaterAddedReward')")
+    assert ("unknown", "UILaterAddedReward") in _rows(rt), _rows(rt)
+
+    grown = lua_actions.REWARD_WINDOWS + ("UILaterAddedReward",)
+    was = lua_actions.REWARD_WINDOWS
+    try:
+        lua_actions.REWARD_WINDOWS = grown
+        rt.execute(lua_actions.reward_watch_install())
+    finally:
+        lua_actions.REWARD_WINDOWS = was
+    rt.execute("DataCenter.RewardManager:ShowCommonReward({{id=1,num=1}})")
+    rt.execute("UIManager.Instance:OpenWindow('UILaterAddedReward')")
+    assert ("closed", "UILaterAddedReward") in _rows(rt), _rows(rt)
+    assert len(rt.eval("SHOWN")) == 2, "the show ran again — a wrapper wrapped a wrapper"
+    print("ok  a second install refreshes the whitelist without re-wrapping")
+
+
 def main() -> int:
     if lupa is None:
         print("SKIP no lupa in this interpreter")
