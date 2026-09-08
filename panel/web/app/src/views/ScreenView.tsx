@@ -128,7 +128,15 @@ function useItemGear(item: ViewItem, screen: string, after: () => void) {
       <Modal title={name} onClose={() => setOpen(false)}>
         {groups.map((group, gi) => (
           <div className="item" key={'g' + gi}>
-            {group.title ? <b>{t(group.title)}</b> : null}
+            {/* THE NAME IS SAID ONCE (#2645). A group whose only knob is the ability's
+                own switch used to draw «Открывать готовые здания» as a heading and then
+                again as the label beside the switch — the person's words: «В карточках
+                дублируются заголовки карточки и триггера». The heading is what goes:
+                the switch has to keep a label of its own, because a box with no word
+                beside it is a box nobody can read aloud. */}
+            {group.title && !(group.fields || []).some((f) => f.label === group.title) ? (
+              <b>{t(group.title)}</b>
+            ) : null}
             {(group.fields || []).map((field) => (
               <ScreenField key={field.key} field={field} screen={screen} after={after} />
             ))}
@@ -362,7 +370,13 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
             seconds fetches each one once (#1324, #1469). One that will not load simply
             leaves the name alone. */}
         {item.avatar ? <img className="face" src={item.avatar} alt="" /> : null}
-        {item.icon ? <img className="icon" src={item.icon} alt="" /> : null}
+        {/* A ROW MAY ASK FOR ITS PICTURE BIG (#2645) — `shape: "picture"`. The person's
+            words about the finished buildings: «Рисунки зданий увеличь, в половину
+            карточки». It is the ROW's own word for it and never a guess from the route
+            the link points at, so a list of small icons stays a list of small icons. */}
+        {item.icon ? (
+          <img className={item.shape === 'picture' ? 'icon big' : 'icon'} src={item.icon} alt="" />
+        ) : null}
         <span className="title">
           {item.label ? t(item.label) : <Marked text={item.text} parts={item.text_parts} />}
         </span>

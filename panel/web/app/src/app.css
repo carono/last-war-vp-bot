@@ -572,6 +572,17 @@ main {
 
 
 .icon { width: 34px; height: 34px; border-radius: 6px; object-fit: contain; }
+/* A ROW THAT ASKED FOR ITS PICTURE BIG (#2645) — half the card's width, and the name
+   keeps the other half. The height follows the picture rather than being fixed: a
+   building's sprite is not square, and a box of a chosen height would either crop it or
+   float it in whitespace. */
+.icon.big {
+  width: 50%;
+  height: auto;
+  max-height: 140px;
+  align-self: flex-start;
+  border-radius: 10px;
+}
 
 /* -- controls ---------------------------------------------------------------- */
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 import time
 
 from ..runtime import bus
+from ..runtime import game_words
 from ..runtime import store
 from .inventory import cell_url
 from .vs_duel import DAYS, VsDuelTab, _Choice, walk_items
@@ -100,11 +101,28 @@ CHIP_PUSH = "push.uav.skillchip.changes"
 #: `finish_building.md` writes the server's own number back where the client dropped it.
 BUILD_PUSH = "push.build.queue.info"
 
+#: …AND THE TWO THAT SAY A SLOT APPEARED OR WENT AWAY (#2645). `push.build.queue.info`
+#: is what a slot that MOVED sends — a speed-up, a new end time — and it is not what
+#: arrives when a construction is STARTED or when a finished one is taken. `MsgDefines`
+#: names both of those separately (`PushQueueAdd`, `PushQueueDelete`), and without them
+#: the page had one door left: the alarm on the earliest slot's own end, which is armed
+#: off a reading and therefore never armed at all for a queue that was empty when the
+#: last reading was taken. That is the whole of «список готовых зданий не обновляется» —
+#: measured on the live panel, four hours between the last reading and the page.
+QUEUE_ADD_PUSH = "push.queue.add"
+QUEUE_DEL_PUSH = "push.queue.del"
+
 #: THE HOUR OF «Гонка вооружений», ON THE PAGE THAT SHOWS IT (#2635). The errand's card
 #: stands on this page, so the reading behind it is taken here: the phase running now,
 #: its three chests as the server flags them, and the points it has scored. It presses
 #: nothing and opens nothing — `actions/read_arms_race.md` is a read.
 ARMS_READ = "read_arms_race"
+
+#: THE SCORE OF THE DUEL ITSELF (#2645), which is what the page was missing: the person's
+#: words — «На вкладке выведи счет, мои очки дуэли и альянса, прогресс сделай как в игре,
+#: в виде процентов». One read, no press: the player's own points, both alliances' points
+#: and the days each side has won (`actions/read_vs_score.md`).
+SCORE_READ = "read_vs_score"
 
 #: …and what the game says when those numbers move: a score that changed announces
 #: itself (`docs/research/arms-race.md`). So the points and the chests follow the game
@@ -124,6 +142,9 @@ CHAIN_BUILD = "vs_build_due"
 #: nothing about the bag, and re-reading the bag on it would be a question the game did
 #: not ask for.
 CHAIN_BUILD_PUSH = "vs_build_push"
+#: …and the retry under a reading the gate refused: the link can be down at the very
+#: moment a slot moves, and the push does not come round a second time.
+CHAIN_BUILD_RETRY = "vs_build_retry"
 CHAIN_FIRST = "vs_first_read"
 #: …and the arms race's two: its own debounce, and the alarm on the border of the hour.
 CHAIN_ARMS_PUSH = "vs_arms_push"
@@ -144,9 +165,17 @@ FIRST_LOOK_MS = 20_000
 FIRST_RETRY_MS = 60_000
 FIRST_TRIES = 10
 
-#: How many readings a full round is — the chests, the tickets, the build queue and the
-#: arms race. The retry stops when they have all answered.
-FIRST_READS = 4
+#: THE SAME NET UNDER THE QUEUE'S OWN READING (#2645). A push that arrives while the
+#: client is between logins is answered «нет связи с игрой» and the reading is simply
+#: lost — the live panel did exactly that twice in one afternoon and then showed a list
+#: four hours old. A refused read is asked again a minute later, ten times, and stops the
+#: moment one lands; it is not a poll — nothing arms it but a refusal.
+BUILD_RETRY_MS = 60_000
+BUILD_RETRIES = 10
+
+#: How many readings a full round is — the chests, the tickets, the build queue, the
+#: arms race and the duel's own score. The retry stops when they have all answered.
+FIRST_READS = 5
 
 #: The floor between two «read the whole page» rounds, in seconds. A profile can be told
 #: it is ready more than once inside a second (the bus is not de-duplicated), and three
@@ -211,6 +240,8 @@ class VsTab(VsDuelTab):
         #: have finished. `None` until either has been asked for the first time.
         self._tickets = None
         self._builds = None
+        #: …and the duel's own score (#2645). `None` until it has been asked for once.
+        self._score = None
         #: THE EAR AND ITS ALARM (#2633). Nothing here reads on a clock: the first
         #: reading is taken when the client gets into the game (`bus.GAME_READY`), and
         #: after that the wire says when a number moved. `_build_due` is the one
@@ -218,6 +249,9 @@ class VsTab(VsDuelTab):
         #: own `endTime` is the alarm, which is a known moment and not a question.
         self._wire_off: list = []
         self._build_due: "float | None" = None
+        #: How many times a refused queue reading has been asked again, reset by the
+        #: answer that lands (#2645).
+        self._build_tries = 0
         #: …and the border of the arms race's own hour, which is the other moment with
         #: no push behind it: the phase's end is in the reading itself.
         self._arms_due: "float | None" = None
@@ -247,6 +281,21 @@ class VsTab(VsDuelTab):
     # client remembers it. So the tally is the panel's own fact and lives in the database
     # with every other one (CLAUDE.md, `store.DRONE_CHIPS`), while the bag half is a
     # reading with its age beside it: read on a press, never on a clock.
+
+    def _word(self, text) -> str:
+        """A name the GAME wrote, in the language the PANEL is in (#2645).
+
+        The client resolves a building's or an item's name in ITS own language, so a
+        panel switched to another one used to draw them in the client's — the person's
+        report was «вещи не переведены на языки». The game's own tables answer it
+        (`panel/runtime/game_words.py`), never a translation of ours, and a name they
+        cannot place comes back exactly as the game said it.
+        """
+        try:
+            return game_words.say(text, self.rt.i18n.lang,
+                                  scope=str(self.rt.profiles.active or ""))
+        except Exception:                    # noqa: BLE001 — a word, never the page
+            return "" if text is None else str(text)
 
     def _ago(self, stamp: int) -> str:
         """«3 мин» — how old a reading is, in the coarsest unit that still says something.
@@ -348,7 +397,7 @@ class VsTab(VsDuelTab):
             item_id = str(row.get("id") or "")
             picture = cell_url(str(row.get("icon") or ""), row.get("colour"))
             count = row.get("count")
-            entry = {"text": row.get("name") or item_id,
+            entry = {"text": self._word(row.get("name")) or item_id,
                      "facts": [{"label": "vs.chips.in_bag",
                                 "value": "\u2014" if count is None else str(count)},
                                {"label": "vs.chips.opened",
@@ -505,6 +554,12 @@ class VsTab(VsDuelTab):
         state["at"] = int(time.time())
         self._builds_save(state)
         self._first_ok.add("builds")
+        # The reading landed, so the net under it comes down (#2645).
+        self._build_tries = 0
+        try:
+            self.rt.tick.disarm(CHAIN_BUILD_RETRY)
+        except Exception:                    # noqa: BLE001
+            pass
         # …AND THE NEXT ALARM, out of the same answer. The recipe says how long the
         # earliest slot still has to run, so the panel knows the exact second the list
         # will be wrong and asks then — never in between (#2633).
@@ -574,7 +629,9 @@ class VsTab(VsDuelTab):
         out = []
         for row in rows or []:
             uuid = str(row.get("uuid") or "")
-            entry = {"text": row.get("name") or str(row.get("id") or ""),
+            entry = {"text": self._word(row.get("name"))
+                             or str(row.get("id") or ""),
+                     "shape": "picture",
                      "facts": [{"label": "vs.builds.level",
                                 "value": str(_int(row.get("level")))},
                                {"label": "vs.builds.left",
@@ -624,7 +681,12 @@ class VsTab(VsDuelTab):
         out = []
         for row in sorted(rows or [], key=lambda r: -_int(r.get("level"))):
             uuid = str(row.get("uuid") or "")
-            entry = {"text": row.get("name") or str(row.get("id") or ""),
+            entry = {"text": self._word(row.get("name"))
+                             or str(row.get("id") or ""),
+                     # THE PICTURE IS HALF THE CARD (#2645) — the person's words:
+                     # «Рисунки зданий увеличь, в половину карточки». A building is
+                     # recognised by its own art before its name is read.
+                     "shape": "picture",
                      "facts": [{"label": "vs.builds.level",
                                 "value": str(_int(row.get("level")))}],
                      "actions": [{"id": "open_one", "args": {"uuid": uuid},
@@ -666,6 +728,115 @@ class VsTab(VsDuelTab):
         if _int(state.kind) == self.BUILD_HOUR_KIND:
             return self.t("vs.builds.gate.now")
         return self.t("vs.builds.gate.wait")
+
+    # -- the duel's own score --------------------------------------------------
+    #
+    # THE ONE READING THIS PAGE IS NAMED AFTER (#2645), and the last one it did not have:
+    # the player's own points, both alliances' points, and how the two sides stand — the
+    # bar the game itself draws, said in the percentages the person asked for.
+    #
+    # THERE IS NO PUSH BEHIND IT that we have seen. So it follows the rule the same way
+    # everything else here does: read once when the client gets into the game, kept with
+    # its AGE beside it, and re-read as the direct consequence of a press somebody made
+    # («Записать дуэль» is the read of the week). Nothing asks the game on a clock, and a
+    # reading that has stopped moving is visibly old rather than quietly wrong.
+
+    def _score_state(self) -> dict:
+        if self._score is None:
+            try:
+                state = self.rt.store.blob_get(store.VS_SCORE)
+            except Exception:                # noqa: BLE001 — a reading, never the tab
+                state = None
+            self._score = state if isinstance(state, dict) else {}
+        return self._score
+
+    def _read_score(self) -> None:
+        """Ask what the duel stands at. The one door to that reading."""
+        self.rt.play_async(SCORE_READ, tag="vs", on_result=self._score_back)
+
+    def _score_back(self, outcome) -> None:
+        """`read_vs_score` came back — keep what it said, in the store.
+
+        A run the gate refused leaves nothing behind, and a blank stamped with the time
+        would age-stamp «неизвестно» as a fresh answer (#2633).
+        """
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        raw = str(variables.get("vs_score") or "").strip()
+        if not raw:
+            return
+        state = {"at": int(time.time())}
+        for piece in raw.split(" "):
+            key, _, value = piece.partition("=")
+            if key:
+                state[key] = value
+        self._score = state
+        try:
+            self.rt.store.blob_set(store.VS_SCORE, state)
+        except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
+            pass
+        self._first_ok.add("score")
+
+    @staticmethod
+    def _side(raw) -> dict:
+        """`AL1|1000000|1` -> the side, or an empty one when the game named nobody."""
+        parts = [bit.strip() for bit in str(raw or "").split("|")]
+        if len(parts) < 3:
+            return {}
+        return {"abbr": parts[0], "score": _int(parts[1]), "win": _int(parts[2])}
+
+    @staticmethod
+    def _share(ours: int, theirs: int) -> int:
+        """Our half of the duel, in whole percent — the game's own bar, as a number."""
+        total = max(0, ours) + max(0, theirs)
+        if total <= 0:
+            return 0
+        return int(round(100.0 * max(0, ours) / total))
+
+    def _score_card(self) -> dict:
+        """«Счёт»: my points, both alliances' points, and the two shares in percent.
+
+        WHAT IS UNKNOWN IS NOT DRAWN AS A ZERO. A side the game has not named is left out
+        rather than shown at nought, which would read as «мы проигрываем всухую».
+        """
+        state = self._score_state()
+        rows = []
+        mine = _int(state.get("mine"), -1)
+        rows.append({"label": "vs.score.mine",
+                     "value": "\u2014" if mine < 0 else f"{mine:,}".replace(",", "\u2009")})
+        # …AND HOW FAR ALONG THE PERSONAL LADDER THAT IS (#2645). The milestones are the
+        # game's own list; the percentage is against the LAST of them, which is what the
+        # bar in the game fills up to.
+        targets = [_int(bit) for bit in str(state.get("target") or "").split(",")
+                   if bit.strip().isdigit()]
+        if mine >= 0 and targets:
+            top = max(targets)
+            done = min(100, int(round(100.0 * mine / top))) if top > 0 else 0
+            rows.append({"label": "vs.score.mine.progress",
+                         "value": self.t("vs.score.percent", n=done)})
+        us, them = self._side(state.get("us")), self._side(state.get("them"))
+        if us:
+            share = self._share(us["score"], them.get("score", 0)) if them else 100
+            rows.append({"label": "vs.score.us",
+                         "value": self.t("vs.score.side", who=us["abbr"],
+                                         score=f"{us['score']:,}".replace(",", "\u2009"),
+                                         n=share)})
+        if them:
+            share = 100 - self._share(us.get("score", 0), them["score"]) if us else 100
+            rows.append({"label": "vs.score.them",
+                         "value": self.t("vs.score.side", who=them["abbr"],
+                                         score=f"{them['score']:,}".replace(",", "\u2009"),
+                                         n=share)})
+        if us or them:
+            rows.append({"label": "vs.score.days",
+                         "value": f"{us.get('win', 0)} : {them.get('win', 0)}"})
+        # HOW OLD THE ANSWER IS, AS A ROW OF ITS OWN. A card's `note` is a locale KEY on
+        # this front-end and this is DATA — «прочитано 3 мин назад» — so it travels as a
+        # row's value, which is where data belongs (docs/panel-tabs.md).
+        when = _int(state.get("at"))
+        rows.append({"label": "vs.score.read",
+                     "value": self.t("vs.score.never") if not when
+                     else self._ago(when)})
+        return {"title": "vs.score", "rows": rows}
 
     # -- read once, then listen ------------------------------------------------
     #
@@ -720,11 +891,16 @@ class VsTab(VsDuelTab):
         # …AND THE BUILD QUEUE'S OWN (#2641). A slot the server moved announces itself,
         # so the finished buildings appear on the page without a press — which is what
         # the person asked for and what this page could not do while nobody listened.
-        try:
-            self._wire_off.append(self.rt.wire.subscribe(BUILD_PUSH,
-                                                         self._on_build_push))
-        except Exception:                    # noqa: BLE001 — no ear, the age says so
-            pass
+        # …AND THE SLOT THAT APPEARED OR WENT AWAY (#2645), on the same handler and
+        # therefore on the same debounce: starting a construction is what arms the alarm
+        # that catches it finishing, and without this the alarm was never armed for a
+        # queue that had been empty.
+        for pattern in (BUILD_PUSH, QUEUE_ADD_PUSH, QUEUE_DEL_PUSH):
+            try:
+                self._wire_off.append(self.rt.wire.subscribe(pattern,
+                                                             self._on_build_push))
+            except Exception:                # noqa: BLE001 — no ear, the age says so
+                break
 
     def _unlisten(self) -> None:
         """Close this page's ear. The capture stops with its last subscriber."""
@@ -767,8 +943,22 @@ class VsTab(VsDuelTab):
             self._read_builds()
 
     def _read_builds(self) -> None:
-        """What has finished and what is still building. The one door to that reading."""
-        self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
+        """What has finished and what is still building. The one door to that reading.
+
+        A reading the gate refuses is not lost (#2645): the push that asked for it does
+        not come round again, so a refusal arms one retry a minute later. The chain is
+        re-armed by the next refusal and disarmed by the answer, so a client that is
+        simply away costs ten questions and then nothing.
+        """
+        if self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back):
+            return
+        self._build_tries += 1
+        if self._build_tries > BUILD_RETRIES:
+            return
+        try:
+            self.rt.tick.arm(CHAIN_BUILD_RETRY, BUILD_RETRY_MS, self._read_builds)
+        except Exception:                    # noqa: BLE001 — no clock, no net
+            pass
 
     def _read_bag(self) -> None:
         """What the bag holds: the survivors' tickets and the chip chests.
@@ -885,6 +1075,8 @@ class VsTab(VsDuelTab):
         # …AND THE HOUR OF THE ARMS RACE (#2635), which is the first reading of the card
         # standing at the top of this page. After this one the game says when it moved.
         self._read_arms()
+        # …AND THE SCORE OF THE DUEL (#2645), which is what this whole page is about.
+        self._read_score()
         # …AND THE NET UNDER IT. A scenario refused by the gate answers nothing and says
         # so in the log; the edge that started this does not come round again, so a page
         # that was unlucky once would stay on yesterday's numbers all day. This asks
@@ -947,8 +1139,8 @@ class VsTab(VsDuelTab):
 
     def shutdown(self) -> None:
         """Give the ear and the alarms back — a listener outliving its tab is a leak."""
-        for chain in (CHAIN_PUSH, CHAIN_BUILD, CHAIN_BUILD_PUSH, CHAIN_FIRST,
-                      CHAIN_ARMS_PUSH, CHAIN_ARMS):
+        for chain in (CHAIN_PUSH, CHAIN_BUILD, CHAIN_BUILD_PUSH, CHAIN_BUILD_RETRY,
+                      CHAIN_FIRST, CHAIN_ARMS_PUSH, CHAIN_ARMS):
             try:
                 self.rt.tick.disarm(chain)
             except Exception:                # noqa: BLE001
@@ -973,7 +1165,8 @@ class VsTab(VsDuelTab):
         the same `set` press, so nothing about what a knob MEANS lives here.
         """
         self._paint_collected()
-        cards = [{"title": "vs.week", "layout": "cards",
+        cards = [self._score_card(),
+                 {"title": "vs.week", "layout": "cards",
                   # THE SCREEN OPENS ON THE WEEK (#2621) — the person's words: «в vs
                   # основным экраном делай неделю». Four cards would otherwise be drawn
                   # as a summary of tiles first, and the week — which is what this page
@@ -1005,11 +1198,13 @@ class VsTab(VsDuelTab):
         # the row is about.
         toggle = fields[0]
         knobs = {self._plain_key(f.get("key")): f for f in fields[1:]}
-        item = {"label": f"vsduel.day.{day}", "shape": "cover", "toggle": toggle,
-                "facts": [{"label": "vs.day.set",
-                           # The set's name is DATA — the operator may have typed it.
-                           "value": self._store.name(self._day_set[day].get(),
-                                                     self.t)}]}
+        # NO LINE OF PROSE ON THE CARD (#2645). It carried «Действия 2 / 2 · Набор
+        # Накопление» — two facts about the PLAN, on a card whose whole subject is the
+        # day and its switch. The person's words: «На карточках в vs убери текстовое
+        # поле, оно не ясно к чему». Both readings are still reachable where they belong:
+        # what the day is set to plays out inside the gear, and the sets are their own
+        # card on the same page.
+        item = {"label": f"vsduel.day.{day}", "shape": "cover", "toggle": toggle}
         groups = []
         for action in self._day_actions(day):
             name = f"{day}.{action.key}"
@@ -1060,8 +1255,6 @@ class VsTab(VsDuelTab):
         if groups:
             item["options_groups"] = groups
             item["options_title"] = f"vsduel.day.{day}"
-            item["facts"].insert(0, {"label": "vs.day.actions",
-                                     "value": self._day_count(day)})
         else:
             # A DAY NOBODY HAS WIRED SAYS SO, in one word, rather than offering knobs
             # that decide nothing.
@@ -1136,28 +1329,6 @@ class VsTab(VsDuelTab):
         and «Открыть все» stays lit over an empty queue.
         """
         self._read_builds()
-
-    def _day_count(self, day: str) -> str:
-        """«1 / 1» — how much of the day is ticked, out of what the panel can DO.
-
-        A pick is not counted: one of its options is always chosen, so it is not
-        something a person switches on or off. Neither is a box no scenario is behind
-        (:data:`READY`) — the card would otherwise say «1 / 4» about a day on which the
-        other three do nothing at all.
-        """
-        on = total = 0
-        for item in self._day_actions(day):
-            if f"{day}.{item.key}" not in READY:
-                continue
-            var = self._flags.get(f"{day}.{item.key}")
-            if var is None:
-                continue
-            total += 1
-            try:
-                on += 1 if var.get() else 0
-            except Exception:            # noqa: BLE001 — a half-built window
-                pass
-        return f"{on} / {total}"
 
 
 # ---------------------------------------------------------------------------
