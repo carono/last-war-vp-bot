@@ -16937,6 +16937,31 @@ def reward_watch_install() -> str:
     """
     shows = ",".join(f"'{name}'" for name in REWARD_SHOWS)
     allow = " ".join(f"W['{name}']=true" for name in REWARD_WINDOWS)
+    return _reward_watch_chunk(shows, allow)
+
+
+def _reward_watch_chunk(shows: str, allow: str, stamp: str = "") -> str:
+    """The install chunk, stamped with a fingerprint of ITSELF.
+
+    THE EAR IS VERSIONED, AND THAT IS WHAT MAKES A FIX REACHABLE (#2642). The wrappers
+    live in the client's Lua VM, which outlives every panel restart — so an install that
+    simply returned when it found them left a running client on the code and the
+    whitelist it was taught the first time. Measured live: the truck's own
+    `UIZombieBattleHangUpReward` came back `unknown` from a panel three restarts past the
+    commit that whitelisted it, because the WRAPPER in the client was still the old one.
+
+    Re-wrapping is safe and does not stack, which is the whole reason this can be done:
+    the wrappers are `rawset` on the INSTANCE and every original is read off the CLASS
+    behind it, so a second wrap starts from the same untouched function as the first.
+
+    The stamp is a hash of the chunk without it, so nobody has to remember to bump a
+    number: change the guards, the list or the shows and the next install re-wraps.
+    """
+    if not stamp:
+        import hashlib
+
+        body = _reward_watch_chunk(shows, allow, stamp="?")
+        stamp = hashlib.sha1(body.encode("utf-8")).hexdigest()[:12]
     return (
         "pcall(function() "
         "local D=DataCenter local B=D.__lw_rewards "
@@ -16949,7 +16974,7 @@ def reward_watch_install() -> str:
         # `UIZombieBattleHangUpReward` still came back `unknown` from a panel that had
         # been restarted onto the commit adding it.
         f"local W={{}} {allow} "
-        "if B and B.on then B.allow=W return end "
+        f"if B and B.on=='{stamp}' then B.allow=W return end "
         "B={rows={},lost=0,closed=0,seen=0} D.__lw_rewards=B "
         "B.allow=W "
         "local function now() local t=0 "
@@ -17017,7 +17042,7 @@ def reward_watch_install() -> str:
         "if ok then B.closed=B.closed+1 add('closed',s) else add('popup',s) end "
         "else add('popup',s) end end) "
         "return up(res,1,res.n) end) end "
-        "B.on=true end)")
+        f"B.on='{stamp}' end)")
 
 
 def reward_watch_hold(minutes: float = 30.0) -> str:
