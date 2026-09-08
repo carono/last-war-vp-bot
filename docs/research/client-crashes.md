@@ -312,3 +312,41 @@ It reads the Windows event log (through whatever PowerShell the machine has,
 quotes the profile's own `panel.log` around each fault — one pass of the log for all of
 them. Event 1000 is translated on most installs, so the fields are read by shape and not
 by wording; `tests/test_crash_report.py` pins that.
+
+## What the owner decided about the three (#2656)
+
+The three exposure reductions above were put to the person with their behaviour cost
+stated. **Two of them are refused, and they are written down here so that the next agent
+reading the arithmetic does not re-open a settled question.**
+
+**2 — coalescing the rally pushes: NO.** In their own words: «По пушам марша не вижу
+проблему, один просто собирает статистику, другой присоединяется, они никому не должны
+мешать, оба прозрачные и в разных потоках.» The two subscribers on
+`push.alliance.march` — `rally_monitor` (which only reads what is out) and
+`rally_auto_join` → `join_rally` (which joins) — stay one run per push, minus the dedup
+they already have. The measurement stands and is not the point: 6 154 pushes a day for
+931 rallies (`create` 931, `refresh` 4 312 — a median of five per rally, one per joiner,
+— `remove` 911), 1 913 + 1 817 runs, 7 486 of the day's 18 524 DSL steps, 40 %. **The
+cost of the change was a rally slot** (a banner fills 5/5 and launches in seconds; any
+window that coalesces `refresh` delays the decision by that window), and that is not a
+price the owner will pay for an unmeasured reduction in crashes. Do not propose it again
+without evidence that the crash rate actually follows the hijack count — which is the A/B
+nobody has run.
+
+**3 — answering from what the panel already holds: NO.** «3 оставь как есть.» And the
+investigation had already found why it was the wrong target: `read_server_info` — 608
+runs a day, the biggest single candidate — is **not a reading of an unchanging number, it
+is the LIVENESS PROBE** (`panel/runtime/status.py::PROBE_ACTION`, every 120 s while
+nothing else has proved the link). Green means «the game server answered», so caching the
+probe's answer would cache exactly the thing the light is about, and the panel's health
+model is where two whole nights have already been lost (#1910, #2446). The probe stays as
+it is, at its present cadence.
+
+**1 — cheapening the hijack itself: YES, and it is the only one.** It is the only one
+with **no behaviour change at all for the player** — nothing runs later, rarer, or not at
+all; only the number of attaches per answer moves. That is the owner's condition on it.
+The order of work is theirs too: *«со счётчика по label на сутки, потом правка»* — the
+per-label tally lands first (`tools/lib/hijack_call.py::STATS["by_label"]`, a line a
+minute in the profile's debug log, `tools/hijack_tally.py` to add a day up), a day is
+allowed to accumulate, and only then is the 3.8-attaches-per-step figure taken apart with
+the numbers in hand.
