@@ -266,9 +266,13 @@ DAYS: tuple = (
         _Action("mines_before_reset", "vsduel.mines_before_reset"),
     )),
     ("tue", (
-        _Action("build_speedup", "vsduel.build_speedup"),
-        _Action("build_collect", "vsduel.build_collect"),
+        # THE TWO THE BOT ACTUALLY DOES COME FIRST, in the order the person named them
+        # (#2632): «первый чекбокс тратить билеты выжившего … Чекбокс Открывать готовые
+        # здания». The gear draws the wired ones in this order and the window's own day
+        # group follows it, so the two front-ends read the same way round.
         _Action("survivor_tickets", "vsduel.survivor_tickets"),
+        _Action("build_collect", "vsduel.build_collect"),
+        _Action("build_speedup", "vsduel.build_speedup"),
         _Action("build_start", "vsduel.build_start",
                 subs=(_Sub("ministry", "vsduel.build_ministry"),)),
     )),

@@ -41,7 +41,13 @@ NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set",
             "vs.chips.title", "vs.chips.in_bag", "vs.chips.opened",
             "vs.chips.refresh", "vs.chips.read_at", "vs.chips.never",
             "vs.chips.open_all", "vs.drone.raise_now",
-            "vs.age.sec", "vs.age.min", "vs.age.hour", "vs.age.day")
+            "vs.age.sec", "vs.age.min", "vs.age.hour", "vs.age.day",
+            "vsduel.survivor_tickets", "vsduel.build_collect",
+            "vs.tickets.stats", "vs.tickets.have", "vs.tickets.spent_today",
+            "vs.tickets.spend_now", "vs.tickets.refresh", "vs.tickets.read_at",
+            "vs.tickets.never", "vs.builds.open_all", "vs.builds.open",
+            "vs.builds.refresh", "vs.builds.level", "vs.builds.read_at",
+            "vs.builds.never")
 
 
 def _tab():
@@ -62,7 +68,9 @@ def _tab():
         from panel.runtime import store as storemod
 
         rt.store.blob_set(storemod.DRONE_CHIPS, {})
-        tab._chips = None
+        rt.store.blob_set(storemod.SURVIVOR_TICKETS, {})
+        rt.store.blob_set(storemod.READY_BUILDINGS, {})
+        tab._chips = tab._tickets = tab._builds = None
     except Exception:                     # noqa: BLE001 — no store, no tally
         pass
     return root, tab
@@ -215,7 +223,12 @@ def test_only_the_wired_knobs_are_drawn_and_the_rest_of_the_week_says_so():
                 for f in g["fields"]] == ["plan.mon.drone_chips",
                                           "plan.mon.drone_level"]
         assert monday.get("pill") is None
-        for label in ("vsduel.day.tue", "vsduel.day.wed", "vsduel.day.thu",
+        tuesday = items["vsduel.day.tue"]
+        assert [g["title"] for g in tuesday["options_groups"]] == [
+            "vsduel.survivor_tickets", "vsduel.build_collect"], (
+                "Tuesday's two abilities, in the order the plan lists them (#2632)")
+        assert tuesday.get("pill") is None
+        for label in ("vsduel.day.wed", "vsduel.day.thu",
                       "vsduel.day.fri", "vsduel.day.sat"):
             day = items[label]
             assert not day.get("options_groups"), (label, day.get("options_groups"))
@@ -249,6 +262,7 @@ def test_the_wired_knob_carries_the_button_that_plays_its_recipe():
         assert played == ["open_drone_chips", "upgrade_drone"], played
         # …and nothing else may be started through it, whatever it is asked for.
         assert tab.web_press("run", {"key": "tue.build_speedup"}) == {"error": "unknown"}
+        assert tab.web_press("run", {"key": "wed.research_start"}) == {"error": "unknown"}
         assert tab.web_press("run", {}) == {"error": "unknown"}
         assert played == ["open_drone_chips", "upgrade_drone"], played
     finally:
@@ -487,6 +501,192 @@ def _main() -> int:
             print(f"  FAIL {t.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     return 1 if failed else 0
+
+
+
+# ---------------------------------------------------------------------------
+# Tuesday (#2632): the survivors' tickets, and the buildings that have finished
+# ---------------------------------------------------------------------------
+
+
+def test_tuesdays_two_abilities_are_each_a_block_behind_the_gear():
+    """The card carries nothing; each ability is its switch, its press, its subject."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        tuesday = _week(tab.web_view())["items"][1]
+        assert tuesday["label"] == "vsduel.day.tue"
+        assert not tuesday.get("actions"), tuesday.get("actions")
+        groups = {g["title"]: g for g in tuesday["options_groups"]}
+        tickets = groups["vsduel.survivor_tickets"]
+        assert [f["key"] for f in tickets["fields"]] == ["plan.tue.survivor_tickets"]
+        assert [a["label"] for a in tickets["actions"]] == [
+            "vs.tickets.spend_now", "vs.tickets.refresh"]
+        # …and the statistics the person asked for, in one row of two numbers.
+        facts = tickets["items"][0]["facts"]
+        assert [f["label"] for f in facts] == ["vs.tickets.have",
+                                               "vs.tickets.spent_today"]
+        assert facts[0]["value"] == "\u2014", "nothing read yet is never a zero"
+        assert facts[1]["value"] == "0"
+
+        builds = groups["vsduel.build_collect"]
+        assert [f["key"] for f in builds["fields"]] == ["plan.tue.build_collect"]
+        assert [a["label"] for a in builds["actions"]] == [
+            "vs.builds.open_all", "vs.builds.refresh"]
+        # NOTHING TO OPEN -> the press is dead rather than absent (#2632).
+        assert builds["actions"][0]["disabled"] is True
+        assert builds["items"] == []
+    finally:
+        root.destroy()
+
+
+def test_the_finished_buildings_are_rows_sorted_by_level_each_with_its_own_press():
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        class _Outcome:
+            class ctx:
+                vars = {"ready_builds": "1000000000000001|10310000|12|"
+                                        "UI_building_10310000|Factory ;; "
+                                        "1000000000000002|10201000|30|"
+                                        "UI_building_10201000|Field"}
+
+        tab._builds_back(_Outcome())
+        builds = {g["title"]: g for g in
+                  _week(tab.web_view())["items"][1]["options_groups"]}["vsduel.build_collect"]
+        rows = builds["items"]
+        assert [r["text"] for r in rows] == ["Field", "Factory"], (
+            "highest level first — «сортировка по уровню»")
+        assert [r["facts"][0]["value"] for r in rows] == ["30", "12"]
+        assert all(r["facts"][0]["label"] == "vs.builds.level" for r in rows)
+        assert [r["actions"][0]["id"] for r in rows] == ["open_one", "open_one"]
+        assert rows[0]["actions"][0]["args"]["uuid"] == "1000000000000002"
+        assert builds["actions"][0].get("disabled") is False, (
+            "there IS something to open now")
+    finally:
+        root.destroy()
+
+
+def test_tuesdays_presses_play_the_recipes_and_nothing_else():
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        played = []
+        tab.rt.play_async = lambda name, *a, **k: (
+            played.append((name, (k.get("args") or {}).get("uuid"))) or True)
+
+        assert tab.web_press("run", {"key": "tue.survivor_tickets"}) == {"ok": True}
+        assert tab.web_press("run", {"key": "tue.build_collect"}) == {"ok": True}
+        assert tab.web_press("tickets_read", {}) == {"ok": True}
+        assert tab.web_press("builds_read", {}) == {"ok": True}
+        assert tab.web_press("open_one", {"uuid": "1000000000000001"}) == {"ok": True}
+        assert played == [("spend_survivor_tickets", None),
+                          ("open_ready_buildings", None),
+                          ("read_survivor_tickets", None),
+                          ("read_ready_buildings", None),
+                          ("open_ready_buildings", "1000000000000001")], played
+        # A uuid that is not one is refused rather than handed to a recipe.
+        assert tab.web_press("open_one", {"uuid": "; drop"}) == {"error": "unknown"}
+        assert tab.web_press("open_one", {}) == {"error": "unknown"}
+        assert len(played) == 5, played
+    finally:
+        root.destroy()
+
+
+def test_the_ticket_tally_is_the_panels_own_fact_and_it_is_the_games_day():
+    """A ticket that is spent is gone — the count of them exists nowhere but here."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        class _Read:
+            class ctx:
+                vars = {"worker_tickets": "42", "worker_free": "1"}
+
+        class _Spent:
+            class ctx:
+                vars = {"tickets_spent": "20", "tickets_after": "22"}
+
+        tab._tickets_back(_Read())
+        assert tab._tickets_facts()[0]["value"] == "42"
+        tab._tickets_spent_back(_Spent())
+        facts = tab._tickets_facts()
+        assert facts[0]["value"] == "22", facts
+        assert facts[1]["value"] == "20", facts
+        # The tally is keyed by the GAME's day, not this machine's midnight.
+        assert tab._tickets_state()["day"] == tab.rt.day.day_key()
+        tab._tickets_spent_back(_Spent())
+        assert tab._tickets_facts()[1]["value"] == "40"
+    finally:
+        root.destroy()
+
+
+def test_a_client_that_would_not_answer_is_never_drawn_as_a_zero():
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        class _Nothing:
+            class ctx:
+                vars = {"worker_tickets": "-1"}
+
+        tab._tickets_back(_Nothing())
+        assert tab._tickets_facts()[0]["value"] == "\u2014"
+    finally:
+        root.destroy()
+
+
+def test_the_two_tuesday_recipes_exist_and_hold_their_own_gates():
+    """Every gate of an ability lives in the scenario, never in the panel (CLAUDE.md)."""
+    actions = ROOT / "src" / "lastwar_bot" / "actions"
+    opens = (actions / "open_ready_buildings.md").read_text(encoding="utf-8")
+    running = "\n".join(line for line in opens.splitlines()
+                         if line.strip() and not line.lstrip().startswith("#"))
+    assert "ARGS uuid =" in running, "one building or all of them, by argument"
+    assert "120001" in running, "the arms race's BUILDING hour is the gate"
+    assert "CheckSendBuildFinish" in running, "the claim is the client's own"
+    assert "DelayInvoke" in running, "the send goes on the game's own thread"
+
+    reads = (actions / "read_ready_buildings.md").read_text(encoding="utf-8")
+    assert "INTO ready_builds" in reads
+    assert "CheckSendBuildFinish" not in reads, "a read presses nothing"
+
+    spend = (actions / "spend_survivor_tickets.md").read_text(encoding="utf-8")
+    assert "TAP recruit_draw" in spend, "the press is the catalogue's own"
+    assert "INTO tickets_spent" in spend, "what it cost, in the account's own numbers"
+    assert "ARGS keep = 0" in spend, "how many tickets to leave untouched"
+
+    tickets = (actions / "read_survivor_tickets.md").read_text(encoding="utf-8")
+    assert "INTO worker_tickets" in tickets
+    assert "TAP " not in tickets, "a read presses nothing"
+
+
+def test_a_building_draws_the_games_own_picture_or_none_at_all():
+    """Never a stand-in: a sprite this machine has not extracted is no picture."""
+    import building_icons
+
+    assert building_icons.file_named("../secret.png") is None
+    assert building_icons.file_named("UI_building_00000000.png") is None
+    assert building_icons.name_for("") == ""
+    # …and the route the tab links to is the one the server answers.
+    from panel.tabs.vs import VsTab
+
+    link = VsTab._build_icon("UI_building_10310000")
+    assert link is None or link.startswith("/api/buildingicon?icon="), link
+
 
 
 if __name__ == "__main__":
