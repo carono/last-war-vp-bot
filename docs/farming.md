@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 75 of 197
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 75 of 199
 
-🟩 75 done · 🟨 92 partly · 🟥 30 not automated
+🟩 75 done · 🟨 94 partly · 🟥 30 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -285,6 +285,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 ### Promotions
 
+- 🟡 «Glittering Market» — the recurring event that hands out free diamonds. Every day it runs it gives one free reward (100 diamonds on the day it was read), and its shop prices a few of its rare goods at nothing at all; one errand takes all of it, plus any progress chest the account has already earned, and opens no window. Its card on «Таймеры» says what today's free reward is, how much is left to take and how old the reading is — the reading is taken when the client gets into the game and again when the event says something moved, never on a clock, so there is no «Обновить» to press. The run's own dates come from the game: six days at a time, and the card simply says the event is not running between them. Proven live: the free reward claimed and two zero-cost goods bought; the progress chest has not been claimed yet because the account had no points
+- 🟡 Spending the market's coins — a second card, switched off, for the half that costs something: pick a row of the shop, how many of it, and a ceiling, and the run says the price and what the bag holds before it sends anything. The coins themselves are bought with diamonds in the game's own pack window and the bot never buys them — that purchase is not something it can make, and it is not something it should. Nothing of this has been spent in a live session yet
 - ❌ "Battle of Arsenals" rewards
 - ✅ Battle Pass rewards — the levels an event pass has earned are claimed together with everything else the shop gives for nothing (see «Store»): the free track always, the premium one once it is already unlocked, and the extra box behind the last level when the pass has reached it. Its daily missions need no press at all — the game pays their experience itself and there is no claim for them to have — and buying levels is a purchase, so it is never made. Proven live on two running passes: one at level 40 with two rewards owed came back at 41 with none owed, the other went from level 14 to 16
 
@@ -399,6 +401,7 @@ The routine as it is actually played, against what the bot covers.
 | Fire the profession skills that came off cooldown | 🟡 the no-target ones · ✅ Win-Win · ❌ the rest of the targeted ones |
 | General's challenge, free heroes in the tavern | ❌ |
 | Shop purchases from a list | ❌ |
+| Free diamonds at the «Glittering Market» | 🟡 the daily free reward and the zero-cost goods are taken on a schedule; buying its coins is a purchase and is never made |
 | Treasure maps and the exchange | ❌ |
 
 ### By weekday, and the recurring events

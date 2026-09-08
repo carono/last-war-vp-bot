@@ -48,6 +48,12 @@
   "radar_full_cycle": "45%"
  },
  "references": {
+  "collect_glittering_market": [
+   "zyf_tailanshangcheng_biaoqian_icon"
+  ],
+  "buy_glitter_market_goods": [
+   "zyf_tailanshangcheng_biaoqian_icon"
+  ],
   "collect_truck_resources": [
    "zyf_wanfatujing_danrenhuoche",
    "itemResourceBox"
@@ -152,6 +158,8 @@
   "mail_gifts": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'take the gifts waiting in the mail'. The scene: an armoured mailbox at the base gate overflowing with sealed envelopes and small gift boxes, one envelope opening into golden light, evening light. It must read instantly as 'gifts from the mail are being taken'.",
   "secret_autoloot": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'rob the ripe star secret tasks by itself'. The scene: a glowing golden star marker over a secret task site on a night battlefield map, a raiding squad vehicle already leaving it with a loaded strongbox, tracer lines fading, night blue with gold star light. It must read instantly as 'star tasks are being robbed automatically'.",
   "secret_autoassist": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'help allies with their secret tasks by itself'. The scene: an allied secret task site on a night map with a friendly squad arriving to assist, a glowing help symbol over the site and a star ripening beside it, cool night blue with warm gold. It must read instantly as 'allies' secret tasks are being helped with'.",
-  "ghost_autoloot": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'rob the ghost recon squads by itself'. The scene: a stealth recon camp at night seen through a green surveillance overlay while a raiding squad slips away from it carrying a captured case, position markers fading, night-vision green with a warm loot glow. It must read instantly as 'ghost recon sites are being robbed'."
+  "ghost_autoloot": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'rob the ghost recon squads by itself'. The scene: a stealth recon camp at night seen through a green surveillance overlay while a raiding squad slips away from it carrying a captured case, position markers fading, night-vision green with a warm loot glow. It must read instantly as 'ghost recon sites are being robbed'.",
+  "collect_glittering_market": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'take everything the glittering market gives away for free'. The scene: a night market stall under a futuristic survival base's neon awning, its counter heaped with prizes, and in the foreground a wide-open jewellery case spilling cut blue diamonds that catch the light. Sparkling silver-blue trade tokens are scattered across the counter beside the diamonds. Nobody is paying: a glowing 'free' tag hangs off the case. It must read instantly as 'free diamonds are being collected at a sparkling market'.",
+  "buy_glitter_market_goods": "Draw a wide landscape banner illustration for a mobile game UI card meaning 'spend sparkling coins on rare goods at the glittering market'. The scene: a merchant's counter at a futuristic night market, a stack of engraved silver-blue coins being pushed across it by an armoured gauntlet, and on the far side a rare prize crate half-open with its glow escaping. The coins are the subject and they are visibly leaving the buyer's hand. It must read instantly as 'coins are being spent on something rare'."
  }
 }

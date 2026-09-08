@@ -186,6 +186,34 @@ SPEC: dict = {
         _flag("golloes_free", "shop.golloes_free",
               hint_key="shop.golloes_free.hint", default=1),
     ),
+    # THE GLITTERING MARKET, the free half (#2636). Three claims and a ceiling, and not
+    # one of them can spend anything: the daily free reward (100 diamonds on the day the
+    # event was read), the shop rows the GAME prices at zero, and the progress chests the
+    # account has already earned. `cap` is only how many free rows one run asks for at
+    # once — the quota is the event's, and what is left is taken next time.
+    "collect_glittering_market": (
+        _flag("free_reward", "market.free_reward",
+              hint_key="market.free_reward.hint", default=1),
+        _flag("free_goods", "market.free_goods",
+              hint_key="market.free_goods.hint", default=1),
+        _flag("boxes", "market.boxes",
+              hint_key="market.boxes.hint", default=1),
+        _num("cap", "market.cap", low=1, high=200,
+             hint_key="market.cap.hint"),
+    ),
+    # …AND THE HALF THAT SPENDS (#2636). The row of the shop to buy, how many of it, and
+    # the most coins one run may spend. A coin is bought with diamonds in the game's own
+    # pack window and does not come back, so the errand is off, the price is said before
+    # anything is sent, and `product = 0` means «nothing chosen» — the recipe stops
+    # rather than guessing which of two dozen rows was meant.
+    "buy_glitter_market_goods": (
+        _num("product", "market.product", low=0, high=999999,
+             hint_key="market.product.hint"),
+        _num("count", "market.count", low=1, high=500,
+             hint_key="market.count.hint"),
+        _num("budget", "market.budget", low=0, high=1000000,
+             hint_key="market.budget.hint"),
+    ),
     # THE HIDDEN TREASURES (#2597). The three knobs were a page of their own until the
     # person asked for it to go — «"Скрытые Сокровища" убираем отдельную вкладку,
     # настройки переносим в карточку в таймерах». They are the recipe's own `ARGS`, so
