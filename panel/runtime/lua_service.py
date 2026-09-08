@@ -513,6 +513,15 @@ class LuaService:
                    "+ call %.2f + free %.2f; %.1f park tries each, %d gave up",
                    n, secs, total, total / n, park, start, call, free,
                    moved("park_tries") / n, moved("misses"))
+        # …AND WHOSE THEY WERE (#2656). The line above sizes the exposure; this one
+        # addresses it. Every label, not a top few: the tail is where a caller that
+        # attaches three times for one answer hides, and `tools/hijack_tally.py` adds a
+        # day of these up. The whole line is one debug entry a minute.
+        by = self._delta(now, was, "by_label")
+        if by:
+            self._note("hijack labels %.0fs: %s", secs, " ".join(
+                f"{name}={count}" for name, count in
+                sorted(by.items(), key=lambda kv: -kv[1])))
 
     @staticmethod
     def _delta(state: dict, was: dict, key: str) -> dict:

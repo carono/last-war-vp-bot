@@ -127,12 +127,39 @@ CALL_POLL_FAST, CALL_POLL_SLOW, CALL_FAST_FOR = 0.001, 0.02, 0.1
 #: * **call** — the managed call itself, in flight on the runtime;
 #: * **free** — waiting for RIP to leave the RWX region so it can be released.
 STATS = {"n": 0, "park_sec": 0.0, "park_tries": 0, "start_sec": 0.0,
-         "call_sec": 0.0, "free_sec": 0.0, "misses": 0}
+         "call_sec": 0.0, "free_sec": 0.0, "misses": 0, "by_label": {}}
+
+#: HOW MANY DISTINCT LABELS THE TALLY WILL HOLD (#2656). A label is written by the
+#: caller, and a caller that builds one per item (`dom.main0`, `dom.main1`, …) would
+#: otherwise grow this map without bound in a process that runs for days. Everything past
+#: the cap is added up under one name, so the total still adds up to `n`.
+LABEL_CAP = 64
+OTHER_LABEL = "…other"
+
+
+def _count(label: str) -> None:
+    """One more hijack under this label — the per-caller half of :data:`STATS`.
+
+    WHY PER LABEL (#2656). The whole tally said 110 hijacks a minute and ~3.8 per DSL
+    step, which is the size of the exposure but not its address: «one call costs 3.8
+    attaches» is not something to fix until it is known WHICH call. The label is already
+    carried through the hijack for its log lines, so counting by it is free.
+    """
+    by = STATS["by_label"]
+    if label not in by and len(by) >= LABEL_CAP:
+        label = OTHER_LABEL
+    by[label] = by.get(label, 0) + 1
 
 
 def stats() -> dict:
-    """A copy of :data:`STATS`, for whoever is drawing or logging it."""
-    return dict(STATS)
+    """A copy of :data:`STATS`, for whoever is drawing or logging it.
+
+    The per-label map is copied too: a reader takes two snapshots and subtracts, and a
+    shared dict would leave it subtracting a map from itself.
+    """
+    out = dict(STATS)
+    out["by_label"] = dict(STATS["by_label"])
+    return out
 
 
 def _aligned_context():
@@ -472,6 +499,7 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
                 continue
             tried_this_pass = True
             STATS["n"] += 1
+            _count(label)
             STATS["park_sec"] += max(0.0, time.time() - park_began)
             handled, result = _run_on(tid, hthr, raw, cbase, off, rip)
             if handled:
@@ -490,6 +518,7 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
 
     P.VirtualFreeEx(hproc, C.c_void_p(region), 0, 0x8000)
     STATS["misses"] += 1
+    _count(label)
     STATS["park_sec"] += max(0.0, time.time() - park_began)
     who = f"tid={only_tid}" if only_tid else "any parked thread"
     target = (f"SAFE_RIP 0x{safe_rip:x}+-{rip_tol}" if safe_rip is not None
