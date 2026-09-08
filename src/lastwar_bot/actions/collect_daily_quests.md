@@ -74,7 +74,7 @@ IF quests_sent > 0
 # readings one statement at a time is that many seconds of everybody's budget for
 # answers the game could hand over together. What each one is, and why it is asked,
 # is on the comments and LOG lines that follow.
-READ_LUA (function() local __v0 = (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq_box = 'no manager' return 0 end local cur = -1 pcall(function() cur = M:GetCurValue() + 0 end) local steps = M.dailyBoxActive or {} local sent, taken, held, failed, err, seen = 0, 0, 0, 0, '', {} for i = 1, 20 do local need = steps[i] if need == nil then break end local want = -1 pcall(function() want = need + 0 end) local st = nil pcall(function() st = M:GetBoxState(i) end) seen[#seen+1] = i .. '@' .. want .. ':' .. tostring(st) if st == 2 then taken = taken + 1 elseif want >= 0 and cur >= want then local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyQuestReward, i) end) if ok then sent = sent + 1 else failed = failed + 1 if err == '' then err = tostring(why) end end else held = held + 1 end end DataCenter.__lw_dq_box = 'points ' .. cur .. ', already taken ' .. taken .. ', claim sent ' .. sent .. ', not reached ' .. held .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. ' [' .. table.concat(seen, ' ') .. ']' return sent end)() local __v1 = tostring(DataCenter.__lw_dq_box or '') return __v0, __v1 end)() INTO boxes_sent, boxes_said
+READ_LUA (function() local __v0 = (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq_box = 'no manager' return 0 end local cur = -1 pcall(function() cur = M:GetCurValue() + 0 end) local steps = M.dailyBoxActive or {} local sent, taken, held, failed, err, seen = 0, 0, 0, 0, '', {} for i = 1, 20 do local need = steps[i] if need == nil then break end local want = -1 pcall(function() want = need + 0 end) local st = nil pcall(function() st = M:GetBoxState(i) end) seen[#seen+1] = i .. '@' .. want .. ':' .. tostring(st) if st == 2 then taken = taken + 1 elseif want >= 0 and cur >= want then local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyQuestReward, i) end) if ok then sent = sent + 1 else failed = failed + 1 if err == '' then err = tostring(why) end end else held = held + 1 end end DataCenter.__lw_dq_box = 'points ' .. cur .. ', already taken ' .. taken .. ', claim sent ' .. sent .. ', not reached ' .. held .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. ' [' .. table.concat(seen, ' ') .. ']' return sent end)() local __v1 = tostring(DataCenter.__lw_dq_box or '') return __v0, __v1, __v0 + {quests_sent} end)() INTO boxes_sent, boxes_said, granted
 LOG "Daily ladder: {boxes_said}"
 
 # 4. …and the ladder's own verdict, read back the same way, for the same reason: a box
@@ -83,3 +83,18 @@ IF boxes_sent > 0
     WAIT 2
     READ_LUA (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then return 'no manager' end local cur = -1 pcall(function() cur = M:GetCurValue() + 0 end) local all = false pcall(function() all = M:IsAllBoxRewardReceived() end) local out, taken, waiting = {}, 0, 0 local steps = M.dailyBoxActive or {} for i = 1, 20 do local need = steps[i] if need == nil then break end local st = nil pcall(function() st = M:GetBoxState(i) end) out[#out+1] = i .. ':' .. tostring(st) if st == 2 then taken = taken + 1 elseif st ~= nil then waiting = waiting + 1 end end return 'points ' .. cur .. ', boxes taken ' .. taken .. ', still open ' .. waiting .. ', ladder finished ' .. tostring(all) .. ' [' .. table.concat(out, ' ') .. ']' end)() INTO boxes_after
     LOG "Daily ladder: {boxes_after}"
+
+# 5. …and the windows the claims raised (#2642). Both claims are headless, but the
+#    client answers a granted reward with a modal of its own — «вот что вам дали» — and
+#    it lands on top of whatever is on screen and stays there. So a run that actually
+#    took something puts the ear back in and shuts what is up: `collect_reward_popups`
+#    closes a reward window the moment it opens (and writes down what was in it), while
+#    the sweep clears one that was already standing when the ear went in.
+#
+#    Only on the run that claimed: this recipe is played from `push.daily.quest`, which
+#    lands whenever the day's progress moves, and a run that took nothing must stay the
+#    one cheap read it is. `granted` is the two claim counts added together inside the
+#    read above, because a condition here can only test one variable against a number.
+IF granted > 0
+    TAP dismiss_reward_popup
+    CALL collect_reward_popups
