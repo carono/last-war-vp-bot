@@ -790,5 +790,48 @@ def test_the_build_queue_is_woken_by_its_own_end_time_and_not_by_a_clock():
         root.destroy()
 
 
+def test_a_refused_reading_is_not_an_empty_queue_and_it_is_asked_again():
+    """The gate can refuse the first reading; a page must not draw that as an answer."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        class _Refused:
+            ok, reason, ctx = False, "action.held.link", None
+
+        armed = []
+        tab.rt.tick.arm = lambda name, delay, fn: armed.append((name, delay))
+        tab.rt.play_async = lambda name, *a, **k: True
+        tab._builds_back(_Refused())
+        assert tab._builds_state().get("at") in (None, 0), tab._builds_state()
+        assert "builds" not in tab._first_ok
+        # …and the round books itself another try rather than waiting for a next login.
+        tab._read_all()
+        assert ("vs_first_read", 60_000) in armed, armed
+    finally:
+        root.destroy()
+
+
+def test_being_told_ready_twice_costs_one_round_of_readings():
+    """The bus is not de-duplicated, and three scenarios a telling is a link held twice."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        played = []
+        tab.rt.play_async = lambda name, *a, **k: played.append(name) or True
+        tab.rt.wire.subscribe = lambda pattern, fn: (lambda: None)
+        tab._on_game_ready()
+        tab._on_game_ready()
+        assert played == ["read_drone_chips", "read_survivor_tickets",
+                          "read_ready_buildings"], played
+    finally:
+        root.destroy()
+
+
 if __name__ == "__main__":
     raise SystemExit(_main())

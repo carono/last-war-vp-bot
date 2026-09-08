@@ -101,6 +101,20 @@ CHAIN_FIRST = "vs_first_read"
 #: restarted under a client that never went away.
 FIRST_LOOK_MS = 20_000
 
+#: HOW A REFUSED FIRST READING COMES BACK. The gate holds every scenario while the
+#: light is not green (`panel/runtime/gate.py`), and a client that has just got into the
+#: game is exactly when the light is still catching up — so the first reading can be
+#: refused, and the moment it is read on does not come round again until the next login.
+#: These are the net: a retry a minute, ten of them, and then it waits for a push like
+#: everything else. Not a poll — it stops the moment a reading lands.
+FIRST_RETRY_MS = 60_000
+FIRST_TRIES = 10
+
+#: The floor between two «read the whole page» rounds, in seconds. A profile can be told
+#: it is ready more than once inside a second (the bus is not de-duplicated), and three
+#: scenarios per telling is three round trips of an exclusive link for the same numbers.
+READ_ALL_GAP_SEC = 20.0
+
 #: The longest a single build alarm may sleep, in seconds. A construction can be a day
 #: long and a `after()` that far out is a promise nobody should make, so the wait is
 #: served in hour-long legs — and a leg that arrives early re-arms WITHOUT reading
@@ -161,6 +175,11 @@ class VsTab(VsDuelTab):
         #: own `endTime` is the alarm, which is a known moment and not a question.
         self._wire_off: list = []
         self._build_due: "float | None" = None
+        #: The first reading's own bookkeeping: when the last full round was played,
+        #: how many have been tried, and which of the three have actually answered.
+        self._read_all_at = 0.0
+        self._tries = 0
+        self._first_ok: set = set()
         try:
             self._ready_off = self.rt.bus.subscribe(bus.GAME_READY, self._on_game_ready)
         except Exception:                # noqa: BLE001 — a board, never the panel
@@ -238,6 +257,7 @@ class VsTab(VsDuelTab):
         state["rows"] = rows
         state["at"] = int(time.time())
         self._chips_save(state)
+        self._first_ok.add("chips")
 
     def _chips_opened_back(self, outcome) -> None:
         """`open_drone_chips` came back — add what it opened to the tally, by grade.
@@ -344,6 +364,7 @@ class VsTab(VsDuelTab):
         state["free"] = 1 if _int(variables.get("worker_free")) else 0
         state["at"] = int(time.time())
         self._tickets_save(state)
+        self._first_ok.add("tickets")
 
     def _tickets_spent_back(self, outcome) -> None:
         """`spend_survivor_tickets` came back — add what it spent to today's tally.
@@ -413,6 +434,12 @@ class VsTab(VsDuelTab):
         the last non-empty list would offer to open buildings that are already open.
         """
         variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        if "ready_builds" not in variables:
+            # A RUN THAT DID NOT HAPPEN IS NOT AN EMPTY QUEUE (#2633). The gate refuses
+            # a scenario while the light is not green and the recipe then leaves nothing
+            # behind — and «nothing waiting», stamped with the time, is exactly what a
+            # person would read as a fresh answer.
+            return
         raw = str(variables.get("ready_builds") or "")
         rows = []
         for piece in raw.split(";;"):
@@ -425,6 +452,7 @@ class VsTab(VsDuelTab):
         state["rows"] = rows
         state["at"] = int(time.time())
         self._builds_save(state)
+        self._first_ok.add("builds")
         # …AND THE NEXT ALARM, out of the same answer. The recipe says how long the
         # earliest slot still has to run, so the panel knows the exact second the list
         # will be wrong and asks then — never in between (#2633).
@@ -559,9 +587,38 @@ class VsTab(VsDuelTab):
         self.rt.play_async(TICKETS_READ, tag="vs", on_result=self._tickets_back)
 
     def _read_all(self) -> None:
-        """The whole page, once — the bag and the build queue."""
+        """The whole page, once — the bag and the build queue.
+
+        Rate-limited by :data:`READ_ALL_GAP_SEC`, because being told «ready» twice in a
+        second is ordinary and three scenarios a telling is not.
+        """
+        now = time.time()
+        if now - self._read_all_at < READ_ALL_GAP_SEC:
+            return
+        self._read_all_at = now
+        self._tries += 1
         self._read_bag()
         self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
+        # …AND THE NET UNDER IT. A scenario refused by the gate answers nothing and says
+        # so in the log; the edge that started this does not come round again, so a page
+        # that was unlucky once would stay on yesterday's numbers all day. This asks
+        # again, a minute later, until every reading has answered or the tries run out.
+        self._arm_retry()
+
+    def _arm_retry(self) -> None:
+        if len(self._first_ok) >= 3 or self._tries >= FIRST_TRIES:
+            return
+        try:
+            self.rt.tick.arm(CHAIN_FIRST, FIRST_RETRY_MS, self._retry)
+        except Exception:                    # noqa: BLE001 — no clock, no net
+            pass
+
+    def _retry(self) -> None:
+        """One more attempt at the first reading, if any of it is still missing."""
+        if len(self._first_ok) >= 3:
+            return
+        self._read_all_at = 0.0              # a retry is not held by its own floor
+        self._read_all()
 
     # -- the one reading with no push behind it --------------------------------
     #
