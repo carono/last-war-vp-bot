@@ -72,9 +72,12 @@
 #
 #   stamina  the most stamina this PHASE may spend. 300.
 #   squad    which squad raises the banners — the 1..4 the player sees.
-#   level    the level to search for, and `target` what kind: `boss` is a «Роковая
-#            Элита», `monster` an ordinary field monster. Both travel straight through
-#            to actions/create_rally.md, which is the ability this one spends.
+#   level    the level to search for, and `target` which «лупа» tab to look in.
+#            `auto` — the default since #2646 — asks the game which tab holds a rally
+#            target at that level this season, because a season renames the Fatal
+#            Elite and moves the ceiling the search will take (35 once, 60 now). Both
+#            travel straight through to actions/create_rally.md, the ability this one
+#            spends.
 #   phase_left  seconds to the phase border, as the caller read it. The next turn is
 #            never booked past it. 0 = unknown, and then the return clock stands alone.
 #
@@ -83,7 +86,7 @@
 ARGS stamina = 300
 ARGS squad = 1
 ARGS level = 35
-ARGS target = boss
+ARGS target = auto
 ARGS phase_left = 0
 
 CALL read_arms_race

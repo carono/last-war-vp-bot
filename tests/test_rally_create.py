@@ -31,6 +31,11 @@ _READS = (
     ("squad_state", "GetOwnerFormationMarch"),
     ("scene", "SceneUtils.GetIsInWorld"),
     ("armed", ".formation ~= nil) and 1 or 0"),
+    # …and the three #2646 readings: whether the run may swap tabs, what ceiling this
+    # season's tab has, and the elite line's own name keys for the refusal sentence.
+    ("auto_kind", "== 'auto') and 1 or 0"),
+    ("search_max", ".max_level or 0)"),
+    ("elite_names", "elite_keys or {}"),
     ("found", "GetPointBtnEnumName"),
     ("picked", "selectFormationUuid"),
     ("panel", "_isformation(UIManager"),
@@ -40,7 +45,11 @@ _READS = (
 # Which press a chunk is, by the marker its Lua logs.
 _PRESSES = (
     ("arm", "ACT rally_arm"),
+    # The flip re-opens the «лупа» when the failed search closed it, so it names the
+    # same window as the opening press — its own marker has to be matched first.
+    ("search_flip", "ACT rally_flip"),
     ("search_window", "UIWindowNames.UISearch"),
+    ("search_probe", "ACT rally_probe"),
     ("search", "ACT rally_search"),
     ("banner", "ACT rally_banner"),
     ("squad", "ACT rally_squad"),
@@ -94,6 +103,7 @@ def _run(variables=None, **answers):
     # Every other test is about what happens once the squad IS at home, so that is the
     # default; the gate's own tests say otherwise on purpose.
     answers.setdefault("squad_state", 0)
+    answers = _answers(**answers)
     fake = FakeRallyGame(**answers)
     log: list[str] = []
     ctx = se.Context(hwnd=0, on_event=log.append, evaluator=fake)
@@ -116,12 +126,20 @@ def _run(variables=None, **answers):
 
 # --- the recipe exists and says what it takes -------------------------------------
 
+def _answers(**kw):
+    """The #2646 readings a run needs before its own: auto-or-not and the ceiling."""
+    kw.setdefault("auto_kind", 0)
+    kw.setdefault("search_max", 60)
+    kw.setdefault("elite_names", "s6_monster_eliteboss_name")
+    return kw
+
+
 def test_the_recipe_is_a_blessed_scenario_with_three_arguments():
     """It has to be in actions/ (not dev/) for the Scenarios tab to list it by default."""
     path = se.ACTIONS_DIR / "create_rally.md"
     assert path.exists(), "actions/create_rally.md is missing"
     defaults, _ = se.extract_defaults(path.read_text(encoding="utf-8"))
-    assert defaults == {"squad": 1, "level": 35, "target": "boss"}, defaults
+    assert defaults == {"squad": 1, "level": 35, "target": "auto"}, defaults
 
 
 def test_the_readings_match_the_library():
@@ -135,7 +153,9 @@ def test_the_readings_match_the_library():
     source = (se.ACTIONS_DIR / "create_rally.md").read_text(encoding="utf-8")
     assert source.count(la.rally_armed()) == 1
     # The three polled readings appear twice each: once before the loop, once inside it.
-    assert source.count(la.rally_target_state()) == 2
+    # Four since #2646: the poll runs once per tab the run is allowed to try, and
+    # `auto` is allowed two.
+    assert source.count(la.rally_target_state()) == 4
     assert source.count(la.rally_panel_ready()) == 2
     assert source.count(la.rally_raised()) == 2
     assert source.count(la.rally_squad_picked()) == 1
@@ -144,7 +164,8 @@ def test_the_readings_match_the_library():
 def test_every_button_it_presses_exists():
     import game_buttons as gb
 
-    for name in ("rally_arm", "rally_search_window", "rally_search",
+    for name in ("rally_arm", "rally_search_window", "rally_search_probe",
+                 "rally_search", "rally_search_flip",
                  "rally_banner", "rally_squad", "rally_launch", "close"):
         assert gb.get(name) is not None, f"button {name!r} is missing from the catalogue"
 
@@ -156,8 +177,8 @@ def test_a_rally_goes_out_in_the_right_order():
         armed=1, found=[0, 1], panel=[0, 1], picked=1, raised=[0, 1],
     )
     assert ok is True
-    assert fake.presses == ["arm", "search_window", "search", "banner", "squad", "launch"], \
-        fake.presses
+    assert fake.presses == ["arm", "search_window", "search_probe", "search",
+                            "banner", "squad", "launch"], fake.presses
 
 
 def test_it_brings_the_map_up_first():
@@ -180,6 +201,50 @@ def test_the_arguments_reach_the_game():
     assert len(parked) == 1, fake.chunks
     assert "squad = 3" in parked[0] and "level = 120" in parked[0] \
         and 'kind = "monster"' in parked[0], parked[0]
+
+
+# --- the season moves, and nothing here is written down (#2646) --------------------
+#
+# The bug the person reported: «открывается окно с поиском монстра, но он не находится».
+# The form had a tab pinned and a level typed for a season that is over — the search
+# went out on the ordinary-monster tab at level 58 and the server has nothing there,
+# while this season's Fatal Elite was answering that very level on the other tab.
+
+def test_the_level_is_clamped_to_what_this_season_allows():
+    """35 was the Boss tab's ceiling once and 60 is today's; the run asks, never assumes."""
+    import lua_actions as la
+
+    fire = la.rally_search_fire()
+    assert "p.max_level" in fire and "if mx > 0 and lvl > mx then lvl = mx end" in fire, fire
+    probe = la.rally_search_probe()
+    assert "GetMaxNumBySearchType" in probe, probe
+    # …and the elite is recognised by the config's own mark, not by a species name.
+    assert "special" in probe and "'boss'" in probe, probe
+    assert "doom_elite" not in probe and "s6_" not in probe, \
+        "a season's own species is written into the search"
+
+
+def test_auto_tries_the_other_tab_before_giving_up():
+    ok, fake, _log = _run({"target": "auto"}, auto_kind=1, armed=1,
+                          found=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                          panel=1, picked=1, raised=1)
+    assert ok is True, "the run gave up while a tab it had not tried held the target"
+    assert "search_flip" in fake.presses, fake.presses
+    assert fake.presses.count("search") == 2, fake.presses
+
+
+def test_a_pinned_tab_is_never_swapped_behind_the_person():
+    ok, fake, _log = _run({"target": "monster"}, auto_kind=0, armed=1, found=0)
+    assert ok is False
+    assert "search_flip" not in fake.presses, fake.presses
+
+
+def test_the_refusal_names_the_ceiling_and_the_season_line():
+    ok, _fake, log = _run(armed=1, found=0, search_max=60,
+                          elite_names="s6_monster_eliteboss_name")
+    assert ok is False
+    said = "\n".join(log)
+    assert "60" in said and "s6_monster_eliteboss_name" in said, said
 
 
 # --- the squad has to be at home (#1222) -------------------------------------------

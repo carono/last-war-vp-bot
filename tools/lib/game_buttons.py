@@ -1201,6 +1201,20 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.rally_search_open(),
         wait=1.6, label="the map search («лупа»)",
     ),
+    "rally_search_probe": Button(
+        # Not a press either: with the «лупа» open, read what the season allows —
+        # the tab's own level ceiling and the config's elite line (#2646). A level
+        # above the ceiling is a search the server answers with nothing at all.
+        lua=_lua_actions.rally_search_probe(),
+        wait=0.2, label="read what this season's search allows",
+    ),
+    "rally_search_flip": Button(
+        # `auto` only: the elite tab had nothing of that level, so try the other tab
+        # before giving up. The recipe re-opens the window and fires again.
+        lua=_lua_actions.rally_search_flip(),
+        # …and it may have had to open the «лупа» again, so it waits as that press does.
+        wait=1.6, label="try the other search tab",
+    ),
     "rally_search": Button(
         # Type the parked level into the parked tab and press the magnifier. The
         # server answers by flying the camera to a target and opening its popup, so

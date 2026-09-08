@@ -77,9 +77,24 @@ from ...runtime import monster_art as monsterart
 
 # ---------------------------------------------------------------------------
 # The two things a rally can be raised on: a «Роковая Элита» (searched under the
-# «лупа»'s Boss tab) and an ordinary world monster (its Monster tab).
+# «лупа»'s Boss tab) and an ordinary world monster (its Monster tab) — and, since
+# #2646, the choice of NEITHER.
+#
+# WHY «АВТОМАТИЧЕСКИ» IS THE DEFAULT AND THE PINNED TABS ARE NOT. A season renames the
+# Fatal Elite, redraws it and moves the level the search will take (35 when this form
+# was written, 60 on the live season), so a tab pinned months ago aims at something the
+# server has nothing for: the window opens, no monster comes back, and the person is
+# told nothing. `auto` hands the recipe the job of asking the game which tab holds a
+# rally target at that level — `actions/create_rally.md` reads the ceiling live, judges
+# what came back by the config's own elite mark (`special == 0`, #2051) and tries the
+# other tab before giving up.
+RALLY_KIND_AUTO = "auto"
 RALLY_KIND_ELITE, RALLY_KIND_MONSTER = "boss", "monster"
-RALLY_KINDS = (RALLY_KIND_ELITE, RALLY_KIND_MONSTER)
+RALLY_KINDS = (RALLY_KIND_AUTO, RALLY_KIND_ELITE, RALLY_KIND_MONSTER)
+#: The stored form's own version. A block written before #2646 pinned a tab because
+#: that was the only thing the form could say; it is moved to `auto` ONCE, and a tab
+#: pinned after that is the person's and is left alone.
+RALLY_FORM_V = 2
 # The level either of them may be searched at. One range for both kinds: a season puts
 # levels far above the old elite ceiling on the map, and the game answers with whatever
 # it has, so the tab offers the whole span and lets an empty answer say "not there".
@@ -103,7 +118,8 @@ def _kind_key(base: str, kind: str) -> str:
 
     Elite and monster do not share a wording in Russian (gender and case differ, so a
     substituted noun would read wrong), so the lines that name the target have a
-    separate key per kind: `rally_tab.searching` / `rally_tab.searching_monster`.
+    separate key per kind: `rally_tab.searching` / `rally_tab.searching_monster` /
+    `rally_tab.searching_auto`.
     """
     return "rally_tab." + base + ("" if kind == RALLY_KIND_ELITE else "_" + kind)
 
@@ -224,7 +240,7 @@ class RallyTab(PanelTab):
         # apart from `_seen` because they answer different questions — one banner is one
         # bell, but one banner may well be worth a second attempt at joining (#1281).
         self._join_at: dict = {}
-        self._kind_var = statevar.string(master, RALLY_KIND_ELITE)
+        self._kind_var = statevar.string(master, RALLY_KIND_AUTO)
         # The box and the quick-pick buttons share this one variable: each button is a
         # radio whose value is its level, so pressing it writes the number into the box,
         # and a level typed by hand lights the matching button back up. `_level()` is the
@@ -814,7 +830,10 @@ class RallyTab(PanelTab):
             "fields": [
                 {"key": "run_kind", "label": "rally_tab.kind", "kind": opt_value.CHOICE,
                  "value": self._kind(),
-                 "options": [{"value": kind, "text": self.t(_kind_key("kind", kind))}
+                 # …named by the kind's OWN label. `_kind_key` answers the field's
+                 # own key for the elite («Цель:»), which is what the phone used to
+                 # draw in place of «Роковая Элита» (#2646).
+                 "options": [{"value": kind, "text": self.t("rally_tab.kind_" + kind)}
                              for kind in RALLY_KINDS]},
                 {"key": "run_level", "label": "rally_tab.level",
                  "kind": opt_value.NUMBER, "value": self._level(),
@@ -1610,9 +1629,9 @@ class RallyTab(PanelTab):
 
     # -- reading the controls ----------------------------------------------
     def _kind(self) -> str:
-        """What is being rallied: `boss` (Fatal Elite) or `monster` (ordinary monster)."""
+        """What is being rallied: `auto`, `boss` (Fatal Elite) or `monster`."""
         kind = self._kind_var.get()
-        return kind if kind in RALLY_KINDS else RALLY_KIND_ELITE
+        return kind if kind in RALLY_KINDS else RALLY_KIND_AUTO
 
     def _level(self) -> int:
         """The level in the box as a whole number, inside the range whatever it holds.
@@ -1655,6 +1674,7 @@ class RallyTab(PanelTab):
         """
         return {
             "form": {
+                "v": RALLY_FORM_V,
                 "kind": self._kind(),
                 "level": self._level(),
                 "squads": self._selected_squads(),
@@ -1675,7 +1695,14 @@ class RallyTab(PanelTab):
         form = raw.get("form")
         form = form if isinstance(form, dict) else {}
         kind = form.get("kind")
-        self._kind_var.set(kind if kind in RALLY_KINDS else RALLY_KIND_ELITE)
+        if form.get("v") != RALLY_FORM_V:
+            # A block from before #2646 could only pin a tab, and a tab pinned last
+            # season is what «окно поиска открылось, а монстра нет» was: the level the
+            # person typed had nothing behind it on that tab. Moved to `auto` once —
+            # which still tries the pinned tab, second — and the pin the person makes
+            # after this is kept.
+            kind = RALLY_KIND_AUTO
+        self._kind_var.set(kind if kind in RALLY_KINDS else RALLY_KIND_AUTO)
         level = form.get("level")
         if not isinstance(level, (int, float)) or isinstance(level, bool):
             level = RALLY_LEVEL_MIN
