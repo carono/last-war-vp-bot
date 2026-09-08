@@ -149,7 +149,15 @@ function weekdayNames(days: number[]): string {
   return days.map((d) => names[d - 1] || String(d)).join(', ')
 }
 
-function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh: () => Promise<void> }) {
+/* THE ONE ERRAND THAT IS DRAWN SOMEWHERE ELSE (#2634) — the person's words: «Перенеси
+   карточку гонки вооружений из таймеров во вкладку vs на самый вверх». It is a MOVE and
+   not a copy: the card is the very same component with the very same row, it simply
+   stands at the top of the «VS» page, and this list leaves it out so that no page shows
+   two of it. Nothing about the errand itself changes — the switch, the period, the ▶ and
+   the knobs behind the gear all go on writing exactly where they wrote before. */
+export const ARMS_ERRAND = 'perform_arms_race'
+
+export function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh: () => Promise<void> }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const days = row.weekdays || []
@@ -316,9 +324,11 @@ export function TimersView({
   return (
     <>
       <div className="tiles">
-        {timers.map((row) => (
-          <TimerItem key={row.name} row={row} now={now} refresh={refresh} />
-        ))}
+        {timers
+          .filter((row) => row.name !== ARMS_ERRAND)
+          .map((row) => (
+            <TimerItem key={row.name} row={row} now={now} refresh={refresh} />
+          ))}
       </div>
       {!timers.length ? <p className="muted">{t('web.ui.timers.empty')}</p> : null}
       <h2 className="section">{t('triggers.frame')}</h2>

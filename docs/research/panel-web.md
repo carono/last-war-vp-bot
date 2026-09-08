@@ -541,6 +541,27 @@ still has all three.
 prints the document height, the grid heights and the tallest block on an emulated iPhone
 13 mini, so before and after are two numbers rather than two impressions.
 
+### 3.13a One errand is drawn on ANOTHER page, and it is a move (#2634)
+
+The person's words: «Перенеси карточку гонки вооружений из таймеров во вкладку vs на
+самый вверх». «Гонка вооружений» is the errand a person opens the duel week to think
+about, and it stood halfway down a grid of thirty other cards.
+
+**It is the same card, not a second one.** `TimerItem` — the errands page's own block
+over the errands page's own `/api/timers` row — is rendered above the «VS» screen, so its
+switch, its period, its ▶/■ and the knobs behind its gear go on writing exactly where
+they wrote before. Nothing is copied and nothing is migrated: this is «one state, several
+places that draw it» with the number of places still ONE, because the errands grid leaves
+that row out (`ARMS_ERRAND` in `views/TimersView.tsx`). Two pages showing the same card
+would be the bug; one page showing it in the better place is the point.
+
+What it costs: the «VS» screen asks `/api/timers` when it is opened and on the ordinary
+poll while it is up — the same request the errands page already makes, and no new route,
+so this reaches the phone on a PANEL restart (§3.14) plus a rebuilt bundle.
+
+The window is untouched: the «Таймеры» tab's own grid still lists every errand, which is
+where control at the machine lives until Tk goes (CLAUDE.md).
+
 ### 3.14 THE ROUTES LIVE IN THE SERVICE, and that is which restart a change needs (#2579)
 
 **Read this before deciding that a web change «did not take».** It has cost time twice —
