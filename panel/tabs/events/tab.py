@@ -2071,6 +2071,14 @@ class EventsTab(PanelTab):
                 modelmod.ARMS_STAMINA_KEY: self.arms_stamina(),
                 modelmod.ARMS_SPEEDUP_KEY: self.arms_speedup(),
                 modelmod.ARMS_MINUTES_KEY: self.arms_minutes(),
+                # THE UNIT PHASE'S THREE (#2657). They were missing here while
+                # `apply_config` read them and `_arms_knob_saved` wrote them, so a
+                # switch moved on a DRAWN tab was written into the block and then
+                # overwritten by the next full save, which is built from this dict —
+                # live, «включаю „Обучать юнитов", он постоянно выключается обратно».
+                modelmod.ARMS_UNITS_KEY: self.arms_units(),
+                modelmod.ARMS_SOLDIERS_KEY: self.arms_soldiers(),
+                modelmod.ARMS_FREE_MINUTES_KEY: self.arms_free_minutes(),
                 modelmod.ARMS_SQUAD_KEY: self.arms_squad(),
                 modelmod.GOLDEN_SQUAD_KEY: self.squad(),
                 modelmod.GOLDEN_APPROACH_KEY: self.approach(),
