@@ -77,6 +77,16 @@ class _Wire(_Bus):
     pass
 
 
+class _Gate:
+    """The panel's own gate: shut while the link to the client is not up."""
+
+    def __init__(self, shut: bool) -> None:
+        self.shut = shut
+
+    def held(self) -> bool:
+        return self.shut
+
+
 class _Tick:
     """The panel's own queue, as a list of what was booked — nothing fires by itself."""
 
@@ -93,13 +103,14 @@ class _Tick:
 
 
 class _Runtime:
-    def __init__(self, refuse: bool = False) -> None:
+    def __init__(self, refuse: bool = False, gate_held: bool = False) -> None:
         self.store = _Store()
         self.bus = _Bus()
         self.wire = _Wire()
         self.tick = _Tick()
         self.plays: list = []
         self.refuse = refuse
+        self.gate = _Gate(gate_held)
 
     def dbg(self, _tag):
         class _Log:
@@ -229,6 +240,31 @@ def test_the_free_half_is_on_and_the_spending_half_is_off():
     assert paid.enabled is False, "a coin does not come back — it ships off (#2390)"
     assert free.scenario == ("collect_glittering_market",), free.scenario
     assert paid.scenario == ("buy_glitter_market_goods",), paid.scenario
+
+
+def test_a_shut_gate_is_waited_out_and_never_played_into():
+    """After a restart the link is re-made, and on a live machine that took minutes."""
+    rt = _Runtime(gate_held=True)
+    watch = market.MarketWatch(rt)
+    watch.start()
+    for _ in range(10):
+        rt.tick.fire()
+    assert rt.plays == [], "a shut gate must cost no play and no log line"
+    assert len(rt.tick.armed) == 1, "…but the look must still be waiting"
+    rt.gate.shut = False                          # the link comes back
+    rt.tick.fire()
+    assert [p[0] for p in rt.plays] == [market.ACTION], rt.plays
+    assert rt.tick.armed == [], "and it stops the moment it has read"
+
+
+def test_a_gate_that_never_opens_does_not_wait_for_ever():
+    rt = _Runtime(gate_held=True)
+    watch = market.MarketWatch(rt)
+    watch.start()
+    for _ in range(market.GATE_WAIT_TRIES + 5):
+        rt.tick.fire()
+    assert rt.plays == [], rt.plays
+    assert rt.tick.armed == [], "a client that never comes back leaves no booking"
 
 
 def _main() -> int:
