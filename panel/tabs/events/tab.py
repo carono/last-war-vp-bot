@@ -1086,6 +1086,19 @@ class EventsTab(PanelTab):
                           busy_key="events.crystal.log.busy",
                           after=self.refresh_crystal)
 
+    def collect_crystal(self) -> bool:
+        """Take the event's chests — the week's damage rewards and the achievement ones.
+
+        The day's errand does this for itself after its three attacks (#2638), because
+        the third attack is the moment the week's damage record can have moved. This is
+        the same recipe as a press, for the person looking at a card that says a chest is
+        waiting, and it claims whatever the game says is claimable and nothing else.
+        """
+        return self._play(modelmod.CRYSTAL_COLLECT, "events.crystal.log.collected",
+                          failed_key="events.crystal.log.collect.failed",
+                          busy_key="events.crystal.log.busy",
+                          after=self.refresh_crystal)
+
     def arms(self):
         """The arms card against the last reading — what both front-ends draw."""
         return modelmod.arms_state(self._arms, self._arms_cal)
@@ -2118,6 +2131,14 @@ class EventsTab(PanelTab):
             {"label": "events.crystal.attacks", "value": modelmod.counter(cr)},
             {"label": "events.crystal.left", "value": modelmod.crystal_left(cr)},
             {"label": "events.crystal.hp", "value": modelmod.health(cr)},
+            # …and what the event OWES besides the fight (#2638): the chests of the
+            # week's damage rewards and of the achievements, counted over both lists.
+            # A dash is «the game would not say» and is never drawn as a zero.
+            {"label": "events.crystal.bonus", "value": modelmod.crystal_bonus(cr)},
+            {"label": "events.crystal.bonus.weekly",
+             "value": modelmod.crystal_weekly_taken(cr)},
+            {"label": "events.crystal.bonus.achievements",
+             "value": modelmod.crystal_achievements(cr)},
         ]
         if cr.state == modelmod.OPEN:
             crows.append({"label": "events.crystal.until",
@@ -2133,6 +2154,13 @@ class EventsTab(PanelTab):
                                "pill": "events.codename.attack.off"},
                               {"label": "events.crystal.daily",
                                "pill": "events.codename.attack.off"}]
+        # The claim stands on its own gate: a chest that has been COUNTED. It is offered
+        # on a day whose attacks are all spent and on a shut event too — a reward earned
+        # on Saturday is still there on Sunday — which is exactly why it is not hung on
+        # `can_attack`.
+        if cr.can_collect and not self._attacking:
+            ccard.setdefault("actions", []).append(
+                {"id": "collect_crystal", "label": "events.crystal.collect"})
 
         # …and what «Золотые зомби» reads, which stays on this board after the hunt's
         # own card moved to «Таймеры» (#2408): the energy, what an attack costs, how
@@ -2572,6 +2600,12 @@ class EventsTab(PanelTab):
                 return {"error": "closed"}
             return {"ok": (self.attack_crystal() if action == "attack_crystal"
                            else self.daily_crystal())}
+        if action == "collect_crystal":
+            # A chest the game has counted, or nothing to press: unlike the attack, a
+            # claim over a list nobody could read would send nothing at all.
+            if not self.crystal().can_collect:
+                return {"error": "closed"}
+            return {"ok": self.collect_crystal()}
         if action == "squad_next":
             # THE BUTTON THAT WALKED THE SLOTS, kept for the page a phone already has
             # open (#2062). The card draws the picker now — one touch, and the faces say

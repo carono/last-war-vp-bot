@@ -146,13 +146,69 @@ status strip is what says that, and it is worth a glance before believing a fail
 `interval_sec` is a day because a day's reward is the thing being spent and there is one
 of it; `retry_sec` is what actually finishes a day, in two or three short goes.
 
+## The chests: what the fight earns and nobody hands over (#2638)
+
+The fight is not the whole of the event. It pays out along **two lists of its own**, and
+the game names both itself out of its own tables:
+
+| the list | the game's key | one chest per |
+|---|---|---|
+| «Weekly Damage Rewards» | `red_world_boss_title14` | a segment of the WEEK's damage record. Resets weekly (`red_world_boss_desc16`) |
+| «Achievement Rewards» | `red_world_boss_title15` | an achievement finished in the event |
+
+**Neither is handed over by winning.** They wait in the event's window until somebody
+presses «Получить всё» (`red_world_boss_tab18`) — which is why the account this was
+written on had **55 unclaimed chests** and a `claimedMax` of 108 while its three attacks
+had been made by the panel every day for a week. The person put it in one sentence:
+«после 3х атак, нужно проверять, есть ли бонусы, которые можно забрать».
+
+### Where the counts are
+
+| what | how | what it means |
+|---|---|---|
+| chests waiting, damage list | `GetClaimableCount()` | the week's segments earned and not taken. **55**, live |
+| chests waiting, achievements | `GetAchievementClaimableCount()` | **0** on the same client |
+| segments already taken | `GetProgressData().claimedMax` | the furthest segment claimed — the count, because they are claimed in order. **108**, and **163** a minute after the claim |
+| the achievements themselves | `GetAchievementDisplayTasks()` | the list the event's screen draws. `state == 2` is «taken» |
+| is a claim in flight | `IsAnyRewardClaiming()` | the claim is asynchronous; the counts move when the replies land |
+| the red dot | `GetRed()` / `GetWeeklyRed()` / `GetAchievementRed()` | the client's own opinion, and it went `true` → `false` across the claim |
+
+**The lists are not there until something asks**, exactly as the boss is not:
+`RequestPanelData()` sends the progress get and the achievement get beside the march
+one. The attack path deliberately sends only `RequestMarchData()`, so a reading that
+wants the chests has to ask a second time.
+
+### `ClaimAllRewards()` is a trap
+
+The manager has a method of that name and it is the obvious thing to press. Measured on
+a live client with 55 chests waiting, **it returned cleanly and claimed nothing at all**
+— the count, the `claimedMax` and the red dot were all exactly as before:
+
+```
+P3BEFORE true:55
+P3PRESS  true:nil                     <- ClaimAllRewards(), no error
+P3AFTER  claimable=55 claimedMax=108 red=true
+```
+
+What claims is the pair behind it, on the same client, in the same minute:
+
+```
+P4B  ClaimAllProgress()=ok  ClaimAllAchievementRewards()=ok
+P4C  claimable=0  claimedMax=163  red=false  claiming=false
+```
+
+So the press is those two calls, and the proof is the SERVER's own count going to zero —
+never the send returning. `GetWeeklySegments()` answers an empty list throughout, before
+and after: it is built by the event's own screen, and nothing here needs it.
+
 ## Where it lives
 
 | | |
 |---|---|
 | the reading | `src/lastwar_bot/actions/read_crystal_boss.md` — one round trip, one line of `key=value` |
 | the attack | `src/lastwar_bot/actions/attack_crystal_boss.md` — one attack, one squad |
-| the day's worth | `src/lastwar_bot/actions/attack_crystal_boss_daily.md` — as many as the day still owes |
+| the day's worth | `src/lastwar_bot/actions/attack_crystal_boss_daily.md` — as many as the day still owes, then the chests |
+| the chests | `src/lastwar_bot/actions/collect_crystal_boss_rewards.md` — both lists, claimed when the game says one is claimable |
 | the clock | `panel/timers.py`, the errand `attack_crystal_boss_daily` — a day, retried in 15 min, off until somebody turns it on |
 | the presses | `tools/lib/game_buttons.py`, `crystal_*` |
 | the Lua | `tools/lib/lua_actions.py`, `crystal_*` |
