@@ -51,7 +51,7 @@
 # readings one statement at a time is that many seconds of everybody's budget for
 # answers the game could hand over together. What each one is, and why it is asked,
 # is on the comments and LOG lines that follow.
-READ_LUA (function() local __v0 = (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq = 'no DailyTaskManager — is the client logged in?' return 0 end local ready, sent, failed, err, ids = 0, 0, 0, '', {} for _, r in pairs(M.dailyQuestTasks or {}) do if type(r) == 'table' and r.state == 1 then ready = ready + 1 local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyTaskReward, tostring(r.id)) end) if ok then sent = sent + 1 ids[#ids+1] = tostring(r.id) else failed = failed + 1 if err == '' then err = tostring(why) end end end end DataCenter.__lw_dq = 'finished ' .. ready .. ', claim sent ' .. sent .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. (sent > 0 and (' [' .. table.concat(ids, ' ') .. ']') or '') return sent end)() local __v1 = tostring(DataCenter.__lw_dq or '') return __v0, __v1 end)() INTO quests_sent, quests_said
+READ_LUA (function() local __v0 = (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq = 'no DailyTaskManager — is the client logged in?' DataCenter.__lw_dq_n = 0 return 0 end local ready, sent, failed, err, ids = 0, 0, 0, '', {} for _, r in pairs(M.dailyQuestTasks or {}) do if type(r) == 'table' and r.state == 1 then ready = ready + 1 local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyTaskReward, tostring(r.id)) end) if ok then sent = sent + 1 ids[#ids+1] = tostring(r.id) else failed = failed + 1 if err == '' then err = tostring(why) end end end end DataCenter.__lw_dq = 'finished ' .. ready .. ', claim sent ' .. sent .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. (sent > 0 and (' [' .. table.concat(ids, ' ') .. ']') or '') DataCenter.__lw_dq_n = sent return sent end)() local __v1 = tostring(DataCenter.__lw_dq or '') return __v0, __v1 end)() INTO quests_sent, quests_said
 LOG "Daily quests: {quests_said}"
 
 # 2. Only a run that actually claimed something waits for the answers — and then says
@@ -74,7 +74,7 @@ IF quests_sent > 0
 # readings one statement at a time is that many seconds of everybody's budget for
 # answers the game could hand over together. What each one is, and why it is asked,
 # is on the comments and LOG lines that follow.
-READ_LUA (function() local __v0 = (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq_box = 'no manager' return 0 end local cur = -1 pcall(function() cur = M:GetCurValue() + 0 end) local steps = M.dailyBoxActive or {} local sent, taken, held, failed, err, seen = 0, 0, 0, 0, '', {} for i = 1, 20 do local need = steps[i] if need == nil then break end local want = -1 pcall(function() want = need + 0 end) local st = nil pcall(function() st = M:GetBoxState(i) end) seen[#seen+1] = i .. '@' .. want .. ':' .. tostring(st) if st == 2 then taken = taken + 1 elseif want >= 0 and cur >= want then local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyQuestReward, i) end) if ok then sent = sent + 1 else failed = failed + 1 if err == '' then err = tostring(why) end end else held = held + 1 end end DataCenter.__lw_dq_box = 'points ' .. cur .. ', already taken ' .. taken .. ', claim sent ' .. sent .. ', not reached ' .. held .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. ' [' .. table.concat(seen, ' ') .. ']' return sent end)() local __v1 = tostring(DataCenter.__lw_dq_box or '') return __v0, __v1, __v0 + {quests_sent} end)() INTO boxes_sent, boxes_said, granted
+READ_LUA (function() local __v0 = (function() local M = DataCenter and DataCenter.DailyTaskManager if M == nil then DataCenter.__lw_dq_box = 'no manager' return 0 end local cur = -1 pcall(function() cur = M:GetCurValue() + 0 end) local steps = M.dailyBoxActive or {} local sent, taken, held, failed, err, seen = 0, 0, 0, 0, '', {} for i = 1, 20 do local need = steps[i] if need == nil then break end local want = -1 pcall(function() want = need + 0 end) local st = nil pcall(function() st = M:GetBoxState(i) end) seen[#seen+1] = i .. '@' .. want .. ':' .. tostring(st) if st == 2 then taken = taken + 1 elseif want >= 0 and cur >= want then local ok, why = pcall(function() SFSNetwork.SendMessage(MsgDefines.DailyQuestReward, i) end) if ok then sent = sent + 1 else failed = failed + 1 if err == '' then err = tostring(why) end end else held = held + 1 end end DataCenter.__lw_dq_box = 'points ' .. cur .. ', already taken ' .. taken .. ', claim sent ' .. sent .. ', not reached ' .. held .. (failed > 0 and (', REFUSED BY THE CLIENT ' .. failed .. ' (' .. err .. ')') or '') .. ' [' .. table.concat(seen, ' ') .. ']' return sent end)() local __v1 = tostring(DataCenter.__lw_dq_box or '') local __v2 = __v0 + (DataCenter.__lw_dq_n or 0) return __v0, __v1, __v2 end)() INTO boxes_sent, boxes_said, granted
 LOG "Daily ladder: {boxes_said}"
 
 # 4. …and the ladder's own verdict, read back the same way, for the same reason: a box
@@ -95,6 +95,12 @@ IF boxes_sent > 0
 #    lands whenever the day's progress moves, and a run that took nothing must stay the
 #    one cheap read it is. `granted` is the two claim counts added together inside the
 #    read above, because a condition here can only test one variable against a number.
+#
+#    The quest count reaches that sum through a Lua global the first read parks
+#    (`DataCenter.__lw_dq_n`) and NOT as a substituted placeholder: a brace-name is
+#    filled in when the file is PARSED, so a value the run has only just read arrives
+#    as the literal text and the whole read comes back nil (docs/dsl.md, `PARK`). Measured
+#    live — the first version failed with «variable 'boxes_sent' = None».
 IF granted > 0
     TAP dismiss_reward_popup
     CALL collect_reward_popups
