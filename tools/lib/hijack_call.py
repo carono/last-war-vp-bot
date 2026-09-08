@@ -145,6 +145,11 @@ def _count(label: str) -> None:
     attaches» is not something to fix until it is known WHICH call. The label is already
     carried through the hijack for its log lines, so counting by it is free.
     """
+    # A label is free text and several of them have a space in them («LuaEnv cls»,
+    # «dom.main0»). The minute's line is read back as `name=count` pairs, so a space
+    # would hand the reader half a name and file 3 hijacks under «cls» — measured live
+    # the first minute this shipped. The separator wins; the label is collapsed.
+    label = "_".join(str(label).split()) or "?"
     by = STATS["by_label"]
     if label not in by and len(by) >= LABEL_CAP:
         label = OTHER_LABEL
