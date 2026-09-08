@@ -30,6 +30,23 @@ DETACH
 
 WAIT client == ready WITHIN 180s
 
+# THE EVENT'S OWN GATE, AND IT IS THE FIRST THING THE RUN ASKS (#2647). The golden
+# zombies are «Вторжение зомби»'s own monsters and exist only while it runs; outside its
+# window this chain used to walk the whole opening — the world scene, a squad refill, the
+# day's free energy, a diamond refill, a lap of the map — to discover an empty list. One
+# reading answers it instead (`read_zombie_invasion.md`), and it is the GAME's answer:
+# the invasion manager's own id and the activity row behind it, never a date.
+#
+# The one thing that overrules a closed reading is the client still SEEING golden
+# zombies: an invasion that has just ended leaves its monsters on the map for their
+# twelve minutes, and «-1» — the base is on screen, so nobody could ask — is not a sight.
+CALL read_zombie_invasion
+IF inv_open == 0
+    IF inv_seen > 0
+        LOG "the invasion reads as over, but the client still knows {inv_seen} golden zombies — hunting what is left"
+    ELSE
+        STOP "the Zombie Invasion is not running — there is nothing to hunt"
+
 IF scene != world
     LOG "Putting the map up first — the monsters live in the world scene."
     GAME WORLD

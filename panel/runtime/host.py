@@ -329,6 +329,7 @@ class PanelRuntime:
         self._fireworks = None          # …and about the fireworks going off (#1677)
         self._rewards = None            # …and the reward popups it shut (#2027)
         self._market = None             # …and the Glittering Market's own ear (#2636)
+        self._invasion = None           # …and «Вторжение зомби»'s (#2647)
         self._players = None            # …and the register every source writes into
         self._secret_days = None        # …and the book of star-secret-task days (#1467)
         self._store = None              # …and this profile's database (#1398)
@@ -393,6 +394,15 @@ class PanelRuntime:
             self.market.start()
         except Exception:                 # noqa: BLE001 — the panel still works
             self.dbg("market").error("could not start the market watch", exc_info=True)
+        # …AND THE INVASION'S, for the same reason again (#2647). «Вторжение зомби» is
+        # what the golden zombies belong to, and a hunt started outside its window walks
+        # the world scene, a squad refill, the day's free energy and a lap of the map to
+        # find an empty list. The ear holds the last reading; the recipe holds the gate.
+        try:
+            self.invasion.start()
+        except Exception:                 # noqa: BLE001 — the panel still works
+            self.dbg("invasion").error("could not start the invasion watch",
+                                       exc_info=True)
         try:
             moved = self.players.ensure_imported()
         except Exception:                 # noqa: BLE001 — the register still works
@@ -515,6 +525,21 @@ class PanelRuntime:
             from .market_live import MarketWatch
             self._market = MarketWatch(self)
         return self._market
+
+    @property
+    def invasion(self):
+        """This profile's ear for «Вторжение зомби» (#2647).
+
+        On the runtime rather than on «События» for the reason the market's is: the
+        SCHEDULE asks it, and a profile that does not draw that tab still has the golden
+        hunt as an errand. One reading when the client gets into the game, one more when
+        the invasion's own record arrives, one per hunt run, and no clock anywhere
+        (panel/runtime/invasion_live.py).
+        """
+        if self._invasion is None:
+            from .invasion_live import InvasionWatch
+            self._invasion = InvasionWatch(self)
+        return self._invasion
 
     @property
     def rewards(self):
