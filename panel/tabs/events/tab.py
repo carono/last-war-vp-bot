@@ -1903,6 +1903,24 @@ class EventsTab(PanelTab):
             self.tr(ttk.Label(press, foreground=_GREY),
                     "events.arms.no_recipe").pack(side="left", padx=(8, 0))
 
+    def _ask_for_a_save(self) -> None:
+        """Tell the container this profile has changed — the half that was missing (#2657).
+
+        `remember` moves a moved knob into the block this tab hands back; NOTHING puts
+        that block on disk until somebody says the profile changed, and on a panel with
+        no window that call is the only thing that ever saves at all
+        (`panel/headless.py::_save_tab_blocks`). Without it «Обучать юнитов» was on
+        until the next restart and off after it, however many times it was switched.
+
+        Outside the `remember` try on purpose: a block that could not be merged is still
+        a live value the profile should be written for, and the two failures are
+        unrelated.
+        """
+        try:
+            self.rt.settings.changed()
+        except Exception as exc:                # noqa: BLE001 — a save, never the card
+            self.rt.dbg("events").warning("profile not asked to save: %s", exc)
+
     def _golden_knob_saved(self) -> None:
         """A hunt knob moved — ask for the profile to be written (#2408).
 
@@ -1916,6 +1934,7 @@ class EventsTab(PanelTab):
                            modelmod.GOLDEN_CLUSTER_KEY: self.cluster()})
         except Exception as exc:                # noqa: BLE001 — a profile going away
             self.rt.dbg("events").warning("golden knob not stored: %s", exc)
+        self._ask_for_a_save()
 
     def _arms_knob_saved(self) -> None:
         """The switch moved — ask for the profile to be written, both front-ends alike."""
@@ -1931,6 +1950,7 @@ class EventsTab(PanelTab):
                            modelmod.ARMS_SQUAD_KEY: self.arms_squad()})
         except Exception as exc:                # noqa: BLE001 — a profile going away
             self.rt.dbg("events").warning("arms knob not saved: %s", exc)
+        self._ask_for_a_save()
 
     def _paint_golden_button(self) -> None:
         """Dead while a chain is on its way, and while the purse cannot pay for one march."""
