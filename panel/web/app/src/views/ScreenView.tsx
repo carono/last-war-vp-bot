@@ -459,6 +459,10 @@ function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; s
     if (i) facts.push(<span key={'s' + i}>{' · '}</span>)
     facts.push(bit)
   })
+  /* AN EMPTY LINE IS NOT A LINE (#2645). `facts` is an ARRAY, and an empty array is
+     still truthy, so a row that sends no facts drew an empty bubble under its name —
+     which is what «убери текстовое поле» left behind on the VS day cards. */
+  const factLine = facts.length ? facts : undefined
   return (
     <ErrandCard
       icon={item.avatar || item.icon}
@@ -473,7 +477,7 @@ function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; s
       badge={item.badge}
       infoNode={info.button}
       on={item.toggle ? item.toggle.value !== false : true}
-      facts={facts}
+      facts={factLine}
       pill={item.pill}
       state={item.state}
       /* THE ONE SWITCH THIS ROW IS ABOUT (#2068), in the corner every other card keeps
