@@ -91,6 +91,15 @@ BUILD_FINISH = "finish_building"
 BAG_PUSH = "push.resource.item.update"
 CHIP_PUSH = "push.uav.skillchip.changes"
 
+#: …AND THE BUILD QUEUE'S OWN, WHICH #2633 SAID DID NOT EXIST (#2641). It does:
+#: `push.build.queue.info` carries `updateQueues`, one entry per slot the server has
+#: changed, with the slot's uuid and its new end time. It is what arrives when a
+#: speed-up lands, and it is why the finished buildings can appear on this page without
+#: anybody pressing anything. The client does NOT apply it to its own queue — which is
+#: the bug this page had — so the re-read is worth taking only because
+#: `finish_building.md` writes the server's own number back where the client dropped it.
+BUILD_PUSH = "push.build.queue.info"
+
 #: THE HOUR OF «Гонка вооружений», ON THE PAGE THAT SHOWS IT (#2635). The errand's card
 #: stands on this page, so the reading behind it is taken here: the phase running now,
 #: its three chests as the server flags them, and the points it has scored. It presses
@@ -111,6 +120,10 @@ PUSH_DELAY_MS = 3_000
 #: the one late look that covers a panel started over a client that was already playing.
 CHAIN_PUSH = "vs_push"
 CHAIN_BUILD = "vs_build_due"
+#: …and the build queue's own debounce, separate from the bag's: a slot that moved says
+#: nothing about the bag, and re-reading the bag on it would be a question the game did
+#: not ask for.
+CHAIN_BUILD_PUSH = "vs_build_push"
 CHAIN_FIRST = "vs_first_read"
 #: …and the arms race's two: its own debounce, and the alarm on the border of the hour.
 CHAIN_ARMS_PUSH = "vs_arms_push"
@@ -628,6 +641,32 @@ class VsTab(VsDuelTab):
             return self.t("vs.builds.never")
         return self.t("vs.builds.read_at", ago=self._ago(when))
 
+    #: The arms race phase that pays for «Строительство Города», and the only hour in
+    #: which `open_ready_buildings.md` will hand a finished building over.
+    BUILD_HOUR_KIND = 120001
+
+    def _builds_gate(self) -> str:
+        """Why «Открыть» may do nothing right now — said as a state, not as a failure.
+
+        A finished building keeps until somebody takes it, and taking it pays building
+        points that only one hour of the arms race is paying for — so the recipe refuses
+        the claim in any other hour (`actions/open_ready_buildings.md`, the person's
+        words: «открываем только в час стройки гонки вооружений»). A row that quietly
+        does nothing reads as a broken button, so the page says which of the two it is
+        (#2641). The gate itself stays where it belongs: nothing here decides anything.
+        """
+        from ..runtime import arms_live               # noqa: PLC0415 — one reading
+
+        try:
+            state, age = arms_live.state(self.rt)
+        except Exception:                    # noqa: BLE001 — a reading, never the page
+            return ""
+        if age is None or state.kind is None:
+            return self.t("vs.builds.gate.unknown")
+        if _int(state.kind) == self.BUILD_HOUR_KIND:
+            return self.t("vs.builds.gate.now")
+        return self.t("vs.builds.gate.wait")
+
     # -- read once, then listen ------------------------------------------------
     #
     # THE RULE, IN THE PERSON'S OWN WORDS (#2633): «я ожидаю, что любые статистики я не
@@ -678,6 +717,14 @@ class VsTab(VsDuelTab):
             self._wire_off.append(self.rt.wire.subscribe(ARMS_PUSH, self._on_arms_push))
         except Exception:                    # noqa: BLE001 — no ear, the age says so
             pass
+        # …AND THE BUILD QUEUE'S OWN (#2641). A slot the server moved announces itself,
+        # so the finished buildings appear on the page without a press — which is what
+        # the person asked for and what this page could not do while nobody listened.
+        try:
+            self._wire_off.append(self.rt.wire.subscribe(BUILD_PUSH,
+                                                         self._on_build_push))
+        except Exception:                    # noqa: BLE001 — no ear, the age says so
+            pass
 
     def _unlisten(self) -> None:
         """Close this page's ear. The capture stops with its last subscriber."""
@@ -705,6 +752,23 @@ class VsTab(VsDuelTab):
             self.rt.tick.arm(CHAIN_PUSH, PUSH_DELAY_MS, self._read_bag)
         except Exception:                    # noqa: BLE001 — no clock, read at once
             self._read_bag()
+
+    def _on_build_push(self, command) -> None:
+        """A build queue slot moved — on the reader thread, so nothing is done here."""
+        if command is None:
+            return
+        self.post(self._build_push_soon)
+
+    def _build_push_soon(self) -> None:
+        """Re-read the queue shortly. Re-armed by each push, so a burst costs ONE read."""
+        try:
+            self.rt.tick.arm(CHAIN_BUILD_PUSH, PUSH_DELAY_MS, self._read_builds)
+        except Exception:                    # noqa: BLE001 — no clock, read at once
+            self._read_builds()
+
+    def _read_builds(self) -> None:
+        """What has finished and what is still building. The one door to that reading."""
+        self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
 
     def _read_bag(self) -> None:
         """What the bag holds: the survivors' tickets and the chip chests.
@@ -817,7 +881,7 @@ class VsTab(VsDuelTab):
         self._read_all_at = now
         self._tries += 1
         self._read_bag()
-        self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
+        self._read_builds()
         # …AND THE HOUR OF THE ARMS RACE (#2635), which is the first reading of the card
         # standing at the top of this page. After this one the game says when it moved.
         self._read_arms()
@@ -879,12 +943,12 @@ class VsTab(VsDuelTab):
                 self._build_due = None
             return
         self._build_due = None
-        self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
+        self._read_builds()
 
     def shutdown(self) -> None:
         """Give the ear and the alarms back — a listener outliving its tab is a leak."""
-        for chain in (CHAIN_PUSH, CHAIN_BUILD, CHAIN_FIRST, CHAIN_ARMS_PUSH,
-                      CHAIN_ARMS):
+        for chain in (CHAIN_PUSH, CHAIN_BUILD, CHAIN_BUILD_PUSH, CHAIN_FIRST,
+                      CHAIN_ARMS_PUSH, CHAIN_ARMS):
             try:
                 self.rt.tick.disarm(chain)
             except Exception:                # noqa: BLE001
@@ -986,7 +1050,12 @@ class VsTab(VsDuelTab):
                 for press in group["actions"]:
                     if press.get("id") == "run":
                         press["disabled"] = not rows
-                group["note"] = self._builds_note()
+                note = self._builds_note()
+                # …AND WHETHER «Открыть» CAN DO ANYTHING THIS HOUR (#2641). The button
+                # stays live — the gate is the recipe's — but a press that is going to
+                # be refused says so beforehand instead of looking broken.
+                gate = self._builds_gate() if rows else ""
+                group["note"] = f"{note} · {gate}" if gate else note
             groups.append(group)
         if groups:
             item["options_groups"] = groups
@@ -1066,7 +1135,7 @@ class VsTab(VsDuelTab):
         row a press has already taken goes on being offered as though nothing happened,
         and «Открыть все» stays lit over an empty queue.
         """
-        self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
+        self._read_builds()
 
     def _day_count(self, day: str) -> str:
         """«1 / 1» — how much of the day is ticked, out of what the panel can DO.
