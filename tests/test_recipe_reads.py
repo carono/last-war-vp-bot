@@ -124,6 +124,55 @@ def test_no_bare_nil_in_the_middle_of_a_list():
     assert not bad, "a nil in the middle shifts every name after it:\n" + "\n".join(bad)
 
 
+#: A recipe's own inputs — `ARGS x = …` — and the names it only learns while it RUNS.
+_ARGS = re.compile(r"^\s*ARGS\s+([A-Za-z_]\w*)", re.MULTILINE)
+_INTO = re.compile(r"\bINTO\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)", re.IGNORECASE)
+_CHUNK = re.compile(r"^\s*(?:LUA|READ_LUA|GAME)\s", re.IGNORECASE)
+_NAME_IN_BRACES = re.compile(r"\{([A-Za-z_]\w*)\}")
+
+
+def _recipes() -> list:
+    return sorted(ACTIONS.rglob("*.md"))
+
+
+def test_no_runtime_variable_is_interpolated_into_lua():
+    """`{name}` is filled when the FILE IS PARSED — never with what a run just read.
+
+    So a value that arrives from `READ_LUA … INTO x` (or `RECALL`) cannot reach a Lua
+    chunk as `{x}`: what the game receives is the six or so characters of the name, and
+    what happens next depends only on where they landed. Measured live on 2026-09-08 in
+    a running drone phase: `tonumber("{rally_cost}")` was nil, the phase's rally price
+    stayed 0, every gate answered «the game prices a rally at no stamina» and the four
+    hours raised nothing (#2649). Two more of the same shape were in the catalogue — a
+    word count over the literal name, and `{liked}>0`, which is a table compared with a
+    number.
+
+    `PARK <var> INTO <a.lua.name>` is the primitive for this (docs/dsl.md), and an ARGS
+    name is fine: those ARE known before the file is parsed.
+    """
+    bad = []
+    for f in _recipes():
+        body = "\n".join(l for l in f.read_text(encoding="utf-8").splitlines()
+                          if not l.lstrip().startswith("#"))
+        args = set(_ARGS.findall(body))
+        runtime = set()
+        for m in _INTO.finditer(body):
+            runtime.update(n.strip() for n in m.group(1).split(","))
+        runtime -= args
+        if not runtime:
+            continue
+        for i, line in enumerate(body.splitlines(), 1):
+            if not _CHUNK.match(line):
+                continue
+            for name in _NAME_IN_BRACES.findall(line):
+                if name in runtime:
+                    bad.append(f"{f.relative_to(_REPO_ROOT)}: {{{name}}} in a Lua chunk "
+                               f"is the name itself, never the value the run read — "
+                               f"PARK it instead")
+    assert not bad, ("a placeholder cannot carry a value learnt mid-run:\n"
+                     + "\n".join(bad))
+
+
 def _run_standalone() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
