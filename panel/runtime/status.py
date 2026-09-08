@@ -227,19 +227,11 @@ class StatusPoll:
                 rt.header.mark_stale(place=True, who=True)
             except Exception:                 # noqa: BLE001 — a hint, never the poll
                 pass
-            # …AND IT IS THE MOMENT EVERY PUSH-DRIVEN BOARD TAKES ITS FIRST READING
-            # (#2633). The person's rule: «все данные должны подтягиваться при старте
-            # клиента, а их изменение проводиться по пушам» — so a statistic is read
-            # once, here, and moved by the wire after that. Nothing is read ON this
-            # thread: a subscriber hangs its play on a worker like any other press.
-            #
-            # The SAME edge as the header's, deliberately: «вошёл в игру» is the only
-            # instant at which a client both exists and can answer, and a second
-            # detector for the same fact is a second answer to «когда panель читает».
-            try:
-                rt.bus.publish(bus.GAME_READY)
-            except Exception:                 # noqa: BLE001 — a fact, never the poll
-                pass
+        # …and the same edge is what every push-driven board reads on, but it may not
+        # be told here — the gate below is still holding the light this poll is about to
+        # write, so a subscriber that plays a scenario is refused «нет связи с игрой»
+        # and never asked again. It is published after the verdict instead (#2633).
+        entered = bool(playing and self._was_playing is not True)
         self._was_playing = playing
         # …AND WHETHER THE ACCOUNT HAS BEEN TAKEN (#2061). The kick was read on every
         # poll already — the recovery acts on it — and the LIGHT was never told, so a
@@ -252,6 +244,24 @@ class StatusPoll:
                                   kicked=kicked, server_at=server_at)
         # THE GATE reads the verdict written one line up, so this costs a dict lookup.
         rt.gate.alive()
+        # …AND *NOW* THE CLIENT IS «READY», which is the moment every push-driven board
+        # takes its first reading (#2633). The person's rule: «все данные должны
+        # подтягиваться при старте клиента, а их изменение проводиться по пушам» — so a
+        # statistic is read once, here, and moved by the wire after that.
+        #
+        # AFTER the verdict and the gate, deliberately, and the first cut of this had it
+        # BEFORE: the light was still the boot's red, so every subscriber's play was
+        # refused with «нет связи с игрой — ничего автоматического не стартует» and the
+        # edge does not come round again. The fact is «клиент в игре И панель это уже
+        # знает», and nothing below this line may be reordered above it.
+        #
+        # Nothing is read ON this thread: a subscriber hangs its play on a worker like
+        # any other press.
+        if entered:
+            try:
+                rt.bus.publish(bus.GAME_READY)
+            except Exception:                 # noqa: BLE001 — a fact, never the poll
+                pass
         # …AND THE VERDICT IS WRITTEN DOWN (#1982 follow-up). The window has printed a
         # `systems:` line off every poll for a year, and a panel with no window printed
         # nothing at all — so «панель показывала, что клиента нет» could not be dated,
