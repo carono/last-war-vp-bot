@@ -43,13 +43,16 @@ def _int(value, default: int = 0) -> int:
 #: with none of them says it is still being written instead of showing dead boxes.
 #:
 #: The names are `<day>.<action>`, exactly as the plan spells them.
-READY: frozenset = frozenset({"mon.drone_chips", "mon.drone_level"})
+READY: frozenset = frozenset({"mon.drone_chips", "mon.drone_level",
+                             "tue.survivor_tickets", "tue.build_collect"})
 
 #: …and which scenario each of those knobs RUNS, for the button beside it. The panel
 #: holds no opinion about what the ability is: it plays the recipe and reports what came
 #: back (CLAUDE.md). A ready knob with no recipe here simply has no button.
 RUNS: dict = {"mon.drone_chips": "open_drone_chips",
-              "mon.drone_level": "upgrade_drone"}
+              "mon.drone_level": "upgrade_drone",
+              "tue.survivor_tickets": "spend_survivor_tickets",
+              "tue.build_collect": "open_ready_buildings"}
 
 #: THE CHESTS THE CHIP ABILITY IS ABOUT (#2617) — the three grades the live bag carries,
 #: as the bag reads them. They travel to both recipes as an argument, so an account with
@@ -59,11 +62,20 @@ CHIP_IDS: tuple = ("540201", "540301", "540401")
 #: The scenario that counts them without opening any.
 CHIP_READ = "read_drone_chips"
 
+#: TUESDAY'S TWO READS, and neither of them presses anything (#2632). The banner's
+#: tickets and the buildings that have finished — a page that SHOWS them must be able to
+#: ask without spending or opening anything (CLAUDE.md: the panel reads through a
+#: scenario or not at all).
+TICKETS_READ = "read_survivor_tickets"
+BUILDS_READ = "read_ready_buildings"
+
 #: WHAT THE PRESS INSIDE THE SHEET CALLS ITSELF (#2624). The switch above it already
 #: says what the ability IS — «Открыть чипы дрона» — so the button says what pressing it
 #: does now, and the two do not read as one control written twice.
 RUN_LABELS: dict = {"mon.drone_chips": "vs.chips.open_all",
-                    "mon.drone_level": "vs.drone.raise_now"}
+                    "mon.drone_level": "vs.drone.raise_now",
+                    "tue.survivor_tickets": "vs.tickets.spend_now",
+                    "tue.build_collect": "vs.builds.open_all"}
 
 
 class VsTab(VsDuelTab):
@@ -100,6 +112,10 @@ class VsTab(VsDuelTab):
         #: What the store says about the chip chests — read on first need, never on a
         #: clock (CLAUDE.md, «Read once, then LISTEN»). `None` until it has been asked.
         self._chips = None
+        #: …and the same for Tuesday's two: the survivors' banner and the buildings that
+        #: have finished. `None` until either has been asked for the first time.
+        self._tickets = None
+        self._builds = None
         try:
             old = self.rt.settings.tab_config("vs_duel")
         except Exception:                # noqa: BLE001 — a profile, never the panel
@@ -230,6 +246,180 @@ class VsTab(VsDuelTab):
             return self.t("vs.chips.never")
         return self.t("vs.chips.read_at", ago=self._ago(when))
 
+    # -- Tuesday: the survivors' tickets ---------------------------------------
+    #
+    # THE SAME SPLIT AS THE CHESTS. What the banner holds can be re-read from the game at
+    # any moment and carries the age of its reading; how many tickets went TODAY cannot —
+    # a ticket that is spent is gone, and the count of them exists nowhere but here. So
+    # the tally is the panel's own fact, kept in the database with every other one, and
+    # it is keyed by the GAME's day (`rt.day.day_key`) rather than this machine's: with
+    # the reset at the warzone's own midnight the two disagree for two hours out of
+    # twenty-four, and «потрачено сегодня» read on the wrong side of that is a lie.
+
+    def _tickets_state(self) -> dict:
+        """What the store holds about the banner: the count, the tally, the age."""
+        if self._tickets is None:
+            try:
+                state = self.rt.store.blob_get(store.SURVIVOR_TICKETS)
+            except Exception:                # noqa: BLE001 — a reading, never the tab
+                state = None
+            self._tickets = state if isinstance(state, dict) else {}
+        return self._tickets
+
+    def _tickets_save(self, state: dict) -> None:
+        self._tickets = state
+        try:
+            self.rt.store.blob_set(store.SURVIVOR_TICKETS, state)
+        except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
+            pass
+
+    def _today(self) -> str:
+        """The GAME day, so a tally resets when the warzone does and not at midnight."""
+        try:
+            return self.rt.day.day_key()
+        except Exception:                    # noqa: BLE001 — a half-built runtime
+            return ""
+
+    def _tickets_back(self, outcome) -> None:
+        """`read_survivor_tickets` came back — keep what the banner said."""
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        have = _int(variables.get("worker_tickets"), -1)
+        if have < 0:
+            return                           # «nobody knows» is never drawn as a zero
+        state = dict(self._tickets_state())
+        state["have"] = have
+        state["free"] = 1 if _int(variables.get("worker_free")) else 0
+        state["at"] = int(time.time())
+        self._tickets_save(state)
+
+    def _tickets_spent_back(self, outcome) -> None:
+        """`spend_survivor_tickets` came back — add what it spent to today's tally.
+
+        `tickets_spent` is the recipe's own line and never a guess of ours: a run that
+        spent nothing adds nothing, and a run the client refused never gets here.
+        """
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        spent = _int(variables.get("tickets_spent"))
+        state = dict(self._tickets_state())
+        day = self._today()
+        if state.get("day") != day:
+            state["day"], state["spent"] = day, 0
+        if spent > 0:
+            state["spent"] = _int(state.get("spent")) + spent
+        after = _int(variables.get("tickets_after"), -1)
+        if after >= 0:
+            state["have"] = after
+            state["at"] = int(time.time())
+        self._tickets_save(state)
+
+    def _tickets_facts(self) -> list:
+        """«Билетов N · Потрачено сегодня M» — the two numbers the person asked for."""
+        state = self._tickets_state()
+        have = state.get("have")
+        spent = _int(state.get("spent")) if state.get("day") == self._today() else 0
+        return [{"label": "vs.tickets.have",
+                 "value": "\u2014" if have is None else str(_int(have))},
+                {"label": "vs.tickets.spent_today", "value": str(spent)}]
+
+    def _tickets_note(self) -> str:
+        """How old the count is — data, said in this profile's own language."""
+        when = _int(self._tickets_state().get("at"))
+        if not when:
+            return self.t("vs.tickets.never")
+        return self.t("vs.tickets.read_at", ago=self._ago(when))
+
+    # -- Tuesday: the buildings that have finished ------------------------------
+    #
+    # A LIST THAT IS RE-READ AND NEVER GUESSED. A finished building is a slot of the
+    # game's own build queue, so the panel keeps only what the last reading said, with
+    # its age beside it, and «Открыть» plays the recipe that reads the queue again for
+    # itself. The panel holds no gate: whether it is the arms race's building hour lives
+    # in `actions/open_ready_buildings.md`, which is the only thing that opens anything.
+
+    def _builds_state(self) -> dict:
+        if self._builds is None:
+            try:
+                state = self.rt.store.blob_get(store.READY_BUILDINGS)
+            except Exception:                # noqa: BLE001 — a reading, never the tab
+                state = None
+            self._builds = state if isinstance(state, dict) else {}
+        return self._builds
+
+    def _builds_save(self, state: dict) -> None:
+        self._builds = state
+        try:
+            self.rt.store.blob_set(store.READY_BUILDINGS, state)
+        except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
+            pass
+
+    def _builds_back(self, outcome) -> None:
+        """`read_ready_buildings` came back — keep the list, empty or not.
+
+        An EMPTY answer is kept too, which is the difference from the chests: «nothing is
+        waiting» is the state the «Открыть все» button goes dead on, and a page that held
+        the last non-empty list would offer to open buildings that are already open.
+        """
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        raw = str(variables.get("ready_builds") or "")
+        rows = []
+        for piece in raw.split(";;"):
+            parts = [bit.strip() for bit in piece.split("|")]
+            if len(parts) < 5 or not parts[0].isdigit():
+                continue
+            rows.append({"uuid": parts[0], "id": parts[1], "level": _int(parts[2]),
+                         "icon": parts[3], "name": parts[4]})
+        state = dict(self._builds_state())
+        state["rows"] = rows
+        state["at"] = int(time.time())
+        self._builds_save(state)
+
+    @staticmethod
+    def _build_icon(stem: str) -> "str | None":
+        """One building's own sprite as the phone asks for it, or nothing at all.
+
+        A LINK and never bytes, exactly as `cell_url` is one. A building the game named a
+        picture for that this machine has not extracted draws WITHOUT one, never with
+        somebody else's (the rule every picture route here keeps).
+        """
+        import urllib.parse as _url
+
+        try:
+            import building_icons
+        except Exception:                    # noqa: BLE001 — no extraction is no picture
+            return None
+        name = building_icons.name_for(stem)
+        if not name:
+            return None
+        return "/api/buildingicon?icon=" + _url.quote(name)
+
+    def _builds_rows(self) -> list:
+        """One row per finished building — the game's picture, its level, its own press.
+
+        Sorted by level, highest first (the person's words: «сортировка по уровню»), and
+        the name is the GAME's, in whatever language the client is in.
+        """
+        state = self._builds_state()
+        rows = state.get("rows") if isinstance(state.get("rows"), list) else []
+        out = []
+        for row in sorted(rows or [], key=lambda r: -_int(r.get("level"))):
+            uuid = str(row.get("uuid") or "")
+            entry = {"text": row.get("name") or str(row.get("id") or ""),
+                     "facts": [{"label": "vs.builds.level",
+                                "value": str(_int(row.get("level")))}],
+                     "actions": [{"id": "open_one", "args": {"uuid": uuid},
+                                  "label": "vs.builds.open"}]}
+            picture = self._build_icon(str(row.get("icon") or ""))
+            if picture:
+                entry["icon"] = picture
+            out.append(entry)
+        return out
+
+    def _builds_note(self) -> str:
+        when = _int(self._builds_state().get("at"))
+        if not when:
+            return self.t("vs.builds.never")
+        return self.t("vs.builds.read_at", ago=self._ago(when))
+
     # -- the phone's copy ------------------------------------------------------
     def web_view(self) -> "dict | None":
         """The week as cards, the last read, and the sets.
@@ -296,6 +486,28 @@ class VsTab(VsDuelTab):
                 group["actions"].append({"id": "chips_read",
                                          "label": "vs.chips.refresh"})
                 group["note"] = self._chips_note()
+            if action.key == "survivor_tickets":
+                # THE STATISTICS THE PERSON ASKED FOR (#2632): «сколько билетов, сколько
+                # потратили сегодня». One row, two numbers, and the age of the reading
+                # under it — a stale count is visibly stale rather than quietly wrong.
+                group["items"] = [{"label": "vs.tickets.stats",
+                                   "facts": self._tickets_facts()}]
+                group["actions"].append({"id": "tickets_read",
+                                         "label": "vs.tickets.refresh"})
+                group["note"] = self._tickets_note()
+            if action.key == "build_collect":
+                # THE FINISHED BUILDINGS, one row each — the game's own picture, the
+                # level, and its own «Открыть». «Открыть все» goes dead when there is
+                # nothing waiting, which is the person's own words: «кнопка открыть все,
+                # если есть, что открывать, иначе дисаблед».
+                rows = self._builds_rows()
+                group["items"] = rows
+                for press in group["actions"]:
+                    if press.get("id") == "run":
+                        press["disabled"] = not rows
+                group["actions"].append({"id": "builds_read",
+                                         "label": "vs.builds.refresh"})
+                group["note"] = self._builds_note()
             groups.append(group)
         if groups:
             item["options_groups"] = groups
@@ -331,6 +543,23 @@ class VsTab(VsDuelTab):
             return {"ok": self.rt.play_async(
                 CHIP_READ, args={"ids": ",".join(CHIP_IDS)}, tag="vs", human=True,
                 on_result=self._chips_rows_back)}
+        if action == "tickets_read":
+            return {"ok": self.rt.play_async(TICKETS_READ, tag="vs", human=True,
+                                             on_result=self._tickets_back)}
+        if action == "builds_read":
+            return {"ok": self.rt.play_async(BUILDS_READ, tag="vs", human=True,
+                                             on_result=self._builds_back)}
+        if action == "open_one":
+            # ONE BUILDING, named by the row that drew it. The gate is the recipe's, so a
+            # press outside the arms race's building hour is refused by the ability and
+            # not by the panel — and the reading is re-taken either way, because a run
+            # that opened nothing must not leave the row looking opened.
+            uuid = str((args or {}).get("uuid") or "")
+            if not uuid.isdigit():
+                return {"error": "unknown"}
+            return {"ok": self.rt.play_async(
+                RUNS["tue.build_collect"], args={"uuid": uuid}, tag="vs", human=True,
+                on_result=self._builds_after_open)}
         if action != "run":
             return super().web_press(action, args)
         name = str((args or {}).get("key") or "")
@@ -342,7 +571,21 @@ class VsTab(VsDuelTab):
             # The ids the page draws are the ids the run opens — one list, never two.
             extra = {"args": {"ids": ",".join(CHIP_IDS)},
                      "on_result": self._chips_opened_back}
+        if name == "tue.survivor_tickets":
+            extra = {"on_result": self._tickets_spent_back}
+        if name == "tue.build_collect":
+            extra = {"on_result": self._builds_after_open}
         return {"ok": self.rt.play_async(recipe, tag="vs", human=True, **extra)}
+
+    def _builds_after_open(self, outcome) -> None:
+        """A building was opened — so the list the page is showing is out of date.
+
+        The reading is taken again, once, as the direct consequence of the press a person
+        just made — never on a clock (CLAUDE.md, «Read once, then LISTEN»). Without it the
+        row a press has already taken goes on being offered as though nothing happened,
+        and «Открыть все» stays lit over an empty queue.
+        """
+        self.rt.play_async(BUILDS_READ, tag="vs", on_result=self._builds_back)
 
     def _day_count(self, day: str) -> str:
         """«1 / 1» — how much of the day is ticked, out of what the panel can DO.

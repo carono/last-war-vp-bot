@@ -109,8 +109,9 @@ def test_each_day_holds_the_actions_it_scores():
     assert [a.key for a in _actions(days["mon"])] == [
         "drone_chips", "drone_parts", "hero_level", "drone_level",
         "mines_before_reset"]
+    # The two the bot actually does lead the day (#2632) — the person's own order.
     assert [a.key for a in _actions(days["tue"])] == [
-        "build_speedup", "build_collect", "survivor_tickets", "build_start"]
+        "survivor_tickets", "build_collect", "build_speedup", "build_start"]
     assert [a.key for a in _actions(days["wed"])] == [
         "drone_parts", "research_speedup", "research_collect", "research_start"]
     assert [a.key for a in _actions(days["thu"])] == [

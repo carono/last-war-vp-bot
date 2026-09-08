@@ -173,6 +173,18 @@ SECRET_TASKS_STATE = "secret_tasks_state"
 #: game: a chest that is open is gone, so the count of them exists nowhere but here.
 DRONE_CHIPS = "drone_chips"
 
+#: THE SURVIVORS' RECRUIT TICKETS (#2632) — what the banner holds and how many this
+#: account has SPENT today. The first half is a reading with its age beside it; the
+#: second is the panel's own fact, for the same reason the chip tally is: a ticket that
+#: is spent is gone, and nothing in the client remembers how many went today.
+SURVIVOR_TICKETS = "survivor_tickets"
+
+#: THE BUILDINGS THAT HAVE FINISHED AND ARE WAITING TO BE OPENED (#2632) — the list
+#: `actions/read_ready_buildings.md` read, kept so a fresh panel draws the page before
+#: anybody presses «Обновить». Re-readable from the game at any moment, with its age on
+#: the page, which is what makes a stale one visibly stale.
+READY_BUILDINGS = "ready_buildings"
+
 #: How long a writer waits for another writer before giving up. Generous on purpose:
 #: the competing writer is another thread of this panel, or a standalone tab in another
 #: process, and both finish in milliseconds. A person seeing «database is locked»

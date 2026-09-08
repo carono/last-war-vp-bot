@@ -427,6 +427,9 @@ def _make_handler(server: WebServer):
             if path == "/api/heroicon":
                 self._heroicon(query)
                 return
+            if path == "/api/buildingicon":
+                self._buildingicon(query)
+                return
             if path.startswith("/api/"):
                 self._api("GET", path, query, {})
                 return
@@ -637,6 +640,22 @@ def _make_handler(server: WebServer):
             def resolve():
                 import arms_icons
                 return arms_icons.file_named(_one(query.get("icon")))
+
+            self._picture(query, resolve)
+
+        def _buildingicon(self, query: dict) -> None:
+            """Serve one base building's own sprite, out of `results/building_icons`.
+
+            The seventh of the same shape and for the same reasons (#2632): the pictures
+            are the game's own art extracted onto THIS machine, they are identical for
+            every profile, and the name is checked by `building_icons.file_named` rather
+            than trusted. A machine that has not run the extractor answers 404 for every
+            one of them and the finished-buildings list draws its rows with no picture,
+            which is the honest answer rather than a fault.
+            """
+            def resolve():
+                import building_icons
+                return building_icons.file_named(_one(query.get("icon")))
 
             self._picture(query, resolve)
 
