@@ -83,6 +83,9 @@ class WorldViewTab(PanelTab):
         self._counts: dict = {}
         self._ages: dict = {}
         self._swept = 0
+        #: What the sources looked like when they were last read (#2660) — the mtimes
+        #: that let an unchanged checkpoint be skipped rather than walked again.
+        self._read_stamp = None
         self._count_vars: dict = {}
         self._age_vars: dict = {}
         #: THE OTHER HALF: what the client can see AT THIS SECOND (#2018). It holds the
@@ -130,16 +133,52 @@ class WorldViewTab(PanelTab):
         """Somebody is looking: re-read what is on disk. No game call, ever."""
         self.refresh()
 
-    def refresh(self) -> None:
-        """Re-read the counts and the ages — files and this profile's database."""
+    def read(self) -> bool:
+        """Re-read the counts and the ages — files and this profile's database.
+
+        NO TK HERE (#2660). It is called from the web thread as well as from the window,
+        and a `StringVar.set` off the Tk thread is the one thing on this panel that is
+        never safe. `True` when the numbers moved.
+
+        THE FILES ARE ONLY RE-READ WHEN THEY HAVE CHANGED. `world_map.json` is a live
+        checkpoint a capture rewrites every tick, and a phone with this screen open used
+        to walk the whole of it on every poll to print eight integers.
+        """
+        stamp = self._sources_stamp()
+        if stamp is not None and stamp == self._read_stamp:
+            return False
         try:
             data = worldscene.overview(self.rt)
         except Exception:      # noqa: BLE001 — a page of numbers is never worth a crash
             self.rt.dbg("worldview").exception("could not read the world overview")
-            return
+            return False
+        self._read_stamp = stamp
         self._counts = data.get("counts") or {}
         self._ages = data.get("ages") or {}
         self._swept = int(data.get("swept") or 0)
+        return True
+
+    def _sources_stamp(self):
+        """What the on-disk sources look like right now — `None` when it cannot be told.
+
+        Cheap (`os.stat`), and it is the whole point: a checkpoint nobody has rewritten
+        answers the same tuple, and the read is skipped. The blobs in the database have
+        no mtime of their own, so their own writes come through the age of the file the
+        capture that fills them writes — which is the same tick.
+        """
+        import os
+        out = []
+        for path in (self.rt.profiles.world_json(), self.rt.profiles.treasures_json()):
+            try:
+                st = os.stat(path)
+                out.append((path, st.st_mtime_ns, st.st_size))
+            except OSError:
+                out.append((path, 0, 0))
+        return tuple(out)
+
+    def refresh(self) -> None:
+        """The window's own: read, then paint the variables. TK THREAD ONLY."""
+        self.read()
         for kind, var in self._count_vars.items():
             var.set(str(self._counts.get(kind, 0)))
         for name, var in self._age_vars.items():
@@ -153,8 +192,11 @@ class WorldViewTab(PanelTab):
         scene, and the picture itself is fetched separately (`/api/screen/data`) because
         a screen is re-read on the ordinary poll and thirty thousand objects on every
         tick is a page nobody could keep open (`panel/web/api.py`).
+
+        `read`, never `refresh` (#2660): this runs on the web server's thread, and
+        `refresh` sets the window's Tk variables.
         """
-        self.refresh()
+        self.read()
         counts = [{"label": f"worldview.kind.{kind}",
                    "value": str(self._counts.get(kind, 0))}
                   for kind in worldscene.KINDS]

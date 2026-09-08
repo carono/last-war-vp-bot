@@ -516,6 +516,29 @@ def test_an_old_profile_database_behind_the_last_per_profile_version_still_comes
     mine.close()
 
 
+def test_a_blob_can_be_written_from_the_writer_thread():
+    """`blob_submit` lands the same row `blob_set` does — later, off the caller (#2660).
+
+    The star list and the world pages checkpoint themselves on the Tk thread every time
+    a capture tick moves a row; the serialisation and the COMMIT are milliseconds the
+    window is not drawing in.
+    """
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "panel.db")
+        st = Store(path, "default")
+        st.blob_submit("checkpoint", {"rows": [1, 2, 3]})
+        st.close()                      # drains the writer
+        again = Store(path, "default")
+        assert again.blob_get("checkpoint") == {"rows": [1, 2, 3]}, \
+            "the queued checkpoint never landed"
+        # …and it is this profile's, like every other row in the database.
+        other = Store(path, "second")
+        assert other.blob_get("checkpoint") is None, \
+            "the blob leaked into another profile"
+        again.close()
+        other.close()
+
+
 def _run() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

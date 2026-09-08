@@ -1034,6 +1034,31 @@ class Store:
         with self.write() as conn:
             conn.execute(BLOB_UPSERT, (self.profile, str(name), payload, stamp))
 
+    def blob_submit(self, name: str, value) -> None:
+        """Checkpoint `value` under `name` OFF THE CALLER'S THREAD (#2660).
+
+        Same row, same shape, same replace-the-lot semantics as :meth:`blob_set` — the
+        difference is who pays. The ★ list, the ghost map and the world pages checkpoint
+        themselves every time a capture tick moves a row, which on a busy map is every
+        few hundred milliseconds, and they do it from the Tk thread: the serialisation
+        and the COMMIT are milliseconds each and they are milliseconds the window is not
+        drawing in. Handed to the writer, they are batched with whatever else is queued
+        and cost the page nothing.
+
+        THE VALUE MUST NOT BE MUTATED AFTERWARDS — it is serialised later, on the writer.
+        Every caller here builds a fresh snapshot for the purpose, which is the only
+        shape this is for. When the very next thing a caller does is READ the blob back,
+        use :meth:`blob_set`: a queued write has not landed yet.
+        """
+        profile, key = self.profile, str(name)
+
+        def job(conn) -> None:
+            conn.execute(BLOB_UPSERT, (profile, key,
+                                       json.dumps(value, ensure_ascii=False),
+                                       int(time.time())))
+
+        self.submit(job)
+
     # -- the monsters the client has drawn (#1963) -------------------------------------
     #
     # A ROW at a time, and that is the whole difference from the blob this replaced: a

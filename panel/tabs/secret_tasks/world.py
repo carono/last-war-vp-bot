@@ -337,7 +337,8 @@ class WorldGrid(grid.TaskGrid):
         if not self.STATE_BLOB:
             return
         try:
-            self.tab.rt.store.blob_set(
+            # Off the Tk thread (#2660) — see `Store.blob_submit`.
+            self.tab.rt.store.blob_submit(
                 self.STATE_BLOB,
                 [{k: row.get(k) for k in self.PERSIST_KEYS}
                  for row in self._rows.values()])
