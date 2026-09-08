@@ -163,6 +163,13 @@ line — not of the wrapper, which runs inside a call the game was making anyway
 ## 9. What is NOT done
 
 * **No clock anywhere.** Not in the ear, not in the book, not on the page.
+* **The wrappers are put in once; the LIST is not.** Re-wrapping a wrapper would stack
+  it, so an install that finds `B.on` leaves the wrappers alone — but it replaces
+  `B.allow`, and the window wrapper reads that rather than the table it closed over
+  (#2642). Until it did, a name added to `REWARD_WINDOWS` reached a running client only
+  when the CLIENT next restarted: measured live, the truck's own
+  `UIZombieBattleHangUpReward` still came back `unknown` from a panel restarted onto the
+  commit that added it. Pinned by `tests/test_reward_popups.py`.
 * **`AddRewardsAndRes` is not wrapped** even though it carries the same list. It fires for
   rewards that raise no window at all, and this book is about the POPUPS; adding it would
   double every row that does raise one.
