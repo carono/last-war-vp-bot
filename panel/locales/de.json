@@ -111,6 +111,8 @@
   "events.golden.invasion.off": "läuft nicht",
   "events.golden.invasion.on": "läuft",
   "events.golden.invasion.running": "läuft gerade",
+  "log.rotated": "panel.log erreichte {mb} MB — eine neue Datei wurde begonnen; die letzten {keep} Teile bleiben daneben",
+  "log.rotate.dropped": "der älteste Teil {name} ({mb} MB) wurde gelöscht, um Platz zu schaffen",
   "log.chat.deep_asking": "frage den Server nach Nachrichten, die älter sind als die vorhandenen",
   "log.chat.deep_done": "der Server hat {n} frühere Nachricht(en) geschickt",
   "chat.monitor": "Chat-Überwachung",

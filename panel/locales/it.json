@@ -111,6 +111,8 @@
   "events.golden.invasion.off": "non in corso",
   "events.golden.invasion.on": "in corso",
   "events.golden.invasion.running": "in corso ora",
+  "log.rotated": "panel.log ha raggiunto {mb} MB — è stato iniziato un nuovo file; gli ultimi {keep} segmenti restano accanto",
+  "log.rotate.dropped": "il segmento più vecchio {name} ({mb} MB) è stato eliminato per fare spazio",
   "log.chat.deep_asking": "chiedo al server messaggi più vecchi di quelli in memoria",
   "log.chat.deep_done": "il server ha inviato {n} messaggio/i precedente/i",
   "chat.monitor": "Monitor della chat",

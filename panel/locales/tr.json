@@ -111,6 +111,8 @@
   "events.golden.invasion.off": "sürmüyor",
   "events.golden.invasion.on": "sürüyor",
   "events.golden.invasion.running": "şu anda sürüyor",
+  "log.rotated": "panel.log {mb} MB'a ulaştı — yeni bir dosya başlatıldı; son {keep} parça yanında saklanıyor",
+  "log.rotate.dropped": "yer açmak için en eski parça {name} ({mb} MB) silindi",
   "log.chat.deep_asking": "sunucudan elimdekilerden daha eski mesajları istiyorum",
   "log.chat.deep_done": "sunucu {n} daha eski mesaj gönderdi",
   "chat.monitor": "Sohbet gözcüsü",

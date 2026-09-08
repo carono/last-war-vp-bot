@@ -111,6 +111,8 @@
   "events.golden.invasion.off": "tidak berlangsung",
   "events.golden.invasion.on": "sedang berlangsung",
   "events.golden.invasion.running": "sedang berlangsung sekarang",
+  "log.rotated": "panel.log mencapai {mb} MB — berkas baru dimulai; {keep} potongan terakhir disimpan di sebelahnya",
+  "log.rotate.dropped": "potongan tertua {name} ({mb} MB) dihapus untuk memberi ruang",
   "log.chat.deep_asking": "meminta server pesan yang lebih lama dari yang tersimpan",
   "log.chat.deep_done": "server mengirim {n} pesan lebih lama",
   "chat.monitor": "Pemantau obrolan",
