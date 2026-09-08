@@ -95,3 +95,17 @@ What has been ruled out or not tried:
 
 Until then `actions/upgrade_drone.md` reads, gates and reports correctly and its press
 fails loudly («the drone did not move») rather than claiming success.
+
+**Measured again on 2026-09-08, at another level and on a fuller bag (#2649):** the drone
+stood at 175 of a 250 ceiling, the level row priced one level at 252 000 of item 7037 and
+140 of 7038 against 71 247 760 and 142 in the bag, so the gate correctly answered «the bag
+pays for 1». The press was made 38 times and the level was still 175 afterwards, with both
+resource counts unchanged — `{id = 1000}` does nothing at 175 exactly as it did nothing at
+130.
+
+Thirty-eight is itself the second finding, and it is about `xall` rather than about the
+drone: the loop presses while the button's count stays above zero, and a press that spends
+nothing leaves the count where it was, so the loop runs to `max_taps` — a minute of the
+game link per run, spent on a message the server ignores. Whoever settles the shape should
+also decide what a counting press does when the count does not fall: for this button the
+honest answer is one press, verify the level, and stop when it did not move.
