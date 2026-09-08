@@ -4534,8 +4534,9 @@ class SecretTasksTab(PanelTab):
             # list now and the phone shows the same list. Without the mark the screen
             # would carry a «готово к сбору» tile that is not a target any more, which is
             # precisely the misreading the window's mark exists to prevent. There was
-            # never a «Собрать» here to take away — the phone has read this list and
-            # pressed nothing on it since #1188 — so the mirroring is the mark alone.
+            # never a «Собрать» here to take away when the mark was added — the phone
+            # has robbed from this list since #2660, and a robbed row that still said
+            # «готово к сбору» would be the one word the screen must not carry.
             robbed = bool(row.get("robbed"))
             if robbed:
                 facts.append({"label": "secrettasks.robbed_mark", "value": ""})
@@ -4558,15 +4559,20 @@ class SecretTasksTab(PanelTab):
                 # the one word the phone must not say, and «исчерпана» is about the tile
                 # while this is about us.
                 # …and the ten-second window the window's «Собрать» appears in (#1272).
-                # The phone gets the READING and no button — the robbery on this tab is
-                # still a hand-driven press the web may not carry (#1188) — but it says
-                # so at the same instant the button appears, which is what «то же на
-                # телефоне» can honestly mean here.
+                # The pill says a tile is ripe at the same instant the button appears —
+                # and since #2660 the button appears here too (`_star_item_actions`).
                 "pill": ("secrettasks.robbed_mark" if robbed
                          else "secrettasks.spent" if spent
                          else "secrettasks.ready" if row.get("ready")
                          else "secrettasks.collect_soon"
                          if self._collectable(row) else None),
+                # …AND THE TWO PRESSES THE WINDOW'S STRIP HAS (#2660). «Собрать» is one
+                # recipe and has been since #1272 — `_collect` plays
+                # `actions/steal_secret_task.md` over this very row — so the reason the
+                # phone had a reading and no button expired with the spawned tool. It is
+                # offered on exactly the rows the window offers it on, through the same
+                # gate, and it asks first: a robbery spends one of the day's five.
+                "actions": self._star_item_actions(row),
             })
         hidden = self._hidden_at_home()
         stale = self.stale_hidden()
@@ -4922,16 +4928,16 @@ class SecretTasksTab(PanelTab):
                 # «Зум» and «Обойти карту» are here because the window put them on the
                 # coordinate bar, which belongs to the whole tab too (#1265). The lap is
                 # a scenario (`actions/scan_map.md`) and nothing else, so it is a press
-                # the phone may make — unlike «Ограбить» above, which parks its targets
-                # with a spawned tool first. The level cycles rather than offering three
+                # the phone may make — as is «Собрать» on a tile above, since #2660.
+                # The level cycles rather than offering three
                 # buttons: it is one setting with three values, and a screen that shows
                 # which one is on and moves to the next is how the other switches on this
                 # tab already read.
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
                             # «Обновить состояние» (#1272) — the same press the window
                             # grew, and one the phone MAY make: it re-reads what is
-                            # already on the list and robs nothing. The robbery is still
-                            # the one press this screen does not carry (#1188).
+                            # already on the list and robs nothing. The robbery itself
+                            # is a tile's own button now (#2660).
                             {"id": "refresh_state", "label": "coord.refresh_state"},
                             {"id": "zoom",
                              "label": f"coord.zoom.{self._zoom_level}"},
@@ -5163,11 +5169,13 @@ class SecretTasksTab(PanelTab):
                 "empty": "secrettasks.picker.empty"}
 
     def web_press(self, action: str, args: dict) -> dict:
-        """«Обновить», and the two display rules the phone may change.
+        """«Обновить», the display rules the phone may change — and the ★ presses.
 
-        Still no «Ограбить» — the robbery on this tab presses through a scenario, but it
-        parks its targets with a spawned tool first (`CLAUDE.md`, #1188), and a second
-        copy of THAT reached from outside the house is the same debt twice.
+        «Ограбить» TRAVELS SINCE #2660. The refusal written here was true while the
+        robbery parked its targets with a spawned tool; it stopped being true in #1272,
+        when the queue became an `ARGS` of `actions/steal_secret_task.md` and `_collect`
+        became one call into `rt.actions`. What is left is a recipe played over one row,
+        which is exactly the press `CLAUDE.md` allows the phone to make.
         «Показывать исчерпанные» and «Очистить список» decide nothing in the game, only
         the local list, so the phone gets the same two the window has.
         """
@@ -5372,6 +5380,22 @@ class SecretTasksTab(PanelTab):
             # nothing is pressed in the game, and the whole of it is one scenario.
             self.post(self.ask_world_monsters)
             return {"ok": True}
+        if action in ("collect", "share_alliance", "share_world"):
+            # THE ROW IS LOOKED UP AGAIN HERE, never trusted from the press (#2660): a
+            # phone may be minutes behind the list, and a robbery aimed at a uuid that
+            # has since been taken must miss rather than be aimed at whatever is now in
+            # that place.
+            row = self._row_by_uuid(args.get("uuid"))
+            if row is None:
+                return {"ok": False, "reason": "secrettasks.gone"}
+            if action == "collect":
+                if not self._collectable(row) or row.get("robbed"):
+                    return {"ok": False, "reason": "secrettasks.not_ready"}
+                self.post(lambda: self._collect(row))
+                return {"ok": True}
+            scope = SHARE_ALLIANCE if action == "share_alliance" else SHARE_WORLD
+            self.post(lambda: self._share(row, scope))
+            return {"ok": True}
         if action == "sweep_monsters":
             # The lap that FILLS the page. It moves the camera and nothing else — no
             # march, no window, no press in the game — and the whole of it is one
@@ -5380,6 +5404,40 @@ class SecretTasksTab(PanelTab):
             self.post(self.sweep_monsters)
             return {"ok": True}
         return {"error": "unknown"}
+
+    def _star_item_actions(self, row) -> list:
+        """What a ★ tile may be pressed for: rob it, or forward it to a chat.
+
+        The gate is the window's own (`_collectable`), so neither front-end can offer a
+        robbery the other would refuse. A robbery asks first — it spends one of the day's
+        five and cannot be undone — and so does a share, because outgoing chat cannot be
+        unsent.
+        """
+        uuid = str(row.get("uuid") or "")
+        if not uuid:
+            return []
+        actions = []
+        if self._collectable(row) and not row.get("robbed"):
+            actions.append({"id": "collect", "label": "secrettasks.collect",
+                            "confirm": "secrettasks.collect.confirm",
+                            "args": {"uuid": uuid}})
+        actions.append({"id": "share_alliance", "label": "secrettasks.share_alliance",
+                        "confirm": "secrettasks.share.confirm",
+                        "args": {"uuid": uuid}})
+        actions.append({"id": "share_world", "label": "secrettasks.share_world",
+                        "confirm": "secrettasks.share.confirm",
+                        "args": {"uuid": uuid}})
+        return actions
+
+    def _row_by_uuid(self, uuid: str):
+        """The ★ row a press named, out of the very list the screen was drawn from."""
+        wanted = str(uuid or "")
+        if not wanted:
+            return None
+        for row in self._visible_rows():
+            if str(row.get("uuid")) == wanted:
+                return row
+        return None
 
     def _toggle_mines_free(self) -> None:
         """Flip «только свободные» through the very handler a finger goes through."""
