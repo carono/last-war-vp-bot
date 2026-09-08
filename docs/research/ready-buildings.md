@@ -114,3 +114,39 @@ a promise nobody should make — and **a leg that arrives early re-arms without 
 game anything**, so the queue is read once, at the moment it becomes wrong, and never in
 between. `-1` arms nothing: an account with an empty queue asks no questions at all until
 its next login or its next press.
+
+## 6. Closing a construction that has NOT finished (#2634)
+
+The other half of the same queue: a slot in `Work` runs out its timer by itself, or a
+speed-up carries it to the end. The send is the build queue's own —
+`build.ccd.m.new`, `{bUUID, isFixRuins, itemIDs, useGold}` — where `bUUID` is the
+BUILDING's uuid (the slot's `itemId`, §1) and `itemIDs` is the game's own
+`"<itemId>;<count>"`. `useGold` is `false` and the gold-for-time argument is `0`: a
+construction that could only be closed with diamonds is left running
+(`docs/research/arms-race.md` settled the shape).
+
+**Which speed-ups, and why the panel does not choose them.** The bag answers it:
+`DataCenter.ItemData:GetItemsByType(2)` carries `speedUpType` (7 building, 1 universal),
+`para3` — what one piece is worth in SECONDS, as a string — and `count`. On a freshly
+started client `speedUpType` is `nil` until something fills it in, so the item id is the
+fallback: they run `2002<family><size>`, `200210…` building and `200200…` universal. The
+parcel is specialised before universal, small denominations before large, and a last
+piece that overshoots, because a construction is not closed by a parcel that stops short
+of it. All of that is in `actions/finish_building.md`; the panel passes a uuid.
+
+**A bag that comes up short spends nothing.** Minutes poured into a construction that
+stays open buy no building and cannot be taken back, so the recipe stops with «N
+second(s) short» and the bag untouched — and the row on the page draws a dead button
+saying the same thing, out of the `covered` flag `read_ready_buildings.md` prints beside
+its plan.
+
+**The price is named before it is paid.** `read_ready_buildings.md` answers
+`building_builds` — one entry per running slot, with the seconds it has left, whether the
+bag can close it, and the parcel that would: `<itemId>:<pieces>:<seconds each>:<own>`.
+Several slots do not spend the same piece twice: the bag is walked down as the earliest
+takes from it. The recipe works the parcel out AGAIN at the moment of the press — a plan
+a person read a minute ago is a plan the clock has already moved.
+
+**Nothing plays it by itself.** It is an irreversible spend, so it ships as a press with
+a confirmation and no schedule anywhere near it (CLAUDE.md, «A new ability ships SWITCHED
+ON» and its one exception).

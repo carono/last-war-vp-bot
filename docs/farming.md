@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 75 of 196
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 75 of 197
 
-🟩 75 done · 🟨 91 partly · 🟥 30 not automated
+🟩 75 done · 🟨 92 partly · 🟥 30 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -171,6 +171,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Opening the drone's chip chests — one press empties every chest of every grade the bag holds, however many piles they are in, and it does it in a single go rather than one box at a time. A bag with none of them says so and opens nothing. Live: 44 chests of three grades, all opened at once
 - 🟡 Spending the survivor tickets on a Tuesday — one press hires at the tavern with everything the account is holding: the free pull first, then by ten while there are enough for a ten, then the rest one at a time, and it stops on the number you asked it to keep. The page says how many tickets are on hand and how many went today, and how old that reading is. The spend itself has not been watched live yet: tickets do not come back, so it waits for your word
 - 🟡 Opening the buildings that have finished — the page lists what is waiting to be opened with the game's own picture of it and its level, the highest first, a button on every row and one that opens them all. It only opens during the Arms Race hour that pays for construction, and a client that did not answer stops it rather than being guessed at. Both readings work live; the opening itself waits for a build hour
+- 🟡 Finishing a construction outright — under the same list, the page shows what is STILL building: the game's own picture, the level, how long the slot has left, and, before anything is pressed, exactly what closing it would take out of the bag — «16×5 min + 1×15 min». A button on the row spends it. The set is the cheapest one that still closes the build: the building speed-ups go before the universal ones and the small pieces before the big ones, and the last piece is allowed to overshoot, because a construction is not closed by a parcel that stops a minute short of it. A bag that cannot close it spends nothing at all — the button is dead and the row says why — and diamonds are never spent. It asks before it presses, because speed-ups do not come back, and nothing does it on a schedule: it is a press a person makes. Not yet proven in a live session
 - ❌ Training the army
 - ❌ Opening drone components
 - ❌ Collecting duel gifts

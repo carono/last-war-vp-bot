@@ -47,7 +47,9 @@ NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set",
             "vs.tickets.spend_now", "vs.tickets.read_at",
             "vs.tickets.never", "vs.builds.open_all", "vs.builds.open",
             "vs.builds.level", "vs.builds.read_at",
-            "vs.builds.never")
+            "vs.builds.never", "vs.builds.left", "vs.builds.cost",
+            "vs.builds.piece", "vs.builds.finish", "vs.builds.finish.confirm",
+            "vs.builds.short")
 
 
 def _tab():
@@ -574,6 +576,85 @@ def test_the_finished_buildings_are_rows_sorted_by_level_each_with_its_own_press
             "there IS something to open now")
     finally:
         root.destroy()
+
+
+def test_what_is_still_building_is_priced_before_it_is_paid_for():
+    """#2634 — the running slots, what closing each would cost, and its own press.
+
+    The parcel is NAMED on the row (CLAUDE.md: an irreversible spend is said out loud
+    before it is made), the press asks first, and a bag that cannot close the build
+    offers a dead button rather than a spend that buys nothing.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        class _Outcome:
+            class ctx:
+                vars = {"ready_builds": "",
+                        "building_builds":
+                            "1000000000000003|10310000|12|UI_building_10310000|"
+                            "Factory|4820|1|200211:16:300:1+200201:1:900:0 ;; "
+                            "1000000000000004|10201000|30|UI_building_10201000|"
+                            "Field|90000|0|"}
+
+        tab._builds_back(_Outcome())
+        builds = {g["title"]: g for g in
+                  _week(tab.web_view())["items"][1]["options_groups"]}["vsduel.build_collect"]
+        rows = builds["items"]
+        assert [r["text"] for r in rows] == ["Factory", "Field"], rows
+        first = rows[0]
+        assert [f["label"] for f in first["facts"]] == [
+            "vs.builds.level", "vs.builds.left", "vs.builds.cost"], first["facts"]
+        assert "16" in first["facts"][2]["value"] and "5" in first["facts"][2]["value"], (
+            "the parcel is named before it is spent — %s" % first["facts"][2])
+        press = first["actions"][0]
+        assert press["id"] == "finish_one"
+        assert press["args"]["uuid"] == "1000000000000003"
+        assert press["label"] == "vs.builds.finish"
+        assert press["confirm"] == "vs.builds.finish.confirm", (
+            "speed-ups do not come back — the press asks first")
+        assert press["disabled"] is False
+        # …and the one the bag cannot close is dead, saying why.
+        short = rows[1]
+        assert short["actions"][0]["disabled"] is True
+        assert short["facts"][2]["value"] == tab.t("vs.builds.short")
+        # «Открыть все» is still about the FINISHED ones, and there are none.
+        assert builds["actions"][0]["disabled"] is True
+    finally:
+        root.destroy()
+
+
+def test_the_finish_press_plays_its_own_recipe_and_asks_the_game_again():
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        played = []
+        tab.rt.play_async = lambda name, *a, **k: (
+            played.append((name, (k.get("args") or {}).get("uuid"))) or True)
+        assert tab.web_press("finish_one", {"uuid": "1000000000000003"}) == {"ok": True}
+        assert played == [("finish_building", "1000000000000003")], played
+        assert tab.web_press("finish_one", {"uuid": "; drop"}) == {"error": "unknown"}
+        assert tab.web_press("finish_one", {}) == {"error": "unknown"}
+        assert len(played) == 1, played
+    finally:
+        root.destroy()
+
+
+def test_the_finishing_recipe_exists_and_refuses_a_bag_that_falls_short():
+    """The ability is one file, it spends nothing it cannot finish with, and no diamonds."""
+    text = (ROOT / "src" / "lastwar_bot" / "actions" / "finish_building.md").read_text(
+        encoding="utf-8")
+    assert "ARGS uuid" in text
+    assert "MsgDefines.BuildCcdMNew" in text, "the build queue's own speed-up message"
+    assert "useGold = false" in text, "a construction is never closed with diamonds"
+    assert "second(s) short of closing this construction" in text, (
+        "a bag that cannot close the build spends nothing")
 
 
 def test_tuesdays_presses_play_the_recipes_and_nothing_else():
