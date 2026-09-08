@@ -274,6 +274,24 @@ def test_every_locale_has_the_words_for_it():
         assert "{left}" in words["events.golden.invasion.in"], path.name
 
 
+def test_a_busy_client_is_waited_out_too_and_never_burns_the_looks():
+    """Measured live (#2647): six looks spent on «занят» inside two minutes of a restart.
+
+    A play that was refused asked the game nothing, so it is not a try — the look books
+    itself again and the six real ones are still there when the client is free.
+    """
+    rt = _Runtime(refuse=True)
+    watch = inv.InvasionWatch(rt)
+    watch.start()
+    for _ in range(inv.FIRST_LOOK_TRIES + 4):
+        rt.tick.fire()
+    assert len(rt.tick.armed) == 1, "a refused look must still be waiting"
+    rt.refuse = False
+    rt.tick.fire()
+    assert inv.state(rt)[0]["open"] == 0, "and it reads the moment the client is free"
+    assert rt.tick.armed == [], "…then stops"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

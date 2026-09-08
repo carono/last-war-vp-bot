@@ -71,6 +71,9 @@ STALE_SEC = 6 * 3600.0
 #: The one-shot first look, exactly as `market_live` arms it and for the same reasons:
 #: `bus.GAME_READY` is an EDGE, and a panel that has just restarted is refused by its own
 #: link gate for as long as the attachment takes.
+#: …and a look that was REFUSED — a shut gate, or a client somebody else is holding —
+#: does not count as one of them: it asked the game nothing. `GATE_WAIT_TRIES` is what
+#: bounds the waiting instead, so a client that never comes back leaves no booking.
 FIRST_LOOK_MS = 20_000
 FIRST_LOOK_TRIES = 6
 GATE_WAIT_TRIES = 90
@@ -241,8 +244,15 @@ class InvasionWatch:
             return
         if self._tries >= FIRST_LOOK_TRIES:
             return
-        self._tries += 1
-        self.refresh("first")
+        # …AND NEITHER IS A REFUSAL, WHICH IS THE SAME LESSON ONE STEP ON (#2647). The
+        # shut gate above is not the only way a look can cost nothing: measured on the
+        # live panel right after a restart, all six looks came back «занят — дождись
+        # завершения текущего действия» inside two minutes, while three profiles were
+        # still doing their own boot work, and the ear then gave up having read nothing.
+        # A play that never started asked the game nothing, so it is not a try — the
+        # look simply books itself again, under the same `GATE_WAIT_TRIES` ceiling.
+        if self.refresh("first"):
+            self._tries += 1
         if not self._read_once:
             self._arm_first()
 
