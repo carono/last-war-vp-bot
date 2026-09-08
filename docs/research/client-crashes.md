@@ -173,3 +173,142 @@ without a client: the il2cpp layer is stubbed and the test counts the hijacks.
   not be joined to the event log at all; their hijack counts are volume evidence only.
 * `panel.log` records the hijacks of the paths that log through the panel; hijacks made
   elsewhere are invisible to the control. Again a dilution, not an inflation.
+
+---
+
+# Asked a third time, a week later (#2656)
+
+The complaint again, and sharper: thirteen disappearances in one afternoon, scenarios
+torn in half (`ClientGone` one second after a press, `WAIT scene == world` timing out on
+a client that had only just come up), and the suspicion pointed at the wrappers the panel
+installs in the game's Lua VM.
+
+**The wrappers are not it. Every disappearance is a hard crash, the population is the one
+#2066 measured, and the exposure that drives it is BIGGER than it was, not smaller.**
+Two real wrapper bugs were found on the way and fixed — neither of them the crash.
+
+## Every «клиент пропал» is a fault, and none of them is a kick
+
+For one profile's day (2026-09-08) the panel logged 30 disappearances. The Windows
+`Application Error` log holds an event 1000 for the client **before every one of them**,
+5–25 s earlier:
+
+| faulting module | exception | that day |
+|---|---|---|
+| `UnityPlayer.dll` | `0xc0000005` | 17 |
+| **`unknown`** | `0xc0000005` | **17** |
+| `GameAssembly.dll` | `0xc0000005` | 2 |
+| `GameAssembly.dll` | `0xc0000409` | 1 |
+| `ntdll.dll` | `0xc0000005` | 1 |
+
+38 faults, three clients driven on the machine — the log does not say which client, so
+that column is all three and the panel column is one.
+
+So the three readings a person could have made are settled: it is **not** the account
+being kicked (a kick makes the client say so and quit cleanly, and there is no event
+1000 for a clean exit — the one disappearance a person reported as a kick has a crash of
+its own beside it), it is **not** anything killing the process, and it is **not** our Lua
+raising: a Lua error in this build is caught and logged, it does not take the process
+down.
+
+`0xc0000409` is `STATUS_STACK_BUFFER_OVERRUN`, which is also how a managed stack
+overflow ends — and the client's own `Player-prev.log` for that hour ends on
+`StackOverflowException: The requested operation caused a stack overflow`. That one is
+worth its own line below.
+
+## Why the scenarios tore
+
+The panel notices the corpse **8–22 s** after the fault, and spends that window driving
+it: `ConnectionError: OpenThread(<tid>) failed err=87`, `snapshot failed err=5`,
+`ClientGone`, a `read_*` that fails, an errand that logs an error and gives up. Then the
+watchdog relaunches and the next scenario meets a client that is 20 s old, which is where
+`WAIT scene == world` times out. Nothing there is a second bug: it is the crash, seen
+from inside.
+
+## What the dumps say
+
+Three minidumps survived the day's rotation (`tools/crash_report.py --dumps` reads them
+without a debugger):
+
+* one faulted **executing an address in no module at all** — exception parameter 0 = 8,
+  a DEP/execute violation, at an address in private memory holding zeros. Its stack is an
+  ordinary Unity main-thread player loop with managed frames on top and **no injected
+  frame anywhere**: this is the game calling through a corrupted pointer, not our stub
+  running. The `unknown` row above is that shape, not «our shellcode was executing».
+* two faulted in ONE `UnityPlayer.dll` function, reading through an object pointer whose
+  two halves are small integers — a garbage object, not a garbage address.
+
+That is the useful negative: `unknown` in the event log means «RIP was in no module»,
+and #2066 read it as the hijack's own stub. At least this crash is the game jumping
+through a pointer that has been corrupted, arriving from its own code.
+
+## The exposure did not shrink
+
+#2067 removed ~180 hijacks per evaluator build. It did not remove the hijack per Lua
+call, and the panel's read volume has gone up since. Measured on the same profile over
+the 401 minutes its current `debug.log` covers:
+
+| | |
+|---|---|
+| hijacks (the link's own per-minute tally) | **43 969** |
+| that is | **110 a minute, ~1.8 a second, continuous** |
+| DSL steps the panel ran in the same window | 11 693 |
+| so, hijacks per step | **≈ 3.8** |
+| of those steps, `rally_monitor` + `join_rally` | 2 303 (one every ~9 s) |
+
+Per #2066's own arithmetic — «anything that removes hijacks removes crash exposure
+proportionally» — that is the whole finding. The cheapest reductions available, none of
+them taken here because each changes behaviour a person should agree to first:
+
+1. **3.8 hijacks per step.** One `DoString` should be one. The array refill and the
+   string pinning were already made once-per-attach (#2404); whatever is left is worth a
+   count before it is worth a guess.
+2. **`rally_monitor` + `join_rally` are half the day's steps.** Every
+   `push.alliance.march` (a rally emits several — create, then a refresh per joiner)
+   plays both. Weighing one banner state once, rather than once per push about it, is the
+   same «read once, then listen» the rest of the panel follows.
+3. Anything that answers from what the panel already holds instead of asking the VM.
+
+## The naive correlation, again, still says nothing
+
+Tagging each fault with what the panel was doing in the preceding 30 s spreads across
+every tag — scene switches, rally presses, radar claims, plain reads — in roughly the
+proportion those tags appear anyway. That is #2066's finding reproduced, and it is why
+the case–control there is the number to trust and this is not.
+
+## The two wrapper bugs that ARE real (and are fixed)
+
+Found by reading the client's own log rather than ours, and neither shows up anywhere in
+the panel:
+
+**The build refuses new globals.** `Global/GlobalProtect.lua` installs an `__newindex` on
+`_G` that REFUSES an unknown name and only logs it (`Lua 全局变量 '…' 不可<新增/修改>` —
+«cannot be added/modified»). It does not raise, so nothing on our side notices.
+
+* **The red-packet ear parked its callback on `_G`.** The write was dropped, the wrapper
+  installed anyway, `B.on` went true, and every chat message then called `pcall(nil, …)`.
+  The panel reported the ear armed and «слышал 0, забрал 0» for as long as it has
+  existed. It hangs off `DataCenter.__lw_rpw.take` now.
+* **`dev/wire_catch.md` kept its saved original on `_G` too** — and that one compounds.
+  With `_G.__lw_catch_old` for ever nil, the «already wrapped?» guard was never true, so every
+  run wrapped `SFSNetwork.HandleMessage` AGAIN over the previous wrapper, the unwrap at
+  the end restored nothing, and the layers stayed for the life of the client. Three runs
+  in one afternoon is three extra frames on every message the client receives. That is a
+  stack overflow with enough runs, and a stack overflow is what one of the day's faults
+  was. It keeps its state on `DataCenter.__lw_wcatch` now and recognises its own wrapper.
+
+**The rule that falls out of it: nothing of ours is ever parked on `_G`.** One table on
+`DataCenter` per ability, and a guard that compares the installed function to our own.
+
+## The tool
+
+`tools/crash_report.py` — the whole of the above in one command, so the next time this is
+asked it is answered in seconds rather than a day:
+
+    python3 tools/crash_report.py --days 1 --profile <name> --dumps
+
+It reads the Windows event log (through whatever PowerShell the machine has,
+`LW_POWERSHELL`), the minidumps under `%LOCALAPPDATA%\CrashDumps` (`LW_CRASH_DUMPS`), and
+quotes the profile's own `panel.log` around each fault — one pass of the log for all of
+them. Event 1000 is translated on most installs, so the fields are read by shape and not
+by wording; `tests/test_crash_report.py` pins that.
