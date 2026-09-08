@@ -1372,27 +1372,6 @@ def test_the_crystal_press_says_which_event_failed():
     assert tab._sent_key == "events.crystal.log.sent"
 
 
-def _main() -> int:
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for test in tests:
-        try:
-            test()
-            print(f"  ok   {test.__name__}")
-        except _Skip as exc:
-            print(f"  SKIP {test.__name__}: {exc}")
-        except AssertionError as exc:
-            failed += 1
-            print(f"  FAIL {test.__name__}: {exc}")
-        except Exception as exc:                    # noqa: BLE001
-            failed += 1
-            print(f"  ERROR {test.__name__}: {type(exc).__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed or skipped")
-    return 1 if failed else 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(_main())
 
 
 def test_the_chat_red_packet_card_says_what_the_ear_heard():
@@ -1434,7 +1413,7 @@ def test_every_red_packet_press_reaches_a_scenario_and_nothing_else_does():
         tab._red_running = False
         tab.rt.played = []
         assert tab.web_press(press, {}) == {"ok": True}
-        assert [p[0] for p in tab.rt.played] == [name]
+        assert tab.rt.played == [name]
     assert tab.red("nonsense") == {"error": "unknown"}
 
 
@@ -1461,3 +1440,73 @@ def test_the_gear_can_actually_change_the_hunt_s_squad():
     # two is refused rather than guessed at.
     assert squad.write(tab.rt, "") is True and tab.squad() == 1
     assert squad.write(tab.rt, "2,4") is True and tab.squad() == 1
+
+
+def test_the_unit_phase_knobs_survive_the_block_the_profile_writes():
+    """«Обучать юнитов» must still be on after the profile is written and read (#2657).
+
+    The switch was applied by `apply_config` and saved by `_arms_knob_saved`, but
+    `config()` — the block a DRAWN tab hands the profile — did not name it, so the next
+    full save wrote the card without it and the following restore put the default back.
+    Live that is «включаю раз десять, он постоянно выключается обратно».
+    """
+    tab = _tab()
+    assert tab.web_press("set", {"key": modelmod.ARMS_UNITS_KEY,
+                                 "value": True})["ok"] is True
+    assert tab.web_press("set", {"key": modelmod.ARMS_SOLDIERS_KEY,
+                                 "value": 250})["ok"] is True
+    assert tab.web_press("set", {"key": modelmod.ARMS_FREE_MINUTES_KEY,
+                                 "value": 600})["ok"] is True
+    block = tab.config()
+    assert block[modelmod.ARMS_UNITS_KEY] is True
+    assert block[modelmod.ARMS_SOLDIERS_KEY] == 250
+    assert block[modelmod.ARMS_FREE_MINUTES_KEY] == 600
+    # …and the round trip a restart makes: the block written, then handed back.
+    fresh = _tab()
+    fresh.apply_config(json.loads(json.dumps(block)))
+    assert fresh.arms_units() is True
+    assert fresh.arms_args()["units"] == 1
+    assert fresh.arms_soldiers() == 250
+    assert fresh.arms_free_minutes() == 600
+
+
+def test_the_saved_block_names_every_arms_knob_the_gear_can_move():
+    """No knob may be movable and unsaveable — the shape of #2657, for the next one.
+
+    Every option registered for the arms errand is a value this card owns, so every one
+    of them has to appear in the block `config()` hands the profile. A knob missing from
+    it is a knob that answers «ok» to both front-ends and forgets by the next save.
+    """
+    tab = _tab()
+    block = tab.config()
+    for option in tab.errand_options()[modelmod.ARMS_ERRAND]:
+        assert option.key in block, option.key
+    for option in tab.errand_options()[modelmod.GOLDEN_ATTACK]:
+        assert option.key in block, option.key
+
+
+# THE RUNNER STAYS LAST, and it is not a matter of taste (#2657): it collects the
+# `test_*` names that EXIST when it runs, so anything written below the
+# `__main__` guard is defined after the process has already exited. Three tests
+# had been dead that way, and one of them had never been right.
+def _main() -> int:
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failed = 0
+    for test in tests:
+        try:
+            test()
+            print(f"  ok   {test.__name__}")
+        except _Skip as exc:
+            print(f"  SKIP {test.__name__}: {exc}")
+        except AssertionError as exc:
+            failed += 1
+            print(f"  FAIL {test.__name__}: {exc}")
+        except Exception as exc:                    # noqa: BLE001
+            failed += 1
+            print(f"  ERROR {test.__name__}: {type(exc).__name__}: {exc}")
+    print(f"\n{len(tests) - failed}/{len(tests)} passed or skipped")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
