@@ -49,7 +49,11 @@ NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set",
             "vs.builds.level", "vs.builds.read_at",
             "vs.builds.never", "vs.builds.left", "vs.builds.cost",
             "vs.builds.piece", "vs.builds.finish", "vs.builds.finish.confirm",
-            "vs.builds.short")
+            "vs.builds.short",
+            # the duel's own score, and the two shares in percent (#2645)
+            "vs.score", "vs.score.mine", "vs.score.mine.progress", "vs.score.us",
+            "vs.score.them", "vs.score.days", "vs.score.read", "vs.score.never",
+            "vs.score.percent", "vs.score.side")
 
 
 def _tab():
@@ -492,6 +496,114 @@ def test_the_week_is_the_screen_and_its_cards_are_the_errand_card():
             "the chests are inside the gear now, not a card of their own")
     finally:
         root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# the score of the duel (#2645)
+# ---------------------------------------------------------------------------
+def test_the_page_opens_with_the_duels_own_score():
+    """«На вкладке выведи счет, мои очки дуэли и альянса… в виде процентов»."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001 — no display
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        # THE SHAPE THE RECIPE ANSWERS IN, with invented numbers of the right kind.
+        tab._score = {"at": 1, "mine": "1000000",
+                      "target": "40000,150000,7200000",
+                      "us": "AL1|3000|2", "them": "AL2|1000|1"}
+        card = tab.web_view()["cards"][0]
+        assert card["title"] == "vs.score", card
+        rows = {row["label"]: row["value"] for row in card["rows"]}
+        assert "vs.score.mine" in rows and "vs.score.us" in rows, rows
+        # our share of the duel is 3000 of 4000 — three quarters, as the game's bar
+        assert "75" in rows["vs.score.us"], rows["vs.score.us"]
+        assert "25" in rows["vs.score.them"], rows["vs.score.them"]
+        assert rows["vs.score.days"] == "2 : 1", rows
+        # …and how old the reading is, which is what a page with no push owes the reader
+        assert "vs.score.read" in rows, rows
+    finally:
+        root.destroy()
+
+
+def test_a_side_the_game_did_not_name_is_left_out_rather_than_shown_at_nought():
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001 — no display
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        tab._score = {"at": 1, "mine": "5", "target": "", "us": "", "them": ""}
+        rows = {row["label"]: row["value"]
+                for row in tab.web_view()["cards"][0]["rows"]}
+        assert "vs.score.us" not in rows and "vs.score.them" not in rows, rows
+    finally:
+        root.destroy()
+
+
+def test_the_reading_is_one_recipe_and_the_panel_writes_no_lua_of_its_own():
+    from panel.tabs import vs as vsmod
+
+    text = (ROOT / "src" / "lastwar_bot" / "actions"
+            / f"{vsmod.SCORE_READ}.md").read_text(encoding="utf-8")
+    running = "\n".join(line for line in text.splitlines()
+                         if line.strip() and not line.lstrip().startswith("#"))
+    assert "INTO vs_score" in running, "one reading, one variable"
+    assert "targetAllianceId" in running, "which side is ours is DERIVED, never guessed"
+    assert "TAP " not in running and "SEND" not in running, "a read presses nothing"
+
+
+# ---------------------------------------------------------------------------
+# what the card does NOT carry any more (#2645)
+# ---------------------------------------------------------------------------
+def test_a_day_card_carries_no_line_of_prose():
+    """«На карточках в vs убери текстовое поле, оно не ясно к чему»."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001 — no display
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        for item in _week(tab.web_view())["items"]:
+            assert not item.get("facts"), item
+    finally:
+        root.destroy()
+
+
+def test_a_building_asks_for_its_picture_big():
+    """«Рисунки зданий увеличь, в половину карточки» — the row's own word for it."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001 — no display
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        tab._builds = {"at": 1,
+                       "rows": [{"uuid": "1000000000000001", "id": "10310000",
+                                 "level": 12, "icon": "", "name": "Nothing"}],
+                       "building": []}
+        rows = tab._builds_rows()
+        assert rows and all(row.get("shape") == "picture" for row in rows), rows
+    finally:
+        root.destroy()
+
+
+def test_the_queue_is_re_read_when_a_slot_appears_or_goes_away():
+    """A slot that MOVED is one push; one that appeared or was taken is another (#2645).
+
+    Without the other two the alarm that catches a construction finishing is never armed
+    for a queue that was empty when the last reading was taken — which is the whole of
+    «список готовых зданий не обновляется».
+    """
+    from panel.tabs import vs as vsmod
+
+    assert vsmod.QUEUE_ADD_PUSH == "push.queue.add"
+    assert vsmod.QUEUE_DEL_PUSH == "push.queue.del"
+    source = (ROOT / "panel" / "tabs" / "vs.py").read_text(encoding="utf-8")
+    for name in ("BUILD_PUSH", "QUEUE_ADD_PUSH", "QUEUE_DEL_PUSH"):
+        assert f"{name}, " in source or f"{name})" in source, name
+    assert "CHAIN_BUILD_RETRY" in source, "a refused reading is asked again"
 
 
 def _main() -> int:
