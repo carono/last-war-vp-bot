@@ -101,14 +101,24 @@ class HeroesTab(DataTab):
 
     def web_cards(self, heroes) -> list:
         """The roster. No icons on the phone yet — they are files the page cannot
-        reach without a route of their own, and a name and a level answer the question
-        somebody actually asks away from the machine."""
+        reach without a route of their own, and a name, a level, the stars and the squad
+        answer the question somebody actually asks away from the machine.
+
+        THE DETAIL USED TO BE EMPTY (#2660). It was built out of `power`, which this
+        tab's own reading has never carried — `fetch` answers id, name, level, stars and
+        squad — so every row on the phone said its level and nothing else, and the two
+        columns a person sorts the window by were missing.
+        """
         items = []
         for hero in heroes or ():
+            squad = _int(hero.get("squad"))
+            parts = ("%s %s" % (self.t("heroes.col.level"), _group(hero.get("level")))
+                     if hero.get("level") else "",
+                     "★ %d" % _int(hero.get("stars")) if hero.get("stars") else "",
+                     "%s %d" % (self.t("heroes.col.squad"), squad) if 1 <= squad <= 3
+                     else self.t("heroes.squad_none"))
             items.append({"text": str(hero.get("name") or "?"),
-                          "detail": " · ".join(x for x in (
-                              str(hero.get("level") or ""),
-                              _group(hero.get("power")) or "") if x)})
+                          "detail": " · ".join(x for x in parts if x)})
         return [{"title": "tab.heroes", "items": items, "search": True,
                  "empty": "tabx.no_game"}]
 
