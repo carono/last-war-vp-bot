@@ -668,27 +668,40 @@ class GhostReconPane(_Pane):
             self.rt.game.jump(x, y, _int(target.get("srv")) or None)
 
     def _steal(self, target) -> None:
-        """Rob one squad, off the Tk thread; the VM gate decides whether it sends."""
-        uuid, server = _int(target.get("uuid")), _int(target.get("srv"))
+        """Rob one squad — `actions/steal_ghost_recon.md` over a queue of one.
+
+        The press used to assemble the Lua here and judge the run by a
+        `ghost_steal_sent` line: a second, hand-driven copy of an ability that has been
+        one recipe since #1976, which is what `CLAUDE.md` forbids. The recipe parks the
+        queue it is given, asks the game about the tile (#2010), spends the day's budget
+        and closes the loot window itself; `ghost_taken` is the SERVER's word that a
+        robbery landed, which the old code could not tell from a frame that merely left.
+        """
+        uuid = _int(target.get("uuid"))
         if not uuid:
             return
+        # With the coordinate, for the same reason the standing order sends it:
+        # `world.get.detail.new` is keyed by the point, not by the uuid.
+        queue = "{uuid=%d,server=%d,x=%d,y=%d,pid=%d}" % (
+            uuid, _int(target.get("srv")), _int(target.get("x")),
+            _int(target.get("y")), _int(target.get("pid")))
 
         def work():
-            ok = False
+            taken = False
+
+            def put(msg) -> None:
+                nonlocal taken
+                line = str(msg)
+                self.rt.put(f"[ghost] {line}")
+                if "ghost_taken" in line:
+                    taken = True
+
             try:
-                import game_buttons
-                import lua_actions
-                ev = self.evaluator()
-                lines = ev.run(lua_actions.ghost_recon_steal(uuid, server),
-                               marker=MARKER, settle=1.6)
-                ok = any("ghost_steal_sent" in ln for ln in (lines or []))
-                if ok:
-                    button = game_buttons.get("dismiss_ghost_recon_reward")
-                    if button is not None:
-                        ev.run(button.lua, marker=MARKER, settle=button.wait)
-            except Exception:          # noqa: BLE001 — a failed send is a log line
-                ok = False
-            self._log("cmdpost.ghost.log_sent" if ok else "cmdpost.ghost.log_held",
+                self.rt.actions.play("steal_ghost_recon", {"queue": queue},
+                                     human=True, on_event=put)
+            except Exception:      # noqa: BLE001 — a failed press is a log line
+                taken = False
+            self._log("cmdpost.ghost.log_sent" if taken else "cmdpost.ghost.log_held",
                       uuid=_short(uuid))
             self.after(self.refresh)
 
