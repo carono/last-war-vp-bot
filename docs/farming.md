@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 75 of 194
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 75 of 196
 
-🟩 75 done · 🟨 89 partly · 🟥 30 not automated
+🟩 75 done · 🟨 91 partly · 🟥 30 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -169,6 +169,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Alliance duel (VS)
 
 - ✅ Opening the drone's chip chests — one press empties every chest of every grade the bag holds, however many piles they are in, and it does it in a single go rather than one box at a time. A bag with none of them says so and opens nothing. Live: 44 chests of three grades, all opened at once
+- 🟡 Spending the survivor tickets on a Tuesday — one press hires at the tavern with everything the account is holding: the free pull first, then by ten while there are enough for a ten, then the rest one at a time, and it stops on the number you asked it to keep. The page says how many tickets are on hand and how many went today, and how old that reading is. The spend itself has not been watched live yet: tickets do not come back, so it waits for your word
+- 🟡 Opening the buildings that have finished — the page lists what is waiting to be opened with the game's own picture of it and its level, the highest first, a button on every row and one that opens them all. It only opens during the Arms Race hour that pays for construction, and a client that did not answer stops it rather than being guessed at. Both readings work live; the opening itself waits for a build hour
 - ❌ Training the army
 - ❌ Opening drone components
 - ❌ Collecting duel gifts
