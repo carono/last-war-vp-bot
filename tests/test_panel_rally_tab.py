@@ -160,11 +160,13 @@ def test_rally_tab_level_box_and_quick_buttons():
             # screen is what the run would go out on.
             tab._normalise_level()
             assert tab._level_var.get() == str(expected)
-        # Elite is the default kind; an unknown one (a hand-edited var) falls back to it.
+        # «Автоматически» is the default kind since #2646 — a season moves the elite
+        # and the level its search takes, so a pinned tab goes stale by itself. An
+        # unknown one (a hand-edited var) falls back to it.
         tab._kind_var.set(rl.RALLY_KIND_MONSTER)
         assert tab._kind() == rl.RALLY_KIND_MONSTER
         tab._kind_var.set("nonsense")
-        assert tab._kind() == rl.RALLY_KIND_ELITE
+        assert tab._kind() == rl.RALLY_KIND_AUTO
     finally:
         root.destroy()
 
@@ -190,7 +192,8 @@ def test_config_round_trip_and_bad_blocks():
         # A fresh tab saves its defaults, so a first-run profile is a valid one — and
         # the monitor is ON by default, because an alert nobody armed is no alert.
         fresh = tab.config()
-        assert fresh["form"] == {"kind": rl.RALLY_KIND_ELITE, "level": rl.RALLY_LEVEL_MIN,
+        assert fresh["form"] == {"v": rl.RALLY_FORM_V, "kind": rl.RALLY_KIND_AUTO,
+                                 "level": rl.RALLY_LEVEL_MIN,
                                  "squads": [], "repeats": 1}
         assert (fresh["monitor"], fresh["alert"]) == (True, True), fresh
         # The auto-join is NOT in this block: it is the «rally_auto_join» standing
@@ -207,8 +210,8 @@ def test_config_round_trip_and_bad_blocks():
         tab._set_autojoin(True)
         tab.autorally._squad_vars[1].set(True)
         saved = tab.config()
-        assert saved["form"] == {"kind": rl.RALLY_KIND_MONSTER, "level": 120,
-                                 "squads": [2, 4], "repeats": 7}
+        assert saved["form"] == {"v": rl.RALLY_FORM_V, "kind": rl.RALLY_KIND_MONSTER,
+                                 "level": 120, "squads": [2, 4], "repeats": 7}
         assert "autojoin" not in saved, saved
         assert tab._autojoin_on() is True, "the box did not move the standing order"
         assert saved["autorally"]["squads"] == [1]
@@ -222,15 +225,28 @@ def test_config_round_trip_and_bad_blocks():
 
         # A hand-edited or older config cannot smuggle in a level, a kind, a squad or a
         # repeat count the tab would refuse from the UI.
-        tab.apply_config({"form": {"kind": "nonsense", "level": 9999,
-                                   "squads": "1,2", "repeats": 0}})
-        assert tab.config()["form"] == {"kind": rl.RALLY_KIND_ELITE,
+        tab.apply_config({"form": {"v": rl.RALLY_FORM_V, "kind": "nonsense",
+                                   "level": 9999, "squads": "1,2", "repeats": 0}})
+        assert tab.config()["form"] == {"v": rl.RALLY_FORM_V,
+                                        "kind": rl.RALLY_KIND_AUTO,
                                         "level": rl.RALLY_LEVEL_MAX,
                                         "squads": [], "repeats": 1}
         tab.apply_config({"form": {"level": -5, "squads": [3, 99], "repeats": True}})
-        assert tab.config()["form"] == {"kind": rl.RALLY_KIND_ELITE,
+        assert tab.config()["form"] == {"v": rl.RALLY_FORM_V,
+                                        "kind": rl.RALLY_KIND_AUTO,
                                         "level": rl.RALLY_LEVEL_MIN,
                                         "squads": [3], "repeats": 1}
+
+        # A TAB PINNED BEFORE #2646 IS MOVED TO «АВТОМАТИЧЕСКИ», ONCE. That pin is what
+        # the person's own form held — the ordinary-monster tab and level 58 — and the
+        # season had left it aiming at nothing: the search window opened and no monster
+        # ever came back. A pin made AFTER the move is the person's and is kept.
+        tab.apply_config({"form": {"kind": rl.RALLY_KIND_MONSTER, "level": 58,
+                                   "squads": [4], "repeats": 1}})
+        assert tab.config()["form"]["kind"] == rl.RALLY_KIND_AUTO
+        tab.apply_config({"form": {"v": rl.RALLY_FORM_V, "kind": rl.RALLY_KIND_MONSTER,
+                                   "level": 58, "squads": [4], "repeats": 1}})
+        assert tab.config()["form"]["kind"] == rl.RALLY_KIND_MONSTER
         tab.apply_config("not a block at all")
         assert tab.config()["form"]["level"] == rl.RALLY_LEVEL_MIN
 
@@ -258,6 +274,7 @@ def test_a_profile_written_before_the_move_still_aims_the_tab():
     except Exception as exc:                            # noqa: BLE001
         _skip(exc)
         return
+    from panel.tabs.rally import tab as rl
     from panel.tabs.rally.tab import RallyTab
     try:
         _hold_autojoin(tab, False)
@@ -268,8 +285,10 @@ def test_a_profile_written_before_the_move_still_aims_the_tab():
         }
         tab.apply_config(rt.settings.tab_config(RallyTab.ID, RallyTab.LEGACY_KEYS))
         got = tab.config()
-        assert got["form"] == {"kind": "monster", "level": 60,
-                               "squads": [1, 3], "repeats": 4}, got["form"]
+        # …and the pre-#2646 pin in it is moved to «Автоматически» on the way (see the
+        # save/restore test above); everything else carries over unchanged.
+        assert got["form"] == {"v": rl.RALLY_FORM_V, "kind": rl.RALLY_KIND_AUTO,
+                               "level": 60, "squads": [1, 3], "repeats": 4}, got["form"]
         assert (got["monitor"], got["alert"]) == (False, False), got
         # THE AUTO-JOIN IS NO LONGER STORED HERE (#1281). It is the «rally_auto_join»
         # standing order, and a second copy of it in this block is exactly what made two
