@@ -9723,6 +9723,116 @@ def crystal_sent() -> str:
             % crystal_attacks_left())
 
 
+# -- the event's CHESTS, which the fight earns and nobody hands over (#2638) ------
+# The boss pays out along two lists of its own, and the game names both itself out of
+# its own tables: «Weekly Damage Rewards» (`red_world_boss_title14`) — one chest per
+# segment of the week's damage record, reset weekly — and «Achievement Rewards»
+# (`red_world_boss_title15`), one per achievement the account has finished. Neither is
+# handed over: they sit in the event's window until somebody claims them, which is why
+# the day's errand claims them after its three attacks. The third attack is exactly the
+# moment the week's damage record can have moved.
+#
+# The lists arrive in the reply to `RequestPanelData()` — the progress get and the
+# achievement get, the two the attack path deliberately never sends. So a claim, like
+# every reading here, asks first and believes nothing a manager answered before it did.
+
+
+def crystal_rewards_fetch() -> str:
+    """Ask the server for both reward lists — the event window's own two gets.
+
+    `RequestPanelData()` sends the march get, the progress get and the achievement get.
+    The attack path sends only the first (`crystal_fetch`) because that is all it reads;
+    the chests need the other two and there is no narrower call for them.
+    """
+    return ('pcall(function() %s:RequestPanelData() end) '
+            'CS.UnityEngine.Debug.LogError("ACT crystal_rewards_fetch sent")'
+            % _CRYSTAL_MGR)
+
+
+def crystal_rewards_ready() -> str:
+    """Lua *expression* -> chests claimable right now over BOTH lists, or nil.
+
+    The two counts are the client's own — `GetClaimableCount()` for the week's damage
+    segments and `GetAchievementClaimableCount()` for the achievements — and they are
+    added because a person acts on one number: «есть что забрать» or «нет». Which list
+    it came from is drawn beside it and never instead of it.
+
+    ``nil`` when neither could be read: a manager nobody has asked answers a claim
+    exactly as it would with nothing to claim, and «nobody knows» must not be drawn as
+    a zero.
+    """
+    return ("(function() local w = nil local a = nil "
+            "local ok, v = pcall(function() return %(m)s:GetClaimableCount() end) "
+            "if ok and v ~= nil then w = math.floor(v + 0) end "
+            "ok, v = pcall(function() return %(m)s:GetAchievementClaimableCount() end) "
+            "if ok and v ~= nil then a = math.floor(v + 0) end "
+            "if w == nil and a == nil then return nil end "
+            "return (w or 0) + (a or 0) end)()" % {"m": _CRYSTAL_MGR})
+
+
+def crystal_weekly_claimed() -> str:
+    """Lua *expression* -> damage segments of this week whose chest is already taken.
+
+    `claimedMax` on the progress data: the furthest segment claimed, which IS the count
+    because the segments are claimed in order. It is the half of the answer that says
+    what has already been had, and it resets with the week the way the list does.
+    """
+    return ("(function() local ok, d = pcall(function() "
+            "return %s:GetProgressData() end) "
+            "if not ok or type(d) ~= 'table' then return nil end "
+            "local v = d.claimedMax if v == nil then return nil end "
+            "return math.floor(v + 0) end)()" % _CRYSTAL_MGR)
+
+
+def crystal_achievements(done: bool) -> str:
+    """Lua *expression* -> achievements CLAIMED (``done``) or achievements in all.
+
+    One walk of `GetAchievementDisplayTasks()`, which is the list the event's own screen
+    draws. `state` is the game's: 2 is «taken», anything else is not, and the total is
+    the length of the list — so «5 / 7» is the game's own arithmetic rather than a tally
+    the panel keeps, exactly as the attack counter is.
+    """
+    return ("(function() local ok, list = pcall(function() "
+            "return %s:GetAchievementDisplayTasks() end) "
+            "if not ok or type(list) ~= 'table' then return nil end "
+            "local n, taken = 0, 0 "
+            "for _, t in pairs(list) do n = n + 1 "
+            "if type(t) == 'table' and (t.state or 0) + 0 == 2 then taken = taken + 1 end "
+            "end return %s end)()" % (_CRYSTAL_MGR, "taken" if done else "n"))
+
+
+def crystal_claim_all() -> str:
+    """Take every chest the event says is claimable — the window's «Получить всё».
+
+    **TWO calls, and `ClaimAllRewards()` is NOT one of them.** The manager has a method
+    of that name and it is the obvious thing to press; measured on a live client with 55
+    chests waiting, it returned cleanly and claimed nothing at all — the count, the
+    `claimedMax` and the red dot were all exactly as before. What does claim is the pair
+    behind it: `ClaimAllProgress()` for the week's damage segments and
+    `ClaimAllAchievementRewards()` for the achievements. On the same client, in the same
+    minute, those two took the count from 55 to 0 and moved `claimedMax` from 108 to 163.
+    Do not «simplify» this back into the one call that looks right (#2638).
+
+    Both are sends: they return at once and the counts move when the replies land, which
+    is why the recipe waits for the SERVER's own number rather than believing the press.
+    """
+    return ('pcall(function() %(m)s:ClaimAllProgress() end) '
+            'pcall(function() %(m)s:ClaimAllAchievementRewards() end) '
+            'CS.UnityEngine.Debug.LogError("ACT crystal_claim_all sent")'
+            % {"m": _CRYSTAL_MGR})
+
+
+def crystal_claiming() -> str:
+    """Lua *expression* -> 1 while a claim of either list is still in flight, else 0.
+
+    The manager holds it (`IsAnyRewardClaiming`) because the claim is asynchronous: the
+    press returns at once and the counts move when the replies land. A recipe that read
+    the count the instant it pressed would read the one it pressed over.
+    """
+    return ("(function() local ok, v = pcall(function() "
+            "return %s:IsAnyRewardClaiming() end) "
+            "if not ok then return 0 end return (v and 1 or 0) end)()" % _CRYSTAL_MGR)
+
 
 # ---------------------------------------------------------------------------
 # «Вход с другого устройства» — the kick, as the CLIENT shows it

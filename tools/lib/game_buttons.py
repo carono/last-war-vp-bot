@@ -1309,6 +1309,22 @@ BUTTONS: dict[str, Button] = {
         # recipe then measures.
         wait=2.0, label="send the squad at the crystal boss",
     ),
+    # …and the two the CHESTS need (#2638). The boss pays out along two lists of its
+    # own — the week's damage rewards and the achievements — and neither is handed over
+    # by winning: they wait in the event's window until somebody claims them.
+    "crystal_rewards_fetch": Button(
+        # The other ASK: the progress get and the achievement get, which the attack path
+        # deliberately never sends because it never reads them.
+        lua=_lua_actions.crystal_rewards_fetch(),
+        wait=1.5, label="ask the server for the crystal boss's reward lists",
+    ),
+    "crystal_claim_all": Button(
+        # The window's own «Получить всё», in one call and with no window opened. It
+        # covers both lists; the counts move when the replies land, which is why the
+        # recipe waits for the server rather than believing the press.
+        lua=_lua_actions.crystal_claim_all(),
+        wait=1.5, label="claim every crystal-boss chest the event says is claimable",
+    ),
     # --- base decorations: the handbook's upgrade press -----------------------
     # One press upgrades the first decoration that is ready: the button finds the
     # group itself, so nothing has to be picked or parked beforehand. Headless — no

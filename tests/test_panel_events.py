@@ -329,9 +329,15 @@ class _Skip(Exception):
 #: «Кристальный босс» as the live client answered it — a day with all three still
 #: owed, a day already spent (the reading taken live after one errand run), and a day
 #: with no boss at all.
-CRYSTAL_OPEN = "open=1 left=3 need=3 made=0 can=1 hp=100 targets=1 until=67975"
-CRYSTAL_SPENT = "open=1 left=0 need=3 made=3 can=0 hp=100 targets=1 until=67975"
-CRYSTAL_SHUT = "open=0 left=- need=- made=- can=- hp=- targets=- until=-"
+CRYSTAL_OPEN = ("open=1 left=3 need=3 made=0 can=1 hp=100 targets=1 until=67975 "
+                "bonus=0 wdone=108 achdone=5 achall=7")
+CRYSTAL_SPENT = ("open=1 left=0 need=3 made=3 can=0 hp=100 targets=1 until=67975 "
+                 "bonus=0 wdone=163 achdone=5 achall=7")
+CRYSTAL_SHUT = ("open=0 left=- need=- made=- can=- hp=- targets=- until=- "
+                "bonus=- wdone=- achdone=- achall=-")
+#: …and a day whose fight has earned chests nobody has taken yet (#2638).
+CRYSTAL_CHESTS = ("open=1 left=0 need=3 made=3 can=0 hp=100 targets=1 until=67975 "
+                  "bonus=55 wdone=108 achdone=5 achall=7")
 
 #: A golden-zombie reading with energy to spend, and one without.
 GOLDEN_OPEN = "energy=55 cost=10 attacks=5 seen=135 atk=765 col=1930 ratio=252"
@@ -1221,8 +1227,75 @@ def test_the_crystal_reading_asks_the_server_before_it_believes_the_answer():
 
 def test_the_crystal_reading_answers_every_field_the_card_draws():
     reading = modelmod.parse(CRYSTAL_OPEN, at=1.0)
-    for field in ("open", "left", "need", "made", "hp", "targets", "until"):
+    for field in ("open", "left", "need", "made", "hp", "targets", "until",
+                  "bonus", "wdone", "achdone", "achall"):
         assert reading.get(field) is not None, field
+
+
+# ---------------------------------------------------------------------------
+# …and what the fight EARNS but nobody hands over (#2638)
+# ---------------------------------------------------------------------------
+CRYSTAL_COLLECT_FILE = ACTIONS / "collect_crystal_boss_rewards.md"
+
+
+def test_the_crystal_card_says_what_is_waiting_and_what_is_already_taken():
+    """Both halves of the person's question, and a dash is never drawn as a zero."""
+    waiting = modelmod.crystal_state(modelmod.parse(CRYSTAL_CHESTS, at=1.0))
+    assert waiting.bonus == 55 and waiting.can_collect
+    assert modelmod.crystal_bonus(waiting) == "55"
+    assert modelmod.crystal_weekly_taken(waiting) == "108"
+    assert modelmod.crystal_achievements(waiting) == "5 / 7"
+
+    empty = modelmod.crystal_state(modelmod.parse(CRYSTAL_OPEN, at=1.0))
+    assert empty.bonus == 0 and not empty.can_collect
+
+    unknown = modelmod.crystal_state(modelmod.parse(CRYSTAL_SHUT, at=1.0))
+    assert unknown.bonus is None and not unknown.can_collect, \
+        "«nobody knows» was pressed as if a chest had been counted"
+    assert modelmod.crystal_bonus(unknown) == "—"
+    assert modelmod.crystal_achievements(unknown) == "—"
+
+
+def test_the_phone_claims_the_chests_only_when_one_has_been_counted():
+    tab = _tab(crystal=CRYSTAL_CHESTS)
+    card = _card(tab, "events.group.crystal")
+    rows = {r["label"]: r["value"] for r in card["rows"]}
+    assert rows["events.crystal.bonus"] == "55"
+    assert rows["events.crystal.bonus.weekly"] == "108"
+    assert rows["events.crystal.bonus.achievements"] == "5 / 7"
+    assert "collect_crystal" in {a["id"] for a in card["actions"]}
+    assert tab.web_press("collect_crystal", {}) == {"ok": True}
+    assert tab.rt.played == [modelmod.CRYSTAL_COLLECT]
+
+    nothing = _tab(crystal=CRYSTAL_OPEN)
+    assert "collect_crystal" not in {
+        a["id"] for a in _card(nothing, "events.group.crystal").get("actions", [])}
+    assert nothing.web_press("collect_crystal", {}) == {"error": "closed"}
+
+
+def test_the_chests_are_a_scenario_and_the_day_takes_them_after_its_attacks():
+    """The ability is one file; the errand calls it, and the panel only plays it."""
+    text = CRYSTAL_COLLECT_FILE.read_text(encoding="utf-8")
+    assert "TAP crystal_rewards_fetch" in text, "a claim over a list nobody fetched"
+    assert "TAP crystal_claim_all" in text
+    # An empty list is a SUCCESS: a failure would sit out the retry hold over a state
+    # only the next attack can change.
+    assert "STOP" in text and "WHILE cr_bonus > 0 LIMIT" in text
+    assert modelmod.CRYSTAL_COLLECT == "collect_crystal_boss_rewards"
+    import game_buttons
+    for press in ("crystal_rewards_fetch", "crystal_claim_all"):
+        assert game_buttons.get(press) is not None, f"«{press}» is not a button"
+    day = CRYSTAL_DAILY_FILE.read_text(encoding="utf-8")
+    assert "CALL collect_crystal_boss_rewards" in day, \
+        "the day's three attacks earn chests nobody takes"
+
+
+def test_the_claim_is_the_pair_that_worked_and_not_the_method_that_looked_right():
+    """`ClaimAllRewards()` returned cleanly and claimed nothing, live (#2638)."""
+    import lua_actions
+    claim = lua_actions.crystal_claim_all()
+    assert "ClaimAllProgress" in claim and "ClaimAllAchievementRewards" in claim
+    assert "ClaimAllRewards()" not in claim
 
 
 def test_the_crystal_attack_is_a_scenario_and_the_panel_only_plays_it():

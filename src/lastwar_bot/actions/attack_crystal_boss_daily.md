@@ -77,3 +77,11 @@ IF cr_left != 0
     FAIL "the day's «Кристальный босс» attacks are not all made — the clock will try again"
 
 LOG "The day's «Кристальный босс» attacks are made"
+
+# --- and then the CHESTS the fight has just earned --------------------------------
+# The event pays out along two lists besides the fight — the week's damage record and
+# the achievements — and neither is handed over: they wait in its window until somebody
+# claims them. The third attack is exactly the moment the week's record can have moved,
+# so this is where they are taken (#2638). The call ends as a success when there is
+# nothing to take, so a day that earned no new chest costs one ask and no failure.
+CALL collect_crystal_boss_rewards

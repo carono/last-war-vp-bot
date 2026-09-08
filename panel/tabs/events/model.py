@@ -70,6 +70,14 @@ CRYSTAL_VARIABLE = "crystal"
 CRYSTAL_ATTACK = "attack_crystal_boss"
 CRYSTAL_DAILY = "attack_crystal_boss_daily"
 
+#: …and the third press, the one #2638 added: the event pays out in CHESTS as well as in
+#: the fight — «Weekly Damage Rewards» for the damage record of the week and «Achievement
+#: Rewards» for what the account has done in it, both of them the game's own words out of
+#: its own tables. They are earned by attacking and then sit there until somebody claims
+#: them, which is why the day's errand claims them after its three attacks: the third
+#: attack is exactly the moment the week's damage record can have moved.
+CRYSTAL_COLLECT = "collect_crystal_boss_rewards"
+
 #: The reading behind the «Золотые зомби» group, and the variable it lands in.
 GOLDEN_ACTION = "read_golden_zombies"
 GOLDEN_VARIABLE = "golden"
@@ -615,10 +623,12 @@ class CrystalState:
     number nobody can trust.
     """
 
-    __slots__ = ("state", "attacks", "need", "left", "health", "targets", "seconds")
+    __slots__ = ("state", "attacks", "need", "left", "health", "targets", "seconds",
+                 "bonus", "bonus_taken", "bonus_total", "weekly_taken")
 
     def __init__(self, state: str, attacks=None, need=None, left=None, health=None,
-                 targets=None, seconds=None) -> None:
+                 targets=None, seconds=None, bonus=None, bonus_taken=None,
+                 bonus_total=None, weekly_taken=None) -> None:
         self.state = state
         self.attacks = attacks
         self.need = need
@@ -627,6 +637,20 @@ class CrystalState:
         self.targets = targets
         #: Seconds left in the open window, when there is one.
         self.seconds = seconds
+        #: The event's CHESTS (#2638). It pays out along two lists of its own, and the
+        #: game names them itself: «Weekly Damage Rewards», one chest per segment of the
+        #: week's damage record, and «Achievement Rewards», one per achievement.
+        #:
+        #: ``bonus`` is what can be claimed RIGHT NOW over both of them — the number the
+        #: card leads with, because it is the only one anybody acts on. ``weekly_taken``
+        #: is how many damage segments have already been claimed this week, and
+        #: ``bonus_taken`` / ``bonus_total`` are the achievements taken against the
+        #: achievements there are. ``None`` anywhere is «the game would not say», which
+        #: is never drawn as a zero.
+        self.bonus = bonus
+        self.bonus_taken = bonus_taken
+        self.bonus_total = bonus_total
+        self.weekly_taken = weekly_taken
 
     @property
     def open(self) -> bool:
@@ -651,8 +675,21 @@ class CrystalState:
         """
         return self.state != CLOSED
 
+    @property
+    def can_collect(self) -> bool:
+        """May «Забрать бонусы» be pressed — has the game SAID there is one waiting?
+
+        The other way round from the attack button, and deliberately: an attack is worth
+        offering over a reading nobody could take, because the recipe asks the server
+        itself and refuses in one line. A claim over a list the game has never described
+        would press nothing at all, so the button appears when a chest has been COUNTED —
+        and `None`, «nobody knows», is not a count.
+        """
+        return bool(self.bonus)
+
     def __repr__(self) -> str:
-        return f"<crystal {self.state} {self.attacks}/{self.need} hp={self.health}>"
+        return (f"<crystal {self.state} {self.attacks}/{self.need} hp={self.health} "
+                f"bonus={self.bonus}>")
 
 
 def crystal_state(reading) -> "CrystalState":
@@ -670,12 +707,33 @@ def crystal_state(reading) -> "CrystalState":
         health=reading.get("hp"),
         targets=reading.get("targets"),
         seconds=reading.get("until"),
+        bonus=reading.get("bonus"),
+        bonus_taken=reading.get("achdone"),
+        bonus_total=reading.get("achall"),
+        weekly_taken=reading.get("wdone"),
     )
 
 
 def crystal_left(state) -> str:
     """`2` — attacks the day still owes, or `—` for «the game would not say»."""
     return "—" if state.left is None else str(state.left)
+
+
+def crystal_bonus(state) -> str:
+    """`2` — chests waiting to be claimed, or `—` for «the game would not say» (#2638)."""
+    return "—" if state.bonus is None else str(state.bonus)
+
+
+def crystal_achievements(state) -> str:
+    """`5 / 7` — achievement chests already taken against how many there are."""
+    if state.bonus_taken is None or state.bonus_total is None:
+        return "—"
+    return "%d / %d" % (state.bonus_taken, state.bonus_total)
+
+
+def crystal_weekly_taken(state) -> str:
+    """`108` — damage segments of this week whose chest has already been claimed."""
+    return "—" if state.weekly_taken is None else str(state.weekly_taken)
 
 
 def health(state) -> str:
