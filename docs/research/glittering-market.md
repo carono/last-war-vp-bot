@@ -157,4 +157,8 @@ first, and switched off by default, because a coin spent does not come back
   panel restart, and the play is refused because the panel's own gate is still amber that
   early — «нет связи с игрой — ничего автоматического не стартует» — and an edge does not
   come round again. So the ear books a look every 20 s until one of them reads something,
-  at most six times, and stops. It waits for the PANEL's link and asks the game nothing.
+  at most six times, and stops. And while the panel's gate is SHUT it books itself
+  again without playing at all — on the live machine the link took over three
+  minutes to come back with three profiles starting at once, and playing into a shut
+  gate only prints «нет связи с игрой» once a look. It waits for the PANEL's link and
+  asks the game nothing.

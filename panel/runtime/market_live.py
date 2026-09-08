@@ -63,6 +63,15 @@ DEBOUNCE_SEC = 20.0
 FIRST_LOOK_MS = 20_000
 FIRST_LOOK_TRIES = 6
 
+#: …and how long it may keep WAITING while the panel's own gate is shut, in looks of
+#: :data:`FIRST_LOOK_MS`. A shut gate is not a failed reading: after a restart the link
+#: to the client is re-made, and on this machine that took over three minutes with three
+#: profiles coming up at once. While the gate is held nothing is played at all — the
+#: look simply books itself again — so the wait costs a dict lookup a look and not one
+#: message to the game. It gives up after this many so that a client which never comes
+#: back cannot leave a booking behind for ever.
+GATE_WAIT_TRIES = 90
+
 #: The tick chain the first look uses. One per profile's runtime, like every other.
 CHAIN_FIRST = "market_first_read"
 
@@ -135,6 +144,7 @@ class MarketWatch:
         self._offs: list = []
         self._read_once = False
         self._tries = 0
+        self._waited = 0
 
     # -- wiring --------------------------------------------------------------
     def start(self) -> None:
@@ -165,7 +175,23 @@ class MarketWatch:
         try: what it is waiting out is the few seconds between the panel coming up and
         its own game link being usable, not the game.
         """
-        if self._read_once or self._tries >= FIRST_LOOK_TRIES:
+        if self._read_once:
+            return
+        self._waited += 1
+        if self._waited > GATE_WAIT_TRIES:
+            return
+        # A SHUT GATE IS NOT A TRY. Playing into it only prints «нет связи с игрой» once
+        # a look, which is noise about a state the panel already knows and is already
+        # showing; so the look books itself again and spends nothing.
+        held = False
+        try:
+            held = bool(self._rt.gate.held())
+        except Exception:                # noqa: BLE001 — no gate means: just look
+            held = False
+        if held:
+            self._arm_first()
+            return
+        if self._tries >= FIRST_LOOK_TRIES:
             return
         self._tries += 1
         self.refresh("first")
