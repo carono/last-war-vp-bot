@@ -185,6 +185,12 @@ SURVIVOR_TICKETS = "survivor_tickets"
 #: the page, which is what makes a stale one visibly stale.
 READY_BUILDINGS = "ready_buildings"
 
+#: THE DUEL'S SCORE (#2645) — the player's own points, the two alliances' points and the
+#: days each side has won, exactly as `actions/read_vs_score.md` read them. Re-readable
+#: from the game whenever the client is in it, kept only so a page opened on a phone
+#: draws the last answer with its age beside it instead of a blank.
+VS_SCORE = "vs_score"
+
 #: How long a writer waits for another writer before giving up. Generous on purpose:
 #: the competing writer is another thread of this panel, or a standalone tab in another
 #: process, and both finish in milliseconds. A person seeing «database is locked»

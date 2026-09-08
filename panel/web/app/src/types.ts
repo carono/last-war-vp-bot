@@ -360,8 +360,11 @@ export interface ViewItem {
      one placeholder when this machine has no cover for it. Absent, and the row is drawn
      as it has been — a picture beside the name, which is what a player's face is. It is
      a WORD and not a flag on purpose: there are two drawings, and the day there is a
-     third it is named here rather than added as a second boolean. */
-  shape?: 'cover'
+     third it is named here rather than added as a second boolean.
+     `"picture"` is that third (#2645): the ordinary row, with its icon drawn half the
+     width of the card instead of as a stamp — a finished building is recognised by its
+     own art long before its name is read. */
+  shape?: 'cover' | 'picture'
   /* Where the card crops that picture — a CSS vertical position (#2340). */
   focus?: string
 }
