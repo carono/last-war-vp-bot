@@ -59,18 +59,35 @@ revision differs simply gets a different stem and the same route serves it.
 
 ## 3. Opening one
 
-`BuildManager:CheckSendBuildFinish(uuid, isDelaySend, info)` — the client's own claim.
-Its parameter names were read off the live function (`debug.getlocal` on the function
-object; `string.dump` has been refused by the sandbox since 2026-08), and the two extra
-arguments are optional: the panel's recipe calls it with the uuid alone.
+`BuildManager:SendFreeBuildingUpgradeFinish(uuid)` — the client's own claim.
+
+**And it is NOT `CheckSendBuildFinish` (#2641), which is what this section used to say.**
+That one's parameters read `(uuid, isDelaySend, info)` off the live function, which is
+exactly what a sender looks like — and it is a CHECK. Hooking `SFSNetwork.HandleMessage`
+around a call to it on a genuinely finished building caught **nothing on the wire at
+all**: no request, no reply, no error. `BuildManager` carries the batching machinery
+beside it (`CheckIsSendMessage`, `DelayClearSendList`), so what it decides is whether a
+send is due, and the sending is somebody else's. The lesson is the general one: a name
+is not evidence, and the only proof that a call sends is a message on the wire.
 
 It is scheduled through `TimerManager:GetInstance():DelayInvoke(…, 0)` rather than
 called on the hijack thread — the same precaution `SendCreateMarchMessage` needs, and it
 costs nothing to take.
 
-The proof a claim landed is the queue: the slot leaves `Finish`. That is what
-`actions/open_ready_buildings.md` counts before and after, so a send the server dropped
-fails loudly instead of reporting a success nobody got a building from.
+**The proof is the reply, and the queue cannot be it.** `free.building.upgrade.finish`
+comes back for every claim and says which it was in the clearest possible way:
+
+```
+{_id = 538, _time = 25, reward = {{type = 27, value = {itemId = …, addNum = …}}},
+ buildInfo = {uuid = <the building>, bId = <its id>, lv = <the NEW level>, …}}
+{errorCode = "E000000", errorMsg = "upgrade is not finish"}
+```
+
+A `buildInfo` is a yes; an `errorMsg` is the game's own words for the no. The queue is
+not usable as a proof for the same reason §5 gives — the client does not apply what the
+server tells it about its own build queue — so a slot claimed and handed over sits in
+`Finish` for minutes afterwards. The recipe frees the slot itself once the server has
+said yes, which is the client's own bookkeeping done for it.
 
 ## 4. The gate, and why it is in the recipe
 
