@@ -168,7 +168,10 @@ line — not of the wrapper, which runs inside a call the game was making anyway
   double every row that does raise one.
 * **The whitelist is not derived from a pattern.** `Reward`/`GetGift` matches 190 of the
   client's 2 221 window names, including previews, rank tables and shop pages. The list is
-  17 names, and it grows only by an `unknown` row somebody has read.
+  18 names, and it grows only by an `unknown` row somebody has read — which is exactly how
+  the eighteenth arrived (#2642): the base truck's collect raised
+  `UIZombieBattleHangUpReward` twice, the ear recorded both as `unknown` and left them
+  standing, and the name was added once a person had read the evidence.
 
 ## 10. The switch, and where the wish lives (#2408)
 
