@@ -49,7 +49,13 @@ LOG "clock: {secret_clock}"
 READ_LUA (function() local P=LuaEntry.Player local own=tonumber(P.serverId) or 0 if own<=0 then return '' end local T=UITimeManager:GetInstance() local now=0 pcall(function() now=math.floor(tonumber(T:GetServerTime()) or 0) end) local m=DataCenter.ActDispatchTaskDataManager local tot,star={},{} local n=0 for _,v in pairs((m and m.allianceTask) or {}) do local exp=tonumber(v.actEndTime) or 0 if exp==0 or now<exp then local srv=math.floor(tonumber(v.targetServer) or own) local spec=0 pcall(function() spec=tonumber(v.cfg:getValue('is_special')) or 0 end) tot[srv]=(tot[srv] or 0)+1 star[srv]=(star[srv] or 0)+((spec==1) and 1 or 0) n=n+1 end end if n==0 then return '' end local ids={} for k in pairs(tot) do ids[#ids+1]=k end table.sort(ids) local out={} for _,k in ipairs(ids) do out[#out+1]=k..'='..star[k]..'/'..tot[k] end return table.concat(out,' ') end)() INTO secret_counts
 LOG "counts: {secret_counts}"
 
-READ_LUA (function() local s='{secret_counts}' local n=0 for _ in s:gmatch('%S+') do n=n+1 end return n end)() INTO secret_servers
+# HOW MANY SERVERS THAT WAS. The line above was just READ, so it cannot travel into a
+# Lua chunk as `{secret_counts}` — a placeholder is filled when the FILE IS PARSED, and
+# what reached the game was the name itself, counted as one word for ever (#2649). It is
+# parked first, which is the primitive for a value learnt mid-run (docs/dsl.md).
+PARK secret_counts INTO DataCenter.__lw_secret_counts
+
+READ_LUA (function() local s = tostring(DataCenter.__lw_secret_counts or '') local n=0 for _ in s:gmatch('%S+') do n=n+1 end return n end)() INTO secret_servers
 
 IF secret_servers == 0
     LOG "the client is holding no live dispatch task at all — either the alliance has none out, or this client is not in a session"
