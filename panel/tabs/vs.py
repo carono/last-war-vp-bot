@@ -70,6 +70,13 @@ CHIP_READ = "read_drone_chips"
 TICKETS_READ = "read_survivor_tickets"
 BUILDS_READ = "read_ready_buildings"
 
+#: …AND THE ONE PRESS ON THIS PAGE THAT SPENDS SOMETHING IRREVERSIBLY (#2634). Closing a
+#: construction takes speed-ups out of the bag and they do not come back, so nothing
+#: plays it by itself: the row prices the parcel first, the button asks, and the recipe
+#: works the parcel out again for itself at the moment of the press
+#: (`actions/finish_building.md`).
+BUILD_FINISH = "finish_building"
+
 #: WHAT THE GAME ITSELF SAYS WHEN THESE READINGS MOVE (#2633), and the whole reason
 #: this page has no «Обновить» any more. The person's rule: «любые статистики я не
 #: должен обновлять, все данные должны подтягиваться при старте клиента, а их изменение
@@ -450,6 +457,12 @@ class VsTab(VsDuelTab):
                          "icon": parts[3], "name": parts[4]})
         state = dict(self._builds_state())
         state["rows"] = rows
+        # …AND WHAT IS STILL BUILDING, out of the same reading (#2634): the same five
+        # fields, how long the slot still has to run, whether the bag can close it and
+        # the parcel that would. The plan is the GAME's arithmetic, not the panel's —
+        # nothing here decides which speed-up is spent.
+        state["building"] = self._parse_building(str(variables.get("building_builds")
+                                                     or ""))
         state["at"] = int(time.time())
         self._builds_save(state)
         self._first_ok.add("builds")
@@ -457,6 +470,90 @@ class VsTab(VsDuelTab):
         # earliest slot still has to run, so the panel knows the exact second the list
         # will be wrong and asks then — never in between (#2633).
         self._arm_build_alarm(_int(variables.get("next_ready_sec"), -1))
+
+    @staticmethod
+    def _parse_building(raw: str) -> list:
+        """`uuid|id|lv|icon|name|left|covered|plan` -> the rows of running constructions.
+
+        A line the recipe did not print in that shape is dropped rather than guessed at:
+        a half-read parcel priced on a screen is an irreversible spend nobody agreed to.
+        """
+        rows = []
+        for piece in raw.split(";;"):
+            parts = [bit.strip() for bit in piece.split("|")]
+            if len(parts) < 7 or not parts[0].isdigit():
+                continue
+            plan = []
+            for bit in (parts[7] if len(parts) > 7 else "").split("+"):
+                cut = bit.split(":")
+                if len(cut) < 4 or not cut[0].strip().isdigit():
+                    continue
+                plan.append({"id": cut[0].strip(), "num": _int(cut[1]),
+                             "sec": _int(cut[2]), "own": _int(cut[3])})
+            rows.append({"uuid": parts[0], "id": parts[1], "level": _int(parts[2]),
+                         "icon": parts[3], "name": parts[4], "left": _int(parts[5]),
+                         "covered": _int(parts[6]) == 1, "plan": plan})
+        return rows
+
+    def _span(self, seconds: int) -> str:
+        """«4 ч» — a stretch of time in the coarsest unit that still says something.
+
+        The same words the age of a reading is said in, and every one of them a key.
+        """
+        gap = max(0, int(seconds))
+        if gap < 60:
+            return self.t("vs.age.sec", n=gap)
+        if gap < 3600:
+            return self.t("vs.age.min", n=gap // 60)
+        if gap < 86400:
+            return self.t("vs.age.hour", n=gap // 3600)
+        return self.t("vs.age.day", n=gap // 86400)
+
+    def _cost(self, row: dict) -> str:
+        """«16×5 мин + 1×15 мин» — what closing this construction would take out of the bag.
+
+        The person's rule for an irreversible spend: it is NAMED before it is made
+        (CLAUDE.md). A bag that cannot close the build says so instead of pricing a
+        parcel that would be spent for nothing.
+        """
+        pieces = [self.t("vs.builds.piece", n=_int(item.get("num")),
+                         min=max(1, _int(item.get("sec")) // 60))
+                  for item in (row.get("plan") or []) if _int(item.get("num")) > 0]
+        if not row.get("covered") or not pieces:
+            return self.t("vs.builds.short")
+        return " + ".join(pieces)
+
+    def _building_rows(self) -> list:
+        """One row per construction that is still running — its price, and its press.
+
+        The earliest first, which is the order the recipe priced them in: two
+        constructions over one bag are priced against what the first would leave, so the
+        second's parcel is honest rather than counted twice.
+        """
+        state = self._builds_state()
+        rows = state.get("building") if isinstance(state.get("building"), list) else []
+        out = []
+        for row in rows or []:
+            uuid = str(row.get("uuid") or "")
+            entry = {"text": row.get("name") or str(row.get("id") or ""),
+                     "facts": [{"label": "vs.builds.level",
+                                "value": str(_int(row.get("level")))},
+                               {"label": "vs.builds.left",
+                                "value": self._span(_int(row.get("left")))},
+                               {"label": "vs.builds.cost", "value": self._cost(row)}],
+                     "actions": [{"id": "finish_one", "args": {"uuid": uuid},
+                                  "label": "vs.builds.finish",
+                                  # IT ASKS FIRST, because the speed-ups do not come
+                                  # back — the same guard a rally join carries.
+                                  "confirm": "vs.builds.finish.confirm",
+                                  # …and a bag that cannot close it offers a dead
+                                  # button rather than a spend that buys nothing.
+                                  "disabled": not row.get("covered")}]}
+            picture = self._build_icon(str(row.get("icon") or ""))
+            if picture:
+                entry["icon"] = picture
+            out.append(entry)
+        return out
 
     @staticmethod
     def _build_icon(stem: str) -> "str | None":
@@ -755,8 +852,11 @@ class VsTab(VsDuelTab):
                 # level, and its own «Открыть». «Открыть все» goes dead when there is
                 # nothing waiting, which is the person's own words: «кнопка открыть все,
                 # если есть, что открывать, иначе дисаблед».
+                # THE FINISHED ONES FIRST, THEN WHAT IS STILL BUILDING (#2634) — one
+                # list of the same rows, and the second half carries the price of
+                # closing it and the press that pays it.
                 rows = self._builds_rows()
-                group["items"] = rows
+                group["items"] = rows + self._building_rows()
                 for press in group["actions"]:
                     if press.get("id") == "run":
                         press["disabled"] = not rows
@@ -802,6 +902,18 @@ class VsTab(VsDuelTab):
                 return {"error": "unknown"}
             return {"ok": self.rt.play_async(
                 RUNS["tue.build_collect"], args={"uuid": uuid}, tag="vs", human=True,
+                on_result=self._builds_after_open)}
+        if action == "finish_one":
+            # AN IRREVERSIBLE SPEND, NAMED ONE AT A TIME. The panel holds no part of the
+            # ability: which speed-ups close this construction, whether the bag can, and
+            # what happens when the server drops the send are all
+            # `actions/finish_building.md`'s (CLAUDE.md). The reading is taken again
+            # either way — a run that closed nothing must not leave the row looking shut.
+            uuid = str((args or {}).get("uuid") or "")
+            if not uuid.isdigit():
+                return {"error": "unknown"}
+            return {"ok": self.rt.play_async(
+                BUILD_FINISH, args={"uuid": uuid}, tag="vs", human=True,
                 on_result=self._builds_after_open)}
         if action != "run":
             return super().web_press(action, args)
