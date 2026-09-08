@@ -431,6 +431,39 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.collect_shop_freebies",
     ),
     Timer(
+        name="collect_glittering_market",
+        scenario=("collect_glittering_market",),
+        # SIX HOURS. Everything it takes comes back once a game DAY — the free reward
+        # restocks at the event's own `dayRewardNextRefreshTime` — and every gate is the
+        # server's own answer about today, so the period decides nothing except how long
+        # after the day turns over the diamonds are picked up. A run with nothing waiting
+        # is one VM round trip against the client's own record and not one question goes
+        # on the wire (docs/research/glittering-market.md).
+        interval_sec=21600,
+        # A failure here is a client that was not answering; a few minutes is soon enough.
+        retry_sec=300,
+        # SWITCHED ON, with no `enabled=` at all (#2390): it can spend nothing. The free
+        # reward is free, the rows it buys are the ones the game itself prices at zero,
+        # and a chest is claimed only where the account has already earned it.
+        label_key="timers.item.collect_glittering_market",
+    ),
+    Timer(
+        name="buy_glitter_market_goods",
+        scenario=("buy_glitter_market_goods",),
+        # A DAY, and the period is nearly beside the point: this row is OFF and is meant
+        # to be pressed rather than scheduled. It is here as a card so the shop has a
+        # place to be looked at and a gear to choose the row and the count in.
+        interval_sec=86400,
+        retry_sec=600,
+        # OFF, and this is the one exception the «ships switched on» rule names (#2390):
+        # a Glitter Coin is bought with diamonds in the game's own pack window and does
+        # not come back. So it never fires by itself, it says the price before it sends
+        # anything, and the person switches it on themselves if they ever want it
+        # scheduled.
+        enabled=False,
+        label_key="timers.item.buy_glitter_market_goods",
+    ),
+    Timer(
         name="lucky_share",
         scenario=("share_lucky_packet",),
         # HALF AN HOUR, and it is the person's own choice (#2397): «раз в полчаса тоже

@@ -641,6 +641,46 @@ def _arms_chests(rt) -> "dict | None":
 #: Errand name -> what to draw under its block. An errand that is not here draws
 #: nothing, and that is a deliberate answer rather than a gap to be filled in with a
 #: poll: see the module docstring, and the survey in `docs/research/errand-stats.md`.
+def _market(rt) -> "dict | None":
+    """«Сверкающий рынок»: what is free right now, off the last reading (#2636).
+
+    The reading is `panel/runtime/market_live.py` — taken when the client got into the
+    game and on the event's own push, never on a clock — so this line costs nothing and
+    carries its own AGE, which is what makes a stale number honest rather than wrong.
+    """
+    from . import market_live
+
+    fields, age = market_live.state(rt)
+    if age is None:
+        return None
+    if not fields.get("open"):
+        return {"key": "timers.stat.market.closed", "fmt": {}, "age": age}
+    free, goods = _int(fields.get("free")), _int(fields.get("goods_free"))
+    boxes = _int(fields.get("boxes_due"))
+    if free:
+        return {"key": "timers.stat.market.free",
+                "fmt": {"item": fields.get("free_item") or "?",
+                        "n": goods + boxes}, "age": age}
+    if goods or boxes:
+        return {"key": "timers.stat.market.goods",
+                "fmt": {"n": goods + boxes}, "age": age}
+    return {"key": "timers.stat.market.done", "fmt": {}, "age": age}
+
+
+def _market_coins(rt) -> "dict | None":
+    """«Сверкающий рынок»: the coins in the bag and how many rows are still on sale."""
+    from . import market_live
+
+    fields, age = market_live.state(rt)
+    if age is None:
+        return None
+    if not fields.get("open"):
+        return {"key": "timers.stat.market.closed", "fmt": {}, "age": age}
+    return {"key": "timers.stat.market.coins",
+            "fmt": {"coins": _int(fields.get("coins")),
+                    "n": _int(fields.get("priced_rows"))}, "age": age}
+
+
 PROVIDERS: dict = {
     "collect_base_resources": _pending_resources,
     "rally_auto_join": _rally_joins,
@@ -676,6 +716,11 @@ PROVIDERS: dict = {
     # …and the golden hunt (#2408), which became a row of its own when the person could
     # not find its card: «Не, делаем в таймерах, туда суём её, как обычную карточку».
     "attack_golden_zombies": _golden_hunt,
+    # …and the two cards of «Сверкающий рынок» (#2636). Both off ONE reading kept by
+    # `panel/runtime/market_live.py`, which is taken on the client entering the game and
+    # on the event's own push — no clock, and no «Обновить» anywhere.
+    "collect_glittering_market": _market,
+    "buy_glitter_market_goods": _market_coins,
     # …and the rows #2579 gave a line to, every one of them off the SAME reading the
     # eight above ride on or off the panel's own record — not one new question.
     "heal_units": _hospital,

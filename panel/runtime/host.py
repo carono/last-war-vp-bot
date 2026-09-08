@@ -328,6 +328,7 @@ class PanelRuntime:
         self._banners = None            # …and what it heard about the banners out
         self._fireworks = None          # …and about the fireworks going off (#1677)
         self._rewards = None            # …and the reward popups it shut (#2027)
+        self._market = None             # …and the Glittering Market's own ear (#2636)
         self._players = None            # …and the register every source writes into
         self._secret_days = None        # …and the book of star-secret-task days (#1467)
         self._store = None              # …and this profile's database (#1398)
@@ -384,6 +385,14 @@ class PanelRuntime:
             self.rewards                                   # noqa: B018 — built to listen
         except Exception:                 # noqa: BLE001 — the panel still works
             self.dbg("rewards").error("could not start the reward book", exc_info=True)
+        # …AND THE MARKET'S EAR, for the same reason (#2636): «Сверкающий рынок» has no
+        # page of its own, so there is no tab whose opening could take the first reading.
+        # It listens for the client entering the game and for the event's own score push,
+        # and nothing here ticks (panel/runtime/market_live.py).
+        try:
+            self.market.start()
+        except Exception:                 # noqa: BLE001 — the panel still works
+            self.dbg("market").error("could not start the market watch", exc_info=True)
         try:
             moved = self.players.ensure_imported()
         except Exception:                 # noqa: BLE001 — the register still works
@@ -492,6 +501,20 @@ class PanelRuntime:
             from .firework_wire import FireworkBook
             self._fireworks = FireworkBook(self)
         return self._fireworks
+
+    @property
+    def market(self):
+        """This profile's ear for «Сверкающий рынок» (#2636).
+
+        On the runtime rather than on a page because the event HAS no page: its two
+        cards live on «Таймеры», which draws rows and never reads the game. One reading
+        when the client gets into the game, one more on the event's own push, and no
+        clock anywhere (panel/runtime/market_live.py).
+        """
+        if self._market is None:
+            from .market_live import MarketWatch
+            self._market = MarketWatch(self)
+        return self._market
 
     @property
     def rewards(self):
