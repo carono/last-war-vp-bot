@@ -152,4 +152,9 @@ first, and switched off by default, because a coin spent does not come back
 * `panel/runtime/market_live.py` — the last reading, kept where both front-ends find it.
   It is taken when the client gets into the game (`bus.GAME_READY`) and again on
   `push.blue.shop.sc`, and never on a clock (`CLAUDE.md`, «A STATISTIC IS NOT REFRESHED
-  BY HAND»).
+  BY HAND»). Beside those two there is a BOUNDED first look, and the reason is worth
+  writing down because it cost a restart to find: the ready edge does arrive after a
+  panel restart, and the play is refused because the panel's own gate is still amber that
+  early — «нет связи с игрой — ничего автоматического не стартует» — and an edge does not
+  come round again. So the ear books a look every 20 s until one of them reads something,
+  at most six times, and stops. It waits for the PANEL's link and asks the game nothing.

@@ -77,12 +77,29 @@ class _Wire(_Bus):
     pass
 
 
-class _Runtime:
+class _Tick:
+    """The panel's own queue, as a list of what was booked — nothing fires by itself."""
+
     def __init__(self) -> None:
+        self.armed: list = []
+
+    def arm(self, name, delay_ms, func) -> None:
+        self.armed.append((name, delay_ms, func))
+
+    def fire(self) -> None:
+        booked, self.armed = self.armed, []
+        for _name, _delay, func in booked:
+            func()
+
+
+class _Runtime:
+    def __init__(self, refuse: bool = False) -> None:
         self.store = _Store()
         self.bus = _Bus()
         self.wire = _Wire()
+        self.tick = _Tick()
         self.plays: list = []
+        self.refuse = refuse
 
     def dbg(self, _tag):
         class _Log:
@@ -92,7 +109,20 @@ class _Runtime:
 
     def play_async(self, name, args=None, **kw):
         self.plays.append((name, kw.get("tag"), kw.get("priority")))
+        if self.refuse:
+            return False
+        on_result = kw.get("on_result")
+        if on_result is not None:
+            on_result(_Outcome(LINE))
         return True
+
+
+class _Outcome:
+    """What `play_async` hands back — the scenario's own `ctx.vars`."""
+
+    def __init__(self, line: str) -> None:
+        self.ok = True
+        self.ctx = type("Ctx", (), {"vars": {market.VARIABLE: line}})()
 
 
 # -- the line ----------------------------------------------------------------------
@@ -145,10 +175,47 @@ def test_a_burst_of_pushes_costs_one_reading():
 
 
 def test_there_is_no_clock_anywhere_in_the_ear():
-    """The whole point of #2633: a statistic is not refreshed by hand OR on a timer."""
+    """The whole point of #2633: a statistic is not refreshed by hand OR on a timer.
+
+    The one thing booked on the panel's queue is the BOUNDED first look, and what makes
+    it not a clock is pinned by the two tests below: it stops the moment a reading lands,
+    and it stops anyway after `FIRST_LOOK_TRIES`.
+    """
     source = (ROOT / "panel" / "runtime" / "market_live.py").read_text(encoding="utf-8")
-    for banned in ("tick.arm", "after(", "threading.Timer", "Thread(", "while True"):
+    for banned in ("after(", "threading.Timer", "Thread(", "while True"):
         assert banned not in source, banned
+    assert source.count("tick.arm") == 1, "one booking, and it is the first look"
+
+
+def test_the_first_look_stops_as_soon_as_it_has_read_something():
+    rt = _Runtime()
+    watch = market.MarketWatch(rt)
+    watch.start()
+    assert len(rt.tick.armed) == 1, rt.tick.armed
+    rt.tick.fire()                                # …reads, and must not book another
+    assert [p[0] for p in rt.plays] == [market.ACTION], rt.plays
+    assert rt.tick.armed == [], rt.tick.armed
+    assert market.state(rt)[0]["open"] == 1
+
+
+def test_a_refused_look_comes_back_but_only_so_many_times():
+    """The gate says no while the link is not up; an edge does not come round again."""
+    rt = _Runtime(refuse=True)
+    watch = market.MarketWatch(rt)
+    watch.start()
+    for _ in range(market.FIRST_LOOK_TRIES + 3):
+        rt.tick.fire()
+    assert len(rt.plays) == market.FIRST_LOOK_TRIES, rt.plays
+    assert rt.tick.armed == [], "it must stop rather than wait for the game for ever"
+
+
+def test_a_refusal_does_not_hold_off_the_next_signal():
+    rt = _Runtime(refuse=True)
+    watch = market.MarketWatch(rt)
+    watch.start()
+    rt.bus.publish(busmod.GAME_READY)             # refused — the gate is still amber
+    rt.wire.publish(market.PUSH)                  # …and this one must still be tried
+    assert len(rt.plays) == 2, rt.plays
 
 
 # -- the schedule ------------------------------------------------------------------
