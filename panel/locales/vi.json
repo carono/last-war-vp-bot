@@ -111,6 +111,8 @@
   "events.golden.invasion.off": "không diễn ra",
   "events.golden.invasion.on": "đang diễn ra",
   "events.golden.invasion.running": "đang diễn ra",
+  "log.rotated": "panel.log đã đạt {mb} MB — một tệp mới được bắt đầu; {keep} phần gần nhất được giữ bên cạnh",
+  "log.rotate.dropped": "phần cũ nhất {name} ({mb} MB) đã bị xoá để lấy chỗ",
   "log.chat.deep_asking": "hỏi máy chủ những tin nhắn cũ hơn số đang giữ",
   "log.chat.deep_done": "máy chủ đã gửi {n} tin nhắn cũ hơn",
   "chat.monitor": "Trình theo dõi trò chuyện",

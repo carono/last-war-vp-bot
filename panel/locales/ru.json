@@ -111,6 +111,8 @@
   "events.golden.invasion.off": "не идёт",
   "events.golden.invasion.on": "идёт",
   "events.golden.invasion.running": "идёт сейчас",
+  "log.rotated": "panel.log дорос до {mb} МБ — начат новый файл; рядом хранятся последние {keep} срезов",
+  "log.rotate.dropped": "самый старый срез {name} ({mb} МБ) удалён, чтобы освободить место",
   "log.chat.deep_asking": "спрашиваю у сервера сообщения старше тех, что есть",
   "log.chat.deep_done": "сервер прислал {n} более ранних сообщений",
   "chat.monitor": "Монитор чата",

@@ -96,12 +96,25 @@ class LogBus:
     console it was launched from is the only place a line would otherwise be visible.
     """
 
+    #: THE QUANTUM OF `panel.log` (#2660). The file was never trimmed, and on the live
+    #: machine that meant 914 MB in one profile — a record nothing can read: the web
+    #: front-end seeds its tail by walking the file line by line, and every tool that
+    #: answers «что было в 3 часа ночи» reads the whole of it. Twenty megabytes is the
+    #: person's own number, and it is roughly a fortnight of an ordinary session.
+    QUANTUM = 20 * 1024 * 1024
+    #: How many rotated slices are kept beside it — ten files, 200 MB at most. The
+    #: oldest is dropped when the eleventh is made, and DROPPING IT IS SAID OUT LOUD:
+    #: a record that quietly loses its beginning is worse than one that says it did.
+    BACKUPS = 9
+
     def __init__(self, translate=None, debug_logger=None, echo: bool = False) -> None:
         self.q: "queue.Queue[str]" = queue.Queue()
         self._t = translate or (lambda key, **fmt: key)
         self._dbg = debug_logger
         self._echo = echo
         self._fh = None                 # the panel.log handle, held open
+        self._fh_path = ""              # …and where it points, for the rotation
+        self._fh_bytes = 0              # how big it is, counted rather than stat'ed
         self._taps: list = []           # see `tap` — readers beside the drawing one
 
     # -- writing ------------------------------------------------------------
@@ -184,10 +197,22 @@ class LogBus:
         Reopening the file for every line was fine at a handful a minute and wasteful
         the moment a tracer streams thousands. Line-buffered append, so the file is
         never behind the widget even if the panel is killed.
+
+        A file already over the quantum is rotated HERE, before the first line of the
+        session is written: a panel that starts on a 900 MB log would otherwise go on
+        appending to it until the next twenty megabytes were done.
         """
         self.close_file()
+        self._fh_path, self._fh_bytes = path, 0
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
+            try:
+                self._fh_bytes = os.path.getsize(path)
+            except OSError:
+                self._fh_bytes = 0
+            if self._fh_bytes >= self.QUANTUM:
+                self._rotate_files()
+                self._fh_bytes = 0
             self._fh = open(path, "a", encoding="utf-8", buffering=1)
         except OSError:
             self._fh = None             # logging must never stop the panel
@@ -201,18 +226,83 @@ class LogBus:
                 pass
 
     def append_file(self, line: str) -> None:
-        """Mirror a line to panel.log.
+        """Mirror a line to panel.log, rotating it every :attr:`QUANTUM` bytes.
 
-        The file keeps the full date (the widget only has room for the clock) and is
-        never trimmed: the widget is a window onto the session, the file is the record.
+        The file keeps the full date (the widget only has room for the clock). It used
+        to be kept whole for ever — «the widget is a window onto the session, the file
+        is the record» — and the record grew to 914 MB, which is a record nobody and
+        nothing can read. It is sliced now, and NOTHING IS LOST QUIETLY: the slices sit
+        beside it as `panel.log.1` … `panel.log.9`, and the day the oldest has to go the
+        new file opens with a line saying which slice was dropped and how big it was.
         """
         fh = self._fh
         if fh is None:
             return
+        text = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {strip_ansi(line)}\n"
         try:
-            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {strip_ansi(line)}\n")
+            fh.write(text)
+            self._fh_bytes += len(text.encode("utf-8", "replace"))
         except Exception:
-            pass                        # logging must never crash the panel
+            return                      # logging must never crash the panel
+        if self._fh_bytes >= self.QUANTUM:
+            self._rotate()
+
+    # -- rotation ------------------------------------------------------------
+    def _rotate(self) -> None:
+        """Close this slice, shift the older ones along, and open a fresh file."""
+        path = self._fh_path
+        if not path:
+            return
+        self.close_file()
+        dropped = self._rotate_files()
+        self._fh_bytes = 0
+        try:
+            self._fh = open(path, "a", encoding="utf-8", buffering=1)
+        except OSError:
+            self._fh = None
+            return
+        # Said INTO THE NEW FILE first, so a slice that begins mid-sentence explains
+        # itself to whoever opens it, and then into the panel where a person can see it.
+        self.append_file("[panel] " + self._t("log.rotated",
+                                              mb=self.QUANTUM // (1024 * 1024),
+                                              keep=self.BACKUPS))
+        self.say("panel", "log.rotated", mb=self.QUANTUM // (1024 * 1024),
+                 keep=self.BACKUPS)
+        if dropped:
+            name, size = dropped
+            self.say("panel", "log.rotate.dropped", name=name,
+                     mb=max(1, size // (1024 * 1024)))
+
+    def _rotate_files(self):
+        """`panel.log.8` → `.9`, `panel.log` → `.1`. Returns the slice that was dropped.
+
+        The oldest is removed rather than kept for ever, and its name and size are
+        handed back so the caller can SAY it — a log that silently forgets its own
+        beginning is the thing this rotation must not become.
+        """
+        path = self._fh_path
+        dropped = None
+        oldest = f"{path}.{self.BACKUPS}"
+        try:
+            if os.path.exists(oldest):
+                size = os.path.getsize(oldest)
+                os.remove(oldest)
+                dropped = (os.path.basename(oldest), size)
+        except OSError:
+            dropped = None
+        for n in range(self.BACKUPS - 1, 0, -1):
+            src, dst = f"{path}.{n}", f"{path}.{n + 1}"
+            try:
+                if os.path.exists(src):
+                    os.replace(src, dst)
+            except OSError:
+                pass
+        try:
+            if os.path.exists(path):
+                os.replace(path, f"{path}.1")
+        except OSError:
+            pass                        # a file Windows holds open stays where it is
+        return dropped
 
     # -- the debug log ------------------------------------------------------
     def set_debug_logger(self, logger) -> None:
