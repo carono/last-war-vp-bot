@@ -578,6 +578,7 @@ function GoodItem({
   after,
   grip,
   onGear,
+  onPress,
 }: {
   item: ViewItem
   screen: string
@@ -590,6 +591,11 @@ function GoodItem({
      moves the row between the queue and the shelf, which unmounts the tile — and a
      sheet living inside it would go with it, half-pressed. */
   onGear?: () => void
+  /* A PURCHASE CLOSES WHATEVER IS OPEN (#2670, «после покупки закрывай модальные
+     окна»). The tile's own sheet is the grid's, so the tile only says that a press
+     happened and the grid shuts it — and the page goes back to the wall of goods with
+     the fresh reading under it. */
+  onPress?: () => void
 }) {
   const acts = item.actions || []
   const buy = acts[0]
@@ -634,7 +640,15 @@ function GoodItem({
        the press for such a row, so the tile is not merely a picture of a refusal. */
     <div className={'good' + (item.dim ? ' dim' : '')}>
       {buy ? (
-        <PressButton action={buy} screen={screen} after={after} className="good-tap">
+        <PressButton
+          action={buy}
+          screen={screen}
+          after={() => {
+            onPress?.()
+            after()
+          }}
+          className="good-tap"
+        >
           {inside}
         </PressButton>
       ) : (
@@ -711,6 +725,7 @@ function GoodsGrid({ items, screen, after }: { items: ViewItem[]; screen: string
                       after={after}
                       grip={grip}
                       onGear={() => setOpen(item.id || null)}
+                      onPress={() => setOpen(null)}
                     />
                   ) : null
                 }}
@@ -724,6 +739,7 @@ function GoodsGrid({ items, screen, after }: { items: ViewItem[]; screen: string
                     screen={screen}
                     after={after}
                     onGear={() => setOpen(item.id || null)}
+                    onPress={() => setOpen(null)}
                   />
                 ))}
               </div>

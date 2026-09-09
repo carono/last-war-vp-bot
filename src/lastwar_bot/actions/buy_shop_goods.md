@@ -37,6 +37,17 @@ ARGS shop = 0
 ARGS product = 0
 ARGS count = 1
 
+# A PURCHASE ENDS IN A MODAL, AND THE MODAL IS SHUT BEHIND IT (#2670, the person's
+# words: «после покупки закрывай модальные окна»). The panel presses headless, so
+# nobody in front of the client asked for that window — it lands on top of the game
+# anyway and stays there. The ear is the one from #2027/#2642: `watch_reward_popups`
+# wraps the client's OWN reward-show and window-open calls, so a modal that arrives
+# late is shut the instant it opens, by the client, with nothing asked of the game
+# — and only a window the game itself has just called a reward for (`Reward` /
+# `GetGift` in its name) can ever be closed by it. `DestroyAllWindow` is never used
+# and never will be (`CLAUDE.md`): it takes the HUD with it and does not come back.
+TAP watch_reward_popups
+
 READ_LUA (function() local k = '{kind}' if k == 'market' then return 1 end return 0 end)() INTO is_market
 
 IF is_market == 1
@@ -58,3 +69,7 @@ WAIT 3.5
 
 READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local I = DataCenter.ResourceItemDataManager local id = num(DataCenter.__lw_shop_gives) local res = num(DataCenter.__lw_shop_res) local now = 0 if res == 1 then pcall(function() now = num(I:GetCountByItemId(id)) end) else pcall(function() for _, v in pairs(DataCenter.ItemData.ItemInfos or {}) do if num(v.itemId) == id then now = now + num(v.count) end end end) end return now - num(DataCenter.__lw_shop_held) end)() INTO bought
 LOG "магазин: в сумке прибавилось — {bought}"
+
+# …AND THE DRAIN, which says what was in the window and puts the ear back into a
+# client that has restarted since the last one.
+CALL collect_reward_popups
