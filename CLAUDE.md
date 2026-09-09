@@ -893,6 +893,34 @@ The whole inventory — what leaked, what is shared deliberately, and what was m
 is [`docs/research/profile-isolation.md`](docs/research/profile-isolation.md), and
 `tests/test_profile_isolation.py` fails when one of them comes back.
 
+## Nothing starts in a burst — automatic starts are SPREAD OUT
+
+**Binding on every agent, and it is the person's decision (#2667)**, in their words:
+«Да, разноси, сделай правило, пусть лаг будет, нет веской причины все разом делать».
+
+A panel that has just been restarted finds every errand overdue at once, so the first
+tick used to queue the lot: about fifteen scenarios asking the client for its main
+thread inside one minute. That minute is when the client dies — six of nine restarts
+measured in #2665 killed it 59–95 s in, and the crash correlates with borrowing the
+main thread rather than with running Lua (`docs/research/client-crashes.md`).
+
+So: **a tick queues at most ONE errand that came due by the clock, and the next one
+waits `panel/timers.py::SPREAD_SEC` after the previous one has FINISHED.** Nothing is
+dropped and nothing is re-decided — an errand still due is offered again by a later
+tick, unchanged, and a boot's worth is played out over a few minutes instead of a few
+seconds. A few minutes of lag is invisible on a period of an hour, which is what makes
+it affordable.
+
+**What is deliberately NOT spread, and may never be:** a person's press, and anything
+fired by an EVENT — a push, a trigger, an errand marked «сразу». Those have no clock to
+come round on and are answered in seconds or not at all; a rally banner held back
+twenty seconds is a rally missed, which is a behaviour change and the one thing this
+may not cost.
+
+Whatever grows a new automatic start joins the spread rather than opening a second door
+around it. `tests/test_panel_timers.py` fails on a tick that queues two scheduled
+errands, on a spread that drops one, and on a trigger or a press being made to wait.
+
 ## Read once, then LISTEN — and nothing runs in the background unasked
 
 **This rule is binding on every agent working in this repository — dispatcher, worker, or
