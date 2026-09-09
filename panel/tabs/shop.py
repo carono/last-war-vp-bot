@@ -577,9 +577,25 @@ class ShopTab(PanelTab):
         return ""
 
     def autobuy_now(self) -> bool:
-        """Play the autobuy once by hand, with the order as it stands."""
+        """Play the autobuy once by hand — over THIS SHELF'S order and no other.
+
+        THE BUTTON BELONGS TO THE SHELF IT IS DRAWN ON (#2670, the person's report: «почему
+        я запускаю обмен, первый обмен проходит, но не в том магазине где нажимал»). The
+        press used to hand the recipe the WHOLE plan, so a press on the expedition shelf
+        walked into the alliance and honour ones as well — buying where it could, and
+        being refused where the pay had already gone. That is where the «спам» came from,
+        and it is why every check made on the shelf being pressed came back clean.
+
+        The queue is per shop by the person's own decision — «меняем магазин, меняется
+        очередь» — so the press is too. The SCHEDULE still walks the whole order: that is
+        what a nightly errand is for, and each row carries its own shelf, quota and purse.
+        """
         sched = getattr(self.rt, "schedule", None)
-        plan = plan_text(self.plan())
+        chosen = self._pick or ""
+        kind, _sep, shop = chosen.partition(":")
+        mine = [e for e in self.plan()
+                if not chosen or (e["kind"], e["shop"]) == (kind, shop)]
+        plan = plan_text(mine)
         args = {PLAN_ARG: plan}
         if sched is not None:
             # THE CEILINGS, ONE PER CURRENCY (#2670) — never a ban: every shop is in the
