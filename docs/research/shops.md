@@ -217,7 +217,11 @@ person's words: «В настройках товара нужна галка п�
 * **the gear on a tile holds two ticks and a number** — «Покупать автоматически» (is the
   row in the order at all: on puts it at the END of the list, off drops it), «Покупать
   всё» (`count = 0` in the plan, which the recipe reads as «as many as the quota, the
-  purse and the ceilings allow»), and how many per run for a row that is not «all»;
+  purse and the ceilings allow»), and HOW MANY TO OWN IN ALL for a row that is not «all» —
+  the person's words, «логика количества не за прогон должна быть а вообще». The errand tops
+  the row up to that number and then leaves it alone: what is still wanted is
+  `count - boughtTimes`, read out of the game's own counter, so copies bought by hand in the
+  game count towards it too;
 * **where a row stands is DRAGGED**, by the grip in the corner of its tile, and the whole
   new order travels back as one `set` press with the key `order`. The priority box is
   gone: a number and a gesture that both claim to set the same thing is one of them
