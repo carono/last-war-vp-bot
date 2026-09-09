@@ -353,6 +353,7 @@
   "log.coord.clicked": "клик → {where}",
   "log.coord.jumping": "переход в {where}",
   "log.coord.sweep_stopped": "обход остановлен — камера осталась там, куда дошла",
+  "log.coord.sweep_stop_failed": "обход остановить не удалось — игра занята другим",
   "log.coord.sweep_unwatched": "мониторинг выключен — круг подвигает карту, но записывать пришедшее некому",
   "log.coord.sweep_wiped": "список очищен под этот обход: строк {n} — он наполнится тем, что на карте сейчас",
   "log.coord.sweeping": "круг по карте, «{level}», примерно {secs} с",

@@ -353,6 +353,7 @@
   "log.coord.clicked": "tıklama → {where}",
   "log.coord.jumping": "{where} konumuna atlıyorum",
   "log.coord.sweep_stopped": "tur durduruldu — kamera geldiği yerde kalıyor",
+  "log.coord.sweep_stop_failed": "tur durdurulamadı — oyun başka bir şeyle meşgul",
   "log.coord.sweep_unwatched": "izleme kapalı — tur haritayı hareket ettirir ama geleni kimse yazmaz",
   "log.coord.sweep_wiped": "bu tur için liste boşaltıldı: {n} satır — haritada şu an ne varsa onunla dolacak",
   "log.coord.sweeping": "haritada bir tur, «{level}», yaklaşık {secs} sn",

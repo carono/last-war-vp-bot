@@ -353,6 +353,7 @@
   "log.coord.clicked": "clic → {where}",
   "log.coord.jumping": "saut vers {where}",
   "log.coord.sweep_stopped": "le tour a été arrêté — la caméra reste où elle en était",
+  "log.coord.sweep_stop_failed": "impossible d'arrêter le tour — le jeu est occupé ailleurs",
   "log.coord.sweep_unwatched": "la surveillance est coupée — le tour déplacera la carte, mais personne ne notera ce qui arrive",
   "log.coord.sweep_wiped": "la liste a été vidée pour ce tour : {n} ligne(s) — elle se remplit de ce qui est sur la carte maintenant",
   "log.coord.sweeping": "un tour de la carte, «{level}», environ {secs} s",

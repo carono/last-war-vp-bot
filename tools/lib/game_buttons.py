@@ -856,6 +856,16 @@ BUTTONS: dict[str, Button] = {
     # queued tile and no server jump — the same round trip a finger makes when it taps
     # one. Its `wait` is the settle the replies need; the gate inside
     # `steal_ghost_recon` reads them.
+    # STOPPING A MAP LAP (#2660). The lap hands its whole waypoint list to the game's own
+    # timer in one call, so there is nothing to cancel: the run token is bumped and every
+    # pending closure compares it before moving the camera. The camera stops wherever it
+    # had got to. A press rather than a line of Lua in a tab, because a tab may not drive
+    # the game by hand (`CLAUDE.md`).
+    "stop_map_sweep": Button(
+        lua=_lua_actions.fast_map_sweep_stop(),
+        wait=0.6, label="Stop the map lap",
+        relay=("sweep_stopped",),
+    ),
     "ghost_recon_ask_details": Button(
         lua=_lua_actions.ghost_recon_request_detail(),
         # THREE SECONDS, measured (#2010): the reply to a point detail landed inside 3 s
