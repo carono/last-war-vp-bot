@@ -320,6 +320,15 @@ export interface ViewItem {
   avatar?: string
   /** The short form of the number a resource pill shows — `38.0M` (#2418). */
   short?: string
+  /* WHICH SECTION OF A `grid` CARD THIS ITEM BELONGS TO (#2670) — a locale KEY, drawn
+     as a heading with a line under it the first time it changes. It is how the autobuy's
+     order is «отделено от остальных»: the queue is one group, the rest of the shelf is
+     the next. Absent, and the items are one wall as before. */
+  group?: string
+  /* THE NAME THIS ITEM TRAVELS UNDER WHEN IT IS DRAGGED (#2670). Present exactly when
+     the item may be reordered; the whole list of them comes back to the tab as one
+     `set` press with the key `order`. */
+  drag_id?: string
   /* WHAT A `grid` TILE SAYS UNDER THE PICTURE (#2670) — the price, already composed by
      the panel in the game's own words. Data, never a key. It is a field of its own and
      not one fact among several because on a shop tile it is the line the eye goes to. */
