@@ -1,4 +1,17 @@
-r"""Alliance-tech (alliance science) donation — reusable core.
+r"""Alliance-tech (alliance science) donation — the CLI's core, NOT the ability.
+
+THE ABILITY IS `src/lastwar_bot/actions/donate_alliance_tech.md` (#2660). This module is
+the shell tool's half of the same buttons: the Lua lives in `lua_actions` and there is
+only one copy of it, but the ORDER — read the quota, press it out, stop — is written
+here as well as in the recipe. It stays because `tools/alliance_donate.py` is a real
+entry point somebody runs from a terminal, and it must never grow a gate or a rule the
+recipe has not got: when the two would differ, the recipe is the ability and this is a
+way to run it by hand.
+
+Its neighbour `tools/lib/hospital.py` had the same shape and no entry point at all —
+nothing but its own test imported it — so #2660 deleted it rather than leaving a second,
+older heal routine beside `actions/heal_units.md`.
+
 
 Single source of truth for "donate to the alliance's PRIORITY tech" on the Python
 side, used by the standalone CLI (`tools/alliance_donate.py`). The DSL reaches the
