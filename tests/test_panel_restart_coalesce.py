@@ -157,6 +157,22 @@ def test_the_window_is_longer_than_the_measured_death():
     assert pc.COALESCE_SEC >= 128.0
 
 
+def test_the_quit_is_never_held():
+    """«Заглушить» is a person ending this panel; there is no client to spare by making
+    them wait five minutes for it."""
+    mod, was = _booted(10.0)
+    try:
+        rt = Rt()
+        pc.set_handler(lambda: None, pc.QUIT)
+        try:
+            out = pc.request(rt, pc.QUIT)
+        finally:
+            pc.set_handler(None, pc.QUIT)
+        assert out["delay_ms"] == pc.DELAY_MS and not out["held"], out
+    finally:
+        mod._BOOT.clear(); mod._BOOT.update(was)
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

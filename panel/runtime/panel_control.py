@@ -193,7 +193,11 @@ def request(rt, action: str = RESTART) -> dict:
     func = handler(control.id)
     if func is None:
         return {"ok": False, "unavailable": True, "id": control.id}
-    delay_ms = _delay_ms()
+    # ONLY THE RESTART IS HELD. «Заглушить» is a person ending this panel, and there is
+    # no client to spare by making them wait five minutes for it — the coalescing exists
+    # because ten agents each restarting after their own fix cost the game ten clients,
+    # and nobody quits the panel ten times in five minutes.
+    delay_ms = _delay_ms() if control.id == RESTART else DELAY_MS
     rt.say(TAG, control.saying if delay_ms <= DELAY_MS else "log.panel.restart_held",
            **({} if delay_ms <= DELAY_MS else {"seconds": int(delay_ms / 1000)}))
     _arm(rt, func, delay_ms)
