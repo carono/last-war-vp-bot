@@ -1036,6 +1036,7 @@
   "shop.knobs": "Tự động mua",
   "shop.cap": "Trần chi tiêu: {currency}",
   "shop.cap.hint": "Một lượt mua tự động được tiêu bao nhiêu đơn vị tiền riêng của cửa hàng này. −1: không có trần; 0: không tiêu gì.",
+  "shop.money.other": "tiền số {money}",
   "shop.caps.title": "Cài đặt cửa hàng",
   "shop.opt.caps": "Trần chi tiêu theo loại tiền",
   "shop.opt.caps.hint": "«tiền:giới hạn», cách nhau bằng dấu phẩy — cùng giá trị mà bánh răng của mỗi cửa hàng ghi. Loại tiền không được nêu thì không có trần: nó kiếm được khi chơi, và hạn mức của vật phẩm đã giới hạn rồi. 5 là kim cương.",

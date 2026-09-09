@@ -1036,6 +1036,7 @@
   "shop.knobs": "Achat automatique",
   "shop.cap": "Plafond de dépense : {currency}",
   "shop.cap.hint": "Ce qu'un cycle d'achat automatique peut dépenser dans la monnaie propre à cette boutique. −1 : aucun plafond ; 0 : rien du tout.",
+  "shop.money.other": "monnaie n° {money}",
   "shop.caps.title": "Réglages de la boutique",
   "shop.opt.caps": "Plafonds de dépense par monnaie",
   "shop.opt.caps.hint": "« monnaie:limite », séparés par des virgules — la même valeur que l'engrenage de chaque boutique. Une monnaie non citée n'a pas de plafond : elle se gagne en jouant, la limite de l'article suffit. 5 = diamants.",

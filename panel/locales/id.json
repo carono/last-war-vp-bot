@@ -1036,6 +1036,7 @@
   "shop.knobs": "Beli otomatis",
   "shop.cap": "Batas belanja: {currency}",
   "shop.cap.hint": "Berapa banyak mata uang toko ini yang boleh dihabiskan satu putaran pembelian otomatis. −1: tanpa batas; 0: tidak sama sekali.",
+  "shop.money.other": "mata uang No. {money}",
   "shop.caps.title": "Pengaturan toko",
   "shop.opt.caps": "Batas belanja per mata uang",
   "shop.opt.caps.hint": "«mata uang:batas», dipisah koma — nilai yang sama yang ditulis gerigi tiap toko. Mata uang yang tidak disebut tanpa batas: didapat dari bermain, dan kuota barang sudah membatasinya. 5 adalah berlian.",
