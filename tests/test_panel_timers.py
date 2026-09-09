@@ -2015,6 +2015,47 @@ def test_a_retry_hold_somebody_typed_themselves_is_not_corrected():
         timersmod.TEMPLATE_FILE = kept
 
 
+
+def test_the_arena_row_stops_playing_the_scenario_it_was_saved_with():
+    """The arena row's scenario went 3v3-only -> «whichever event is open» (#2602/#2688).
+
+    A profile's list is its own and outlives the built-ins (#2017), so every row saved
+    before that kept `"scenario": "arena_3v3_battles"` and went on playing the 3v3 recipe
+    alone — which reads its own window, finds it shut while «Арена Шторма» is the event in
+    the building, and ends there. Once an hour, all day, with the storm arena unplayed.
+    """
+    import json, tempfile
+    from panel import timers as timersmod
+
+    base = {t.name: t for t in timersmod.DEFAULT_TIMERS}["arena_3v3_battles"]
+    assert base.scenario == ("arena_battles",), base.scenario
+    assert timersmod.SUPERSEDED_SCENARIOS["arena_3v3_battles"] == ("arena_3v3_battles",)
+
+    home = Path(tempfile.mkdtemp())
+    rows = [{"name": "arena_3v3_battles", "scenario": "arena_3v3_battles",
+             "interval_sec": 3600, "retry_sec": 900, "enabled": True,
+             "args": {"wins": 5, "cap": 30}},
+            # …and a row somebody pointed somewhere themselves is left exactly there.
+            {"name": "collect_base_resources", "scenario": "storm_arena_battles"}]
+    profile = home / "timers.json"
+    profile.write_text(json.dumps(rows), encoding="utf-8")
+    template = home / "template.json"
+    template.write_text(json.dumps(rows), encoding="utf-8")
+    kept = timersmod.TEMPLATE_FILE
+    timersmod.TEMPLATE_FILE = str(template)
+    try:
+        catalogue = timersmod.load_profile_catalogue(str(profile))
+        row = catalogue.by_name("arena_3v3_battles")
+        assert row is not None and row.scenario == ("arena_battles",), row
+        assert row.interval_sec == 3600 and row.enabled is True, row
+        # the storm arena's own argument comes back with the built-in's, so the recipe
+        # that actually runs is not left on its own ARGS default
+        assert row.args.get("battles") == 5, row.args
+        other = catalogue.by_name("collect_base_resources")
+        assert other is not None and other.scenario == ("storm_arena_battles",), other
+    finally:
+        timersmod.TEMPLATE_FILE = kept
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

@@ -37,6 +37,13 @@ KNOWN = {
     "arms_race_hero": "phase gate; last of the four, so its stop ends nothing after it",
     "arms_race_speedup": "phase gate; see perform_arms_race",
     "arms_race_units": "phase gate; see perform_arms_race",
+    # These two STOP as the LAST thing their caller would have done anyway, which is why
+    # they cost nothing today and are on the audit rather than fixed: `attack_crystal_boss_daily`
+    # ends with `CALL collect_crystal_boss_rewards`, and `buy_shop_goods` follows
+    # `CALL buy_glitter_market_goods` with a `STOP` of its own. Add a statement after
+    # either call and the stop starts eating it.
+    "collect_crystal_boss_rewards": "stops on «no chest is waiting»; its one caller ends on the call",
+    "buy_glitter_market_goods": "stops on «акция не идёт» / «не покупаю»; its one caller STOPs right after it",
 }
 
 
@@ -101,6 +108,14 @@ def test_the_known_list_is_still_true():
     all_text = _recipes()
     stale = sorted(n for n in KNOWN if n in all_text and not _stop_lines(all_text[n]))
     assert not stale, f"these no longer STOP and should leave KNOWN: {stale}"
+
+
+def test_the_arena_recipes_end_their_branches_rather_than_stop():
+    """#2688: both are CALLed by `arena_battles`, which asks which event is open."""
+    all_text = _recipes()
+    for name in ("arena_3v3_battles", "storm_arena_battles"):
+        assert not _stop_lines(all_text[name]), (
+            f"{name} STOPs again — `arena_battles` CALLs it, so the halt is the caller's too")
 
 
 def _run_standalone() -> int:
