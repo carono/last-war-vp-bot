@@ -1031,7 +1031,7 @@
   "shop.left": "übrig",
   "shop.free": "kostenlos",
   "shop.count": "×{count}",
-  "shop.place": "Priorität {place}",
+  "shop.place": "Nr. {place}",
   "shop.knobs": "Automatischer Kauf",
   "shop.auto": "Automatisch kaufen",
   "shop.auto.hint": "Stellt diesen Artikel in die Warteschlange des Autokaufs. Er kommt ans Ende — zieh ihn am Griff nach oben.",

@@ -1031,7 +1031,7 @@
   "shop.left": "còn lại",
   "shop.free": "miễn phí",
   "shop.count": "×{count}",
-  "shop.place": "ưu tiên {place}",
+  "shop.place": "số {place}",
   "shop.knobs": "Tự động mua",
   "shop.auto": "Mua tự động",
   "shop.auto.hint": "Đưa vật phẩm này vào hàng đợi mua tự động. Nó vào cuối; kéo tay cầm để đẩy lên trên.",

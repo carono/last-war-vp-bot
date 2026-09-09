@@ -1031,7 +1031,7 @@
   "shop.left": "pozostało",
   "shop.free": "za darmo",
   "shop.count": "×{count}",
-  "shop.place": "priorytet {place}",
+  "shop.place": "nr {place}",
   "shop.knobs": "Autozakup",
   "shop.auto": "Kupuj automatycznie",
   "shop.auto.hint": "Dodaje ten towar do kolejki autozakupu. Trafia na koniec — przeciągnij go za uchwyt, by podnieść wyżej.",

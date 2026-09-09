@@ -1031,7 +1031,7 @@
   "shop.left": "kalan",
   "shop.free": "ücretsiz",
   "shop.count": "×{count}",
-  "shop.place": "öncelik {place}",
+  "shop.place": "{place}.",
   "shop.knobs": "Otomatik satın alma",
   "shop.auto": "Otomatik satın al",
   "shop.auto.hint": "Bu ürünü otomatik alım sırasına koyar. Sona eklenir; yukarı taşımak için tutamağından sürükle.",

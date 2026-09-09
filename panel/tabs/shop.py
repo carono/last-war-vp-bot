@@ -367,8 +367,15 @@ class ShopTab(PanelTab):
 
     def place_of(self, kind: str, shop: str, ident: str) -> int:
         """Where one row stands in the autobuy's order, 1-based. 0 = not in it."""
-        for n, entry in enumerate(self.plan(), start=1):
-            if (entry["kind"], entry["shop"], entry["id"]) == (kind, shop, ident):
+        # PER SHELF (#2670): every shop has an order of its own, so «№2» has to mean
+        # «second on this shelf». Counted through the other shelves it would be a number
+        # nobody looking at this page could check.
+        n = 0
+        for entry in self.plan():
+            if (entry["kind"], entry["shop"]) != (kind, shop):
+                continue
+            n += 1
+            if entry["id"] == ident:
                 return n
         return 0
 
@@ -427,23 +434,30 @@ class ShopTab(PanelTab):
             self.set_plan(entries)
 
     def set_order(self, ids) -> None:
-        """The whole order at once, as the phone dragged it: «kind:shop:id,…».
+        """ONE SHELF's order, as the phone dragged it: «kind:shop:id,…».
 
         What each row BUYS is not in that list and is not touched — only where it stands.
-        A row the phone did not name keeps its place at the end rather than being dropped:
-        a screen drawn a moment before a second front-end added something must not delete
-        what it never saw.
+        And only the rows the list NAMES move: the named rows' SLOTS in the plan are kept
+        and refilled in the new order, so every other shelf keeps its own order and its
+        own places (#2670 — a queue is per shop). A row the phone did not name keeps its
+        place too: a screen drawn a moment before a second front-end added something must
+        not delete what it never saw.
         """
-        held = {(e["kind"], e["shop"], e["id"]): e for e in self.plan()}
-        out: list = []
+        want = []
         for piece in str(ids or "").split(","):
             bits = [b.strip() for b in piece.split(":")]
-            if len(bits) < 3:
-                continue
-            entry = held.pop((bits[0], bits[1], bits[2]), None)
-            if entry is not None:
-                out.append(entry)
-        out.extend(held.values())
+            if len(bits) >= 3:
+                want.append(":".join(bits[:3]))
+        held = {e["kind"] + ":" + e["shop"] + ":" + e["id"]: e for e in self.plan()}
+        moving = [held[key] for key in want if key in held]
+        if not moving:
+            return
+        spots = iter(moving)
+        named = set(want)
+        out = []
+        for entry in self.plan():
+            key = entry["kind"] + ":" + entry["shop"] + ":" + entry["id"]
+            out.append(next(spots) if key in named else entry)
         self.set_plan(out)
 
     def set_count(self, kind: str, shop: str, ident: str, count) -> None:
@@ -553,15 +567,17 @@ class ShopTab(PanelTab):
         chosen = self._pick if any(self._pick == k for k, _t, _r in shelves) else shelves[0][0]
         rows = next(r for k, _t, r in shelves if k == chosen)
         kind, _sep, shop = chosen.partition(":")
-        # THE ORDER STANDS ABOVE THE SHELF AND APART FROM IT (#2670) — the person's
-        # words: «Те что мы выбрали для автопокупки, должны быть отделены от остальных».
-        # It is the whole order, whichever shelf each row came off: a queue drawn one
-        # shelf at a time is a queue whose order says nothing.
-        queue = self.queue_items(shelves)
-        picked = {(e["kind"], e["shop"], e["id"]) for e in self.plan()}
+        # EVERY SHELF HAS AN ORDER OF ITS OWN (#2670, the person's correction:
+        # «Очередь для автопокупки у каждого магазина своя, не нужно все в одном месте
+        # выводить, меняем магазин, меняется очередь»). So the block above the goods is
+        # THIS shelf's queue and never a summary of all of them — what other shelves
+        # hold stays in the plan, untouched and undrawn, until their own tab is open.
+        queue = self.queue_items(kind, shop, rows)
+        picked = {e["id"] for e in self.plan()
+                  if (e["kind"], e["shop"]) == (kind, shop)}
         rest = [self.good(kind, shop, row, group="shop.rest")
                 for row in rows[:SHELF_MAX]
-                if (kind, shop, str(row.get("id") or "")) not in picked]
+                if str(row.get("id") or "") not in picked]
         return [{"title": "shop.shelves",
                  "head": self.t("shop.age", age=int(age)) if age is not None else "",
                  "note": "shop.shelves.hint",
@@ -572,25 +588,22 @@ class ShopTab(PanelTab):
                  "actions": [{"id": "autobuy", "label": "shop.autobuy.now"}],
                  "items": queue + rest}]
 
-    def queue_items(self, shelves) -> list:
-        """The autobuy's order, in ITS order, drawn as goods that can be dragged.
+    def queue_items(self, kind: str, shop: str, rows) -> list:
+        """THIS shelf's own order, in ITS order, drawn as goods that can be dragged.
 
-        A row whose shelf the reading does not hold is left out rather than drawn as an
-        id: it is a row the panel cannot describe, and a tile with a number where a name
-        goes is the bug #2666 already fixed once.
+        A row the reading no longer holds is left out rather than drawn as an id: it is a
+        row the panel cannot describe, and a tile with a number where a name goes is the
+        bug #2666 already fixed once. It stays in the plan all the same — a shelf the
+        client has not filled in yet is not a reason to forget what somebody chose.
         """
-        held = {}
-        for key, _title, rows in shelves:
-            kind, _sep, shop = key.partition(":")
-            for row in rows:
-                held[(kind, shop, str(row.get("id") or ""))] = row
+        held = {str(row.get("id") or ""): row for row in rows}
         out = []
         for entry in self.plan():
-            row = held.get((entry["kind"], entry["shop"], entry["id"]))
-            if row is None:
+            if (entry["kind"], entry["shop"]) != (kind, shop):
                 continue
-            out.append(self.good(entry["kind"], entry["shop"], row,
-                                 group="shop.queue", drag=True))
+            row = held.get(entry["id"])
+            if row is not None:
+                out.append(self.good(kind, shop, row, group="shop.queue", drag=True))
         return out
 
     def shelf_name(self, key: str, title: str) -> str:
