@@ -3051,5 +3051,7 @@
   "timers.stat.market.free": "bugün ücretsiz: {item} · ve {n} tane daha",
   "timers.stat.market.goods": "ücretsiz alınacak: {n}",
   "timers.stat.market.done": "ücretsiz olan her şey alındı",
-  "timers.stat.market.coins": "para: {coins} · satıştaki mal: {n}"
+  "timers.stat.market.coins": "para: {coins} · satıştaki mal: {n}",
+  "health.no_session": "Windows oturumu yok — {user} olarak oturum açan yok",
+  "log.game.no_session": "{user} olarak oturum açan yok, bu yüzden bu profilin istemciyi başlatacağı bir Windows oturumu yok — biri oturum açana ya da «Başlat»a basana kadar yeniden denemiyorum. Oturumu açın: tools\\rdp_instance.py --bring-up --user {user}"
 }

@@ -276,6 +276,24 @@ def test_a_client_we_cannot_drive_is_ours_whatever_it_last_said():
     assert said.reason == ph.NO_CONNECTION
 
 
+
+def test_a_missing_windows_session_is_its_own_red():
+    """Red either way, and a DIFFERENT reason, because the act is a person's (#2677)."""
+    plain = ph.verdict(running=False)
+    gone = ph.verdict(running=False, session_missing=True)
+    assert plain.colour == ph.BAD
+    assert gone.colour == ph.BAD
+    assert plain.reason == ph.NO_CLIENT
+    assert gone.reason == ph.NO_SESSION
+
+
+def test_a_running_client_is_never_narrowed_by_the_session_reading():
+    """The narrowing belongs to «there is no client» and to nothing else."""
+    made = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.ANSWERING,
+                      session_missing=True)
+    assert made.reason == ph.TRAFFIC
+    assert made.colour == ph.OK
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

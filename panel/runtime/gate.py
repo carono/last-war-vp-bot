@@ -133,7 +133,7 @@ LIFECYCLE_ACTIONS = frozenset({"quit_game"})
 class LinkGate:
     """One profile's «may anything run right now», and the two lines that say it changed."""
 
-    __slots__ = ("rt", "_lock", "_open", "_since", "_changed_at")
+    __slots__ = ("rt", "_lock", "_open", "_since", "_changed_at", "_said_no_session")
 
     def __init__(self, rt) -> None:
         self.rt = rt
@@ -144,6 +144,10 @@ class LinkGate:
         self._open: "bool | None" = None
         #: …and since when it has been that answer — what the mark on screen counts.
         self._since = 0.0
+        #: Whether «nobody is logged on to this profile's session» has been SAID. One
+        #: latch, cleared when the session comes back, so the sentence is news rather
+        #: than a heartbeat (#2677).
+        self._said_no_session = False
         #: When somebody last told us the daemon's existence changed (:meth:`changed`).
         #: Readings taken before this moment are not evidence about the world after it.
         self._changed_at = 0.0
@@ -240,15 +244,58 @@ class LinkGate:
         return "action.held.link"
 
     def relaunch_held(self) -> bool:
-        """Is putting the CLIENT back held right now? Only the switch may hold it (#1910).
+        """Is putting the CLIENT back held right now? — the switch, or no session (#2677).
 
         Asked by the detectors that would relaunch — the process watchdog and the
         recovery's verdict — instead of :meth:`alive`, which they used to ask and which
         answers «no» for the very reason they are about to cure. The switch still stops
         them dead: that is what «Стоп всё» и «профиль выключен» have to mean, and it is
         the half of #1393 that was doing the work all along.
+
+        AND SO DOES A SESSION NOBODY IS LOGGED ON TO, which is the second holder and the
+        first one that is not a person's decision. A profile whose client lives in
+        another Windows session cannot start one while that session does not exist: the
+        launcher has nowhere to run, `launch_game` FAILs at its first step, and the
+        watchdog comes round five minutes later and does it again. Live on 2026-09-09
+        that was **312 failures per profile since 01:34**, in two profiles, all night,
+        each one a line in the log that names a fix only a person can carry out.
+
+        It is held HERE and not in the watchdog because every relauncher asks this one
+        object (`RELAUNCH_ACTIONS`) — the watchdog, the recovery's verdict and the
+        six-hourly `restart_game` errand — and a rule written in one of the three is a
+        rule the other two do not have. A PERSON'S press is not asked at all, which is
+        exactly the retry this leaves open, and the reading moving back is the other:
+        the latch clears the moment somebody logs on, so the very next poll relaunches.
         """
-        return self._switched_off()
+        if self._switched_off():
+            return True
+        return self._no_session()
+
+    def _no_session(self) -> bool:
+        """Is this profile's Windows session simply not there? Said once, asked always.
+
+        The reading is the status poll's own (`panel/runtime/health.py`), so this costs
+        a dict lookup and never a Windows call — and a runtime nothing has polled yet
+        reads as «no», because «nobody has looked» may not become «do not try».
+        """
+        health = getattr(getattr(self.rt, "health", None), "current", None)
+        missing = bool(health is not None
+                       and health.reason == profile_health.NO_SESSION)
+        if missing == self._said_no_session:
+            return missing
+        self._said_no_session = missing
+        if missing:
+            self.rt.say("game", "log.game.no_session", user=self._session_user())
+        return missing
+
+    def _session_user(self) -> str:
+        """The Windows login this profile looks in — for the sentence, never for a test."""
+        try:
+            from . import game_process       # noqa: PLC0415 — a word, not a dependency
+
+            return game_process.profile_user(self.rt.settings) or ""
+        except Exception:                     # noqa: BLE001 — a word, never the gate
+            return ""
 
     def _read(self) -> bool:
         """The reading itself: the switch first, then the poll's verdict, then the link.

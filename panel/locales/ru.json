@@ -3051,5 +3051,7 @@
   "timers.stat.market.free": "сегодня бесплатно: {item} · и ещё {n} к получению",
   "timers.stat.market.goods": "бесплатно к получению: {n}",
   "timers.stat.market.done": "всё бесплатное забрано",
-  "timers.stat.market.coins": "монет: {coins} · товаров в продаже: {n}"
+  "timers.stat.market.coins": "монет: {coins} · товаров в продаже: {n}",
+  "health.no_session": "нет сессии Windows — пользователь {user} не залогинен",
+  "log.game.no_session": "пользователь {user} не залогинен, у профиля нет сессии Windows, в которой запускать клиент — больше не пытаюсь, пока сессия не появится или вы не нажмёте «Запустить». Поднять сессию: tools\\rdp_instance.py --bring-up --user {user}"
 }

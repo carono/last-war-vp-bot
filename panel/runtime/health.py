@@ -42,6 +42,7 @@ BAD = profile_health.BAD
 _WORDS = {
     profile_health.TRAFFIC: "health.traffic",
     profile_health.NO_CLIENT: "health.no_client",
+    profile_health.NO_SESSION: "health.no_session",
     profile_health.CLIENT_HUNG: "health.client_hung",
     profile_health.NO_CONNECTION: "health.no_connection",
     profile_health.NO_TRAFFIC: "health.no_traffic",
@@ -138,7 +139,8 @@ class ProfileHealth:
         self._health = profile_health.verdict(
             running=bool(getattr(probe, "running", False)), plumbing=plumbing,
             server=server, responding=bool(responding), error=error,
-            maintenance=bool(maintenance), in_game=in_game, kicked=bool(kicked))
+            maintenance=bool(maintenance), in_game=in_game, kicked=bool(kicked),
+            session_missing=bool(getattr(probe, "no_session", False)))
         self._at = time.time()
         return self._health
 
