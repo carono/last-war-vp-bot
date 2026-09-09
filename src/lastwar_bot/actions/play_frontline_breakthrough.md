@@ -64,7 +64,7 @@ ARGS lane5 = -98
 # numbers can travel from the caller into the game. `frontline_breakthrough_stage.md`
 # cannot see this file's `ARGS`, so it reads them back out of the VM — the entry for the
 # stage it is about to play, indexed by stage id.
-LUA _G.__fb_lanes = { {lane1}, {lane2}, {lane3}, {lane4}, {lane5} }
+LUA DataCenter.__lw_fb_lanes = { {lane1}, {lane2}, {lane3}, {lane4}, {lane5} }
 
 READ_LUA (function() local M=DataCenter.ActFrontBreakSundayDataManager if not M then return 0 end local aid=M:GetFirstActId() if not aid or aid==0 then return 0 end local ok=M:IsOpen(aid) and M:CanPlay(aid) return ok and 1 or 0 end)() INTO fb_open
 
@@ -82,7 +82,7 @@ WHILE fb_go == 1 LIMIT {rounds}
     CALL frontline_breakthrough_stage
     LOG "BREAKTHROUGH stage={fb_stage} lane={fb_lane_used} win={fb_win} left={fb_left} peak={fb_peak} moves={fb_moves} frames={fb_frames} route={fb_route} next={fb_next}"
     LOG "BREAKTHROUGH tail {fb_tail}"
-    READ_LUA (function() if tonumber(_G.__fb_stage)==20455 and tonumber(_G.__fb_won)==1 then return 0 end return 1 end)() INTO fb_go
+    READ_LUA (function() if tonumber(DataCenter.__lw_fb_stage)==20455 and tonumber(DataCenter.__lw_fb_won)==1 then return 0 end return 1 end)() INTO fb_go
 
 CALL claim_frontline_breakthrough_rewards
 

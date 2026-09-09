@@ -230,7 +230,7 @@ What is worth building on this before the next week's event:
   objects in `showList` — so a stored route is recognised as belonging to THIS week's
   field, and next week's is not driven over with last week's answers;
 * the routes and their scores in `panel.db` (a table with a migration, keyed by that
-  fingerprint and the stage), because the VM loses `_G.__fb_routes` on every client
+  fingerprint and the stage), because the VM loses `DataCenter.__lw_fb_routes` on every client
   restart — and this client restarted four times in one evening;
 * evaluation over N runs per candidate, best-of-mean, not best-of-one.
 
@@ -269,7 +269,7 @@ spun at every tick.
   `READ_LUA` chunk in `frontline_breakthrough_stage.md` written with `{lane}` reaches
   the game as the literal four characters, and the run silently stops steering; a `LOG`
   line written with `{fb_left}` in the same file prints the PREVIOUS call's number. Park
-  values in the VM (`_G.__fb_lanes`) and log from the file that has the `ARGS`.
+  values in the VM (`DataCenter.__lw_fb_lanes`) and log from the file that has the `ARGS`.
 * **A stage entered while the client still sits in the finished battle is refused,
   silently.** Exit first (`LWBattleManager:Exit()`), wait for the logic to go away, then
   request.

@@ -57,8 +57,15 @@ SESSION_POLL_SEC = 24.0
 #: client reconnecting looks briefly exactly like one that has given up.
 WATCHDOG_STRIKES = 2
 
-#: Least time between two watchdog relaunches. A client that dies on start-up would
-#: otherwise be relaunched every eight seconds forever.
+#: Least time between two watchdog relaunches THAT DID NOT WORK. A client that dies on
+#: start-up would otherwise be relaunched every eight seconds forever.
+#:
+#: Five minutes is a bound on the failing case only, and it is the right size for that
+#: one: a client that cannot start does not start any better for being asked again in
+#: thirty seconds, and the person is told once rather than ten times an hour. It is NOT
+#: a floor on how often a crashed client may be put back — the latch is cleared the
+#: moment the client answers again (`_watchdog_check`), so a crash minutes after a
+#: successful relaunch is answered at once (#2665).
 WATCHDOG_COOLDOWN_SEC = 300.0
 
 #: The scenario the server probe plays, and the one thing it needs: a warzone that is
@@ -615,6 +622,15 @@ class StatusPoll:
             self._game_gone_at = 0.0
             self._game_was_up = True
             self._wd_held = ""
+            # A COOLDOWN IS A LOOP BRAKE, AND A CLIENT THAT CAME BACK ENDS THE LOOP
+            # (#2665). The latch used to survive the client's return, so a second crash
+            # inside five minutes was answered by waiting out the remainder of the first
+            # relaunch's cooldown — with the client already down. Live on 2026-09-09 that
+            # cost 129 s at 09:21 and 370 s at 09:46, and «вотчдог: перезапуск был 2 мин
+            # назад — жду» is the panel saying it about an account nobody was playing.
+            # What the cooldown exists for is the client that never comes up, and in that
+            # case this branch is never reached, so nothing is given away by clearing it.
+            self._watchdog_last = 0.0
             return
         # A STRIKE IS A FRESH LOOK, NOT THE SAME WALK SEEN TWICE (#1702).
         #

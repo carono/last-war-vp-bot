@@ -55,7 +55,7 @@ IDLE_EXIT = 900.0   # seconds without a new run before we assume the person is d
 
 # Observe only: the planner keeps perceiving and recording, and never touches the controls.
 _ARM = ('local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end\n'
-        'local AI=_G.__SR_AI if not AI then L("ST armed=0") return end\n'
+        'local AI=DataCenter.__lw_sr_ai if not AI then L("ST armed=0") return end\n'
         'AI.enabled=false AI.record=true AI.done=AI.done or {} AI.seq=AI.seq or 0\n'
         'L("ST armed=1")')
 
@@ -65,7 +65,7 @@ _ARM = ('local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s))
 # outlives a re-install, and only a fresh Lua VM (a game restart) puts it back.
 _HOOK = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI then L("ST hook=0") return end
 AI.done = AI.done or {}
 AI.seq = AI.seq or 0
@@ -74,7 +74,7 @@ if not ok or not SL then L("ST hook=0") return end
 if SL.__srrec == nil then
   SL.__srrec = SL.OnStart
   SL.OnStart = function(self, ...)
-    local A = _G.__SR_AI
+    local A = DataCenter.__lw_sr_ai
     if A then
       local F = A.frames or {}
       if A.record and #F > 0 then
@@ -91,7 +91,7 @@ L("ST hook=1")
 
 _STATUS = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI then L("ST installed=0") return end
 local s = AI.stat or {}
 L(string.format("ST installed=1 rec=%s state=%s z=%.1f maxz=%.1f dead=%s frames=%d seq=%d done=%d",
@@ -103,7 +103,7 @@ L(string.format("ST installed=1 rec=%s state=%s z=%.1f maxz=%.1f dead=%s frames=
 # a single game frame), so the loop only ever calls it between runs.
 _DRAIN_STASH = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 local D = AI and AI.done or {}
 if #D == 0 then L("RUN none") return end
 local r = table.remove(D, 1)
@@ -116,7 +116,7 @@ L("END")
 # here is what keeps it from being saved a second time.
 _DRAIN_LIVE = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI then L("RUN none") return end
 local F = AI.frames or {}
 if #F == 0 then L("RUN none") return end

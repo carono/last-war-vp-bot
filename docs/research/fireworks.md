@@ -232,7 +232,7 @@ and the game writes the refusal into its own log
 
 Measured live on 2026-08-21 for this chain, in the live client, two calls apart:
 
-    _G.__LW_FW_PROBE = 7 ; DataCenter.__lw_fw_probe = 7     -> global=7 field=7
+    DataCenter.__lw_fw_probe = 7 ; DataCenter.__lw_fw_probe = 7     -> global=7 field=7
     (next call)  rawget(_G, '__LW_FW_PROBE')                -> global=7 field=7 guard=true
 
 So the guard IS installed (`getmetatable(_G) ~= nil`) and our own name went through

@@ -620,6 +620,33 @@ def test_the_watchdog_retries_on_its_cooldown_rather_than_once():
     assert [k for k, _ in w.said].count("log.game.watchdog_hold") == 1, w.said
 
 
+def test_a_client_that_came_back_is_put_back_again_at_once():
+    """A crash minutes after a successful relaunch waits for nothing (#2665).
+
+    The cooldown is a brake on a relaunch LOOP — a client that will not start. It used
+    to survive the client's return, so the second crash of a bad morning was answered
+    with «перезапуск был 2 мин назад — жду» about an account that was down and playable.
+    Live on 2026-09-09 that held the client for 129 s at 09:21 and 370 s at 09:46.
+    """
+    w = _Watchdog(cooldown=300.0)
+    w.poll(); w.poll()
+    assert len(w.launched) == 1, w.launched
+    w.poll(running=True)                       # the relaunch worked; the client answers
+    w.poll(running=True)
+    w.poll(); w.poll()                         # …and it crashes again, well inside 300 s
+    assert len(w.launched) == 2, "a client that came back was made to wait out the brake"
+    assert [k for k, _ in w.said].count("log.game.watchdog_hold") == 0, w.said
+
+
+def test_a_client_that_never_comes_back_still_waits():
+    """…and the brake the clearing must not remove: nothing answered in between."""
+    w = _Watchdog(cooldown=300.0)
+    w.poll(); w.poll()
+    for _ in range(20):
+        w.poll()
+    assert len(w.launched) == 1, "the loop brake was given away with the latch"
+
+
 def test_a_client_that_comes_back_forgets_what_was_being_waited_for():
     """Otherwise the next death inherits the last one's silence."""
     w = _Watchdog(hold_left=lambda now: 900)

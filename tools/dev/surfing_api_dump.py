@@ -80,7 +80,7 @@ L("END " .. #out .. " len=" .. #blob)
 # What the live run objects look like: the captured logic/manager plus the player object.
 _LIVE = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SAD "..tostring(s)) end
-local lg, mm = _G.__SR_LOGIC, _G.__SR_MM
+local lg, mm = DataCenter.__lw_sr_logic, DataCenter.__lw_sr_mm
 L("logic=" .. tostring(lg ~= nil) .. " mm=" .. tostring(mm ~= nil))
 local function dumpobj(tag, o, deep)
   if type(o) ~= "table" then L(tag .. " type=" .. type(o)) return end

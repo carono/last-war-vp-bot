@@ -349,10 +349,10 @@ golden zombie. Determined by scanning ±40 tiles in 8 directions + exact monster
 
 The world controller is the MonoBehaviour **`WorldScene`** (on the `World` GameObject),
 reachable via `CS.UnityEngine.Object.FindObjectsOfType(typeof(MonoBehaviour))` filtered by
-`GetType().Name=="WorldScene"` (cache it in `_G.WS`). It exposes the full point/monster API:
+`GetType().Name=="WorldScene"` (cache it in `DataCenter.__lw_ws`). It exposes the full point/monster API:
 
 ```lua
-local ws = _G.WS
+local ws = DataCenter.__lw_ws
 local center = ws.CurTilePos                        -- Vector2Int camera tile
 local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32,CS.System.Int32)()
 ids:Add(1030000, 1)                                 -- whitelist of monster CONFIG ids (golden zombie = 1030000)
@@ -530,7 +530,7 @@ a C function so `pairs` can't enumerate it — probe names directly). Tap routin
 
 ```lua
 -- in World:
-local ws = _G.WS                                    -- WorldScene MonoBehaviour (cache)
+local ws = DataCenter.__lw_ws                                    -- WorldScene MonoBehaviour (cache)
 local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32,CS.System.Int32)()
 for k in pairs(DataCenter.MonsterTemplateManager.monsterTemplateDic) do
   if type(k)=="number" then pcall(function() ids:Add(k,1) end) end end
@@ -758,7 +758,7 @@ whose handler is a runtime `NewButton` callback not reachable through the expose
 
 Instead of guessing, the exact call chain was captured by **monkey-patching** — wrapping every
 `MarchUtil.*` function AND the open `UIFormationSelectListV2` Ctrl's 55 methods with a logging
-shim (`_G.__MP_ORIG`/`_G.__DC_ORIG`; each wrapper does `Debug.LogError('MPCALL/DCALL '..name)` then
+shim (`DataCenter.__lw_mp_orig`/`DataCenter.__lw_dc_orig`; each wrapper does `Debug.LogError('MPCALL/DCALL '..name)` then
 calls the original), then pressing «Марш» physically once and reading `Player.log`. Safe (fires only
 on the wrapped calls, no global `debug.sethook` overhead).
 

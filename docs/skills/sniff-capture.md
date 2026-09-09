@@ -267,12 +267,12 @@ restore it, perform the action in-game, then grep the log.
 **Arm** the trace (one or many functions — add `wrap(...)` lines as needed):
 ```bash
 /mnt/c/Python312/python.exe tools/lua_eval.py --marker MP "
-_G.__TRACE = _G.__TRACE or {}
+DataCenter.__lw_trace = DataCenter.__lw_trace or {}
 local function argstr(...) local n=select('#',...) local s='' for i=1,n do s=s..i..':'..tostring(select(i,...))..' ' end return s end
 local function wrap(tbl,name,tag)
   if not tbl or type(tbl[name])~='function' then return end
-  local key=tag..'.'..name if _G.__TRACE[key] then return end
-  local orig=tbl[name] _G.__TRACE[key]=orig
+  local key=tag..'.'..name if DataCenter.__lw_trace[key] then return end
+  local orig=tbl[name] DataCenter.__lw_trace[key]=orig
   tbl[name]=function(...) CS.UnityEngine.Debug.LogError('TRACE '..key..' <- '..argstr(...)) return orig(...) end
 end
 wrap(CrossServerUtil,'SetCrossEnableList','CSU')
@@ -282,7 +282,7 @@ CS.UnityEngine.Debug.LogError('MP armed')"
 `argstr` uses `select('#',...)` (not `ipairs`) so a `nil` in the middle of the
 argument list is still logged. To capture a **table argument's contents** (only
 its address prints otherwise), store it and dump it in the shim:
-`_G.__CAP = arg` + a small `dump(t,depth)` walker that recurses to depth ~3 —
+`DataCenter.__lw_cap = arg` + a small `dump(t,depth)` walker that recurses to depth ~3 —
 this is how the `{[0]={100},[1]={300}}` shape of the enable list was recovered.
 
 **Read** the trace — the game appends to `Player.log`:
@@ -296,11 +296,11 @@ the game restarts; leaving them wrapped spams the log and slows hot functions:
 ```bash
 /mnt/c/Python312/python.exe tools/lua_eval.py --marker UN "
 local n=0
-if _G.__TRACE then for key,orig in pairs(_G.__TRACE) do
+if DataCenter.__lw_trace then for key,orig in pairs(DataCenter.__lw_trace) do
   local tag,name=key:match('([^.]+)%.(.+)')
   local tbl=(tag=='CSU' and CrossServerUtil) or (tag=='GTU' and GoToUtil) or (tag=='SU' and SceneUtils)
   if tbl then tbl[name]=orig n=n+1 end
-end _G.__TRACE=nil end
+end DataCenter.__lw_trace=nil end
 CS.UnityEngine.Debug.LogError('UN restored='..n)"
 ```
 (Extend the `tag`→table map for any other holder table you wrap.)

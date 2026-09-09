@@ -7,7 +7,7 @@ world z each. So the route planner can be exercised on the genuine obstacle fiel
 band, as often as needed.
 
 The simulation runs **inside the game's Lua VM** and calls the very same
-``_G.__SR_AI.planRoute`` the live autopilot uses — one implementation, no drifting Python
+``DataCenter.__lw_sr_ai.planRoute`` the live autopilot uses — one implementation, no drifting Python
 mirror. It steps a virtual avatar at 60 Hz with the real motion constants (0.16 s lane
 change, 0.72 s hop), applies the planner's moves, drives the moving obstacles at their own
 speed, and collides against a *truth* model whose sizes are deliberately independent of the
@@ -403,7 +403,7 @@ def run_accel(path: str, speed0: float = 30.0, cap: float = 60.0) -> float:
 
 _SIM = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SSIM "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI or not AI.planRoute then L("no-autopilot") return end
 AI.kindOverride = { %s }
 if AI.resetKinds then AI.resetKinds() end
@@ -496,7 +496,7 @@ def main(argv):
 
 _SCORE = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SSIM "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI or not AI.planRoute then L("no-autopilot") return end
 AI.kindOverride = { %s }
 if AI.resetKinds then AI.resetKinds() end

@@ -55,13 +55,13 @@ def main():
     print("baseline:", march_state(), flush=True)
 
     # 1) find a mine clone + OnClick (opens UIWorldPoint)
-    clicked = one(run(r'''_G.TRIG=nil _G.CN=nil
+    clicked = one(run(r'''DataCenter.__lw_trig=nil DataCenter.__lw_cn=nil
 local arr=CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour))
 for i=0,arr.Length-1 do local mb=arr[i] if mb and mb:GetType().Name=='TouchObjectEventTrigger' then
   local ok,go=pcall(function() return mb.gameObject end)
   if ok and go then local p=go while p and not string.find(p.name,'CollectResource') and p.transform.parent do p=p.transform.parent.gameObject end
-    if p and string.find(p.name,'CollectResource') and string.find(p.name,'Clone') then _G.TRIG=mb _G.CN=p.name break end end end end
-if _G.TRIG then pcall(function() _G.TRIG:OnClick() end) CS.UnityEngine.Debug.LogError("SEL mine="..tostring(_G.CN)) else CS.UnityEngine.Debug.LogError("SEL NO_MINE") end''', "SEL", 1.2), "SEL ")
+    if p and string.find(p.name,'CollectResource') and string.find(p.name,'Clone') then DataCenter.__lw_trig=mb DataCenter.__lw_cn=p.name break end end end end
+if DataCenter.__lw_trig then pcall(function() DataCenter.__lw_trig:OnClick() end) CS.UnityEngine.Debug.LogError("SEL mine="..tostring(DataCenter.__lw_cn)) else CS.UnityEngine.Debug.LogError("SEL NO_MINE") end''', "SEL", 1.2), "SEL ")
     print(clicked, flush=True)
     if "NO_MINE" in clicked:
         print("no mine with a trigger in view (pan the camera first)", flush=True)

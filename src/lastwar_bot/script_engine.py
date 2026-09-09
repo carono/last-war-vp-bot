@@ -3035,9 +3035,10 @@ class Interpreter:
 
         TWO chunks and not one, because the recorder has to be there before anything can
         be recorded and a game session may have been up for days without it: the first
-        (re)installs `_G.__CR_REC`, the second walks the rooms through it. The listener's
-        own hook calls that global BY NAME, so re-installing it under a running reader
-        updates what the reader records rather than fighting it.
+        (re)installs `CR.REC` on `DataCenter.__lw_chat`, the second walks the rooms
+        through it. The listener's own hook calls it BY NAME off that table, so
+        re-installing it under a running reader updates what the reader records rather
+        than fighting it.
 
         The buffer is the history one (`chat_records.HISTORY_SINK`), never the
         listener's: the reader child empties `__CR_BUF` on its own clock, so a backlog

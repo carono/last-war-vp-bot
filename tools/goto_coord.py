@@ -30,9 +30,13 @@ def one(lines, needle):
 
 def cur(run):
     return one(run(
-        'local WS=_G.WS if not WS or not WS.CurTilePos then '
+        # THE CACHE HANGS OFF `DataCenter`, NOT `_G` (#2665). The build refuses a new
+        # global and only logs it (`Global/GlobalProtect.lua`), so the old `_G.WS` write never
+        # landed and every call re-walked every MonoBehaviour in the scene. Read off
+        # the client's own Player.log: `Lua 全局变量 'WS' 不可<新增/修改>`.
+        'local WS=DataCenter.__lw_ws if not WS or not WS.CurTilePos then '
         'local arr=CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) '
-        'for i=0,arr.Length-1 do if arr[i] and arr[i]:GetType().Name=="WorldScene" then WS=arr[i] break end end _G.WS=WS end '
+        'for i=0,arr.Length-1 do if arr[i] and arr[i]:GetType().Name=="WorldScene" then WS=arr[i] break end end DataCenter.__lw_ws=WS end '
         'CS.UnityEngine.Debug.LogError("CUR=("..tostring(WS.CurTilePos.x)..","..tostring(WS.CurTilePos.y)..")")',
         "CUR", 1.0), "CUR=")
 

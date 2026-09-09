@@ -42,11 +42,44 @@ MARKER = "ACT"
 #: many in between; the backlog read raises it for its own buffer instead of sharing.
 LIVE_CAP = 500
 
+#: WHERE THIS PAIR KEEPS ITS STATE IN THE CLIENT, AND WHY NOT `_G` (#2665).
+#:
+#: All of it used to be `_G.__CR_…`, and on a live client not one of those writes ever
+#: landed: the build guards its own globals (`Global/GlobalProtect.lua`, an `__newindex`
+#: that REFUSES an unknown name and only logs it — `Lua 全局变量 '…' 不可<新增/修改>`).
+#: The refusal does not raise, so nothing on this side noticed. Read off the client's own
+#: `Player.log` on 2026-09-09, once per install: `__CR_BUF`, `__CR_CAP`, `__CR_REC`,
+#: `__CR_ORIG`, `__CR_WRAP`, `__CR_CLASS_HOOKED`, `__CR_ADD`, `__CR_ADDWRAP` — every one
+#: of them refused.
+#:
+#: Two things follow, and the second is why this is a crash fix and not a chat fix:
+#:
+#:   * `CR.ORIG` being for ever nil made the wrapper call `nil` for every message the
+#:     client parsed;
+#:   * `CR.WRAP` being for ever nil made the «is my wrapper already there?» guard never
+#:     true, so EVERY install wrapped `onParseServerData` again over the last one. The
+#:     panel installs on every boot, and a client that outlives several boots ends up
+#:     with a chain of them — one extra frame per layer on every message it receives,
+#:     which is a stack overflow with enough of them. That is the same mechanism #2656
+#:     found in `dev/wire_catch.md`, and one of 8 September's faults was a client dying
+#:     of `0xc0000409` inside `GameAssembly.dll`.
+#:
+#: So everything hangs off ONE ordinary field on `DataCenter`, which is not guarded.
+#: Every chunk here opens with this, and the chunks that are concatenated into one
+#: `DoString` share the single `local CR` it declares.
+STATE = "DataCenter.__lw_chat"
+
+STATE_LUA = r"""
+local CR = DataCenter.__lw_chat
+if CR == nil then CR = {} DataCenter.__lw_chat = CR end
+"""
+
+
 # ---------------------------------------------------------------------------
 # Lua: the recorder both readers install.
 # ---------------------------------------------------------------------------
-#: Defines ``_G.__CR_REC(message, sink)`` — copy one ``ChatMessage`` into ``sink``
-#: (a plain Lua array), hex-encoding every string field on the way.
+#: Defines ``CR.REC(message, sink)`` on :data:`STATE` — copy one ``ChatMessage`` into
+#: ``sink`` (a plain Lua array), hex-encoding every string field on the way.
 #:
 #: Rebuilt from source on every install rather than guarded by an `if`: that is what
 #: lets an updated recorder take effect in a game session that has been up for days,
@@ -56,15 +89,15 @@ LIVE_CAP = 500
 #: getters reach into the client's own managers, and a message whose sender has left
 #: the room raises rather than answering nil — one unguarded read there loses the
 #: whole batch, not one field.
-RECORD_LUA = r"""
-_G.__CR_BUF = _G.__CR_BUF or {}
-_G.__CR_CAP = _G.__CR_CAP or __CAP__
+RECORD_LUA = STATE_LUA + r"""
+CR.BUF = CR.BUF or {}
+CR.CAP = CR.CAP or __CAP__
 local function hex(s)
   if type(s) ~= "string" then return "" end
   return (s:gsub('.', function(c) return string.format('%02x', c:byte()) end))
 end
-_G.__CR_REC = function(a, sink)
-  sink = sink or _G.__CR_BUF
+CR.REC = function(a, sink)
+  sink = sink or CR.BUF
   local rec = {}
   local function pg(k) local ok, v = pcall(function() return a[k] end) if ok then return v end end
   local function mg(n) local ok, v = pcall(function() return a[n](a) end) if ok then return v end end
@@ -111,7 +144,7 @@ _G.__CR_REC = function(a, sink)
     rec.rmsg  = hex(tostring(rp.msg or ""))
   end
   sink[#sink + 1] = rec
-  local cap = _G.__CR_CAP or __CAP__
+  local cap = CR.CAP or __CAP__
   while #sink > cap do table.remove(sink, 1) end
 end
 """
@@ -126,9 +159,9 @@ def record_lua(cap: int = LIVE_CAP) -> str:
 #:
 #: One `pcall` PER LINE, not one around the loop: a single malformed record must never
 #: abort the drain, because an aborted drain silently loses every message behind it.
-DRAIN_LUA = r"""
+DRAIN_LUA = STATE_LUA + r"""
 local function L(s) CS.UnityEngine.Debug.LogError("__MARK__ "..tostring(s)) end
-local cap = _G.__SINK__ or {}
+local cap = CR.__SINK__ or {}
 L("N="..#cap)
 local function f(v) return tostring(v == nil and "" or v) end   -- nil-safe field
 for i, r in ipairs(cap) do
@@ -142,7 +175,7 @@ for i, r in ipairs(cap) do
       .." sender="..f(r.sender).." msg="..f(r.msg).." we="..f(r.we))
   end)
 end
-_G.__SINK__ = {}   -- drained; keep the buffer small
+CR.__SINK__ = {}   -- drained; keep the buffer small
 """
 
 
@@ -162,20 +195,20 @@ _G.__SINK__ = {}   -- drained; keep the buffer small
 HOOK_CHECK_LUA = r"""
 local CM = package.loaded["Chat.Model.ChatMessage"]
 local RD = package.loaded["Chat.Model.ChatRoomData"]
-local live = type(_G.__CR_REC) == "function"
-  and type(CM) == "table" and CM.onParseServerData == _G.__CR_WRAP
+local live = type(CR.REC) == "function"
+  and type(CM) == "table" and CM.onParseServerData == CR.WRAP
 -- The room hook is checked only when it was ever installed: a build without
 -- `ChatRoomData` is not a lost ear, and calling it one would reinstall for ever.
-if live and _G.__CR_ADDWRAP ~= nil then
-  live = type(RD) == "table" and RD.__addChatData == _G.__CR_ADDWRAP
+if live and CR.ADDWRAP ~= nil then
+  live = type(RD) == "table" and RD.__addChatData == CR.ADDWRAP
 end
 L("H="..(live and "1" or "0"))
 """
 
 
-def drain_lua(sink: str = "__CR_BUF", marker: str = MARKER,
+def drain_lua(sink: str = "BUF", marker: str = MARKER,
               check_hook: bool = False) -> str:
-    """Drain one named global buffer. ``sink`` is a global NAME, not a value.
+    """Drain one named buffer. ``sink`` is a FIELD NAME on :data:`STATE`, not a value.
 
     ``check_hook`` adds one line saying whether the listener's hook is still bound —
     for the reader child, which is the only caller that HAS one to lose.
@@ -185,9 +218,9 @@ def drain_lua(sink: str = "__CR_BUF", marker: str = MARKER,
 
 
 #: The buffer the BACKLOG read fills. Deliberately not the listener's: the reader child
-#: drains `__CR_BUF` on its own clock, so a backlog seeded into it would be carried off
+#: drains `CR.BUF` on its own clock, so a backlog seeded into it would be carried off
 #: by whichever of the two asked first and the other would see nothing.
-HISTORY_SINK = "__CR_HIST"
+HISTORY_SINK = "HIST"
 
 
 #: Seed :data:`HISTORY_SINK` with the messages the CLIENT IS ALREADY HOLDING.
@@ -204,10 +237,10 @@ HISTORY_SINK = "__CR_HIST"
 #: A room with an empty `msgs` (every private conversation the player has not opened in
 #: this session) is skipped rather than counted: it is not «no history», it is history
 #: the client has not asked for, and saying «0 messages» about it would be a lie.
-BACKLOG_LUA = r"""
+BACKLOG_LUA = STATE_LUA + r"""
 local function L(s) CS.UnityEngine.Debug.LogError("__MARK__ "..tostring(s)) end
-_G.__SINK__ = {}
-_G.__CR_CAP = __CAP__
+CR.__SINK__ = {}
+CR.CAP = __CAP__
 local I = package.loaded["Chat.ChatInterface"]
 if type(I) ~= "table" then L("SEED err=no-chat-interface") return end
 local ok, mgr = pcall(function() return I.getRoomMgr() end)
@@ -220,11 +253,11 @@ for _, rd in pairs(mgr.roomDatas or {}) do
     local from = #msgs - __LIMIT__ + 1
     if from < 1 then from = 1 end
     for i = from, #msgs do
-      if pcall(_G.__CR_REC, msgs[i], _G.__SINK__) then seeded = seeded + 1 end
+      if pcall(CR.REC, msgs[i], CR.__SINK__) then seeded = seeded + 1 end
     end
   end
 end
-_G.__CR_CAP = __LIVECAP__
+CR.CAP = __LIVECAP__
 L("SEED rooms="..rooms.." n="..seeded)
 """
 

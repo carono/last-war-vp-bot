@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import sys
 from pathlib import Path
 
@@ -171,6 +172,50 @@ def test_nothing_untracked_is_waiting_to_be_committed_by_accident() -> None:
 # 4-6. Three values that must be ASKED rather than known. Each check names the knob,
 #      never an answer — a real port, login or install path would be the very thing the
 #      deleted guard was deleted for.
+
+
+#: The globals the GAME defines and we only read. Everything else under `_G.` is ours.
+GAME_GLOBALS = ("BuildBubbleType", "ResourceType", "MarchTargetType")
+
+
+def test_nothing_of_ours_is_parked_on_a_lua_global() -> None:
+    """The rule #2656 wrote down, pinned so it cannot rot back in (#2665).
+
+    The client guards its own global table — `Global/GlobalProtect.lua` puts an
+    `__newindex` on `_G` that REFUSES an unknown name and only logs it. It does not
+    raise, so a `_G.__ours = …` looks like it worked from this side and is nil for ever
+    afterwards. That is not merely a value lost: an «is my wrapper already there?» guard
+    kept on `_G` is never true, so every install stacks another wrapper on a method the
+    client calls per message — a stack overflow with enough of them, which is how a
+    client dies of `0xc0000409`.
+
+    So anything of ours lives on ONE ordinary field of `DataCenter`. Reading a global the
+    GAME defines is fine and is what :data:`GAME_GLOBALS` allows.
+    """
+    ours = re.compile(r"_G\.(?!(?:" + "|".join(GAME_GLOBALS) + r")\b)"
+                      r"([A-Za-z_][A-Za-z0-9_]*)")
+    found = []
+    for path in _tracked():
+        if not path.endswith((".py", ".md")):
+            continue
+        if path.startswith("tests/") or path.startswith("docs/"):
+            continue        # a test's own Lua VM, and prose about the mistake itself
+        text = _read(path)
+        for n, line in enumerate(text.splitlines(), 1):
+            # PROSE ABOUT THE MISTAKE IS NOT THE MISTAKE. Every file that fixed one of
+            # these explains it, quoting the old name in backticks, and a scan that
+            # cannot tell an explanation from a write would forbid writing the
+            # explanation down. So backticked spans go, and so does a comment line.
+            code = re.sub(r"`[^`]*`", "", line)
+            if code.lstrip().startswith(("#", "--")):
+                continue
+            for m in ours.finditer(code):
+                name = m.group(1)
+                if name.startswith("__lw_"):
+                    continue          # our own table, reached through `_G` by a test stub
+                found.append(f"{path}:{n}: _G.{name}")
+    assert not found, ("something of ours is parked on a Lua global — the build refuses "
+                       "it silently:\n  " + "\n  ".join(found))
 
 
 def test_the_capture_tools_ask_rather_than_pin_the_port() -> None:
