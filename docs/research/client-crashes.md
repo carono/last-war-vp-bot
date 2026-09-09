@@ -644,6 +644,25 @@ one-sighting winner aims it at a spot the thread rarely returns to, which is the
 * **The only other lever is FEWER hijacks.** 89 % of them are `DoString(bytes)`, one per
   Lua chunk: 40 638 chunks in the same window. Cutting suspensions at scale means running
   fewer chunks, which is a question about what the panel does, not about how it attaches.
+### The first three restarts on the fix — not proven yet
+
+The acceptance question is «does the client die within two minutes of a panel restart»,
+against six of nine before. Live, 2026-09-09, panel `7a90c6c9`:
+
+| restart | what happened |
+| --- | --- |
+| 11:16:17 (spread, gate NOT yet spread) | six parked fires at 11:17:04, client dead 11:17:08 |
+| 11:23:35 | nothing — the client that came up at 11:17:30 was still up ten minutes later |
+| 11:26:42 | dead at 11:27:21, and again at 11:27:48 |
+
+So one of two restarts on the finished fix still killed the client, and the log of the
+one that did shows the client going away in the middle of a chunk — `arms_race_drone`
+failing with `OpenThread(...) failed err=87` because the process it was attached to had
+gone. Two restarts is not a rate: what this says is that the burst was real and removing
+it is not sufficient, not that it did nothing. The counting has to go on over days, with
+the same two queries — the `Application Error` entries for the game, and the panel's own
+`boot_at`.
+
 * **The A/B nobody has run.** With the races of #2665 removed and the burst of #2667
   spread out, the honest next step is a day of the panel against the days recorded here —
   specifically, how many restarts kill the client within two minutes (it was six of nine).
