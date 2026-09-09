@@ -113,7 +113,7 @@ window has asked the server for the page, and the panel does not open windows.
   last) and the money shelf into another.
 * `actions/buy_shop_goods.md` — one row, by a person's press, with the price said first.
 * `actions/autobuy_shop_goods.md` — the order of preference, walked from the top, within
-  the quota, within the diamond ceiling and within the purchases-per-run ceiling. Ships
+  the quota, within the CURRENCY's own ceiling and within the purchases-per-run ceiling. Ships
   OFF. It covers EVERY shelf, the diamond ones included — the person's decision, in their
   words, «любая автопокупка» — and the safeguard is a CEILING on what one run may spend in
   diamonds (300 by default, the number already settled for the energy refill in #2390)
@@ -179,6 +179,17 @@ refusal a second late. `web_press` refuses it too, off the last reading, for the
 that arrives from an older screen. The KNOBS stay: the quota comes back on the shelf's
 own reset, and putting a row into the queue is exactly what somebody does while looking
 at one they have just used up.
+
+**A CEILING BELONGS TO A CURRENCY, NOT TO A RUN** (#2670, the person's answer to «потолок
+общий или на магазин»: «у каждого магазина своя валюта»). One number over every shelf
+added alliance points to diamonds to honour, which is not a sum anybody can mean. So the
+errand's argument is `caps` — «currency:limit», comma separated — and it is typed where it
+is spent: the gear beside a shop's own heading edits THAT shop's currency, «Таймеры» draws
+the same value as the one line it is stored as. A currency that is not named has no
+ceiling: it is earned by playing and cannot be bought, so the row's own quota is already
+the limit. `5:300` ships — the diamonds, the one irreversible spend, at the number settled
+in #2390 — `5:0` means «not one diamond», and `-1` takes a ceiling away. A profile written
+before this keeps `diamond_cap`, which is read through when `caps` says nothing.
 
 The plan string is unchanged in shape — `kind:shop:id:count`, comma separated — so
 nothing had to be migrated; what changed is that **0 now means «all of it»** rather than

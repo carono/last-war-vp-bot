@@ -497,17 +497,96 @@ class ShopTab(PanelTab):
             {"kind": kind, "shop": shop, "product": ident, "count": count},
             tag="shop", human=True, on_done=self._bought)
 
+    # -- the ceilings, one per CURRENCY --------------------------------------------
+    #
+    # THE PERSON'S CORRECTION (#2670): «у каждого магазина своя валюта». One number over
+    # all the shelves added alliance points to diamonds to honour, which is not a sum
+    # anybody can mean. So a ceiling belongs to the CURRENCY, it is stored ONCE (the
+    # errand's own `caps` argument, exactly like the order), and it is drawn where it is
+    # spent — the gear beside the shop's own heading.
+    CAPS_ARG = "caps"
+    #: What a currency with no ceiling reads as. Not zero: zero is a REAL ceiling that
+    #: says «not one of this», and the two must never be spelled the same.
+    NO_CAP = -1
+    #: The one currency that ships with a ceiling — the diamonds, the irreversible spend
+    #: (`CLAUDE.md`), at the 300 already settled for the energy refill. Every other
+    #: currency of every shelf is EARNED by playing and cannot be bought, so its own
+    #: quota is the limit and a second number would be furniture.
+    DIAMONDS = "5"
+    DIAMOND_CAP = 300
+
+    def caps(self) -> dict:
+        """Every ceiling, as the errand row holds them: `{currency: limit}`.
+
+        A profile written before #2670 has `diamond_cap` and no `caps`; it is READ
+        through, not migrated, so nothing is rewritten behind a person who has not
+        touched the page.
+        """
+        sched = getattr(self.rt, "schedule", None)
+        raw = sched.timer_arg(AUTOBUY_ACTION, self.CAPS_ARG, "") if sched else ""
+        out: dict = {}
+        for piece in str(raw or "").split(","):
+            money, _sep, limit = piece.partition(":")
+            money, limit = money.strip(), limit.strip()
+            if not money:
+                continue
+            try:
+                out[money] = int(limit)
+            except (TypeError, ValueError):
+                continue
+        if not out:
+            old = sched.timer_arg(AUTOBUY_ACTION, "diamond_cap", self.DIAMOND_CAP) if sched else None
+            try:
+                out = {self.DIAMONDS: int(old)}
+            except (TypeError, ValueError):
+                out = {self.DIAMONDS: self.DIAMOND_CAP}
+        return out
+
+    def cap_of(self, currency: str) -> int:
+        """This currency's ceiling, or `NO_CAP` when it has none."""
+        return self.caps().get(str(currency), self.NO_CAP)
+
+    def set_cap(self, currency: str, limit) -> None:
+        """Type a ceiling for one currency. `NO_CAP` (or below) takes it away."""
+        try:
+            want = int(str(limit).strip())
+        except (TypeError, ValueError):
+            return
+        held = self.caps()
+        if want < 0:
+            held.pop(str(currency), None)
+        else:
+            held[str(currency)] = want
+        sched = getattr(self.rt, "schedule", None)
+        if sched is not None:
+            sched.set_timer_arg(AUTOBUY_ACTION, self.CAPS_ARG,
+                                ",".join("%s:%d" % (money, limit)
+                                         for money, limit in held.items()))
+
+    def shelf_money(self, rows) -> str:
+        """Which currency this shelf spends — the one its rows are priced in.
+
+        A shelf whose rows disagree (none does today) is named by the first row's: the
+        ceiling is per currency, so a mixed shelf simply shows the one it mostly spends
+        and the other keeps its own ceiling wherever it IS drawn.
+        """
+        for row in rows or ():
+            money = str(row.get("cost_id") or "")
+            if money:
+                return money
+        return ""
+
     def autobuy_now(self) -> bool:
         """Play the autobuy once by hand, with the order as it stands."""
         sched = getattr(self.rt, "schedule", None)
         plan = plan_text(self.plan())
         args = {PLAN_ARG: plan}
         if sched is not None:
-            # THE CEILING, NOT A BAN (#2666). Every shop is in the order, the diamond
-            # ones included; what limits an irreversible spend is how much one run may
-            # spend in diamonds, and the row's own default is the recipe's — 300.
-            cap = sched.timer_arg(AUTOBUY_ACTION, "diamond_cap", 300)
-            args["diamond_cap"] = cap if isinstance(cap, (int, float, str)) else 0
+            # THE CEILINGS, ONE PER CURRENCY (#2670) — never a ban: every shop is in the
+            # order, the diamond ones included, and what limits an irreversible spend is
+            # how much of THAT currency one run may spend.
+            args[self.CAPS_ARG] = ",".join("%s:%d" % (money, limit)
+                                           for money, limit in self.caps().items())
         return self.rt.play_async(AUTOBUY_ACTION, args, tag="shop", human=True,
                                   on_done=self._bought)
 
@@ -594,11 +673,25 @@ class ShopTab(PanelTab):
         rest = [self.good(kind, shop, row, group="shop.rest")
                 for row in rows[:SHELF_MAX]
                 if str(row.get("id") or "") not in picked]
+        # THE CEILING IS DRAWN WHERE IT IS SPENT (#2670): behind the gear beside this
+        # shop's own heading, named after the currency this shop takes. A shelf whose
+        # currency the game has no word for shows its number — the same honesty the
+        # price line keeps.
+        money = self.shelf_money(rows)
+        word = self.money_name(money)
+        caps = ([{"key": "cap:" + money, "label": "shop.cap",
+                  "label_fmt": {"currency": word or money},
+                  "hint": "shop.cap.hint", "kind": "number",
+                  "min": self.NO_CAP, "max": 1000000,
+                  "value": self.cap_of(money)}]
+                if money and kind != "money" else [])
         return [{"title": "shop.shelves",
                  "head": self.t("shop.age", age=int(age)) if age is not None else "",
                  "note": "shop.shelves.hint",
                  "main": True, "layout": "grid", "search": True,
                  "empty": "shop.shelf.empty",
+                 "options": caps,
+                 "options_title": "shop.caps.title",
                  "fields": [{"key": "pick", "label": "shop.pick", "kind": "chips",
                              "value": chosen, "options": choices}],
                  "actions": [{"id": "autobuy", "label": "shop.autobuy.now"}],
@@ -784,6 +877,9 @@ class ShopTab(PanelTab):
             # time is how two front-ends end up disagreeing about the middle of it.
             if key == "order":
                 self.set_order(args.get("value"))
+                return {"ok": True}
+            if key.startswith("cap:"):
+                self.set_cap(key.partition(":")[2], args.get("value"))
                 return {"ok": True}
             head, _sep, tail = key.partition(":")
             bits = tail.split(":")

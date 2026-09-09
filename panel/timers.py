@@ -503,7 +503,7 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # and it starts at 300 — the number already settled for the energy refill (#2390),
         # so the panel is not inventing a scale of its own.
         enabled=False,
-        args={"plan": "", "diamond_cap": 300, "cap": 20},
+        args={"plan": "", "caps": "5:300", "cap": 20},
         label_key="timers.item.autobuy_shop_goods",
     ),
     Timer(

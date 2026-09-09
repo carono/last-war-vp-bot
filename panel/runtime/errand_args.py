@@ -59,6 +59,17 @@ def _num(key: str, label_key: str, *, low: int, high: int,
             "low": low, "high": high, "hint": hint_key, "cast": "int"}
 
 
+def _text(key: str, label_key: str, *, hint_key: str = "") -> dict:
+    """An argument that is a LINE — a list the recipe parses itself.
+
+    Used where a value has no single number: the shop's ceilings are one per currency
+    (#2670), typed where each is spent, and this is the same value written out, so a
+    person on «Таймеры» can read what the errand may spend without leaving the page.
+    """
+    return {"key": key, "label": label_key, "kind": errandopts.TEXT,
+            "hint": hint_key, "cast": "str"}
+
+
 def _choice(key: str, label_key: str, choices, *, hint_key: str = "") -> dict:
     """One argument out of a short list — `choices` is `((value, locale key), …)`."""
     return {"key": key, "label": label_key, "kind": errandopts.CHOICE,
@@ -222,8 +233,12 @@ SPEC: dict = {
     # the person's own rule about an irreversible spend — and how many purchases one run
     # may make at all.
     "autobuy_shop_goods": (
-        _num("diamond_cap", "shop.opt.diamond_cap", low=0, high=100000,
-             hint_key="shop.opt.diamond_cap.hint"),
+        # THE CEILINGS ARE PER CURRENCY (#2670, «у каждого магазина своя валюта»), and
+        # each one is typed where it is spent — the gear beside that shop's heading on
+        # «Магазин». Here they are drawn as the one line they are STORED as, so a person
+        # reading «Таймеры» can see what the errand may spend without leaving the page,
+        # and the value has one home either way.
+        _text("caps", "shop.opt.caps", hint_key="shop.opt.caps.hint"),
         _num("cap", "shop.opt.cap", low=1, high=200,
              hint_key="shop.opt.cap.hint"),
     ),
@@ -322,7 +337,10 @@ def _one_option(schedule, errand: str, spec: dict):
     kind = spec["kind"]
     low, high = spec.get("low"), spec.get("high")
 
-    fallback = int(spec.get("default") or 0)
+    # A LINE HAS NO NUMBER BEHIND IT (#2670): the shop's ceilings are stored as
+    # «currency:limit,…», so an empty row must read back as an empty line rather than
+    # as 0 — and be WRITTEN as the line it is instead of being cast to an int.
+    fallback = "" if kind == errandopts.TEXT else int(spec.get("default") or 0)
 
     def read(_k=key, _kind=kind, _d=fallback):
         value = schedule.timer_arg(errand, _k, _d)
@@ -333,6 +351,9 @@ def _one_option(schedule, errand: str, spec: dict):
     def write(value, _k=key, _kind=kind, _low=low, _high=high):
         if _kind == errandopts.SWITCH:
             schedule.set_timer_arg(errand, _k, 1 if value else 0)
+            return
+        if _kind == errandopts.TEXT:
+            schedule.set_timer_arg(errand, _k, str(value or "").strip())
             return
         current = _as_int(schedule.timer_arg(errand, _k), fallback=0)
         schedule.set_timer_arg(errand, _k,
