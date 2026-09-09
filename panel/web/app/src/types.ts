@@ -325,6 +325,11 @@ export interface ViewItem {
      order is «отделено от остальных»: the queue is one group, the rest of the shelf is
      the next. Absent, and the items are one wall as before. */
   group?: string
+  /* WHAT THIS ROW IS CALLED — a name of the panel's own choosing, stable across
+     re-reads and reorders (#2670). It is what the front-end keys the row by and what an
+     open sheet remembers: keyed by POSITION, a list that reorders when a knob is ticked
+     hands the sheet to the row that took that place. Data, never a key to translate. */
+  id?: string
   /* THIS ROW IS USED UP (#2670) — drawn grey, and with whatever presses the panel chose
      not to send it. The panel decides what «used up» means (a shop row whose quota is
      spent); the front-end only greys it. */

@@ -686,7 +686,8 @@ class ShopTab(PanelTab):
         # lives behind is two taps away.
         if place and self.buys_all(kind, shop, ident):
             facts.insert(0, {"label": "shop.all.mark", "value": ""})
-        item = {"text": str(row.get("name") or ident),
+        item = {"id": "%s:%s:%s" % (kind, shop, ident),
+                "text": str(row.get("name") or ident),
                 "detail": (self.t("shop.count", count=row.get("count"))
                            if int(row.get("count") or 0) > 1 else ""),
                 "facts": facts,

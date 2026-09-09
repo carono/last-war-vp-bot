@@ -113,62 +113,90 @@ function PressButton({
 function useItemGear(item: ViewItem, screen: string, after: () => void) {
   const [open, setOpen] = useState(false)
   const options = item.options || []
-  /* THE GEAR MAY HOLD ABILITIES RATHER THAN A LIST OF KNOBS (#2624). Same sheet, same
-     component, same way of closing — what changes is only what is inside it: per
-     ability, its switch, the press that runs it, and what it is about. */
   const groups: OptionGroup[] = item.options_groups || []
   if (!options.length && !groups.length) return { button: null, sheet: null }
-  const name = item.options_title ? t(item.options_title) : (item.label ? t(item.label) : item.text || '')
   return {
-    button: (
-      <button
-        className="go icon"
-        title={t('web.ui.options')}
-        aria-label={t('web.ui.options')}
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpen(true)
-        }}
-      >
-        {'\u2699'}
-      </button>
-    ),
-    sheet: open ? (
-      <Modal title={name} onClose={() => setOpen(false)}>
-        {groups.map((group, gi) => (
-          <div className="item" key={'g' + gi}>
-            {/* THE NAME IS SAID ONCE (#2645). A group whose only knob is the ability's
-                own switch used to draw «Открывать готовые здания» as a heading and then
-                again as the label beside the switch — the person's words: «В карточках
-                дублируются заголовки карточки и триггера». The heading is what goes:
-                the switch has to keep a label of its own, because a box with no word
-                beside it is a box nobody can read aloud. */}
-            {group.title && !(group.fields || []).some((f) => f.label === group.title) ? (
-              <b>{t(group.title)}</b>
-            ) : null}
-            {(group.fields || []).map((field) => (
-              <ScreenField key={field.key} field={field} screen={screen} after={after} />
-            ))}
-            {(group.actions || []).length ? (
-              <div className="foot">
-                {(group.actions || []).map((action) => (
-                  <PressButton key={action.id + String(action.args?.key || '')}
-                               action={action} screen={screen} after={after} />
-                ))}
-              </div>
-            ) : null}
-            {(group.items || []).map((row, ri) => (
-              <Item key={'i' + ri} item={row} now={0} screen={screen} after={after} />
-            ))}
-            {group.note ? <p className="muted small">{group.note}</p> : null}
-          </div>
-        ))}
-        {options.map((field) => (
-          <ScreenField key={field.key} field={field} screen={screen} after={after} />
-        ))}
-      </Modal>
-    ) : null,
+    button: <GearButton onOpen={() => setOpen(true)} />,
+    sheet: open ? <ItemSheet item={item} screen={screen} after={after} onClose={() => setOpen(false)} /> : null,
   }
+}
+
+/* THE GEAR ITSELF — one button, wherever a row's knobs are opened from. */
+function GearButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      className="go icon"
+      title={t('web.ui.options')}
+      aria-label={t('web.ui.options')}
+      onClick={(e) => {
+        e.stopPropagation()
+        onOpen()
+      }}
+    >
+      {'\u2699'}
+    </button>
+  )
+}
+
+/* WHAT IS INSIDE A ROW'S SHEET — the one modal, and one implementation of its contents.
+ *
+ * It was inside `useItemGear`, which meant the sheet could only live where the gear was
+ * pressed. That is exactly what broke the shop (#2670): ticking «покупать автоматически»
+ * moves the row out of the shelf's block and into the queue's, React unmounts the tile
+ * it was drawn in, and the sheet goes with it — the tick looked as if it had not
+ * happened, and the NEXT press landed on whatever tile had taken that place. So the
+ * contents are a component, and a list that reorders under an open sheet can draw the
+ * sheet somewhere that does not move (`GoodsGrid`).
+ */
+function ItemSheet({
+  item,
+  screen,
+  after,
+  onClose,
+}: {
+  item: ViewItem
+  screen: string
+  after: () => void
+  onClose: () => void
+}) {
+  const options = item.options || []
+  const groups: OptionGroup[] = item.options_groups || []
+  const name = item.options_title ? t(item.options_title) : item.label ? t(item.label) : item.text || ''
+  return (
+    <Modal title={name} onClose={onClose}>
+      {groups.map((group, gi) => (
+        <div className="item" key={'g' + gi}>
+          {/* THE NAME IS SAID ONCE (#2645). A group whose only knob is the ability's
+              own switch used to draw «Открывать готовые здания» as a heading and then
+              again as the label beside the switch — the person's words: «В карточках
+              дублируются заголовки карточки и триггера». The heading is what goes:
+              the switch has to keep a label of its own, because a box with no word
+              beside it is a box nobody can read aloud. */}
+          {group.title && !(group.fields || []).some((f) => f.label === group.title) ? (
+            <b>{t(group.title)}</b>
+          ) : null}
+          {(group.fields || []).map((field) => (
+            <ScreenField key={field.key} field={field} screen={screen} after={after} />
+          ))}
+          {(group.actions || []).length ? (
+            <div className="foot">
+              {(group.actions || []).map((action) => (
+                <PressButton key={action.id + String(action.args?.key || '')}
+                             action={action} screen={screen} after={after} />
+              ))}
+            </div>
+          ) : null}
+          {(group.items || []).map((row, ri) => (
+            <Item key={'i' + ri} item={row} now={0} screen={screen} after={after} />
+          ))}
+          {group.note ? <p className="muted small">{group.note}</p> : null}
+        </div>
+      ))}
+      {options.map((field) => (
+        <ScreenField key={field.key} field={field} screen={screen} after={after} />
+      ))}
+    </Modal>
+  )
 }
 
 /* THE GRID'S OWN KNOBS, behind the gear beside its heading (#2308).
@@ -549,6 +577,7 @@ function GoodItem({
   screen,
   after,
   grip,
+  onGear,
 }: {
   item: ViewItem
   screen: string
@@ -557,8 +586,11 @@ function GoodItem({
      draws it and knows nothing about how a drag works. Absent on a tile that is not in
      a list anybody may reorder. */
   grip?: ReactNode
+  /* WHO OPENS THIS TILE'S SHEET (#2670). The grid does, not the tile: ticking a knob
+     moves the row between the queue and the shelf, which unmounts the tile — and a
+     sheet living inside it would go with it, half-pressed. */
+  onGear?: () => void
 }) {
-  const gear = useItemGear(item, screen, after)
   const acts = item.actions || []
   const buy = acts[0]
   /* What is left of the quota, and «не хватает» — the values alone, in the smallest line
@@ -611,9 +643,8 @@ function GoodItem({
       {/* WHERE THE ROW STANDS IN THE AUTOBUY'S ORDER, at its name (#2308's rule) and out
           of the press. */}
       {item.badge ? <span className="prio">{item.badge}</span> : null}
-      {gear.button}
+      {(item.options || []).length && onGear ? <GearButton onOpen={onGear} /> : null}
       {grip}
-      {gear.sheet}
     </div>
   )
 }
@@ -638,6 +669,19 @@ function GoodsGrid({ items, screen, after }: { items: ViewItem[]; screen: string
     if (last && last.key === key) last.items.push(item)
     else groups.push({ key, items: [item] })
   })
+  /* WHICH ROW'S SHEET IS OPEN — by the row's own NAME, and held HERE (#2670).
+   *
+   * Two bugs, one cause, both reported by the person: «когда кликаю чекбокс покупать
+   * автоматически то чекбокс не меняется», and «когда жму покупать все то это
+   * применяется к следующему товару». Ticking a knob moves the row from the shelf's
+   * block into the queue's, the tiles were keyed by POSITION, and the sheet lived inside
+   * the tile — so the tile at that index became a different item, the sheet redrew with
+   * ITS values (the tick looked untouched) and the next press went to that neighbour.
+   *
+   * So the open sheet is named by `item.id`, it is drawn out here where no reorder can
+   * unmount it, and every tile is keyed by its own name too. */
+  const [open, setOpen] = useState<string | null>(null)
+  const shown = open ? items.find((one) => one.id === open) : null
   const order = async (ids: string[]) => {
     await post<PressAnswer>('/api/screen/press', {
       id: screen,
@@ -661,20 +705,39 @@ function GoodsGrid({ items, screen, after }: { items: ViewItem[]; screen: string
                 render={(id, grip) => {
                   const item = group.items.find((one) => one.drag_id === id)
                   return item ? (
-                    <GoodItem item={item} screen={screen} after={after} grip={grip} />
+                    <GoodItem
+                      item={item}
+                      screen={screen}
+                      after={after}
+                      grip={grip}
+                      onGear={() => setOpen(item.id || null)}
+                    />
                   ) : null
                 }}
               />
             ) : (
               <div className="goods">
                 {group.items.map((item, i) => (
-                  <GoodItem key={i} item={item} screen={screen} after={after} />
+                  <GoodItem
+                    key={item.id || i}
+                    item={item}
+                    screen={screen}
+                    after={after}
+                    onGear={() => setOpen(item.id || null)}
+                  />
                 ))}
               </div>
             )}
           </div>
         )
       })}
+      {/* THE ONE SHEET, OUTSIDE THE GROUPS — the same `ui/Modal.tsx` every other gear
+          opens, drawn where a row moving between the blocks cannot take it with it. It
+          reads the row out of the LATEST answer each render, so a tick shows the value
+          the panel now holds rather than the one the sheet opened with. */}
+      {shown ? (
+        <ItemSheet item={shown} screen={screen} after={after} onClose={() => setOpen(null)} />
+      ) : null}
     </>
   )
 }
