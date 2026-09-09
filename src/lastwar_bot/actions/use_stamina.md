@@ -27,8 +27,13 @@
 #
 #   amount   how much stamina to buy. The default is a thousand, which is a hundred solo
 #            attacks at the price the game charges today.
+#   strict   1 (the default) FAILs when the bag spent nothing, so a person's press says
+#            so plainly. 0 makes it a log line instead — for a caller in the middle of a
+#            phase, where a `FAIL` would unwind the CALLER (docs/dsl.md) and an empty bag
+#            is no reason to end somebody's drone hour. `top_up_march_energy` asks with 0.
 
 ARGS amount = 1000
+ARGS strict = 1
 
 READ_LUA (function() local D = DataCenter.ItemData local T = DataCenter.ItemTemplateManager local out = {} for _, pair in ipairs({{400401, 50}, {400402, 10}}) do local id, worth = pair[1], pair[2] local n = 0 pcall(function() for _, v in pairs(D.ItemInfos or {}) do if math.floor(tonumber(v.itemId) or 0) == id then n = n + math.floor(tonumber(v.count) or 0) end end end) local nm = '' pcall(function() nm = tostring(T:GetName(id) or '') end) out[#out + 1] = tostring(id) .. ':' .. tostring(n) .. 'x' .. tostring(worth) .. '=' .. tostring(n * worth) .. ' (' .. nm:gsub('%s+', ' ') .. ')' end return table.concat(out, ' | ') .. ' | stamina=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) end)() INTO bag_before
 LOG "stamina in the bag: {bag_before}"
@@ -38,10 +43,17 @@ LUA DataCenter.__lw_stam_want = {amount}
 TAP use_stamina
 WAIT 3
 
-READ_LUA (function() local p = DataCenter.__lw_stam or {} return 'want=' .. tostring(math.floor(tonumber(p.want) or 0)) .. ' bought=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. ' items=' .. tostring(p.used or '-') .. ' before=' .. tostring(math.floor(tonumber(p.before) or 0)) .. ' now=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) end)() INTO stamina
-LOG "stamina bought: {stamina}"
+# NOT `stamina`, and the rename is the point (#2664): `{name}` is substituted from the
+# CALLER's variables when this file is parsed, and a caller with a stamina ceiling of
+# its own — `arms_race_drone` has `ARGS stamina = 300` — would have this line print its
+# ceiling instead of what the bag actually bought.
+READ_LUA (function() local p = DataCenter.__lw_stam or {} return 'want=' .. tostring(math.floor(tonumber(p.want) or 0)) .. ' bought=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. ' items=' .. tostring(p.used or '-') .. ' before=' .. tostring(math.floor(tonumber(p.before) or 0)) .. ' now=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) end)() INTO stamina_report
+LOG "stamina bought: {stamina_report}"
 
 READ_LUA (function() local p = DataCenter.__lw_stam or {} return math.floor(tonumber(p.spent) or 0) end)() INTO bought
 
 IF bought == 0
-    FAIL "nothing was spent — the bag has no stamina items, or none small enough for what was asked"
+    IF strict == 1
+        FAIL "nothing was spent — the bag has no stamina items, or none small enough for what was asked"
+    IF strict == 0
+        LOG "nothing was spent — the bag has no stamina items, or none small enough for what was asked"
