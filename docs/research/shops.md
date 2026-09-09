@@ -101,7 +101,11 @@ window has asked the server for the page, and the panel does not open windows.
 * `actions/buy_shop_goods.md` — one row, by a person's press, with the price said first.
 * `actions/autobuy_shop_goods.md` — the order of preference, walked from the top, within
   the quota, within the diamond ceiling and within the purchases-per-run ceiling. Ships
-  OFF; the ceiling on diamonds is 0 until somebody types one.
+  OFF. It covers EVERY shelf, the diamond ones included — the person's decision, in their
+  words, «любая автопокупка» — and the safeguard is a CEILING on what one run may spend in
+  diamonds (300 by default, the number already settled for the energy refill in #2390)
+  rather than a currency the errand may not touch. A diamond row is trimmed to what the
+  ceiling still has room for, never dropped.
 * `panel/runtime/shops_live.py` — the ear: one reading when the client gets into the game
   (`bus.GAME_READY`), one when a balance push says something moved (debounced hard —
   `push.resource.item.update` is the noisiest push in the game), one after a purchase of

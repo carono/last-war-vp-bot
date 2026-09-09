@@ -1040,7 +1040,7 @@
   "shop.buy.confirm": "¿Comprar «{name}» por {amount} {currency}? Una compra no se puede deshacer.",
   "shop.autobuy.now": "Comprar por prioridad",
   "shop.opt.diamond_cap": "Diamantes por pasada",
-  "shop.opt.diamond_cap.hint": "0 significa ni un diamante, y es el valor por defecto. Por encima de 0 la compra automática puede pagar artículos en diamantes, hasta esta cantidad por pasada.",
+  "shop.opt.diamond_cap.hint": "El máximo de diamantes que puede gastar una pasada. La compra automática funciona en todas las tiendas, incluidas las de diamantes: esto es un techo de gasto, no una moneda prohibida. 300 por defecto; 0 significa ni un diamante.",
   "shop.opt.cap": "Compras por pasada",
   "shop.opt.cap.hint": "El máximo de compras de una pasada, diga lo que diga el orden.",
   "timers.item.autobuy_shop_goods": "Tiendas: compra según el orden fijado en «Tienda»",

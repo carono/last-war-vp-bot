@@ -1040,7 +1040,7 @@
   "shop.buy.confirm": "Mua «{name}» với giá {amount} {currency}? Đã mua thì không hoàn lại được.",
   "shop.autobuy.now": "Mua theo ưu tiên",
   "shop.opt.diamond_cap": "Kim cương mỗi lượt",
-  "shop.opt.diamond_cap.hint": "0 nghĩa là không một viên kim cương nào, và đó là mặc định. Trên 0 thì tự động mua được trả bằng kim cương, tối đa bấy nhiêu mỗi lượt.",
+  "shop.opt.diamond_cap.hint": "Số kim cương nhiều nhất một lượt được tiêu. Tự động mua hoạt động ở mọi tiệm, kể cả tiệm kim cương — đây là trần chi tiêu, không phải cấm một loại tiền. Mặc định 300; 0 nghĩa là không tiêu viên nào.",
   "shop.opt.cap": "Số lần mua mỗi lượt",
   "shop.opt.cap.hint": "Số lần mua nhiều nhất trong một lượt, bất kể thứ tự nói gì.",
   "timers.item.autobuy_shop_goods": "Tiệm: mua theo thứ tự đặt ở «Tiệm»",

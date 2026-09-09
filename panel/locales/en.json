@@ -1040,7 +1040,7 @@
   "shop.buy.confirm": "Buy «{name}» for {amount} {currency}? A purchase cannot be undone.",
   "shop.autobuy.now": "Buy by priority now",
   "shop.opt.diamond_cap": "Diamonds one run may spend",
-  "shop.opt.diamond_cap.hint": "0 means not one diamond, and that is the default. Above 0 the autobuy may pay for rows priced in diamonds, up to this much in one run.",
+  "shop.opt.diamond_cap.hint": "The most diamonds one run may spend. The autobuy works in every shop, the diamond ones included — this is a ceiling on the spending, not a currency it may not touch. 300 by default; 0 means not one diamond.",
   "shop.opt.cap": "Purchases per run",
   "shop.opt.cap.hint": "The most purchases one run may make, whatever the order says.",
   "timers.item.autobuy_shop_goods": "Shops: buy by the order of preference set on «Shop»",

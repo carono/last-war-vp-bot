@@ -1040,7 +1040,7 @@
   "shop.buy.confirm": "«{name}» für {amount} {currency} kaufen? Ein Kauf lässt sich nicht rückgängig machen.",
   "shop.autobuy.now": "Nach Priorität kaufen",
   "shop.opt.diamond_cap": "Diamanten pro Lauf",
-  "shop.opt.diamond_cap.hint": "0 heißt kein einziger Diamant, und das ist die Vorgabe. Über 0 darf der automatische Kauf Waren mit Diamantenpreis nehmen, höchstens für diesen Betrag pro Lauf.",
+  "shop.opt.diamond_cap.hint": "Wie viele Diamanten ein Lauf höchstens ausgibt. Der automatische Kauf arbeitet in allen Shops, auch den Diamanten-Shops — dies ist eine Obergrenze für die Ausgabe, kein Verbot der Währung. Vorgabe 300; 0 heißt kein einziger Diamant.",
   "shop.opt.cap": "Käufe pro Lauf",
   "shop.opt.cap.hint": "Wie viele Käufe ein Lauf höchstens macht, was auch immer in der Reihenfolge steht.",
   "timers.item.autobuy_shop_goods": "Shops: Kauf nach der auf «Shop» festgelegten Reihenfolge",

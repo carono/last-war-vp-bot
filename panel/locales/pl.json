@@ -1040,7 +1040,7 @@
   "shop.buy.confirm": "Kupić «{name}» za {amount} {currency}? Zakupu nie da się cofnąć.",
   "shop.autobuy.now": "Kup według priorytetu",
   "shop.opt.diamond_cap": "Diamentów na przebieg",
-  "shop.opt.diamond_cap.hint": "0 oznacza ani jednego diamentu i jest wartością domyślną. Powyżej 0 autozakup może płacić za towary w diamentach, najwyżej tyle na przebieg.",
+  "shop.opt.diamond_cap.hint": "Najwięcej diamentów, jakie może wydać jeden przebieg. Autozakup działa we wszystkich sklepach, także diamentowych — to pułap wydatku, a nie zakaz waluty. Domyślnie 300; 0 oznacza ani jednego diamentu.",
   "shop.opt.cap": "Zakupów na przebieg",
   "shop.opt.cap.hint": "Najwięcej zakupów w jednym przebiegu, cokolwiek mówi kolejność.",
   "timers.item.autobuy_shop_goods": "Sklepy: zakup według kolejności ustalonej na «Sklep»",

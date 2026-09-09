@@ -1040,7 +1040,7 @@
   "shop.buy.confirm": "Beli «{name}» seharga {amount} {currency}? Pembelian tidak bisa dibatalkan.",
   "shop.autobuy.now": "Beli menurut prioritas",
   "shop.opt.diamond_cap": "Berlian per putaran",
-  "shop.opt.diamond_cap.hint": "0 berarti tidak satu berlian pun, dan itu bawaannya. Di atas 0 beli otomatis boleh membayar barang berharga berlian, paling banyak sebesar ini per putaran.",
+  "shop.opt.diamond_cap.hint": "Berlian terbanyak yang boleh dihabiskan satu putaran. Beli otomatis bekerja di semua toko, termasuk toko berlian — ini batas pengeluaran, bukan mata uang yang dilarang. Bawaannya 300; 0 berarti tidak satu berlian pun.",
   "shop.opt.cap": "Pembelian per putaran",
   "shop.opt.cap.hint": "Pembelian terbanyak dalam satu putaran, apa pun kata urutannya.",
   "timers.item.autobuy_shop_goods": "Toko: pembelian menurut urutan yang diatur di «Toko»",

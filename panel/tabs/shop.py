@@ -419,7 +419,10 @@ class ShopTab(PanelTab):
         plan = plan_text(self.plan())
         args = {PLAN_ARG: plan}
         if sched is not None:
-            cap = sched.timer_arg(AUTOBUY_ACTION, "diamond_cap", 0)
+            # THE CEILING, NOT A BAN (#2666). Every shop is in the order, the diamond
+            # ones included; what limits an irreversible spend is how much one run may
+            # spend in diamonds, and the row's own default is the recipe's — 300.
+            cap = sched.timer_arg(AUTOBUY_ACTION, "diamond_cap", 300)
             args["diamond_cap"] = cap if isinstance(cap, (int, float, str)) else 0
         return self.rt.play_async(AUTOBUY_ACTION, args, tag="shop", human=True,
                                   on_done=self._bought)
