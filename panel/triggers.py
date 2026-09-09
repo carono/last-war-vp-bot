@@ -500,6 +500,25 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.arms_drone_relay",
     ),
     Trigger(
+        name="arms_drone_score",
+        # THE SAME ORDER, ON THE ACCOUNT'S OWN PUSH (#2661). `push.world.march.del` is the
+        # return event and it is the world's, so most fires are somebody else's march;
+        # this one is OURS and nobody else's — the server sends it when THIS account's
+        # arms-race score moves, which during the drone hour is exactly «a banner we
+        # raised has resolved and paid». Measured live on 2026-09-09: the score read 6500
+        # two seconds after a banner left and 8500 three minutes later, and that step is
+        # what this push announces.
+        #
+        # Both rows play the same recipe and the recipe is idempotent — it raises a
+        # banner only when a squad is free, a ceiling is unmet and the drone hour is
+        # running — so the two events are belt and braces rather than double work.
+        kind=KIND_WIRE,
+        event_pattern="push.person.arms.sc.change",
+        scenario=("arms_race_drone",),
+        immediate=True,
+        label_key="triggers.item.arms_drone_score",
+    ),
+    Trigger(
         name="resource_tracker",
         # The game pushes «your balance changed» on every resource move
         # (push.resource.item.update). On each one the panel reads the current balance

@@ -269,6 +269,11 @@ ARMS_ERRAND = "perform_arms_race"
 #: on the phase border as the safety net for a profile whose wire ear is down.
 ARMS_RELAY = "arms_drone_relay"
 
+#: …and the same order on the push that is OURS rather than the world's: the server says
+#: when THIS account's arms score moves, which during the drone hour is a banner of ours
+#: resolving. Same recipe, same gates — two events, not two behaviours.
+ARMS_RELAY_SCORE = "arms_drone_score"
+
 #: Which squads that order may spend. All four, and deliberately not the single squad the
 #: card names: a squad still in the air is skipped rather than failing the hour, which is
 #: what «работать поотрядно» means. One string, in the form the recipe's `ARGS squads`
