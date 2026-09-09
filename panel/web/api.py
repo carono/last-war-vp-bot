@@ -734,8 +734,15 @@ class WebApi:
                 "running": bool(getattr(schedule.timers, "running", False))}
 
     # -- the errands ---------------------------------------------------------
+    @statsmod.batched
     def timers(self, profile: str | None = None) -> dict:
-        """Every configured errand: its switch, its period, and how it last ended."""
+        """Every configured errand: its switch, its period, and how it last ended.
+
+        EVERY BLOB READ ONCE FOR THE WHOLE PAGE (#2660). A dozen of the lines below come
+        off the same handful of blobs — the star list alone is read by three of them —
+        and each read was a SELECT and a JSON parse of a list thousands of rows long, on
+        the phone's ordinary poll.
+        """
         rt = self._runtime(profile)
         # …and this is the errands page being LOOKED at (#2019) — see `triggers` below
         # and `panel/runtime/errand_reads.py`: at most one reading a minute, and only

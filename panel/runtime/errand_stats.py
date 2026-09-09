@@ -34,8 +34,11 @@ seconds since the underlying reading — `None` when the source has no clock of 
 """
 from __future__ import annotations
 
+import contextlib
+import functools
 import json
 import os
+import threading
 import time
 
 #: Milliseconds in a second — the two tile lists stamp `checked_at` on the GAME's clock
@@ -47,16 +50,54 @@ _MS = 1000.0
 # ---------------------------------------------------------------------------
 # the sources, each of them free
 # ---------------------------------------------------------------------------
+#: ONE PAGE'S WORTH OF READINGS (#2660). `/api/timers` walks every errand and asks each
+#: one for its line, and several of those lines come off the SAME blob — the star list is
+#: read by the auto-loot row and by the star round, the ghost map by two more. Each read
+#: is a SELECT and a JSON parse of a list that can be thousands of rows, and the phone
+#: asks for this page on its ordinary poll. Inside a :func:`batch` each blob is read once.
+#: Thread-local, because two front-ends ask at the same time and a profile's store is its
+#: own; and scoped to the call rather than kept, because a cache with a lifetime would be
+#: a second, staler copy of the database.
+_BATCH = threading.local()
+
+
+@contextlib.contextmanager
+def batch():
+    """Read each blob once for the length of this block. Re-entrant, never required."""
+    outer = getattr(_BATCH, "cache", None)
+    _BATCH.cache = {} if outer is None else outer
+    try:
+        yield
+    finally:
+        _BATCH.cache = outer
+
+
+def batched(func):
+    """Run `func` inside a :func:`batch` — for a caller that walks every errand."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with batch():
+            return func(*args, **kwargs)
+    return wrapper
+
+
 def _blob(rt, name: str):
     """One row of this profile's `blobs` table, or `None` — never an exception.
 
     A stat is a garnish: a profile with no database yet, or one whose store is busy,
     must lose the line and nothing else.
     """
+    cache = getattr(_BATCH, "cache", None)
+    key = (id(rt), str(name))
+    if cache is not None and key in cache:
+        return cache[key]
     try:
-        return rt.store.blob_get(name)
+        value = rt.store.blob_get(name)
     except Exception:                    # noqa: BLE001 — a reading, never the page
-        return None
+        value = None
+    if cache is not None:
+        cache[key] = value
+    return value
 
 
 def _rows(value) -> list:
