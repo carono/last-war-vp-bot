@@ -1029,6 +1029,7 @@
   "shop.price": "Цена",
   "shop.cost": "{amount} {currency}",
   "shop.left": "осталось",
+  "shop.spent": "выкуплено",
   "shop.free": "бесплатно",
   "shop.count": "×{count}",
   "shop.place": "№{place}",

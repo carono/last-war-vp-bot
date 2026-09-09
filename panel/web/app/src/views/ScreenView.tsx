@@ -597,7 +597,10 @@ function GoodItem({
     </>
   )
   return (
-    <div className="good">
+    /* GREY WHEN IT IS USED UP (#2670) — «Сери иконку предмета, если всё выкуплено», the
+       way the game greys a shelf row whose quota is gone. The panel also stops sending
+       the press for such a row, so the tile is not merely a picture of a refusal. */
+    <div className={'good' + (item.dim ? ' dim' : '')}>
       {buy ? (
         <PressButton action={buy} screen={screen} after={after} className="good-tap">
           {inside}

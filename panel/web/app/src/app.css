@@ -2375,3 +2375,9 @@ button.good-tap:disabled { opacity: 0.6; }
   touch-action: none;
 }
 .grip:active { cursor: grabbing; border-color: var(--accent); }
+
+/* A ROW THAT IS ALL BOUGHT (#2670): the picture goes grey and the words go quiet, and
+   there is no button on it at all — the panel does not send one. */
+.good.dim .pic img { filter: grayscale(1); opacity: 0.55; }
+.good.dim .gname,
+.good.dim .gprice { color: var(--ink-soft); }

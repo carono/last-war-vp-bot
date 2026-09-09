@@ -325,6 +325,10 @@ export interface ViewItem {
      order is «отделено от остальных»: the queue is one group, the rest of the shelf is
      the next. Absent, and the items are one wall as before. */
   group?: string
+  /* THIS ROW IS USED UP (#2670) — drawn grey, and with whatever presses the panel chose
+     not to send it. The panel decides what «used up» means (a shop row whose quota is
+     spent); the front-end only greys it. */
+  dim?: boolean
   /* THE NAME THIS ITEM TRAVELS UNDER WHEN IT IS DRAGGED (#2670). Present exactly when
      the item may be reordered; the whole list of them comes back to the tab as one
      `set` press with the key `order`. */

@@ -1029,6 +1029,7 @@
   "shop.price": "Fiyat",
   "shop.cost": "{amount} {currency}",
   "shop.left": "kalan",
+  "shop.spent": "tükendi",
   "shop.free": "ücretsiz",
   "shop.count": "×{count}",
   "shop.place": "{place}.",

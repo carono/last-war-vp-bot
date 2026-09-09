@@ -1029,6 +1029,7 @@
   "shop.price": "Prix",
   "shop.cost": "{amount} {currency}",
   "shop.left": "restant",
+  "shop.spent": "épuisé",
   "shop.free": "gratuit",
   "shop.count": "×{count}",
   "shop.place": "n° {place}",

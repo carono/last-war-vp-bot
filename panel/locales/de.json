@@ -1029,6 +1029,7 @@
   "shop.price": "Verkaufspreis",
   "shop.cost": "{amount} {currency}",
   "shop.left": "übrig",
+  "shop.spent": "ausverkauft",
   "shop.free": "kostenlos",
   "shop.count": "×{count}",
   "shop.place": "Nr. {place}",

@@ -474,6 +474,22 @@ class ShopTab(PanelTab):
                 return
 
     # -- the two presses that spend --------------------------------------------
+    def sold_out(self, kind: str, shop: str, ident: str) -> bool:
+        """Has this row's quota run out — read off the LAST reading, never guessed.
+
+        A row the reading does not hold at all is not «sold out»: it is a row the panel
+        has not seen, and refusing a press for something it cannot describe would be the
+        panel inventing a rule of the game.
+        """
+        rows, money, _age = shops_live.state(self.rt)
+        for row in list(rows) + list(money):
+            if (str(row.get("kind") or ""), str(row.get("shop") or "0"),
+                    str(row.get("id") or "")) != (kind, shop, ident):
+                continue
+            limit = int(row.get("limit") or 0)
+            return bool(limit) and int(row.get("bought") or 0) >= limit
+        return False
+
     def buy_one(self, kind: str, shop: str, ident: str, count: int = 1) -> bool:
         """Buy one row, now, because a person pressed it. The recipe says the price."""
         return self.rt.play_async(
@@ -647,8 +663,15 @@ class ShopTab(PanelTab):
                  else self.t("shop.cost", amount=row.get("cost"),
                              currency=word).strip()
                  if word else str(row.get("cost")))
+        # SOLD OUT (#2670, the person's words: «Сери иконку предмета, если всё
+        # выкуплено»). A row with a quota that has none of it left is finished for this
+        # reset: the game greys it, so the panel does too — and says «выкуплено» in
+        # place of «осталось 0», which is the same fact spelled as a mark.
+        spent = bool(row.get("limit")) and left <= 0
         facts = []
-        if row.get("limit"):
+        if spent:
+            facts.append({"label": "shop.spent", "value": ""})
+        elif row.get("limit"):
             facts.append({"label": "shop.left", "value": str(left)})
         # WHETHER THE ACCOUNT CAN PAY is the GAME's answer, never a sum done here: a
         # price met out of two purses is the client's own arithmetic (`read_shops.md`).
@@ -669,6 +692,11 @@ class ShopTab(PanelTab):
                 "facts": facts,
                 "price": price,
                 "shape": "picture"}
+        if spent:
+            # THE TILE IS GREY AND IT DOES NOT PRESS. Both halves matter: a picture that
+            # only LOOKS spent while its press still sends `user.shop.buy.new` is a
+            # button that answers «нельзя» a second after it was tapped.
+            item["dim"] = True
         if group:
             item["group"] = group
         # WHAT CAN BE DRAGGED, AND WHAT IT IS CALLED WHEN IT LANDS. Only a row already in
@@ -702,6 +730,10 @@ class ShopTab(PanelTab):
                  "hint": "shop.qty.hint", "kind": "number", "min": 1, "max": 999,
                  "value": max(1, self.count_of(kind, shop, ident))}]
             item["options_title"] = "shop.knobs"
+        # A SOLD-OUT ROW KEEPS ITS KNOBS AND LOSES ITS BUTTON (#2670): the quota comes
+        # back on the shelf's own reset, and «поставить в очередь на завтра» is exactly
+        # the thing a person does while looking at a row they have just used up.
+        if kind != "money" and not spent:
             item["actions"] = [
                 {"id": "buy", "label": "shop.buy",
                  "args": {"kind": kind, "shop": shop, "id": ident},
@@ -729,6 +761,11 @@ class ShopTab(PanelTab):
             ident = str(args.get("id") or "")
             if kind == "money" or not ident:
                 return {"error": "unknown"}
+            # SOLD OUT IS A REFUSAL HERE TOO (#2670). The tile hides its button, and a
+            # press that arrives all the same — an older screen in somebody's hand, a
+            # second front-end — must not spend: the quota is gone until the reset.
+            if self.sold_out(kind, shop, ident):
+                return {"ok": False, "reason": "shop.spent"}
             return {"ok": self.buy_one(kind, shop, ident,
                                        self.count_of(kind, shop, ident))}
         if action == "autobuy":
