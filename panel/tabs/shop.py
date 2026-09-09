@@ -847,8 +847,11 @@ class ShopTab(PanelTab):
                  "value": self.is_auto(kind, shop, ident)},
                 {"key": "all:%s:%s:%s" % (kind, shop, ident), "label": "shop.all",
                  "hint": "shop.all.hint", "kind": "switch", "value": all_of},
+                # HOW MANY TO OWN IN ALL, not per run (#2670): the errand tops the row
+                # up to this number and stops, counting what the GAME says has been
+                # bought — so a row bought by hand in the game counts towards it too.
                 {"key": "qty:%s:%s:%s" % (kind, shop, ident), "label": "shop.qty",
-                 "hint": "shop.qty.hint", "kind": "number", "min": 1, "max": 999,
+                 "hint": "shop.qty.hint", "kind": "number", "min": 1, "max": 9999,
                  "value": max(1, self.count_of(kind, shop, ident))}]
             item["options_title"] = "shop.knobs"
         # A SOLD-OUT ROW KEEPS ITS KNOBS AND LOSES ITS BUTTON (#2670): the quota comes
