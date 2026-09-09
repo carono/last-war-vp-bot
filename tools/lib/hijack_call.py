@@ -460,8 +460,15 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
         never ran our code (not_started) — caller should try another thread;
         the thread is cleanly restored and the handle closed here. handled=True
         means we owned the outcome (done or wedged) and freed/leaked as needed."""
-        gate = (f" SAFE_RIP+0x{orig_rip - min(parks, key=lambda a: abs(orig_rip - a)):x}"
-                if parks else "")
+        # WHICH of the learned parks this thread was caught at, and how far off it (#2678).
+        # Signed on purpose: the offset is the diagnostic, and `0x-8` is what an unsigned
+        # format makes of a thread eight bytes SHORT of the park it matched.
+        if parks:
+            near = min(parks, key=lambda a: abs(orig_rip - a))
+            delta = orig_rip - near
+            gate = f" SAFE_RIP(0x{near:x}){'+' if delta >= 0 else '-'}0x{abs(delta):x}"
+        else:
+            gate = ""
         # fresh markers + shellcode baked with THIS thread's return address
         P.WriteProcessMemory(hproc, C.c_void_p(region), b"\x00" * 0x40, 0x40,
                              C.byref(C.c_size_t(0)))
