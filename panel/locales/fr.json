@@ -1535,6 +1535,7 @@
   "log.update.channel.dev": "les mises à jour suivent désormais la pointe de la branche — la version dev",
   "log.update.fail_error": "échec de la mise à jour : {detail}",
   "log.panel.restarting": "redémarrage du panneau — les profils ouverts reviendront",
+  "log.panel.restart_held": "le panneau vient de redémarrer — ce redémarrage est retenu {seconds}s afin que plusieurs correctifs ne coûtent au jeu qu'un seul redémarrage",
   "tab.vs": "VS",
   "tab.vs_duel": "Duel VS",
   "vsduel.hint": "Le duel donne des points pour un ensemble d'actions différent chaque jour. Coche ce qui doit être fait un jour donné, et limite ce qu'il peut dépenser. Rien ne tourne encore tout seul — les choix sont gardés pour quand les actions arriveront. Décocher le nom d'un jour fait sauter ce jour entièrement.",

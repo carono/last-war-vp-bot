@@ -1535,6 +1535,7 @@
   "log.update.channel.dev": "pembaruan kini mengikuti ujung cabang — versi dev",
   "log.update.fail_error": "pembaruan gagal: {detail}",
   "log.panel.restarting": "memulai ulang panel — profil yang terbuka akan kembali",
+  "log.panel.restart_held": "panel baru saja dimulai ulang — mulai ulang ini ditahan {seconds}d agar beberapa perbaikan hanya menelan satu kali mulai ulang bagi gim",
   "tab.vs": "VS",
   "tab.vs_duel": "Duel VS",
   "vsduel.hint": "Duel memberi poin untuk kumpulan tindakan yang berbeda tiap hari. Centang apa yang harus dikerjakan pada hari itu, dan batasi berapa yang boleh dihabiskan. Belum ada yang berjalan sendiri — pilihannya disimpan sampai tindakannya nanti tiba. Menghapus centang pada nama hari membuat hari itu dilewati sepenuhnya.",

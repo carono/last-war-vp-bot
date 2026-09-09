@@ -1535,6 +1535,7 @@
   "log.update.channel.dev": "güncellemeler artık dalın ucunu izliyor — dev sürümü",
   "log.update.fail_error": "güncelleme başarısız: {detail}",
   "log.panel.restarting": "panel yeniden başlatılıyor — açık profiller geri gelecek",
+  "log.panel.restart_held": "panel az önce yeniden başlatıldı — birkaç düzeltmenin oyuna tek bir yeniden başlatmaya mal olması için bu yeniden başlatma {seconds}sn bekletiliyor",
   "tab.vs": "VS",
   "tab.vs_duel": "VS Düellosu",
   "vsduel.hint": "Düello her gün başka bir eylem kümesine puan verir. O gün ne yapılacağını işaretle ve ne kadar harcayabileceğini sınırla. Henüz hiçbir şey kendiliğinden çalışmıyor — seçimler, eylemler geldiğinde kullanılmak üzere saklanıyor. Bir günün adındaki işareti kaldırmak o günü tamamen atlar.",

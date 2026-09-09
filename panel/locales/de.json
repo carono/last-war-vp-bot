@@ -1535,6 +1535,7 @@
   "log.update.channel.dev": "Aktualisierungen folgen jetzt der Zweigspitze — der Dev-Version",
   "log.update.fail_error": "Aktualisierung fehlgeschlagen: {detail}",
   "log.panel.restarting": "starte das Pult neu — die geöffneten Profile kommen zurück",
+  "log.panel.restart_held": "das Panel wurde gerade neu gestartet — dieser Neustart wird {seconds}s zurückgehalten, damit mehrere Korrekturen das Spiel einen Neustart kosten und nicht mehrere",
   "tab.vs": "VS",
   "tab.vs_duel": "VS-Duell",
   "vsduel.hint": "Das Duell zahlt an jedem Tag Punkte für andere Handlungen. Hake an, was an einem gegebenen Tag getan werden soll, und begrenze, was es dafür ausgeben darf. Von selbst läuft noch nichts — die Auswahl wird für den Tag aufgehoben, an dem die Handlungen kommen. Wird der Haken beim Namen eines Tages entfernt, wird dieser Tag komplett ausgelassen.",

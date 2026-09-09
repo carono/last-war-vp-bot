@@ -1535,6 +1535,7 @@
   "log.update.channel.dev": "aktualizacje idą teraz za czubkiem gałęzi — wersja dev",
   "log.update.fail_error": "aktualizacja nie powiodła się: {detail}",
   "log.panel.restarting": "uruchamiam panel ponownie — otwarte profile wrócą",
+  "log.panel.restart_held": "panel dopiero co się zrestartował — ten restart jest wstrzymany na {seconds}s, aby kilka poprawek kosztowało grę jeden restart, a nie kilka",
   "tab.vs": "VS",
   "tab.vs_duel": "Pojedynek VS",
   "vsduel.hint": "Pojedynek daje punkty za inny zestaw działań każdego dnia. Zaznacz, co ma być zrobione danego dnia, i ogranicz, ile wolno mu wydać. Nic jeszcze nie dzieje się samo — wybory czekają na chwilę, gdy pojawią się same działania. Odznaczenie nazwy dnia sprawia, że ten dzień jest w całości pomijany.",

@@ -807,3 +807,69 @@ Two facts fall out of it, and both are for the next piece of work rather than th
   total, spent resolving the same methods of the same client build every time. Every one
   of them is a park wait and a suspend. Caching those resolutions per `GameAssembly.dll`
   build is the largest single cut still on the table.
+
+## …and then the rate of PANEL RESTARTS turned out to be the whole of it (#2678)
+
+Four hours after the gate and the spread went live the person reported the opposite of
+progress: «каждые 2 3 минуты вышибает клиент». That is worse than the morning, and the
+first question is whether one of the deliveries did it. It did not, and the counting is
+short enough to repeat.
+
+**Client deaths, and panel restarts, by the hour** — read off one profile's own
+`debug.log*` for 2026-09-09 (a death is a fresh `client=True pid=` in the status line, a
+restart is the panel's own «перезапускаю панель»):
+
+| hour | panel restarts | new clients |
+| ---: | ---: | ---: |
+| 00–07 | 4 | 12 |
+| 08 | 3 | 1 |
+| 09 | 5 | 9 |
+| 10 | 2 | 2 |
+| 11 | 7 | 5 |
+| 12 | 9 | 6 |
+| 13 (to 13:42) | 11 | 8 |
+
+**30 of the day's 41 panel restarts were followed by a fresh client within ten minutes,
+median 128 seconds.** In the worst hour the correspondence is one to one:
+
+    13:00:54 restart → 13:01:31 new client      13:22:49 restart → 13:25:17 new client
+    13:04:25 restart → 13:05:41 new client      13:34:17 restart → 13:34:54 new client
+    13:07:35 restart → 13:10:13 new client      13:39:23 restart → 13:40:51 new client
+    13:18:27 restart → 13:20:35 new client
+
+«Каждые 2-3 минуты» is that median, in the person's words.
+
+### It is not a delivery, and here is why not
+
+The rate in hour 13 was **12 an hour BEFORE the first of the day's fixes went live at
+13:22:52** — four fresh clients between 13:01 and 13:20 — and 12 an hour after it. Of the
+eleven restarts in that hour, two were the delivery's own. The ramp starts in hour 11,
+where the restarts go 2 → 7, and no commit landed on that edge. Nothing was reverted
+because nothing correlates.
+
+What correlates is the PRESS, and the press is a rule in `CLAUDE.md`: «after ANY bug fix,
+restart the panel — immediately, as part of the same piece of work, without asking whether
+it is worth it». Written for one agent, that is right and it is why it exists. With
+several agents working at once it is a restart every three to five minutes, and #2665
+already measured what a restart costs.
+
+### What was done about it
+
+`panel/runtime/panel_control.py::COALESCE_SEC` (300 s). A restart asked for inside that
+window of THIS process's boot stamp is not refused — it is HELD, and because every press
+re-arms the one named chain (`TICK`), ten presses inside the window are one restart. The
+panel that eventually comes up is running the newest code, which is all any of those
+presses wanted. Both front-ends get `held: true` and the seconds left, and the panel says
+so in its log in all eleven languages.
+
+Five minutes is chosen against the measurement rather than to taste: a window shorter than
+the 128 s median would let the next restart land on a client still coming back up, and a
+much longer one would make a person's own press feel broken.
+
+**It is a ceiling on the damage, not a cure.** The cure is a restart that does not kill
+the client, and that is still the open work at the top of this file: #2665 removed the
+races, #2667 spread the boot's errands, #2678 spread its readings and widened the gate,
+and the client still dies about two to three minutes after a restart rather than about
+one. What this section adds is the reason the day looked like a regression when no code
+had regressed — and the arithmetic that says a fix which halves the crashes is worth
+nothing on a day with three times the restarts.

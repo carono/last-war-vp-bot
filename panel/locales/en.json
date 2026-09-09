@@ -1535,6 +1535,7 @@
   "log.update.channel.dev": "updates now follow the branch tip — the dev version",
   "log.update.fail_error": "update failed: {detail}",
   "log.panel.restarting": "restarting the panel — the open profiles will come back",
+  "log.panel.restart_held": "the panel restarted a moment ago — this restart is held {seconds}s so that several fixes cost the game one restart, not several",
   "tab.vs": "VS",
   "tab.vs_duel": "VS Duel",
   "vsduel.hint": "The duel pays points for a different set of actions every day. Tick what should be done on a given day, and cap what it may spend. Nothing runs by itself yet — the choices are kept for when the actions arrive. Unticking a day's own name sits that day out entirely.",

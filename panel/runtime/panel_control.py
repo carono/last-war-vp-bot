@@ -46,6 +46,7 @@ reason: the button that was clicked is still redrawing itself.
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 
 #: The id the press travels under — on the wire from the phone, and in the window's
@@ -99,6 +100,37 @@ DELAY_MS = 1200
 #: «restart» and «quit» are two answers to the same question and the last one asked is
 #: the one meant.
 TICK = "panel-restart"
+
+#: How soon after coming up this panel will restart again, in seconds (#2678).
+#:
+#: A RESTART COSTS A CLIENT. That is measured, not feared: #2665 counted six of nine
+#: restarts killing the game within two minutes, and the live day of 2026-09-09 says the
+#: same thing from the other end — **30 of 41 panel restarts were followed by a fresh
+#: client pid within ten minutes, median 128 seconds**. The person's report that day was
+#: «каждые 2 3 минуты вышибает клиент», and the hours line up exactly:
+#:
+#:     hour  panel restarts  new clients
+#:       10        2              2
+#:       11        7              5
+#:       12        9              6
+#:       13       11              8
+#:
+#: Nothing in the code regressed. What changed is the RATE: `CLAUDE.md` tells every agent
+#: to restart the live panel after any fix, and several of them working at once turns that
+#: into a restart every three to five minutes — which is a dead client every three to five
+#: minutes, whatever each fix was for.
+#:
+#: So a restart asked for inside this window of the last boot is HELD rather than refused,
+#: and because every press re-arms the one named chain above, ten asks inside the window
+#: cost ONE restart instead of ten. Nothing is lost: the panel that eventually comes up is
+#: running the newest code, which is all any of those asks wanted.
+#:
+#: Five minutes is chosen against the measurement rather than to taste: the median death
+#: is 128 s after a restart, so a window shorter than that lets the next restart land on a
+#: client still coming back up, and a much longer one would make a person's own press feel
+#: broken. It is a ceiling on the DAMAGE, not a cure — the cure is a restart that does not
+#: kill the client, and that work is `docs/research/client-crashes.md`.
+COALESCE_SEC = 300.0
 
 #: WHAT ACTUALLY DOES IT, in THIS process — set by the shell, one per press.
 #:
@@ -161,13 +193,36 @@ def request(rt, action: str = RESTART) -> dict:
     func = handler(control.id)
     if func is None:
         return {"ok": False, "unavailable": True, "id": control.id}
-    rt.say(TAG, control.saying)
-    _arm(rt, func)
-    return {"ok": True, "id": control.id, "delay_ms": DELAY_MS}
+    delay_ms = _delay_ms()
+    rt.say(TAG, control.saying if delay_ms <= DELAY_MS else "log.panel.restart_held",
+           **({} if delay_ms <= DELAY_MS else {"seconds": int(delay_ms / 1000)}))
+    _arm(rt, func, delay_ms)
+    return {"ok": True, "id": control.id, "delay_ms": delay_ms,
+            "held": delay_ms > DELAY_MS}
 
 
-def _arm(rt, func) -> None:
-    """Run ``func`` on the Tk thread, :data:`DELAY_MS` from now — see the docstring.
+def _delay_ms() -> int:
+    """How long this press waits — :data:`DELAY_MS`, or the rest of :data:`COALESCE_SEC`.
+
+    Read off THIS process's own boot stamp (`updates.boot`), so a panel that has been up
+    for an hour restarts at once and one that came up ninety seconds ago waits out the
+    remainder. A stamp that cannot be read is not a reason to hold anybody: the press goes
+    through at its ordinary delay, which is what the panel did before this existed.
+    """
+    try:
+        from . import updates                          # noqa: PLC0415 — a stamp, not a dep
+
+        at = float(updates.boot().get("at") or 0.0)
+    except Exception:                                  # noqa: BLE001 — a reading
+        return DELAY_MS
+    if at <= 0:
+        return DELAY_MS
+    left = (at + COALESCE_SEC) - time.time()
+    return max(DELAY_MS, int(left * 1000))
+
+
+def _arm(rt, func, delay_ms: int = DELAY_MS) -> None:
+    """Run ``func`` on the Tk thread, ``delay_ms`` from now — see the docstring.
 
     Two hops, both of them deliberate: `post` is the only hand-over a worker thread may
     make (panel/runtime/tick.py), and `arm` is a real `after` delay, which may only be
@@ -183,8 +238,8 @@ def _arm(rt, func) -> None:
         # without a widget arms NOTHING, so it is told apart by name rather than trusted.
         tick = getattr(rt, "tick", None)
         if tick is not None and getattr(tick, "THREADED", False):
-            tick.arm(TICK, DELAY_MS, func)
+            tick.arm(TICK, delay_ms, func)
         else:
             func()
         return
-    rt.post(lambda: rt.tick.arm(TICK, DELAY_MS, func))
+    rt.post(lambda: rt.tick.arm(TICK, delay_ms, func))
