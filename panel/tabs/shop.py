@@ -22,6 +22,27 @@ or the errand fires. There is no clock here: both gates are the client's own rec
 up to date by the server's own pushes, and a page that re-read itself every minute would
 be a background poll of the game link (`CLAUDE.md`).
 
+THE SHELVES THEMSELVES ARE HERE TOO (#2666), and only on the phone. The person's
+decision — «Веб теперь главный инструмент, ему и полный функционал» — makes the web the
+front-end while the window is retired, so the goods, their pictures, the price beside
+each and the press that buys one are `web_view`'s and the window is left as it was.
+
+WHAT THE SHELVES ARE. Whatever the client is holding: the tabs of the game's own
+«Магазин», the decoration shelf, «Сверкающий рынок», and the storefronts that want money
+— which are drawn and never pressed, because a purchase for money is not on the wire at
+all. The SET is never written down here: `actions/read_shops.md` reports what the account
+has and a shelf this panel has no word for is drawn by its number.
+
+NOTHING IS READ ON A CLOCK AND THERE IS NO «ОБНОВИТЬ» FOR THE SHELVES (#2633). They are
+read when the client gets into the game and when a balance push says something moved
+(`panel/runtime/shops_live.py`), a purchase re-reads on its own way out, and the age of
+the reading is drawn beside it.
+
+THE PRIORITIES ARE THE ERRAND'S OWN ARGUMENT. «Автопокупка» is one scenario over one
+ordered list, and that list lives in the errand row (`autobuy_shop_goods`, argument
+`plan`) exactly as the seven permissions above live in theirs — so the gear on «Таймеры»,
+this page and the schedule all edit ONE value.
+
 THE SEVEN KNOBS are what the routine is allowed to take, and they live in ONE place — the
 errand's own row on «Таймеры» (`panel/runtime/errand_args.py`). This page is a second
 DRAWING of them rather than a second copy: a box ticked here is written through
@@ -32,8 +53,10 @@ from __future__ import annotations
 
 from tkinter import ttk
 
+from ..runtime import shops_live
 from ..widgets import tk_stringvar
 from .base import PanelTab
+from .inventory import cell_url
 
 #: The two scenarios this page plays, and the whole of what it knows about the game.
 READ_ACTION = "read_shop_freebies"
@@ -60,9 +83,63 @@ ROWS = (("free_due", "shop.free_due"),
         ("golloes_due", "shop.golloes_due"),
         ("due", "shop.due"))
 
+#: THE ABILITY THAT SPENDS, and the argument that holds the order it spends in. One
+#: home for the list: the errand's row, which is what the gear on «Таймеры» edits too.
+AUTOBUY_ACTION = "autobuy_shop_goods"
+BUY_ACTION = "buy_shop_goods"
+PLAN_ARG = "plan"
+
+#: The shelves this panel has a word for, by the number the CLIENT numbers them with
+#: (`docs/research/shops.md`). A shelf that is not here is drawn by its number rather
+#: than by somebody else's name — the set comes from the game, never from this table.
+SHELF_KEYS = {"common:1": "shop.kind.diamond",
+              "common:2": "shop.kind.vip",
+              "common:7": "shop.kind.alliance",
+              "common:8": "shop.kind.honour",
+              "common:10": "shop.kind.coupon",
+              "common:100": "shop.kind.expedition",
+              "common:150": "shop.kind.decoration",
+              "common:200": "shop.kind.season",
+              "market:0": "shop.kind.market"}
+
+#: …and the two families that are not one shelf: what a money storefront is called, and
+#: what any other numbered shelf is called.
+MONEY_KEY = "shop.kind.money"
+OTHER_KEY = "shop.kind.other"
+
+#: How many goods one card draws. A shelf is thirty-odd rows; this is the ceiling that
+#: keeps a screen re-read small when a client ever answers with more.
+SHELF_MAX = 120
+
 #: What a value looks like before anything has been read. Never a zero: «0 наград» and
 #: «ничего не прочитано» are two different things and only one of them is a fact.
 UNREAD = "—"
+
+
+def plan_parse(raw) -> list:
+    """The errand's `plan` argument into records: `«common:7:1000012:2»` a piece.
+
+    Shelf, row, and how many of it one run may buy. A piece that cannot be read is
+    dropped rather than raised: a list one entry short still buys the rest, and a page
+    that raises is a page.
+    """
+    out: list = []
+    for piece in str(raw or "").split(","):
+        bits = [b.strip() for b in piece.split(":")]
+        if len(bits) < 3 or not bits[0] or not bits[1] or not bits[2]:
+            continue
+        try:
+            count = int(bits[3]) if len(bits) > 3 and bits[3] else 1
+        except (TypeError, ValueError):
+            count = 1
+        out.append({"kind": bits[0], "shop": bits[1], "id": bits[2],
+                    "count": max(1, count)})
+    return out
+
+
+def plan_text(entries) -> str:
+    """The records back into the one string the errand row holds."""
+    return ",".join("{kind}:{shop}:{id}:{count}".format(**e) for e in entries)
 
 
 class ShopTab(PanelTab):
@@ -80,6 +157,16 @@ class ShopTab(PanelTab):
         self._status_key = ""
         self._loaded = False
         self._boxes: dict = {}
+        #: WHICH SHELF THE PHONE IS LOOKING AT. A screen re-read carries the goods of
+        #: ONE shelf, never of all of them: two hundred rows with a picture, a price and
+        #: a gear each is eighty kilobytes every two and a half seconds, and the person
+        #: is reading one shelf. It is the page's own state and lives in the tab's
+        #: block, like every other thing a person chose about a page.
+        self._pick = ""
+        #: What each currency the shelves want is CALLED — the game's own word for it,
+        #: filled from the reading. A currency the reading did not name is drawn by its
+        #: number, never by a word this panel invented for it.
+        self._money: dict = {}
 
     # -- drawing -------------------------------------------------------------
     def build(self) -> None:
@@ -228,40 +315,287 @@ class ShopTab(PanelTab):
         if var is not None:
             self.post(lambda: var.set(text))
 
-    # -- persistence ------------------------------------------------------------
+
+    # -- the shelves, and the order the autobuy spends them in -----------------
     #
-    # THE TAB KEEPS NOTHING. Its two knobs are the errand row's arguments and the row is
-    # written by the schedule; a block of its own here would be the second home this page
-    # exists not to have.
+    # NOTHING HERE ASKS THE GAME. The reading is the profile's own ear
+    # (`panel/runtime/shops_live.py`): once when the client gets into the game, once more
+    # when a balance moved, and once after a purchase of ours. This only draws it.
+    def shelves(self) -> tuple:
+        """`(shelves, age)` — the reading, grouped by shelf, in the game's own order.
+
+        A shelf is `(key, title_key, rows)`: how the panel names it to itself, the key
+        it is drawn under, and its goods.
+        """
+        rows, money, age = shops_live.state(self.rt)
+        for row in list(rows) + list(money):
+            cost, word = str(row.get("cost_id") or ""), str(row.get("cost_name") or "")
+            if cost and word:
+                self._money[cost] = word
+        order: list = []
+        held: dict = {}
+        for row in list(rows) + list(money):
+            key = str(row.get("kind") or "") + ":" + str(row.get("shop") or "0")
+            if key not in held:
+                held[key] = []
+                order.append(key)
+            held[key].append(row)
+        out = []
+        for key in order:
+            title = SHELF_KEYS.get(key)
+            if title is None:
+                title = MONEY_KEY if key.startswith("money:") else OTHER_KEY
+            out.append((key, title, held[key]))
+        return out, age
+
+    def plan(self) -> list:
+        """The autobuy's ordered list, as the errand row holds it right now."""
+        sched = getattr(self.rt, "schedule", None)
+        if sched is None:
+            return []
+        return plan_parse(sched.timer_arg(AUTOBUY_ACTION, PLAN_ARG, ""))
+
+    def set_plan(self, entries) -> None:
+        """Write the ordered list back into the errand row — the one home it has."""
+        sched = getattr(self.rt, "schedule", None)
+        if sched is not None:
+            sched.set_timer_arg(AUTOBUY_ACTION, PLAN_ARG, plan_text(entries))
+
+    def place_of(self, kind: str, shop: str, ident: str) -> int:
+        """Where one row stands in the autobuy's order, 1-based. 0 = not in it."""
+        for n, entry in enumerate(self.plan(), start=1):
+            if (entry["kind"], entry["shop"], entry["id"]) == (kind, shop, ident):
+                return n
+        return 0
+
+    def count_of(self, kind: str, shop: str, ident: str) -> int:
+        """How many of one row the autobuy may take in a run. 1 when it is not in it."""
+        for entry in self.plan():
+            if (entry["kind"], entry["shop"], entry["id"]) == (kind, shop, ident):
+                return entry["count"]
+        return 1
+
+    def set_place(self, kind: str, shop: str, ident: str, place) -> None:
+        """Move one row to that place in the order. 0 takes it out of the list.
+
+        A place past the end lands at the end, which is what a person typing «99» means.
+        """
+        try:
+            want = int(str(place).strip() or 0)
+        except (TypeError, ValueError):
+            return
+        entries = [e for e in self.plan()
+                   if (e["kind"], e["shop"], e["id"]) != (kind, shop, ident)]
+        if want > 0:
+            entry = {"kind": kind, "shop": shop, "id": ident,
+                     "count": self.count_of(kind, shop, ident)}
+            entries.insert(min(max(0, want - 1), len(entries)), entry)
+        self.set_plan(entries)
+
+    def set_count(self, kind: str, shop: str, ident: str, count) -> None:
+        """How many of one row one run may buy. A row not in the order is left out."""
+        try:
+            want = max(1, int(str(count).strip() or 1))
+        except (TypeError, ValueError):
+            return
+        entries = self.plan()
+        for entry in entries:
+            if (entry["kind"], entry["shop"], entry["id"]) == (kind, shop, ident):
+                entry["count"] = want
+                self.set_plan(entries)
+                return
+
+    # -- the two presses that spend --------------------------------------------
+    def buy_one(self, kind: str, shop: str, ident: str, count: int = 1) -> bool:
+        """Buy one row, now, because a person pressed it. The recipe says the price."""
+        return self.rt.play_async(
+            BUY_ACTION,
+            {"kind": kind, "shop": shop, "product": ident, "count": count},
+            tag="shop", human=True, on_done=self._bought)
+
+    def autobuy_now(self) -> bool:
+        """Play the autobuy once by hand, with the order as it stands."""
+        sched = getattr(self.rt, "schedule", None)
+        plan = plan_text(self.plan())
+        args = {PLAN_ARG: plan}
+        if sched is not None:
+            cap = sched.timer_arg(AUTOBUY_ACTION, "diamond_cap", 0)
+            args["diamond_cap"] = cap if isinstance(cap, (int, float, str)) else 0
+        return self.rt.play_async(AUTOBUY_ACTION, args, tag="shop", human=True,
+                                  on_done=self._bought)
+
+    def _bought(self, *_a) -> None:
+        """A purchase moved a shelf: read it back at once, debounce or no debounce."""
+        try:
+            self.rt.shops.after_purchase()
+        except Exception:                # noqa: BLE001 — a reading, never the press
+            pass
+
+    # -- persistence ------------------------------------------------------------
+    def config(self) -> dict:
+        """The one thing this page keeps: which shelf is open. Everything else is a row
+        of the errand it belongs to."""
+        return {"pick": self._pick}
+
+    def apply_config(self, raw) -> None:
+        raw = raw if isinstance(raw, dict) else {}
+        self._pick = str(raw.get("pick") or "")
+
+    # -- what the errands' own knobs are, and what this page never kept ---------
+    #
+    # THE SEVEN PERMISSIONS KEEP NOTHING HERE, and neither does the autobuy's order: both
+    # are their errand's own arguments, read fresh every time they are asked for. A copy
+    # kept on the tab would be a second answer the first time somebody moved the knob from
+    # the gear on «Таймеры» or from the phone. What the block above DOES keep is the one
+    # thing that is nobody's setting — which shelf this page has open.
 
     # -- the phone ----------------------------------------------------------------
+    #
+    # THE WEB IS WHERE THE SHELVES ARE, and the window has none of this on purpose
+    # (`CLAUDE.md`: while the migration runs, new goes only into the web). The window
+    # keeps the free claims it had.
     def web_view(self) -> "dict | None":
-        """One card: the readings, the seven permissions as fields, and the two presses."""
+        """The free claims, the shelf picker, and the shelf the person has open."""
         rows = [{"label": key, "value": self.shown(name)} for name, key in ROWS]
         fields = [{"key": key, "label": "shop." + key,
                    "hint": "shop." + key + ".hint", "kind": "switch",
                    "value": self.knob(key)}
                   for key in KNOBS]
-        card = {"title": "shop.frame", "note": "shop.hint",
+        free = {"title": "shop.frame", "note": "shop.hint",
                 "rows": rows, "fields": fields}
-        return {"cards": [card],
+        cards = [free] + self.shelf_cards()
+        return {"cards": cards,
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
                             {"id": "collect", "label": "shop.collect"}]}
 
+    def shelf_cards(self) -> list:
+        """The picker, and the goods of the ONE shelf it has chosen.
+
+        Two cards and never one per shelf: the goods of every shelf at once is a screen
+        re-read of some eighty kilobytes every two and a half seconds, and a person reads
+        one shelf at a time.
+        """
+        shelves, age = self.shelves()
+        if not shelves:
+            return [{"title": "shop.shelves", "empty": "shop.unread"}]
+        choices = [{"value": key, "text": self.t(title)} for key, title, _rows in shelves]
+        chosen = self._pick if any(self._pick == k for k, _t, _r in shelves) else shelves[0][0]
+        pick = {"title": "shop.shelves",
+                "head": self.t("shop.age", age=int(age)) if age is not None else "",
+                "note": "shop.shelves.hint",
+                "fields": [{"key": "pick", "label": "shop.pick", "kind": "choice",
+                            "value": chosen, "options": choices}],
+                "actions": [{"id": "autobuy", "label": "shop.autobuy.now"}]}
+        rows = next(r for k, _t, r in shelves if k == chosen)
+        kind, _sep, shop = chosen.partition(":")
+        goods = {"title": next(t for k, t, _r in shelves if k == chosen),
+                 "main": True, "layout": "cards", "search": True,
+                 "empty": "shop.shelf.empty",
+                 "items": [self.good(kind, shop, row) for row in rows[:SHELF_MAX]]}
+        return [pick, goods]
+
+    def money_name(self, currency: str) -> str:
+        """What a currency is called. The game's own name when the reading carried one,
+        and its number when it did not — never somebody else's word for it."""
+        return self._money.get(str(currency)) or ""
+
+    def good(self, kind: str, shop: str, row: dict) -> dict:
+        """One row of a shelf as the phone draws it: the picture, the price, the press.
+
+        THE PICTURE IS THE GAME'S OWN and never a stand-in: `cell_url` composes the
+        item's sprite inside its rarity frame exactly as the bag does (one function, the
+        bag's), and a machine that has not extracted the art sends no `icon` at all —
+        the card then draws the one placeholder rather than somebody else's picture.
+        """
+        ident = str(row.get("id") or "")
+        left = max(0, int(row.get("limit") or 0) - int(row.get("bought") or 0))
+        # THE PRICE, AND THE CURRENCY WHEN THE GAME HAS A WORD FOR IT. A client that
+        # answers with an unresolved key gives the panel nothing to draw, and a number
+        # invented for it would be a name this panel made up — so the amount stands
+        # alone, on the shelf that is already named after the currency it spends.
+        word = self.money_name(str(row.get("cost_id") or ""))
+        facts = [{"label": "shop.price",
+                  "value": (self.t("shop.free") if not row.get("cost")
+                            else self.t("shop.cost", amount=row.get("cost"),
+                                        currency=word).strip()
+                            if word else str(row.get("cost")))}]
+        if row.get("limit"):
+            facts.append({"label": "shop.left", "value": str(left)})
+        # WHETHER THE ACCOUNT CAN PAY is the GAME's answer, never a sum done here: a
+        # price met out of two purses is the client's own arithmetic (`read_shops.md`).
+        if row.get("cost") and not row.get("afford"):
+            facts.append({"label": "shop.price", "value": self.t("shop.short")})
+        place = self.place_of(kind, shop, ident)
+        item = {"text": str(row.get("name") or ident),
+                "detail": (self.t("shop.count", count=row.get("count"))
+                           if int(row.get("count") or 0) > 1 else ""),
+                "facts": facts,
+                "shape": "picture"}
+        picture = cell_url(row.get("icon"), row.get("colour"))
+        if picture:
+            item["icon"] = picture
+        if place:
+            item["badge"] = self.t("shop.place", place=place)
+        # A MONEY SHELF IS DRAWN AND NEVER PRESSED. The packs are not on the wire at all
+        # — no manager holds them and no message buys one — so a button there would be a
+        # button that cannot work (docs/research/shops.md).
+        if kind != "money":
+            item["options"] = [
+                {"key": "prio:%s:%s:%s" % (kind, shop, ident), "label": "shop.prio",
+                 "hint": "shop.prio.hint", "kind": "number", "min": 0, "max": 99,
+                 "value": place},
+                {"key": "qty:%s:%s:%s" % (kind, shop, ident), "label": "shop.qty",
+                 "hint": "shop.qty.hint", "kind": "number", "min": 1, "max": 999,
+                 "value": self.count_of(kind, shop, ident)}]
+            item["options_title"] = "shop.knobs"
+            item["actions"] = [
+                {"id": "buy", "label": "shop.buy",
+                 "args": {"kind": kind, "shop": shop, "id": ident},
+                 # A PURCHASE IS IRREVERSIBLE, so it asks first and names the price in
+                 # the question — the same shape every spending press on this front-end
+                 # has (`CLAUDE.md`).
+                 "confirm": "shop.buy.confirm",
+                 "confirm_fmt": {"name": str(row.get("name") or ident),
+                                 "amount": row.get("cost"),
+                                 "currency": word}}]
+        return item
+
     def web_press(self, action: str, args: dict) -> dict:
-        """Two presses and one `set`; anything else is «unknown» rather than a guess."""
+        """The two free-claim presses, the shelf's own «купить», and one `set`."""
+        args = args or {}
         if action == "refresh":
             self.refresh(human=True)
             return {"ok": True}
         if action == "collect":
             self.collect_now()
             return {"ok": True}
-        if action == "set":
-            key = str((args or {}).get("key") or "")
-            if key not in KNOBS:
+        if action == "buy":
+            kind = str(args.get("kind") or "")
+            shop = str(args.get("shop") or "")
+            ident = str(args.get("id") or "")
+            if kind == "money" or not ident:
                 return {"error": "unknown"}
-            self.set_knob(key, (args or {}).get("value"))
-            return {"ok": True}
+            return {"ok": self.buy_one(kind, shop, ident,
+                                       self.count_of(kind, shop, ident))}
+        if action == "autobuy":
+            return {"ok": self.autobuy_now()}
+        if action == "set":
+            key = str(args.get("key") or "")
+            if key in KNOBS:
+                self.set_knob(key, args.get("value"))
+                return {"ok": True}
+            if key == "pick":
+                self._pick = str(args.get("value") or "")
+                return {"ok": True}
+            head, _sep, tail = key.partition(":")
+            bits = tail.split(":")
+            if head in ("prio", "qty") and len(bits) == 3:
+                if head == "prio":
+                    self.set_place(bits[0], bits[1], bits[2], args.get("value"))
+                else:
+                    self.set_count(bits[0], bits[1], bits[2], args.get("value"))
+                return {"ok": True}
+            return {"error": "unknown"}
         return {"error": "unknown"}
 
 

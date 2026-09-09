@@ -214,6 +214,19 @@ SPEC: dict = {
         _num("budget", "market.budget", low=0, high=1000000,
              hint_key="market.budget.hint"),
     ),
+    # THE AUTOBUY OF THE SHOPS (#2666). The ORDER it spends in is not here on purpose:
+    # it is a list of rows with a place each, and it is edited where the rows are drawn
+    # («Магазин» → the gear on a good). What IS here is what a person decides about the
+    # SPENDING itself, which is exactly the question somebody looking at «Таймеры» has:
+    # how many diamonds one run may spend — 0 means «not one», which is the default and
+    # the person's own rule about an irreversible spend — and how many purchases one run
+    # may make at all.
+    "autobuy_shop_goods": (
+        _num("diamond_cap", "shop.opt.diamond_cap", low=0, high=100000,
+             hint_key="shop.opt.diamond_cap.hint"),
+        _num("cap", "shop.opt.cap", low=1, high=200,
+             hint_key="shop.opt.cap.hint"),
+    ),
     # THE HIDDEN TREASURES (#2597). The three knobs were a page of their own until the
     # person asked for it to go — «"Скрытые Сокровища" убираем отдельную вкладку,
     # настройки переносим в карточку в таймерах». They are the recipe's own `ARGS`, so
