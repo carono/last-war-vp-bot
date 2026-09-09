@@ -83,7 +83,17 @@ def _tab():
 
 
 def _week(view: dict) -> dict:
-    return view["cards"][0]
+    """The card the week is drawn as, wherever it stands on the page.
+
+    It used to be `cards[0]`, and that stopped being true the day a card was added above
+    it (#2635 put the arms race's hour at the top): every test that reaches for the week
+    then failed with a bare `KeyError: 'items'`, which says nothing at all about what
+    moved. The week names itself — `"main": True` — so it is found by that.
+    """
+    for card in view["cards"]:
+        if card.get("main"):
+            return card
+    raise AssertionError("no card on this page says it is the main one")
 
 
 # ---------------------------------------------------------------------------
@@ -132,12 +142,18 @@ def test_a_press_moves_the_plan_and_the_card_says_so():
         print(f"  SKIP no tkinter / display: {exc}")
         return
     try:
-        before = _week(tab.web_view())["items"][0]["facts"][0]["value"]
-        assert before == "2 / 2", before
+        # THE CARD ITSELF SAYS NOTHING (#2645): a press is read back where the knob is,
+        # which is inside the gear. This test used to read a «2 / 2» line off the card
+        # and was never run again after that line was taken away.
+        def knob():
+            monday = _week(tab.web_view())["items"][0]
+            return {f["key"]: f["value"]
+                    for g in monday["options_groups"] for f in g["fields"]}
+
+        assert knob()["plan.mon.drone_chips"] is True, knob()
         assert tab.web_press("set", {"key": "plan.mon.drone_chips",
                                      "value": False}) == {"ok": True}
-        after = _week(tab.web_view())["items"][0]["facts"][0]["value"]
-        assert after == "1 / 2", after
+        assert knob()["plan.mon.drone_chips"] is False, knob()
         assert tab.web_press("nope", {}) == {"error": "unknown"}
     finally:
         root.destroy()
@@ -154,11 +170,15 @@ def test_the_card_says_which_set_the_day_is_played_from():
 
         assert tab.web_press("set", {"key": "dayset.mon",
                                      "value": PRESET_PUSH}) == {"ok": True}
-        facts = _week(tab.web_view())["items"][0]["facts"]
-        assert facts[1]["label"] == "vs.day.set"
-        # The name is DATA — the operator may have renamed the set — so it is the
-        # words, never a key.
-        assert facts[1]["value"] == tab.t("vsduel.preset.push"), facts[1]
+        # …AND IT SAYS IT ON THE SETS CARD, not on the day's own (#2645). The day card
+        # carries the picture, the name, the switch and the gear and nothing else.
+        sets = {card["title"]: card for card in tab.web_view()["cards"]}["vsduel.sets"]
+        chosen = {f["key"]: f["value"] for f in sets["fields"]}
+        assert chosen["dayset.mon"] == PRESET_PUSH, chosen
+        # The name is DATA — the operator may have renamed the set — so what is drawn
+        # for it is the words, never a key.
+        names = {opt["value"]: opt["text"] for opt in sets["fields"][0]["options"]}
+        assert names[PRESET_PUSH] == tab.t("vsduel.preset.push"), names
     finally:
         root.destroy()
 
@@ -198,7 +218,7 @@ def test_a_profile_that_never_saved_this_tab_still_reads_its_plan():
         return
     try:
         monday = _week(tab.web_view())["items"][0]
-        assert monday["facts"][0]["value"] == "2 / 2", monday["facts"]
+        assert "facts" not in monday, monday       # the card says nothing (#2645)
         assert any(field["key"] == "plan.mon.drone_chips" and field["value"] is True
                    for group in monday["options_groups"]
                    for field in group["fields"]), monday["options_groups"]
@@ -234,7 +254,12 @@ def test_only_the_wired_knobs_are_drawn_and_the_rest_of_the_week_says_so():
             "vsduel.survivor_tickets", "vsduel.build_collect"], (
                 "Tuesday's two abilities, in the order the plan lists them (#2632)")
         assert tuesday.get("pill") is None
-        for label in ("vsduel.day.wed", "vsduel.day.thu",
+        wednesday = items["vsduel.day.wed"]
+        assert [g["title"] for g in wednesday["options_groups"]] == [
+            "vsduel.drone_parts", "vsduel.research_collect"], (
+                "Wednesday's two wired abilities, in the plan's own order (#2662)")
+        assert wednesday.get("pill") is None
+        for label in ("vsduel.day.thu",
                       "vsduel.day.fri", "vsduel.day.sat"):
             day = items[label]
             assert not day.get("options_groups"), (label, day.get("options_groups"))
@@ -484,7 +509,7 @@ def test_the_week_is_the_screen_and_its_cards_are_the_errand_card():
         return
     try:
         view = tab.web_view()
-        week = view["cards"][0]
+        week = _week(view)                     # …wherever it stands on the page (#2635)
         assert week["title"] == "vs.week" and week.get("main") is True, week.get("main")
         assert [c for c in view["cards"] if c.get("main")] == [week], (
             "one main card, or the screen has two subjects")
@@ -852,12 +877,14 @@ def test_the_two_tuesday_recipes_exist_and_hold_their_own_gates():
                          if line.strip() and not line.lstrip().startswith("#"))
     assert "ARGS uuid =" in running, "one building or all of them, by argument"
     assert "120001" in running, "the arms race's BUILDING hour is the gate"
-    assert "CheckSendBuildFinish" in running, "the claim is the client's own"
+    assert "SendFreeBuildingUpgradeFinish" in running, (
+        "the claim is the client's own SENDER — `CheckSendBuildFinish` is a check and "
+        "puts nothing on the wire (#2641)")
     assert "DelayInvoke" in running, "the send goes on the game's own thread"
 
     reads = (actions / "read_ready_buildings.md").read_text(encoding="utf-8")
     assert "INTO ready_builds" in reads
-    assert "CheckSendBuildFinish" not in reads, "a read presses nothing"
+    assert "SendFreeBuildingUpgradeFinish" not in reads, "a read presses nothing"
 
     spend = (actions / "spend_survivor_tickets.md").read_text(encoding="utf-8")
     assert "TAP recruit_draw" in spend, "the press is the catalogue's own"
@@ -906,18 +933,23 @@ def test_the_client_getting_into_the_game_takes_every_reading_once():
         tab._on_game_ready()
         # …and the arms race with them since #2635: the errand's card stands on this
         # page, so the hour it draws is read where the rest of the page is read.
-        assert played == ["read_drone_chips", "read_survivor_tickets",
-                          "read_ready_buildings", "read_arms_race"], played
+        assert played == ["read_drone_chips", "read_drone_parts",
+                          "read_survivor_tickets", "read_ready_buildings",
+                          "read_research_queues", "read_arms_race",
+                          "read_vs_score"], played
         # …and the ear is up, on the three announcements these numbers move on.
         assert busmod.GAME_READY == "game.ready"
-        assert heard == ["push.resource.item.update",
-                         "push.uav.skillchip.changes",
-                         "push.person.arms.sc.change"], heard
+        want = ["push.resource.item.update", "push.uav.skillchip.changes",
+                "push.person.arms.sc.change", "push.build.queue.info",
+                "push.queue.add", "push.queue.del",
+                # …and the science centres' own three (#2662). The two queue ones are
+                # subscribed TWICE on purpose: a build slot moving and a study moving
+                # are different news, on different handlers and different debounces.
+                "push.queue.add", "push.queue.del", "push.science.change"]
+        assert heard == want, heard
         # Raised ONCE: a second ready does not open a second capture.
         tab._on_game_ready()
-        assert heard == ["push.resource.item.update",
-                         "push.uav.skillchip.changes",
-                         "push.person.arms.sc.change"], heard
+        assert heard == want, heard
     finally:
         root.destroy()
 
@@ -1024,8 +1056,81 @@ def test_being_told_ready_twice_costs_one_round_of_readings():
         tab.rt.wire.subscribe = lambda pattern, fn: (lambda: None)
         tab._on_game_ready()
         tab._on_game_ready()
-        assert played == ["read_drone_chips", "read_survivor_tickets",
-                          "read_ready_buildings", "read_arms_race"], played
+        assert played == ["read_drone_chips", "read_drone_parts",
+                          "read_survivor_tickets", "read_ready_buildings",
+                          "read_research_queues", "read_arms_race",
+                          "read_vs_score"], played
+    finally:
+        root.destroy()
+
+
+def test_wednesday_opens_the_component_chests_and_lists_the_science_centres():
+    """#2662 — the two blocks behind Wednesday's gear, and what each is about.
+
+    The chests are the COMPONENT ones (630011…630013) and never Monday's chip chests:
+    the two were confused once already (#2617), so the test names both id lists.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        from panel.tabs.vs import CHIP_IDS, PART_IDS
+
+        assert set(PART_IDS).isdisjoint(CHIP_IDS), (PART_IDS, CHIP_IDS)
+        groups = {g["title"]: g
+                  for g in _week(tab.web_view())["items"][2]["options_groups"]}
+        chests = groups["vsduel.drone_parts"]
+        assert [a["label"] for a in chests["actions"]] == ["vs.parts.open_all"]
+        assert [row["text"] for row in chests["items"]] == list(PART_IDS), (
+            "a bag nobody has read yet still draws one row per grade")
+        assert chests["note"], "the age of the reading is always said"
+        centres = groups["vsduel.research_collect"]
+        assert [a["label"] for a in centres["actions"]] == ["vs.research.collect_all"]
+        assert centres["actions"][0]["disabled"] is True, (
+            "«Собрать все» is dead while nothing is waiting")
+        assert not any(a.get("id") == "refresh" for a in centres["actions"]), (
+            "a statistic is never refreshed by hand (#2633)")
+    finally:
+        root.destroy()
+
+
+def test_a_finished_study_is_collected_and_a_running_one_is_priced():
+    """The row's own two presses, and the one that spends is named before it is made."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        tab._research = {"at": 1, "rows": [
+            {"uuid": "1000000000000001", "id": "200001", "level": 7, "icon": "",
+             "name": "Tech1", "left": 0, "state": 1, "covered": False, "plan": []},
+            {"uuid": "1000000000000002", "id": "200008", "level": 3, "icon": "",
+             "name": "Tech2", "left": 900, "state": 0, "covered": True,
+             "plan": [{"id": "200221", "num": 3, "sec": 300, "own": 1}]},
+            {"uuid": "1000000000000003", "id": "0", "level": 0, "icon": "",
+             "name": "", "left": 0, "state": 2, "covered": False, "plan": []}]}
+        rows = tab._research_rows()
+        assert [r["actions"][0]["id"] for r in rows[:2]] == ["collect_one", "speed_one"]
+        assert rows[0]["actions"][0]["label"] == "vs.research.collect"
+        speed = rows[1]["actions"][0]
+        assert speed["confirm"] == "vs.research.speedup.confirm", speed
+        assert speed["disabled"] is False, speed
+        # THE PRICE IS ON THE ROW, before the button under it is touched.
+        assert any(f["label"] == "vs.research.cost" for f in rows[1]["facts"]), rows[1]
+        assert not rows[2]["actions"], "an idle centre offers nothing to press"
+
+        played = []
+        tab.rt.play_async = lambda name, *a, **k: played.append((name, k.get("args"))) or True
+        assert tab.web_press("collect_one", {"uuid": "1000000000000001"}) == {"ok": True}
+        assert tab.web_press("speed_one", {"uuid": "1000000000000002"}) == {"ok": True}
+        assert played == [("collect_research", {"uuid": "1000000000000001"}),
+                          ("speedup_research", {"uuid": "1000000000000002"})], played
+        # …and nothing that is not a uuid ever reaches a recipe.
+        assert tab.web_press("speed_one", {"uuid": "../x"}) == {"error": "unknown"}
+        assert len(played) == 2, played
     finally:
         root.destroy()
 

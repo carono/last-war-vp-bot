@@ -46,7 +46,8 @@ def _int(value, default: int = 0) -> int:
 #:
 #: The names are `<day>.<action>`, exactly as the plan spells them.
 READY: frozenset = frozenset({"mon.drone_chips", "mon.drone_level",
-                             "tue.survivor_tickets", "tue.build_collect"})
+                             "tue.survivor_tickets", "tue.build_collect",
+                             "wed.drone_parts", "wed.research_collect"})
 
 #: …and which scenario each of those knobs RUNS, for the button beside it. The panel
 #: holds no opinion about what the ability is: it plays the recipe and reports what came
@@ -54,7 +55,9 @@ READY: frozenset = frozenset({"mon.drone_chips", "mon.drone_level",
 RUNS: dict = {"mon.drone_chips": "open_drone_chips",
               "mon.drone_level": "upgrade_drone",
               "tue.survivor_tickets": "spend_survivor_tickets",
-              "tue.build_collect": "open_ready_buildings"}
+              "tue.build_collect": "open_ready_buildings",
+              "wed.drone_parts": "open_drone_parts",
+              "wed.research_collect": "collect_research"}
 
 #: THE CHESTS THE CHIP ABILITY IS ABOUT (#2617) — the three grades the live bag carries,
 #: as the bag reads them. They travel to both recipes as an argument, so an account with
@@ -63,6 +66,27 @@ CHIP_IDS: tuple = ("540201", "540301", "540401")
 
 #: The scenario that counts them without opening any.
 CHIP_READ = "read_drone_chips"
+
+#: WEDNESDAY'S OWN BOX, AND IT IS NOT MONDAY'S (#2662). «Сундук Компонента Дрона
+#: 1/2/3 ур.» — the three grades the live bag carries — against «Сундук Чипа Навыка»
+#: above. The two were confused once already (#2617), so both lists are spelled out
+#: beside each other rather than derived from one another.
+PART_IDS: tuple = ("630011", "630012", "630013")
+
+#: …and the pair of recipes they travel to, the same way round as the chests: one
+#: counts and opens nothing, the other opens every stack in one call.
+PART_READ = "read_drone_parts"
+
+#: THE SCIENCE CENTRES, WHAT EACH IS STUDYING, AND WHAT CLOSING ONE WOULD COST (#2662).
+#: A read: it collects nothing and spends nothing.
+RESEARCH_READ = "read_research_queues"
+
+#: …AND THE ONE PRESS ON WEDNESDAY THAT SPENDS SOMETHING IRREVERSIBLY. Closing a
+#: research takes speed-ups out of the bag and they do not come back, so nothing plays
+#: it by itself: the row prices the parcel first, the button asks, and the recipe works
+#: the parcel out again for itself at the moment of the press
+#: (`actions/speedup_research.md`), exactly as the construction one does.
+RESEARCH_SPEEDUP = "speedup_research"
 
 #: TUESDAY'S TWO READS, and neither of them presses anything (#2632). The banner's
 #: tickets and the buildings that have finished — a page that SHOWS them must be able to
@@ -112,6 +136,12 @@ BUILD_PUSH = "push.build.queue.info"
 QUEUE_ADD_PUSH = "push.queue.add"
 QUEUE_DEL_PUSH = "push.queue.del"
 
+#: …AND THE SCIENCE CENTRES' OWN (#2662). A study that finishes and is taken changes the
+#: account's technology, and the server says so — `push.science.change` is the client's
+#: own name for it (`MsgDefines`, read off the live game). The queue's two above are what
+#: a study STARTED or COLLECTED looks like, so all three are ears on the same list.
+SCIENCE_PUSH = "push.science.change"
+
 #: THE HOUR OF «Гонка вооружений», ON THE PAGE THAT SHOWS IT (#2635). The errand's card
 #: stands on this page, so the reading behind it is taken here: the phase running now,
 #: its three chests as the server flags them, and the points it has scored. It presses
@@ -146,6 +176,14 @@ CHAIN_BUILD_PUSH = "vs_build_push"
 #: moment a slot moves, and the push does not come round a second time.
 CHAIN_BUILD_RETRY = "vs_build_retry"
 CHAIN_FIRST = "vs_first_read"
+#: …and the science queues' own three: the debounce under their pushes, the alarm on the
+#: earliest study's own end, and the retry under a reading the gate refused. They are
+#: separate from the build queue's for the same reason its own are separate from the
+#: bag's: a research that moved says nothing about a construction, and re-reading the
+#: other on it would be a question the game did not ask for.
+CHAIN_RESEARCH_PUSH = "vs_research_push"
+CHAIN_RESEARCH = "vs_research_due"
+CHAIN_RESEARCH_RETRY = "vs_research_retry"
 #: …and the arms race's two: its own debounce, and the alarm on the border of the hour.
 CHAIN_ARMS_PUSH = "vs_arms_push"
 CHAIN_ARMS = "vs_arms_due"
@@ -173,9 +211,10 @@ FIRST_TRIES = 10
 BUILD_RETRY_MS = 60_000
 BUILD_RETRIES = 10
 
-#: How many readings a full round is — the chests, the tickets, the build queue, the
-#: arms race and the duel's own score. The retry stops when they have all answered.
-FIRST_READS = 5
+#: How many readings a full round is — the two kinds of chest, the tickets, the build
+#: queue, the science queues, the arms race and the duel's own score. The retry stops
+#: when they have all answered.
+FIRST_READS = 7
 
 #: The floor between two «read the whole page» rounds, in seconds. A profile can be told
 #: it is ready more than once inside a second (the bus is not de-duplicated), and three
@@ -199,7 +238,9 @@ ARMS_LEG_SEC = 3_600.0
 RUN_LABELS: dict = {"mon.drone_chips": "vs.chips.open_all",
                     "mon.drone_level": "vs.drone.raise_now",
                     "tue.survivor_tickets": "vs.tickets.spend_now",
-                    "tue.build_collect": "vs.builds.open_all"}
+                    "tue.build_collect": "vs.builds.open_all",
+              "wed.drone_parts": "vs.parts.open_all",
+              "wed.research_collect": "vs.research.collect_all"}
 
 
 class VsTab(VsDuelTab):
@@ -242,6 +283,15 @@ class VsTab(VsDuelTab):
         self._builds = None
         #: …and the duel's own score (#2645). `None` until it has been asked for once.
         self._score = None
+        #: WEDNESDAY'S TWO (#2662): the component chests and the science centres. Read
+        #: on first need like everything else on this page, `None` until asked.
+        self._parts = None
+        self._research = None
+        #: …and the science queues' own alarm and net, the twins of the build queue's:
+        #: a study announces its own end in the reading, and a refused reading is asked
+        #: again rather than lost.
+        self._research_due: "float | None" = None
+        self._research_tries = 0
         #: THE EAR AND ITS ALARM (#2633). Nothing here reads on a clock: the first
         #: reading is taken when the client gets into the game (`bus.GAME_READY`), and
         #: after that the wire says when a number moved. `_build_due` is the one
@@ -384,16 +434,117 @@ class VsTab(VsDuelTab):
     def _chips_rows(self) -> list:
         """One row per grade: the game's own picture, its name, what is held and opened.
 
+        The drawing itself is `_chest_rows`, shared with Wednesday's component chests
+        (#2662) — two different boxes, one shape of reading.
+        """
+        return self._chest_rows(self._chips_state(), CHIP_IDS)
+
+    def _chips_note(self) -> str:
+        """How old the count is — data, said in this profile's own language."""
+        when = _int(self._chips_state().get("at"))
+        if not when:
+            return self.t("vs.chips.never")
+        return self.t("vs.chips.read_at", ago=self._ago(when))
+
+    # -- Wednesday: the drone's component chests --------------------------------
+    #
+    # THE SAME SPLIT AS MONDAY'S CHIPS, and deliberately not the same store: «Сундук
+    # Компонента Дрона» and «Сундук Чипа Навыка» are two item families, they are opened
+    # on two different days, and a tally that mixed them would answer neither question.
+    # What the bag holds is re-readable from the game; how many this account has OPENED
+    # is not, because an open chest is gone.
+
+    def _parts_state(self) -> dict:
+        """What the store holds about the component chests: the tally and its age."""
+        if self._parts is None:
+            try:
+                state = self.rt.store.blob_get(store.DRONE_PARTS)
+            except Exception:                # noqa: BLE001 — a reading, never the tab
+                state = None
+            self._parts = state if isinstance(state, dict) else {}
+        return self._parts
+
+    def _parts_save(self, state: dict) -> None:
+        self._parts = state
+        try:
+            self.rt.store.blob_set(store.DRONE_PARTS, state)
+        except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
+            pass
+
+    def _parts_rows_back(self, outcome) -> None:
+        """`read_drone_parts` came back — keep what it said, in the store."""
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        rows = self._grades(str(variables.get("parts_rows") or ""))
+        if not rows:
+            return
+        state = dict(self._parts_state())
+        state["rows"] = rows
+        state["at"] = int(time.time())
+        self._parts_save(state)
+        self._first_ok.add("parts")
+
+    def _parts_opened_back(self, outcome) -> None:
+        """`open_drone_parts` came back — add what it opened to the tally, by grade."""
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        state = dict(self._parts_state())
+        opened = self._tally(state.get("opened"), str(variables.get("parts_per_id") or ""))
+        if opened is None:
+            return
+        state["opened"] = opened
+        state["spent_at"] = int(time.time())
+        self._parts_save(state)
+
+    @staticmethod
+    def _grades(raw: str) -> list:
+        """`id|count|colour|icon|name` -> the rows of one kind of chest, as the game said.
+
+        Shared by both days on purpose: the chip chests and the component chests are
+        different boxes, but a grade is a grade and the reading has one shape.
+        """
+        rows = []
+        for piece in raw.split(";;"):
+            parts = [bit.strip() for bit in piece.split("|")]
+            if len(parts) < 5 or not parts[0].isdigit():
+                continue
+            rows.append({"id": parts[0], "count": _int(parts[1]),
+                         "colour": _int(parts[2]), "icon": parts[3],
+                         "name": parts[4]})
+        return rows
+
+    @staticmethod
+    def _tally(held, raw: str):
+        """«630011:31,630013:3» added to what was counted before, or `None` for nothing.
+
+        A run that opened nothing adds nothing, and a run the server refused never gets
+        here — so `None` means «do not write anything down», not «zero».
+        """
+        opened = dict(held or {})
+        moved = False
+        for piece in raw.split(","):
+            item, _, count = piece.partition(":")
+            item, count = item.strip(), _int(count)
+            if not item.isdigit() or count <= 0:
+                continue
+            opened[item] = _int(opened.get(item)) + count
+            moved = True
+        return opened if moved else None
+
+    def _parts_rows(self) -> list:
+        """One row per grade of component chest: picture, name, what is held and opened."""
+        return self._chest_rows(self._parts_state(), PART_IDS)
+
+    def _chest_rows(self, state: dict, ids: tuple) -> list:
+        """The rows of a chest reading, whichever day's it is.
+
         A grade the game has no picture for on this machine is drawn WITHOUT one, never
         with somebody else's (`panel/tabs/inventory.py::cell_url`, the same rule every
         picture route here keeps).
         """
-        state = self._chips_state()
         rows = state.get("rows") if isinstance(state.get("rows"), list) else []
         opened = state.get("opened") or {}
         out = []
         for row in rows or [{"id": item, "count": None, "colour": 0, "icon": "",
-                             "name": ""} for item in CHIP_IDS]:
+                             "name": ""} for item in ids]:
             item_id = str(row.get("id") or "")
             picture = cell_url(str(row.get("icon") or ""), row.get("colour"))
             count = row.get("count")
@@ -407,12 +558,173 @@ class VsTab(VsDuelTab):
             out.append(entry)
         return out
 
-    def _chips_note(self) -> str:
+    def _parts_note(self) -> str:
         """How old the count is — data, said in this profile's own language."""
-        when = _int(self._chips_state().get("at"))
+        when = _int(self._parts_state().get("at"))
         if not when:
-            return self.t("vs.chips.never")
-        return self.t("vs.chips.read_at", ago=self._ago(when))
+            return self.t("vs.parts.never")
+        return self.t("vs.parts.read_at", ago=self._ago(when))
+
+    # -- Wednesday: the science centres ----------------------------------------
+    #
+    # A LIST THAT IS RE-READ AND NEVER GUESSED, exactly like the build queue. The panel
+    # keeps what the last reading said with its age beside it; whether a study may be
+    # collected, and what closing one costs, are the recipes' own business.
+
+    def _research_state(self) -> dict:
+        if self._research is None:
+            try:
+                state = self.rt.store.blob_get(store.RESEARCH_QUEUES)
+            except Exception:                # noqa: BLE001 — a reading, never the tab
+                state = None
+            self._research = state if isinstance(state, dict) else {}
+        return self._research
+
+    def _research_save(self, state: dict) -> None:
+        self._research = state
+        try:
+            self.rt.store.blob_set(store.RESEARCH_QUEUES, state)
+        except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
+            pass
+
+    def _research_back(self, outcome) -> None:
+        """`read_research_queues` came back — keep the centres, idle ones included.
+
+        An EMPTY answer is kept too, for the same reason the build queue's is: «nothing
+        is studying» is a state, and a page holding the last non-empty list would offer
+        to collect a research that has already been taken. A run that did not HAPPEN is
+        a different thing again and is not written down at all.
+        """
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        if "research_rows" not in variables:
+            return
+        state = dict(self._research_state())
+        state["rows"] = self._parse_research(str(variables.get("research_rows") or ""))
+        state["at"] = int(time.time())
+        self._research_save(state)
+        self._first_ok.add("research")
+        self._research_tries = 0
+        try:
+            self.rt.tick.disarm(CHAIN_RESEARCH_RETRY)
+        except Exception:                    # noqa: BLE001
+            pass
+        self._arm_research_alarm(_int(variables.get("next_research_sec"), -1))
+
+    @staticmethod
+    def _parse_research(raw: str) -> list:
+        """`uuid|id|lv|icon|name|left|state|covered|plan` -> one row per science centre.
+
+        `state` is the GAME's: 1 a study that has finished and is waiting, 0 one that is
+        running, 2 a centre standing idle. A line the recipe did not print in that shape
+        is dropped rather than guessed at — a half-read parcel priced on a screen is an
+        irreversible spend nobody agreed to.
+        """
+        rows = []
+        for piece in raw.split(";;"):
+            parts = [bit.strip() for bit in piece.split("|")]
+            if len(parts) < 7 or not parts[0].isdigit():
+                continue
+            plan = []
+            for bit in (parts[8] if len(parts) > 8 else "").split("+"):
+                cut = bit.split(":")
+                if len(cut) < 4 or not cut[0].strip().isdigit():
+                    continue
+                plan.append({"id": cut[0].strip(), "num": _int(cut[1]),
+                             "sec": _int(cut[2]), "own": _int(cut[3])})
+            rows.append({"uuid": parts[0], "id": parts[1], "level": _int(parts[2]),
+                         "icon": parts[3], "name": parts[4], "left": _int(parts[5]),
+                         "state": _int(parts[6]),
+                         "covered": _int(parts[7] if len(parts) > 7 else 0) == 1,
+                         "plan": plan})
+        return rows
+
+    def _research_rows(self) -> list:
+        """One row per science centre — what it studies, how long it has left, its press.
+
+        The order is the one a person reads it in: what is READY first (there is
+        something to do about it), then what is running, earliest first, then the centres
+        standing idle.
+        """
+        rows = self._research_state().get("rows")
+        rows = rows if isinstance(rows, list) else []
+        order = {1: 0, 0: 1, 2: 2}
+        out = []
+        for row in sorted(rows, key=lambda r: (order.get(_int(r.get("state")), 3),
+                                               _int(r.get("left")))):
+            out.append(self._research_row(row))
+        return out
+
+    def _research_row(self, row: dict) -> dict:
+        """One centre, as the phone draws it."""
+        uuid = str(row.get("uuid") or "")
+        state = _int(row.get("state"))
+        name = self._word(row.get("name")) or str(row.get("id") or "")
+        entry = {"text": name if state != 2 else self.t("vs.research.idle"),
+                 # THE PICTURE IS HALF THE CARD, the way the finished buildings are
+                 # drawn (#2645): a technology is recognised by its own art first.
+                 "shape": "picture",
+                 "facts": [{"label": "vs.research.level",
+                            "value": str(_int(row.get("level")))}],
+                 "actions": []}
+        picture = self._research_icon(str(row.get("icon") or ""))
+        if picture:
+            entry["icon"] = picture
+        if state == 1:
+            entry["facts"].append({"label": "vs.research.left",
+                                   "value": self.t("vs.research.ready")})
+            entry["actions"].append({"id": "collect_one", "args": {"uuid": uuid},
+                                     "label": "vs.research.collect"})
+        elif state == 0:
+            entry["facts"].append({"label": "vs.research.left",
+                                   "value": self._span(_int(row.get("left")))})
+            entry["facts"].append({"label": "vs.research.cost", "value": self._cost(row)})
+            entry["actions"].append({"id": "speed_one", "args": {"uuid": uuid},
+                                     "label": "vs.research.speedup",
+                                     # IT ASKS FIRST, because the speed-ups do not come
+                                     # back — the same guard the construction press has.
+                                     "confirm": "vs.research.speedup.confirm",
+                                     # …and a bag that cannot close it offers a dead
+                                     # button rather than a spend that buys nothing.
+                                     "disabled": not row.get("covered")})
+        else:
+            entry["facts"].append({"label": "vs.research.left",
+                                   "value": self.t("vs.research.nothing")})
+        return entry
+
+    @staticmethod
+    def _research_icon(stem: str) -> "str | None":
+        """A technology's own sprite as the phone asks for it, or nothing at all.
+
+        A LINK and never bytes, and never somebody else's picture: the sprite is looked
+        up by NAME in the extracted art (`item_icons.raw_named`, the route the resources
+        already use), and a technology this machine has no picture for is drawn without
+        one rather than with a stand-in.
+        """
+        import urllib.parse as _url
+
+        stem = (stem or "").strip()
+        if not stem:
+            return None
+        try:
+            import item_icons                # noqa: PLC0415 — one lookup
+        except Exception:                    # noqa: BLE001 — no extraction is no picture
+            return None
+        name = stem if stem.lower().endswith(".png") else stem + ".png"
+        if not item_icons.raw_named(name):
+            return None
+        return "/api/itemicon?name=" + _url.quote(name)
+
+    def _research_ready(self) -> int:
+        """How many centres are waiting to be collected — what «Собрать все» is about."""
+        rows = self._research_state().get("rows")
+        rows = rows if isinstance(rows, list) else []
+        return sum(1 for row in rows if _int(row.get("state")) == 1)
+
+    def _research_note(self) -> str:
+        when = _int(self._research_state().get("at"))
+        if not when:
+            return self.t("vs.research.never")
+        return self.t("vs.research.read_at", ago=self._ago(when))
 
     # -- Tuesday: the survivors' tickets ---------------------------------------
     #
@@ -901,6 +1213,16 @@ class VsTab(VsDuelTab):
                                                              self._on_build_push))
             except Exception:                # noqa: BLE001 — no ear, the age says so
                 break
+        # …AND THE SAME TWO FOR THE SCIENCE CENTRES (#2662). A queue that appeared or
+        # went away is what a research STARTED or COLLECTED looks like on the wire, and
+        # it is the door that arms the alarm on the study's own end. Its own handler and
+        # therefore its own debounce: a build slot moving says nothing about a study.
+        for pattern in (QUEUE_ADD_PUSH, QUEUE_DEL_PUSH, SCIENCE_PUSH):
+            try:
+                self._wire_off.append(self.rt.wire.subscribe(pattern,
+                                                             self._on_research_push))
+            except Exception:                # noqa: BLE001 — no ear, the age says so
+                break
 
     def _unlisten(self) -> None:
         """Close this page's ear. The capture stops with its last subscriber."""
@@ -961,14 +1283,88 @@ class VsTab(VsDuelTab):
             pass
 
     def _read_bag(self) -> None:
-        """What the bag holds: the survivors' tickets and the chip chests.
+        """What the bag holds: the tickets, the chip chests and the component chests.
 
-        Not the buildings: a construction finishing moves no item, and asking for it on
-        somebody else's push is exactly the wasted question this rule forbids.
+        Not the buildings and not the science centres: a construction or a study
+        finishing moves no item, and asking for either on somebody else's push is
+        exactly the wasted question this rule forbids.
         """
         self.rt.play_async(CHIP_READ, args={"ids": ",".join(CHIP_IDS)}, tag="vs",
                            on_result=self._chips_rows_back)
+        self.rt.play_async(PART_READ, args={"ids": ",".join(PART_IDS)}, tag="vs",
+                           on_result=self._parts_rows_back)
         self.rt.play_async(TICKETS_READ, tag="vs", on_result=self._tickets_back)
+
+    def _read_research(self) -> None:
+        """What every science centre is studying. The one door to that reading.
+
+        The same net the build queue has under it (#2645): a reading the gate refuses is
+        not lost, because the push that asked for it does not come round again.
+        """
+        if self.rt.play_async(RESEARCH_READ, tag="vs", on_result=self._research_back):
+            return
+        self._research_tries += 1
+        if self._research_tries > BUILD_RETRIES:
+            return
+        try:
+            self.rt.tick.arm(CHAIN_RESEARCH_RETRY, BUILD_RETRY_MS, self._read_research)
+        except Exception:                    # noqa: BLE001 — no clock, no net
+            pass
+
+    def _on_research_push(self, command) -> None:
+        """A science queue moved — on the reader thread, so nothing is done here."""
+        if command is None:
+            return
+        self.post(self._research_push_soon)
+
+    def _research_push_soon(self) -> None:
+        """Re-read shortly. Re-armed by each push, so a burst costs ONE reading."""
+        try:
+            self.rt.tick.arm(CHAIN_RESEARCH_PUSH, PUSH_DELAY_MS, self._read_research)
+        except Exception:                    # noqa: BLE001 — no clock, read at once
+            self._read_research()
+
+    def _arm_research_alarm(self, next_sec: int) -> None:
+        """Wake when the earliest study is due. `-1` — nothing is studying, no alarm.
+
+        The twin of the build queue's alarm and it is here for the same reason: a study
+        that finishes announces nothing anybody can be sure of, and its own end is a
+        second the server already handed over — so it is slept until rather than
+        watched for (CLAUDE.md, «Read once, then LISTEN»).
+        """
+        if next_sec is None or next_sec < 0:
+            self._research_due = None
+            try:
+                self.rt.tick.disarm(CHAIN_RESEARCH)
+            except Exception:                # noqa: BLE001
+                pass
+            return
+        self._research_due = time.time() + max(0, int(next_sec)) + 1.0
+        self._research_tick()
+
+    def _research_tick(self) -> None:
+        """A leg of the wait, or the reading it was waiting for."""
+        due = self._research_due
+        if due is None:
+            return
+        left = due - time.time()
+        if left > 0:
+            try:
+                self.rt.tick.arm(CHAIN_RESEARCH, int(min(left, BUILD_LEG_SEC) * 1000),
+                                 self._research_tick)
+            except Exception:                # noqa: BLE001 — no clock, no alarm
+                self._research_due = None
+            return
+        self._research_due = None
+        self._read_research()
+
+    def _research_after_press(self, _outcome=None) -> None:
+        """A study was collected or closed — so the list on the page is out of date.
+
+        Read again once, as the direct consequence of the press a person just made, and
+        never on a clock.
+        """
+        self._read_research()
 
     # -- «Гонка вооружений»: the hour, its chests and its points -----------------
     #
@@ -1072,6 +1468,9 @@ class VsTab(VsDuelTab):
         self._tries += 1
         self._read_bag()
         self._read_builds()
+        # …AND THE SCIENCE CENTRES (#2662), the reading Wednesday's own list is drawn
+        # from. After this one the queue's own pushes and its alarm move it.
+        self._read_research()
         # …AND THE HOUR OF THE ARMS RACE (#2635), which is the first reading of the card
         # standing at the top of this page. After this one the game says when it moved.
         self._read_arms()
@@ -1140,7 +1539,8 @@ class VsTab(VsDuelTab):
     def shutdown(self) -> None:
         """Give the ear and the alarms back — a listener outliving its tab is a leak."""
         for chain in (CHAIN_PUSH, CHAIN_BUILD, CHAIN_BUILD_PUSH, CHAIN_BUILD_RETRY,
-                      CHAIN_FIRST, CHAIN_ARMS_PUSH, CHAIN_ARMS):
+                      CHAIN_FIRST, CHAIN_ARMS_PUSH, CHAIN_ARMS, CHAIN_RESEARCH,
+                      CHAIN_RESEARCH_PUSH, CHAIN_RESEARCH_RETRY):
             try:
                 self.rt.tick.disarm(chain)
             except Exception:                # noqa: BLE001
@@ -1251,6 +1651,25 @@ class VsTab(VsDuelTab):
                 # be refused says so beforehand instead of looking broken.
                 gate = self._builds_gate() if rows else ""
                 group["note"] = f"{note} · {gate}" if gate else note
+            if action.key == "drone_parts":
+                # WEDNESDAY'S OWN CHESTS (#2662), drawn exactly as Monday's are: one row
+                # per grade, the game's own picture, what the bag holds and how many were
+                # opened. Different box, same shape — and no «Обновить»: the count moves
+                # when the game says a bag count moved.
+                group["items"] = self._parts_rows()
+                group["note"] = self._parts_note()
+            if action.key == "research_collect":
+                # THE SCIENCE CENTRES AND WHAT EACH IS STUDYING (#2662). A study that has
+                # finished carries «Собрать»; one that is running carries «Ускорить» with
+                # what closing it would take out of the bag written beside it — an
+                # irreversible spend is NAMED before it is made (CLAUDE.md), and a bag
+                # that cannot close it offers a dead button rather than a wasted parcel.
+                group["items"] = self._research_rows()
+                ready = self._research_ready()
+                for press in group["actions"]:
+                    if press.get("id") == "run":
+                        press["disabled"] = not ready
+                group["note"] = self._research_note()
             groups.append(group)
         if groups:
             item["options_groups"] = groups
@@ -1303,6 +1722,27 @@ class VsTab(VsDuelTab):
             return {"ok": self.rt.play_async(
                 BUILD_FINISH, args={"uuid": uuid}, tag="vs", human=True,
                 on_result=self._builds_after_open)}
+        if action == "collect_one":
+            # ONE STUDY, named by the row that drew it. Collecting is not a spend, so it
+            # asks nothing — and the list is re-read either way, because a run that
+            # collected nothing must not leave the row looking taken.
+            uuid = str((args or {}).get("uuid") or "")
+            if not uuid.isdigit():
+                return {"error": "unknown"}
+            return {"ok": self.rt.play_async(
+                RUNS["wed.research_collect"], args={"uuid": uuid}, tag="vs", human=True,
+                on_result=self._research_after_press)}
+        if action == "speed_one":
+            # AN IRREVERSIBLE SPEND, NAMED ONE AT A TIME — the research twin of
+            # «Завершить» on a construction. Which speed-ups close this study and
+            # whether the bag can are `actions/speedup_research.md`'s business, never
+            # the panel's.
+            uuid = str((args or {}).get("uuid") or "")
+            if not uuid.isdigit():
+                return {"error": "unknown"}
+            return {"ok": self.rt.play_async(
+                RESEARCH_SPEEDUP, args={"uuid": uuid}, tag="vs", human=True,
+                on_result=self._research_after_press)}
         if action != "run":
             return super().web_press(action, args)
         name = str((args or {}).get("key") or "")
@@ -1318,6 +1758,12 @@ class VsTab(VsDuelTab):
             extra = {"on_result": self._tickets_spent_back}
         if name == "tue.build_collect":
             extra = {"on_result": self._builds_after_open}
+        if name == "wed.drone_parts":
+            # The ids the page draws are the ids the run opens — one list, never two.
+            extra = {"args": {"ids": ",".join(PART_IDS)},
+                     "on_result": self._parts_opened_back}
+        if name == "wed.research_collect":
+            extra = {"on_result": self._research_after_press}
         return {"ok": self.rt.play_async(recipe, tag="vs", human=True, **extra)}
 
     def _builds_after_open(self, outcome) -> None:

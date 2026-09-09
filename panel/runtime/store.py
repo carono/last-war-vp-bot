@@ -185,6 +185,19 @@ SURVIVOR_TICKETS = "survivor_tickets"
 #: the page, which is what makes a stale one visibly stale.
 READY_BUILDINGS = "ready_buildings"
 
+#: THE DRONE'S COMPONENT CHESTS (#2662) — the duel's WEDNESDAY box, and not Monday's.
+#: «Сундук Компонента Дрона 1/2/3 ур.» is a different item family from «Сундук Чипа
+#: Навыка» ([[DRONE_CHIPS]] above), and the two have been confused once already, so they
+#: are kept apart here too: what the bag holds of each grade, and how many of each this
+#: account has opened. The tally is the only part that cannot be re-read from the game.
+DRONE_PARTS = "drone_parts"
+
+#: THE RESEARCH QUEUES — the player's own science centres, what each is studying, and
+#: what it would cost to close the one that is running (#2662). Re-readable from the game
+#: whenever the client is in it; kept only so a page opened on a phone draws the last
+#: answer with its age beside it instead of a blank.
+RESEARCH_QUEUES = "research_queues"
+
 #: THE DUEL'S SCORE (#2645) — the player's own points, the two alliances' points and the
 #: days each side has won, exactly as `actions/read_vs_score.md` read them. Re-readable
 #: from the game whenever the client is in it, kept only so a page opened on a phone
