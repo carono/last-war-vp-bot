@@ -164,6 +164,29 @@ IF found == 0
             WAIT 1
             READ_LUA (function() local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UIWorldPoint' then return 0 end local c = w.Ctrl local lvl = nil pcall(function() lvl = c:GetMonsterData(c.uuid).level end) if lvl == nil then return 0 end local b = '?' pcall(function() b = tostring(c:GetPointBtnEnumName(w.View.btnList[1])) end) if b == 'RallyBoss' then return 1 end return -1 end)() INTO found
 
+# NEITHER TAB HAD ANYTHING AT THAT LEVEL — AND `auto` HAS ONE LAST THING TO TRY (#2661).
+# A season moves the elite's LEVEL along with the ceiling the tab will take, and a level
+# written down when the ceiling was 35 finds nothing at all once the season tops out at
+# 60: measured live on 2026-09-09, the drone errand asked for 35 through the whole drone
+# hour and every search came back with an empty window. So `auto` falls back to the
+# ceiling the client itself named — the elite tab's own `search_max`, read a few lines up
+# and carried across by `PARK` rather than by `{search_max}`, which is substituted when
+# the file is PARSED and would reach the game as its own name (#2649).
+#
+# A level the PERSON typed is never raised: only `auto` does this, and `boss`/`monster`
+# stay exactly where they were put.
+IF found == 0
+    IF auto_kind == 1
+        LUA (function() local p = DataCenter.__lw_rally_create or {} p.flip = nil p.max_level = 0 local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UISearch' then UIManager.Instance:OpenWindow(UIWindowNames.UISearch) end DataCenter.__lw_rally_create = p end)()
+        PARK search_max INTO DataCenter.__lw_rally_create.level
+        LOG "nothing of level {level} on either tab — trying the ceiling this season allows, {search_max}"
+        TAP rally_search_probe
+        TAP rally_search
+        READ_LUA (function() local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UIWorldPoint' then return 0 end local c = w.Ctrl local lvl = nil pcall(function() lvl = c:GetMonsterData(c.uuid).level end) if lvl == nil then return 0 end local b = '?' pcall(function() b = tostring(c:GetPointBtnEnumName(w.View.btnList[1])) end) if b == 'RallyBoss' then return 1 end return -1 end)() INTO found
+        WHILE found == 0 LIMIT 10
+            WAIT 1
+            READ_LUA (function() local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UIWorldPoint' then return 0 end local c = w.Ctrl local lvl = nil pcall(function() lvl = c:GetMonsterData(c.uuid).level end) if lvl == nil then return 0 end local b = '?' pcall(function() b = tostring(c:GetPointBtnEnumName(w.View.btnList[1])) end) if b == 'RallyBoss' then return 1 end return -1 end)() INTO found
+
 IF found == 0
     TAP close
     READ_LUA (function() local p = DataCenter.__lw_rally_create or {} local out = {} for k, _ in pairs(p.elite_keys or {}) do out[#out+1] = tostring(k) end table.sort(out) return table.concat(out, ',') end)() INTO elite_names

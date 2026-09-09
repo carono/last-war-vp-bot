@@ -154,8 +154,10 @@ def test_the_readings_match_the_library():
     assert source.count(la.rally_armed()) == 1
     # The three polled readings appear twice each: once before the loop, once inside it.
     # Four since #2646: the poll runs once per tab the run is allowed to try, and
-    # `auto` is allowed two.
-    assert source.count(la.rally_target_state()) == 4
+    # `auto` is allowed two. SIX since #2661, which gave `auto` a third attempt — the
+    # season's own level ceiling on the elite tab, after both tabs came back empty at
+    # the level asked for.
+    assert source.count(la.rally_target_state()) == 6
     assert source.count(la.rally_panel_ready()) == 2
     assert source.count(la.rally_raised()) == 2
     assert source.count(la.rally_squad_picked()) == 1

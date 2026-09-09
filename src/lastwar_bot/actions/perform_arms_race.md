@@ -85,7 +85,7 @@ ARGS stamina = 300
 ARGS rallies = 0
 ARGS squad = 1
 ARGS level = 35
-ARGS target = boss
+ARGS target = auto
 
 CALL read_arms_race
 
@@ -115,6 +115,14 @@ IF arms_event == 120004
     # the phase lasts four hours, so `arms_race_drone` overwrites `next_run_in` with the
     # seconds until the squad is home again — capped at the border `phase_left` carries.
     # It leaves 0 there when there is nothing left to gain, and then the border stands.
+    # A RETRY THAT IS NOT THE PHASE BORDER (#2661). `next_run_in` was filled with the
+    # border a few lines up, and the schedule books it in a `finally` — so a drone run
+    # that FAILS half way (the search finding nothing, the client busy) used to cost the
+    # WHOLE remaining phase: measured live on 2026-09-09, one attempt at 07:12, one
+    # failure, and the next turn booked 228 minutes out, past the phase's own end. Ten
+    # minutes is the row's own `retry_sec`. A run that reaches its end overwrites this
+    # with the squad's clock or with 0, exactly as before.
+    READ_LUA 600 INTO next_run_in
     CALL arms_race_drone
     # AND THE CHESTS THE BANNERS JUST PAID FOR (#2574). The phase is worked to its end,
     # so the chests are taken at the end of every round of it rather than only at the
