@@ -123,9 +123,28 @@ window has asked the server for the page, and the panel does not open windows.
   (`bus.GAME_READY`), one when a balance push says something moved (debounced hard —
   `push.resource.item.update` is the noisiest push in the game), one after a purchase of
   ours, and **no clock anywhere** (`CLAUDE.md`, «A STATISTIC IS NOT REFRESHED BY HAND»).
-* `panel/tabs/shop.py` — the phone's page: the shelf picker, the goods as the game's own
-  cells, the price and what is left of the quota, «Купить» behind a confirmation, and the
-  autobuy's order behind each row's gear.
+* `panel/tabs/shop.py` — the phone's page: the strip of every shelf, the goods as the
+  game's own cells, the price and what is left of the quota, «Купить» behind a
+  confirmation, and the autobuy's order behind each row's gear.
+
+**HOW THAT PAGE IS DRAWN, and why it was redrawn (#2670).** The picker was a dropdown on
+a card of its own, and a screen of more than two cards is drawn ONE card at a time behind
+a chip strip — so the phone opened the card marked `main`, saw «Магазин бриллиантов», and
+the other eleven shelves were a `select` inside a chip nobody had a reason to press. The
+person's report was exactly that: «вижу магазин бриллиантов, других не вижу». Two
+consequences, and both are contracts now:
+
+* **the shelves are a STRIP on the goods card itself** — the field kind `chips`, which is
+  `choice` wearing the chip the card strip and the sort bar already use. Every shelf is on
+  screen, which is the whole difference between it and a dropdown. Still ONE shelf's goods
+  in the payload: twelve at once is some eighty kilobytes every two and a half seconds;
+* **a shelf that this panel has no word for is called by its NUMBER** — «Магазин №9».
+  Two unnamed shelves both saying «Магазин» is one chip nobody can choose, and a name
+  invented for a shelf is worse than a number (§5).
+
+The goods are `layout: "grid"`: a small square tile with the item's own picture, how many
+one purchase gives stamped on its corner, the name on one line and the price under it —
+the game's own shape, and the whole tile is the purchase, which is the game's own gesture.
 
 ## 5. The shelves' own names
 
