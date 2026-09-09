@@ -1020,7 +1020,7 @@
   "shop.kind.money": "Gian hàng trả phí",
   "shop.kind.other": "Cửa hàng số {shop}",
   "shop.shelves": "Tiệm",
-  "shop.shelves.hint": "Các cửa hàng tài khoản có, đúng như trò chơi liệt kê. Chọn một cửa hàng trên dải và hàng hoá của nó hiện bên dưới, kèm giá và phần hạn mức còn lại.",
+  "shop.shelves.hint": "Các cửa hàng tài khoản có, đúng như trò chơi liệt kê.",
   "shop.pick": "Tiệm",
   "shop.age": "đã đọc {age} giây trước",
   "shop.unread": "chưa đọc các tiệm — việc đọc diễn ra khi client vào trò chơi",

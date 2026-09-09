@@ -554,8 +554,11 @@ class ShopTab(PanelTab):
             facts.append({"label": "shop.left", "value": str(left)})
         # WHETHER THE ACCOUNT CAN PAY is the GAME's answer, never a sum done here: a
         # price met out of two purses is the client's own arithmetic (`read_shops.md`).
+        # A FACT WITH NO VALUE IS A MARK, and its label IS the word — the shape every
+        # small tile on this front-end already reads (#1999). «Цена: не хватает» said
+        # the same thing twice and wrapped the line it said it on.
         if row.get("cost") and not row.get("afford"):
-            facts.append({"label": "shop.price", "value": self.t("shop.short")})
+            facts.append({"label": "shop.short", "value": ""})
         place = self.place_of(kind, shop, ident)
         item = {"text": str(row.get("name") or ident),
                 "detail": (self.t("shop.count", count=row.get("count"))

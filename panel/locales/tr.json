@@ -1020,7 +1020,7 @@
   "shop.kind.money": "Ücretli vitrin",
   "shop.kind.other": "Mağaza No {shop}",
   "shop.shelves": "Mağazalar",
-  "shop.shelves.hint": "Hesabın sahip olduğu mağazalar, oyunun sıraladığı gibi. Şeritten birini seç, malları fiyatı ve kalan limitiyle aşağıda çizilir.",
+  "shop.shelves.hint": "Hesabın sahip olduğu mağazalar, oyunun sıraladığı gibi.",
   "shop.pick": "Mağaza",
   "shop.age": "{age} sn önce okundu",
   "shop.unread": "mağazalar henüz okunmadı — okuma, istemci oyuna girdiğinde yapılır",

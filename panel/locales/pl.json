@@ -1020,7 +1020,7 @@
   "shop.kind.money": "Witryna za pieniądze",
   "shop.kind.other": "Sklep nr {shop}",
   "shop.shelves": "Sklepy",
-  "shop.shelves.hint": "Sklepy, które ma konto — dokładnie tak, jak wylicza je gra. Wybierz jeden na pasku, a poniżej pojawią się jego towary z ceną i pozostałym limitem.",
+  "shop.shelves.hint": "Sklepy, które ma konto — dokładnie tak, jak wylicza je gra.",
   "shop.pick": "Sklep",
   "shop.age": "odczytano {age} s temu",
   "shop.unread": "sklepy nie zostały jeszcze odczytane — odczyt następuje, gdy klient wejdzie do gry",

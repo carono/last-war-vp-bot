@@ -2282,7 +2282,13 @@ button.good-tap:disabled { opacity: 0.6; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.good .gprice { font-size: 12px; font-weight: 650; }
+.good .gprice {
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .good .bits {
   display: flex;
   flex-wrap: wrap;

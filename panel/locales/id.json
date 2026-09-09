@@ -1020,7 +1020,7 @@
   "shop.kind.money": "Etalase berbayar",
   "shop.kind.other": "Toko No. {shop}",
   "shop.shelves": "Toko",
-  "shop.shelves.hint": "Toko yang dimiliki akun ini, persis seperti yang didaftar permainan. Pilih satu di deretan atas dan barangnya digambar di bawah, dengan harga dan sisa kuotanya.",
+  "shop.shelves.hint": "Toko yang dimiliki akun ini, persis seperti yang didaftar permainan.",
   "shop.pick": "Toko",
   "shop.age": "dibaca {age} dtk lalu",
   "shop.unread": "toko belum dibaca — pembacaan dilakukan saat klien masuk ke permainan",

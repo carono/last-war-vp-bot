@@ -1020,7 +1020,7 @@
   "shop.kind.money": "Vetrina a pagamento",
   "shop.kind.other": "Negozio n. {shop}",
   "shop.shelves": "Negozi",
-  "shop.shelves.hint": "I negozi che ha l'account, esattamente come li elenca il gioco. Scegline uno nella striscia e sotto compaiono i suoi articoli, con il prezzo e quanto resta del limite.",
+  "shop.shelves.hint": "I negozi che ha l'account, esattamente come li elenca il gioco.",
   "shop.pick": "Negozio",
   "shop.age": "letto {age} s fa",
   "shop.unread": "i negozi non sono ancora stati letti — si leggono quando il client entra nel gioco",
