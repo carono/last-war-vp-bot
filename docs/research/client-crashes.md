@@ -350,3 +350,213 @@ per-label tally lands first (`tools/lib/hijack_call.py::STATS["by_label"]`, a li
 minute in the profile's debug log, `tools/hijack_tally.py` to add a day up), a day is
 allowed to accumulate, and only then is the 3.8-attaches-per-step figure taken apart with
 the numbers in hand.
+
+---
+
+# The morning of ten crashes, taken apart (#2665)
+
+Ten of them between 07:01 and 09:52 on 2026-09-09, the owner's words: «падения разбирай
+тщательно, нужно это править». This section is the arithmetic, one claim per heading, and
+then what was changed on the strength of it.
+
+## The counts
+
+`python3 tools/crash_report.py --days 3`, run at 10:24 on 2026-09-09. Event 1000 for the
+client, 85 faults over the three days:
+
+| faulting module | exception | count |
+|---|---|---|
+| `UnityPlayer.dll` | `0xc0000005` | 40 |
+| *unknown* (no loaded module) | `0xc0000005` | 32 |
+| `GameAssembly.dll` | `0xc0000005` | 7 |
+| `ntdll.dll` | `0xc0000005` | 3 |
+| `xlua.dll` | `0xc0000005` | 1 |
+| `GameAssembly.dll` | `0xc0000409` (stack overrun) | 1 |
+| `UnityPlayer.dll` | `0xc000041d` | 1 |
+
+By day: 6 Sep 15 (partial — the window opens at 10:20), 7 Sep 17, **8 Sep 36**, 9 Sep 17
+by 10:24. The one `xlua.dll` fault is 09:09:52 on the 9th, and the offsets repeat across
+days — `UnityPlayer+0xc545e` six times, `+0x28b43a` and `+0x28b1c6` twice each,
+`GameAssembly+0x21a9f6` three times — so this is a handful of code paths, not a spray.
+
+The profile's own log agrees: `default` wrote «клиент пропал — процесса игры больше нет»
+at 02:50:48, 03:33:29, 06:41:51, 07:01:32, 07:08:45, 07:44:43, 09:10:06, 09:18:26,
+09:28:52, 09:43:45, 09:52:12, 09:57:17, 09:58:42 and 10:22:33, with two more deaths at
+09:21:22 and 09:46:02 that were answered by a wait rather than a relaunch (below).
+**Every one of the day's faults is that one account's client**: the other two profiles
+drive clients in other Windows sessions and neither lost one.
+
+## The hijack rate does NOT predict a fault
+
+44 444 hijacks in `default`'s own debug log between 00:00 and 10:24 — median 58 a minute,
+mean 67.3. Adding up the three minutes before each of the day's 17 faults gives a **mean
+of 202**, against a baseline of 3 × 67.3 = **202**. The medians are 149 against 174.
+
+That is the third time this correlation has been asked for and the third time it has said
+nothing (#2066, #2656), and it is worth writing down plainly: **the client is not killed
+by being busy.** Whatever kills it is a particular thing done in a particular way, not a
+volume.
+
+## A PANEL RESTART is what predicts a fault
+
+Nine panel restarts on the 9th between 08:34 and 10:21 (`profiles/panel_relaunch.log`).
+**Six of them are followed by the client dying 59–95 s later**: 09:17:09 → 09:18:26,
+09:27:53 → 09:28:52, 09:42:39 → 09:43:45, 09:56:09 → 09:57:17, 09:57:30 → 09:58:42,
+10:20:59 → 10:22:33.
+
+Sixteen deaths over the 530 minutes the log covers is one per 33 minutes, so a 95-second
+window catches one **4.8 %** of the time and nine of them should have caught **0.4**.
+Six is not a coincidence anybody can argue with.
+
+What a restart is, that a busy hour is not: a fresh attach to the client, plus every
+scenario a profile owns asking for the link inside one minute. Read the 10:20:59 boot in
+`profiles/default/panel.log` — a rally join at 10:21:49, the glittering market read
+10:21:59–10:22:02, and then `read_player_place`, `read_ready_buildings`,
+`read_research_queues`, `read_drone_chips`, `read_drone_parts`, `read_survivor_tickets`,
+`read_arms_race`, `read_vs_score`, `read_zombie_invasion` and `inventory_refresh` all
+queued behind one another. The client dies in the middle of that, and the first line that
+knows is `«read_player_place» остановился на ошибке: ConnectionError: OpenThread(90564)
+failed err=87` — the thread the panel was holding is gone.
+
+## The minidumps say WHICH thread
+
+Six dumps survive from the 9th (`%LOCALAPPDATA%\CrashDumps`). Reading the exception
+record, the CONTEXT and the module list out of each:
+
+| time | RIP | in |
+|---|---|---|
+| 09:28:41 | `…690040` | no module |
+| 09:43:35 | `…660040` | no module |
+| 09:45:43 | `UnityPlayer.dll+0x28b1c6` | the engine |
+| 09:52:01 | `UnityPlayer.dll+0xc545e` | the engine |
+| 09:56:58 | `…000ac8` | no module |
+| 09:58:18 | `0` | nowhere |
+| 10:22:12 | `0` | nowhere |
+
+Two things fall out of it.
+
+**Every one of them is the process's FIRST thread.** RSP is `0x13e880`–`0x13f530` in all
+six — the low stack a Win32 process gives its main thread and nothing else. That is the
+thread `hijack_call` is told to take (`only_tid=main`), and it is the thread the panel
+suspends and resumes twenty-odd times per hijack while sampling for the safe park.
+
+**And two of them died AT OUR SHELLCODE'S FIRST BYTE.** `hijack_call` allocates a 0x400
+RWX region and puts the code at `region + 0x40`; `VirtualAllocEx` hands out 64 KB-aligned
+bases. `0x129660040` and `0x2e8690040` are 64 KB-aligned + 0x40 — that address is this
+layout's entry point and nothing else in the process. Both faulted there with
+`ExceptionInformation = [0, 0xffffffffffffffff]`, i.e. an instruction fetch with no
+address to report: memory that is not there.
+
+## The two races that produce exactly that
+
+Both are in `tools/lib/hijack_call.py`, in the branch the code itself called benign — the
+one taken when the redirected thread has not raised its `started` byte inside
+`start_timeout` (0.6 s), described as «thread never returned to user mode».
+
+It cannot be known that a thread never will. It is only known that it has not YET.
+
+1. **The abandoned thread's region was REUSED.** One region was allocated per
+   `hijack_call` and rewritten with a fresh `orig_rip` for the next candidate. A thread
+   abandoned as «not started» that then does wake runs the shellcode built for a
+   DIFFERENT thread and returns to that thread's parked address.
+2. **…and then FREED.** The miss path released the region unconditionally. A thread that
+   wakes at `code_abs` afterwards is executing memory that no longer exists — which is
+   what the two dumps above are a photograph of.
+
+There is a third, smaller one in the same branch: `started` is raised some twenty
+instructions in, after seventeen pushes and a `pushfq`. A thread suspended in that gap
+has our prologue on its stack while the flag still says nothing began, and putting its
+RIP back returns it into the parked function with RSP 0x88 too low. It does not die
+there; it dies later, in the engine, with nothing of ours in the picture — which is what
+40 `UnityPlayer.dll` faults with clean engine stacks look like.
+
+## The wrappers: the client's own log names them
+
+The rule from #2656 — «nothing of ours is ever parked on `_G`» — was written down and not
+swept for. `Global/GlobalProtect.lua:54` refuses an unknown global and logs it, and the
+client's `Player.log` on the 9th holds one refusal per install:
+
+```
+Lua 全局变量 '__CR_BUF' 不可<新增/修改>      … and __CR_CAP, __CR_REC, __CR_ORIG,
+Lua 全局变量 '__CR_WRAP' 不可<新增/修改>      __CR_CLASS_HOOKED, __CR_ADD, __CR_ADDWRAP
+Lua 全局变量 'WS' 不可<新增/修改>             (twice)
+Lua 全局变量 '__LW_TRB' 不可<新增/修改>
+```
+
+`tools/chat_reader.py` is started by every profile on every boot. With `CR.ORIG` for ever
+nil its wrapper called `nil` for every message the client parsed, and — the part that
+kills — with `CR.WRAP` for ever nil the «is my wrapper already there?» guard was never
+true, so **every install wrapped `ChatMessage:onParseServerData` again over the last
+one**. Nine panel restarts is nine layers on the method the client runs per message, for
+the life of the client. That is the mechanism #2656 found in `dev/wire_catch.md` and
+predicted a stack overflow from; 8 September's `GameAssembly.dll 0xc0000409` at 10:08:57
+is one.
+
+`WS` is the cached `WorldScene`: refused, so every world read re-walked every
+MonoBehaviour in the scene. `__LW_TRB` is the chat translation batch, which answered
+nothing.
+
+## What is NOT implicated, measured rather than assumed
+
+* **The GPU.** No event 4101/4102/13/14 in the System log over two days. Driver
+  32.0.15.9636, RTX 2070 SUPER. A TDR does not present as `0xc0000005` in-process anyway.
+* **Memory and handles.** The live client at 10:30: working set 1.80 GB, private
+  2.27 GB, 1 877 handles, 64-bit. Nothing is near a limit, and the fault codes are
+  in-process access violations rather than allocation failures.
+* **The anti-cheat.** `ACE-Base64.dll` is loaded in every dump. Not one of the six faults
+  has RIP inside it.
+* **A second Windows session, and «too many clients».** On the 9th only ONE client ran
+  after 08:34 — and it is the one that died sixteen times. On the 8th three ran and there
+  were 36 faults. The per-client rate is of the same order either way.
+* **The cstr fix of #2660** (`5923fd5a`, committed 08:39:56, live from the 08:40:23
+  restart). Seven faults in the 485 minutes before it, ten in the 102 minutes after. It
+  did not lower the rate — which is expected: it was a leak fix, and a leak is not what
+  any of this is.
+
+## The watchdog's cooldown
+
+`WATCHDOG_COOLDOWN_SEC` is 300 s and the latch used to survive the client coming back. On
+the 9th that cost two waits over a client that was already down and playable: «вотчдог:
+перезапуск был 2 мин назад — жду» at 09:21:22 with the relaunch at 09:23:31 (**129 s**),
+and again at 09:46:02 with the relaunch at 09:52:12 (**370 s**).
+
+The number itself is right for what a cooldown is FOR — a client that cannot start does
+not start any better for being asked again in thirty seconds, and the person should be
+told once rather than ten times an hour. What was wrong is that it was applied to a
+relaunch that had WORKED. So the number stays and the latch is cleared the moment the
+client answers again.
+
+## What was done about it (#2665)
+
+1. **`hijack_call` never reuses or frees a region a thread was pointed at.** A candidate
+   abandoned as «not started» keeps its own region, with the shellcode replaced by a stub
+   that jumps straight to that thread's own parked address, and the region is leaked
+   rather than released — 64 KB of address space against a dead client. The next
+   candidate gets a fresh one. The leak is counted (`STATS["abandoned"]`) and printed in
+   the panel's per-minute hijack line, so the rate of the race is readable.
+2. **…and it looks at the thread's RIP before restoring it.** Inside the region means the
+   thread is running our code whatever the flags say, and it is handled by phase 2 like
+   any other call instead of being sent home with a wrecked stack.
+3. **Nothing of ours is on `_G` any more, anywhere.** `DataCenter.__lw_chat` for the chat
+   pair, `DataCenter.__lw_ws` for the world scene, and the same for the frontline
+   recipes, the translation batch, the street-run autopilot, the Lua tracer and the dev
+   probes. `tests/test_repository_hygiene.py` fails on a new one, and
+   `tests/test_chat_hook_liveness.py` now runs its Lua VM behind a stand-in for
+   `GlobalProtect` and pins that six installs are one wrapper rather than six.
+4. **The watchdog latch is cleared when the client comes back**
+   (`panel/runtime/status.py`), with the cooldown's real purpose written beside the
+   number.
+
+## What is still open
+
+* **The boot stampede.** A restart is still fifteen scenarios asking for the link inside
+  one minute, and that minute is when the client dies. Nothing here spaces them out —
+  the fix above removes the races INSIDE a hijack, not the burst of hijacks. Whether the
+  first-reads should be spread over the first few minutes of a boot is a behaviour change
+  and therefore a conversation, not an agent's call.
+* **`learn_safe_rip` samples the main thread ~21 times per hijack**, each sample a
+  suspend and a resume. At 44 444 hijacks that is close to a million suspensions of the client's
+  main thread in a morning. It is the single largest thing done TO the client and it has
+  never been measured against the crash rate.
+* **The A/B nobody has run.** With three of the four mechanisms above removed, the honest
+  next step is a day of the panel with the fix against the days recorded here.

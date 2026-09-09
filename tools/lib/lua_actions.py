@@ -190,7 +190,7 @@ def jump_to_coord(x: int, y: int, server: "int | None" = None,
             % (sid, x, y, height, x, y))
 
 
-#: Lua that finds the live `WorldScene` MonoBehaviour and caches it in `_G.WS`. The
+#: Lua that finds the live `WorldScene` MonoBehaviour and caches it in `DataCenter.__lw_ws`. The
 #: scene is not a Lua global — it is a C# component on the `World` GameObject — and it
 #: is replaced whenever the world is re-entered, so the cache is validated rather than
 #: trusted.
@@ -203,11 +203,11 @@ def jump_to_coord(x: int, y: int, server: "int | None" = None,
 #: WorldScene from a session that had ended. Reading `CurTilePos` and requiring a VALUE
 #: costs the same one access and re-finds the live one instead.
 FIND_WORLD_SCENE = (
-    'local WS=_G.WS local __ok, __cur = pcall(function() return WS and WS.CurTilePos end) '
+    'local WS=DataCenter.__lw_ws local __ok, __cur = pcall(function() return WS and WS.CurTilePos end) '
     'if not __ok or __cur == nil then '
     'local arr=CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) '
     'for i=0,arr.Length-1 do if arr[i] and arr[i]:GetType().Name=="WorldScene" then '
-    'WS=arr[i] break end end _G.WS=WS end ')
+    'WS=arr[i] break end end DataCenter.__lw_ws=WS end ')
 
 
 #: THE CONFIG ROW EVERY COLUMN NUMBER IS READ OFF. Any row of `lw_world_monster` would
@@ -4512,7 +4512,7 @@ D.__lw_treasure_auto.tick = function()
   -- walked away from reads `nil` and nothing is stamped. Costing nothing when it cannot
   -- answer is the whole reason it may run on every beat.
   local pm = nil
-  pcall(function() pm = _G.WS and _G.WS.PointManager end)
+  pcall(function() pm = DataCenter.__lw_ws and DataCenter.__lw_ws.PointManager end)
   if pm ~= nil then
     for _, t in ipairs(A.targets or {}) do
       if not t.done and t.dug == nil and (tonumber(t.pid) or 0) > 0 then
@@ -4928,7 +4928,7 @@ A.reap_started = A.tick_at or 0
 -- THE SECOND EAR: what the client can see from where it already stands. Not a lap — the
 -- whole-server walk was deleted for costing 48 s of camera and finding other people's
 -- chests (#1296) — one box around the camera, read out of the point manager the client
--- fills for itself. It runs off `_G.WS` and never goes looking for the scene: finding it
+-- fills for itself. It runs off `DataCenter.__lw_ws` and never goes looking for the scene: finding it
 -- costs a `FindObjectsOfType` over every MonoBehaviour in the game, which is the panel's
 -- own press to pay, not a background timer's.
 local function look()
@@ -4940,7 +4940,7 @@ local function look()
   local inworld = false
   pcall(function() inworld = SceneUtils.GetIsInWorld() and true or false end)
   if not inworld then A.look_why = "city" return end
-  local scene = _G.WS
+  local scene = DataCenter.__lw_ws
   local pm = nil
   pcall(function() pm = scene and scene.PointManager end)
   if pm == nil then A.look_why = "no-point-manager" return end
@@ -5643,7 +5643,7 @@ local function scrape(cx, cy)
   -- is re-entered and a destroyed one answers `nil` to everything without throwing, so a
   -- lap that captured it at the start would read an empty map in silence — which is
   -- exactly what happened the first time this ran live (121 waypoints scheduled, 0 read).
-  local scene = _G.WS
+  local scene = DataCenter.__lw_ws
   local pm = scene and scene.PointManager
   if pm == nil then S.blind = (S.blind or 0) + 1 return end
   local x0, x1 = math.max(0, cx - box), math.min(size - 1, cx + box)
@@ -5771,7 +5771,7 @@ if not world then
   CS.UnityEngine.Debug.LogError("ACT treasure_look not-in-world")
   return
 end
-local scene = _G.WS
+local scene = DataCenter.__lw_ws
 local pm = scene and scene.PointManager
 if pm == nil then
   S.blind, S.why = 1, "no-point-manager"

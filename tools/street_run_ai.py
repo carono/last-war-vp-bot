@@ -6,7 +6,7 @@ one decision per frame with zero input latency (see that file for why). This scr
 
   * **installs** the autopilot (compiling it through ``load()`` so syntax/runtime errors
     come back instead of being swallowed by ``SafeDoString``);
-  * **starts attempts**, watches the telemetry the autopilot leaves in ``_G.__SR_AI.stat``,
+  * **starts attempts**, watches the telemetry the autopilot leaves in ``DataCenter.__lw_sr_ai.stat``,
     revives, dismisses the result popup, and logs how far each attempt got;
   * keeps a **reserve** of attempts for the person playing.
 
@@ -99,7 +99,7 @@ def install(ev) -> bool:
 
 _STATUS = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI then L("ST installed=0") return end
 local s = AI.stat or {}
 L(string.format("ST installed=1 enabled=%s state=%s z=%.1f maxz=%.1f lane=%s act=%s reach=%s obs=%s frames=%s moves=%s dead=%s",
@@ -135,7 +135,7 @@ L("ST dismiss=" .. tostring(ok))
 # at the instant of death.
 _DRAIN = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI then return end
 local function flush(tag, buf)
   local out = {}
@@ -173,7 +173,7 @@ AI.log = {} AI.trace = {} AI.frames = {} AI.death = nil
 
 _APPLY_CFG = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI then L("ST cfg=0") return end
 %s
 if AI.resetKinds then AI.resetKinds() end
@@ -388,7 +388,7 @@ def _one_attempt(ev, revives: int, log):
 # it: `logic:CloseWindows()` would take the run's HUD with it).
 _REVIVE = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local lg = _G.__SR_LOGIC
+local lg = DataCenter.__lw_sr_logic
 if not lg then L("ST revive=0") return end
 local ok = pcall(function() lg:RebirthGame() end)
 local closed = pcall(function()
@@ -426,7 +426,7 @@ def cmd_run(ev, reserve: int, revives: int):
         return 1
     # recording leaves the bot disabled (it only observes); a run must re-enable it, or it
     # sits idle and the attempt is wasted.
-    _lines(ev, 'if _G.__SR_AI then _G.__SR_AI.enabled = true end\n'
+    _lines(ev, 'if DataCenter.__lw_sr_ai then DataCenter.__lw_sr_ai.enabled = true end\n'
                'CS.UnityEngine.Debug.LogError("SRAI ST reon=1")', settle=0.3)
     os.makedirs(RESULT_DIR, exist_ok=True)
     runlog = open(os.path.join(RESULT_DIR, "ai_moves.log"), "a", encoding="utf-8")
@@ -488,7 +488,7 @@ def cmd_run(ev, reserve: int, revives: int):
 
 _RECORD_ON = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI then L("ST rec=0") return end
 AI.enabled = false   -- observe only: the human drives
 AI.record = true
@@ -496,7 +496,7 @@ AI.frames = {}
 L("ST rec=1")
 """
 
-_RECORD_OFF = 'if _G.__SR_AI then _G.__SR_AI.record = false end\n' \
+_RECORD_OFF = 'if DataCenter.__lw_sr_ai then DataCenter.__lw_sr_ai.record = false end\n' \
               'CS.UnityEngine.Debug.LogError("SRAI ST recoff=1")'
 
 
@@ -592,12 +592,12 @@ def main(argv):
             return cmd_status(ev)
         if cmd == "off":
             _lines(ev, 'local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end\n'
-                       'if _G.__SR_AI then _G.__SR_AI.enabled = false end L("ST off=1")', settle=0.4)
+                       'if DataCenter.__lw_sr_ai then DataCenter.__lw_sr_ai.enabled = false end L("ST off=1")', settle=0.4)
             print("autopilot disabled")
             return 0
         if cmd == "on":
             _lines(ev, 'local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end\n'
-                       'if _G.__SR_AI then _G.__SR_AI.enabled = true end L("ST on=1")', settle=0.4)
+                       'if DataCenter.__lw_sr_ai then DataCenter.__lw_sr_ai.enabled = true end L("ST on=1")', settle=0.4)
             print("autopilot enabled")
             return 0
         if cmd == "record":
@@ -620,7 +620,7 @@ def main(argv):
             # offline simulator collides against real sizes instead of guesses.
             out = _lines(ev, r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
-local AI = _G.__SR_AI
+local AI = DataCenter.__lw_sr_ai
 if not AI or not AI.bounds then L("B none") return end
 for nm, v in pairs(AI.bounds) do L("B " .. nm .. "  " .. v) end
 """, settle=0.8)

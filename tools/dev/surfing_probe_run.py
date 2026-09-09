@@ -33,12 +33,12 @@ _INSTALL = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SPR "..tostring(s)) end
 local okL,SL=pcall(require,"DataCenter.LWBattle.Logic.Surfing.SurfingLogic")
 if okL and type(SL)=="table" and not SL.__srd_hooked then
-  local o=SL.OnStart SL.OnStart=function(s,...) _G.__SR_LOGIC=s return o(s,...) end
+  local o=SL.OnStart SL.OnStart=function(s,...) DataCenter.__lw_sr_logic=s return o(s,...) end
   SL.__srd_hooked=true
 end
 local okM,MM=pcall(require,"Scene.LWBattle.Surfing.Monster.SurfingMonsterManager")
 if okM and type(MM)=="table" and not MM.__srd_hooked then
-  local o=MM.Init MM.Init=function(s,...) _G.__SR_MM=s return o(s,...) end
+  local o=MM.Init MM.Init=function(s,...) DataCenter.__lw_sr_mm=s return o(s,...) end
   MM.__srd_hooked=true
 end
 L("install ok")
@@ -52,7 +52,7 @@ L(ok and "start-sent" or ("start-err="..tostring(err)))
 
 _PAUSE = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SPR "..tostring(s)) end
-local lg=_G.__SR_LOGIC
+local lg=DataCenter.__lw_sr_logic
 if not lg then L("no-logic") return end
 local ok,err=pcall(function() lg:PauseGame() end)
 L(ok and "paused" or ("pause-err="..tostring(err)))
@@ -60,7 +60,7 @@ L(ok and "paused" or ("pause-err="..tostring(err)))
 
 _DUMP = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SPR "..tostring(s)) end
-local lg,mm=_G.__SR_LOGIC,_G.__SR_MM
+local lg,mm=DataCenter.__lw_sr_logic,DataCenter.__lw_sr_mm
 if not lg then L("no-logic") return end
 
 local function scalars(tag, o, limit)
@@ -141,7 +141,7 @@ L("DUMPEND")
 # The whole decided layout ahead: farmMonster is what the client has already placed.
 _LAYOUT = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SPR "..tostring(s)) end
-local lg,mm=_G.__SR_LOGIC,_G.__SR_MM
+local lg,mm=DataCenter.__lw_sr_logic,DataCenter.__lw_sr_mm
 if not (lg and mm) then L("no-inst") return end
 local pz=0 pcall(function() pz=lg.player:GetPosition().z end)
 L("PZ "..string.format("%.2f", pz))
@@ -194,7 +194,7 @@ def main(argv):
             for _ in range(40):
                 out = ev_run(ev, r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SPR "..tostring(s)) end
-local lg=_G.__SR_LOGIC
+local lg=DataCenter.__lw_sr_logic
 L("ready="..tostring(lg~=nil and lg.player~=nil))
 """, settle=0.15)
                 if any("ready=true" in o for o in out):

@@ -81,13 +81,13 @@ def main():
         'local lst={} lst[0]={%s} lst[1]={%s} '
         'pcall(function() CrossServerUtil.SetCrossEnableList(lst) end) '
         'local ok=pcall(function() CrossServerUtil.JumpToServerByServerId(%s, MoveCrossServerType.BigMap3000, nil, 105, false) end) '
-        '_G.__MCW=0 '
-        'local function w() _G.__MCW=_G.__MCW+1 '
+        'DataCenter.__lw_mcw=0 '
+        'local function w() DataCenter.__lw_mcw=DataCenter.__lw_mcw+1 '
         '  local open=false pcall(function() open=UIManager.Instance:IsWindowOpen("UIMoveCity") end) '
         '  if open then pcall(function() local win=UIManager.Instance:GetWindow("UIMoveCity") '
         '      if win and win.Ctrl and win.Ctrl.CloseSelf then win.Ctrl:CloseSelf() end end) '
-        '    CS.UnityEngine.Debug.LogError("MCW closed after ".._G.__MCW.." checks (~"..(_G.__MCW*0.1).."s)") '
-        '  elseif _G.__MCW<120 then TimerManager:GetInstance():DelayInvoke(w,0.1) '
+        '    CS.UnityEngine.Debug.LogError("MCW closed after "..DataCenter.__lw_mcw.." checks (~"..(DataCenter.__lw_mcw*0.1).."s)") '
+        '  elseif DataCenter.__lw_mcw<120 then TimerManager:GetInstance():DelayInvoke(w,0.1) '
         '  else CS.UnityEngine.Debug.LogError("MCW gaveup (UIMoveCity never opened)") end end '
         'TimerManager:GetInstance():DelayInvoke(w,0.1) '
         'CS.UnityEngine.Debug.LogError("J ok="..tostring(ok).." reason="..'
@@ -101,7 +101,7 @@ def main():
         time.sleep(0.6)
         closed = one(run(
             'local o=false pcall(function() o=UIManager.Instance:IsWindowOpen("UIMoveCity") end) '
-            'CS.UnityEngine.Debug.LogError("C open="..tostring(o).." checks="..tostring(_G.__MCW or 0))',
+            'CS.UnityEngine.Debug.LogError("C open="..tostring(o).." checks="..tostring(DataCenter.__lw_mcw or 0))',
             "C", 0.4), "C ")
         if "open=false" in closed and "checks=0" not in closed:
             break

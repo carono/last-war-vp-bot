@@ -78,7 +78,7 @@ were an earlier approach. **Do not use them**: they only fire while the chat vie
 is open, DMs route through `ChatPrivateDataManager` instead so they never see
 "личка", and they fire *in addition* to `onParseServerData` for the same message
 → duplicates. An even earlier bug reached the class off a live instance's
-`_class_type` via a never-set `_G.__LASTCHAT` global, so the class hook never
+`_class_type` via a never-set `DataCenter.__lw_lastchat` global, so the class hook never
 bound at all.
 
 Hooking is non-destructive: save the pristine method once, rebuild the wrapper

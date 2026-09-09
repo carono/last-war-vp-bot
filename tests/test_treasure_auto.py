@@ -1061,7 +1061,7 @@ end}
 CHESTS = {}
 -- THE POINT MANAGER ONLY KNOWS WHAT IS IN VIEW. Anything further than the camera's own
 -- reach answers nil, exactly as the live one does once the camera has jumped away.
-_G.WS = {CurTilePos = {x = 0, y = 0}, TileCount = {x = %d, y = %d},
+DataCenter.__lw_ws = {CurTilePos = {x = 0, y = 0}, TileCount = {x = %d, y = %d},
          PointManager = {GetPointInfo = function(self, pid)
   local x, y = (pid - 1) %% %d, math.floor((pid - 1) / %d)
   if math.abs(x - CAMERA.x) > 12 or math.abs(y - CAMERA.y) > 12 then return nil end
@@ -1086,7 +1086,7 @@ def _park_camera(lua, x: int, y: int) -> None:
     point manager answers near `CAMERA`. Both are set here, so a test can say «we happen
     to be standing here» without the errand having moved anything.
     """
-    lua.execute("CAMERA = {x = %d, y = %d} _G.WS.CurTilePos = {x = %d, y = %d}"
+    lua.execute("CAMERA = {x = %d, y = %d} DataCenter.__lw_ws.CurTilePos = {x = %d, y = %d}"
                 % (x, y, x, y))
 
 
@@ -1199,7 +1199,7 @@ def test_a_lap_of_the_map_finds_a_chest_nobody_announced():
 def test_a_dead_world_scene_is_found_again_rather_than_kept():
     """A destroyed Unity object answers `nil` instead of throwing, so the cache guard has
     to look at the VALUE. Caught live: a lap reported 121 waypoints scheduled and 0 read,
-    because `_G.WS` was a WorldScene from a session that had ended and every member of it
+    because `DataCenter.__lw_ws` was a WorldScene from a session that had ended and every member of it
     — `PointManager`, `TileCount`, `CurTilePos` — was `nil` with nothing saying why."""
     if not _needs_lua("a dead scene is re-found"):
         return
@@ -1207,9 +1207,9 @@ def test_a_dead_world_scene_is_found_again_rather_than_kept():
     #: the live scene, put aside, and a dead one in its place — dead exactly as Unity
     #: leaves one: an object that answers, and answers nothing.
     lua.execute("""
-ALIVE = _G.WS
+ALIVE = DataCenter.__lw_ws
 FOUND = 0
-_G.WS = {}
+DataCenter.__lw_ws = {}
 CS.UnityEngine.Object = {FindObjectsOfType = function()
   FOUND = FOUND + 1
   return {Length = 1, [0] = setmetatable(ALIVE, {__index = {

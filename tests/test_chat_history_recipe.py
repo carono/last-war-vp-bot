@@ -92,18 +92,18 @@ def test_backlog_never_asks_the_server():
 
 
 def test_backlog_has_a_buffer_of_its_own():
-    """Never the listener's `__CR_BUF`: the reader child empties that on its own clock."""
-    assert chat_records.HISTORY_SINK != "__CR_BUF"
+    """Never the listener's `CR.BUF`: the reader child empties that on its own clock."""
+    assert chat_records.HISTORY_SINK != "BUF"
     lua = chat_records.backlog_lua()
-    assert chat_records.HISTORY_SINK in lua
-    assert "_G.__CR_BUF = {}" not in lua, "the backlog empties the listener's buffer"
+    assert "CR." + chat_records.HISTORY_SINK in lua
+    assert "CR.BUF = {}" not in lua, "the backlog empties the listener's buffer"
 
 
 def test_the_recorder_is_the_same_one():
     """One recorder, so the two readers cannot record a field differently."""
     lua = chat_records.backlog_lua()
-    assert "_G.__CR_REC" in lua, "the backlog does not use the shared recorder"
-    assert "__CR_REC" in chat_records.record_lua()
+    assert "CR.REC" in lua, "the backlog does not use the shared recorder"
+    assert "CR.REC" in chat_records.record_lua()
 
 
 # ---------------------------------------------------------------------------

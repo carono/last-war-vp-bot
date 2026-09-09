@@ -64,10 +64,21 @@ class Vm:
         self.lines: list = []
         self.lua = lupa.LuaRuntime(unpack_returned_tuples=True)
         say = self.lines.append
+        # THE BUILD'S OWN GLOBAL GUARD, STANDING IN (#2665). `Global/GlobalProtect.lua`
+        # puts an `__newindex` on `_G` that REFUSES an unknown name and only logs it, so a
+        # `_G.__CR_…` write silently does not happen — which is what broke the ear and made
+        # every install stack another wrapper. The stand-in refuses the same way (loudly
+        # here, because a test that reproduces a silent failure proves nothing), so
+        # anything of ours that goes back onto `_G` fails this file rather than the client.
         self.lua.execute("""
         CS = {UnityEngine = {Debug = {}}}
         package = package or {}
         package.loaded = {}
+        DataCenter = {}
+        __seen = 0
+        setmetatable(_G, {__newindex = function(t, k, v)
+          error("the build refuses a new global: " .. tostring(k), 2)
+        end})
         """)
         self.lua.globals().CS.UnityEngine.Debug.LogError = say
         self.reload(with_room=with_room)
@@ -76,7 +87,7 @@ class Vm:
         """What a relogin does: brand-new class tables, and the panel is not told."""
         self.lua.execute("""
         package.loaded["Chat.Model.ChatMessage"] = {
-          onParseServerData = function(self) _G.__seen = (_G.__seen or 0) + 1 end}
+          onParseServerData = function(self) rawset(_G, "__seen", (__seen or 0) + 1) end}
         """)
         if with_room:
             self.lua.execute("""
@@ -125,10 +136,10 @@ class Vm:
 
     def forget(self) -> None:
         """Forget how often the client's own method has been called, so far."""
-        self.lua.execute("_G.__seen = 0")
+        self.lua.execute("rawset(_G, '__seen', 0)")
 
     def buffered(self) -> int:
-        return int(self.lua.eval("#(_G.__CR_BUF or {})"))
+        return int(self.lua.eval("#((DataCenter.__lw_chat or {}).BUF or {})"))
 
 
 class _Ev:
@@ -192,6 +203,23 @@ def main() -> int:
     check("records again", vm.buffered() == 1, f"{vm.buffered()} in the buffer")
     check("and calls the LIVE method, not the one saved before the reload",
           int(vm.lua.eval("_G.__seen or 0")) == 1)
+
+    print("installed over and over, the way a panel restart does it")
+    # THE CRASH THIS FILE EXISTS TO KEEP OUT (#2665). Every panel boot starts the reader
+    # again, so this chunk runs against a client that may have been up all day. While the
+    # guard's state was parked on `_G` it was for ever nil, so each install wrapped the
+    # last one: N layers means N frames on every message the client receives and N copies
+    # of every message recorded, and enough of them is a stack overflow on the game's own
+    # dispatch — 8 September's `0xc0000409` inside `GameAssembly.dll`.
+    many = Vm()
+    for _ in range(6):
+        many.install()
+    many.forget()
+    many.arrive()
+    check("six installs are one wrapper, not six", many.buffered() == 1,
+          f"{many.buffered()} copies of one message")
+    check("…and the client's own method still runs exactly once",
+          int(many.lua.eval("__seen or 0")) == 1, many.lua.eval("__seen or 0"))
 
     print("a build without the room class")
     lone = Vm(with_room=False)

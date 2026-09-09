@@ -518,10 +518,15 @@ class LuaService:
         park, start = moved("park_sec"), moved("start_sec")
         call, free = moved("call_sec"), moved("free_sec")
         total = park + start + call + free
+        # `abandoned` is the count of RWX regions left behind because a thread was
+        # pointed at one and never ran it (#2665). It is a leak on purpose — freeing one
+        # is how the client used to die — and it belongs in this line because it is the
+        # only place the rate of that race can be read back.
         self._note("hijacks %d in %.0fs: %.2fs (%.3f s/hijack) = park %.2f + start %.2f "
-                   "+ call %.2f + free %.2f; %.1f park tries each, %d gave up",
+                   "+ call %.2f + free %.2f; %.1f park tries each, %d gave up, "
+                   "%d abandoned",
                    n, secs, total, total / n, park, start, call, free,
-                   moved("park_tries") / n, moved("misses"))
+                   moved("park_tries") / n, moved("misses"), moved("abandoned"))
         # …AND WHOSE THEY WERE (#2656). The line above sizes the exposure; this one
         # addresses it. Every label, not a top few: the tail is where a caller that
         # attaches three times for one answer hides, and `tools/hijack_tally.py` adds a

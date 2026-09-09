@@ -17,7 +17,7 @@ This gives the dodger perfect, deterministic look-ahead (obstacles are readable 
 units / ~5 s ahead) instead of a 15 fps pixel guess.
 
 The manager/logic instances are captured by wrapping ``SurfingLogic.OnStart`` and
-``SurfingMonsterManager.Init`` (they stash ``self`` into ``_G.__SR_LOGIC`` / ``__SR_MM``);
+``SurfingMonsterManager.Init`` (they stash ``self`` into ``DataCenter.__lw_sr_logic`` / ``__SR_MM``);
 so ``install()`` must run BEFORE the run starts. A scene-enumeration fallback (walk
 Transforms by prefab name) keeps ``read()`` working even without the capture.
 
@@ -70,12 +70,12 @@ _INSTALL = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRD "..tostring(s)) end
 local okL,SL=pcall(require,"DataCenter.LWBattle.Logic.Surfing.SurfingLogic")
 if okL and type(SL)=="table" and not SL.__srd_hooked then
-  local o=SL.OnStart SL.OnStart=function(s,...) _G.__SR_LOGIC=s return o(s,...) end
+  local o=SL.OnStart SL.OnStart=function(s,...) DataCenter.__lw_sr_logic=s return o(s,...) end
   SL.__srd_hooked=true
 end
 local okM,MM=pcall(require,"Scene.LWBattle.Surfing.Monster.SurfingMonsterManager")
 if okM and type(MM)=="table" and not MM.__srd_hooked then
-  local o=MM.Init MM.Init=function(s,...) _G.__SR_MM=s return o(s,...) end
+  local o=MM.Init MM.Init=function(s,...) DataCenter.__lw_sr_mm=s return o(s,...) end
   MM.__srd_hooked=true
 end
 L("install ok")
@@ -84,7 +84,7 @@ L("install ok")
 # One-round-trip read: player pos + speed, then one M-line per monster in showList.
 _READ = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRD "..tostring(s)) end
-local lg,mm=_G.__SR_LOGIC,_G.__SR_MM
+local lg,mm=DataCenter.__lw_sr_logic,DataCenter.__lw_sr_mm
 if not (lg and mm) then L("noinst") return end
 local ok,p=pcall(function() return lg.player:GetPosition() end)
 if not ok or not p then L("noplayer") return end

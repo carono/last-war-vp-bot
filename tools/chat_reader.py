@@ -58,7 +58,8 @@ classify_room = chat_records.classify_room
 
 # ---------------------------------------------------------------------------
 # Lua side: install idempotent hooks that copy each incoming ChatMessage into
-# the global ring buffer _G.__CR_BUF. Fields are hex-encoded so non-ASCII text
+# the ring buffer `CR.BUF` on `DataCenter.__lw_chat` (never `_G` — see
+# `chat_records.STATE_LUA` for why that never worked). Fields are hex-encoded so non-ASCII text
 # reaches Python intact (LogError mangles raw UTF-8 in Player.log).
 # ---------------------------------------------------------------------------
 _INSTALL_LUA = chat_records.record_lua() + r"""
@@ -74,12 +75,12 @@ local function L(s) CS.UnityEngine.Debug.LogError("ACT "..tostring(s)) end
 -- in addition to onParseServerData for the same message, producing duplicates, and
 -- only work while the chat view is open. The single class hook is both sufficient
 -- and duplicate-free. Older revisions of this tool DID hook those handlers
--- (originals stashed in _G.__CR_H); if a stale set is still wrapped in this long
+-- (originals stashed in CR.H); if a stale set is still wrapped in this long
 -- running game session, restore it so it stops double-recording.
-if type(_G.__CR_H) == "table" then
+if type(CR.H) == "table" then
   local mgr = DataCenter.ChatViewTipBubbleDataManager
-  for m, orig in pairs(_G.__CR_H) do pcall(function() mgr[m] = orig end) end
-  _G.__CR_H = nil
+  for m, orig in pairs(CR.H) do pcall(function() mgr[m] = orig end) end
+  CR.H = nil
   L("legacy UI hooks restored")
 end
 
@@ -88,7 +89,7 @@ if type(CM) == "table" and type(CM.onParseServerData) == "function" then
   -- Save the pristine method exactly once, then always rebuild the wrapper from
   -- it. This keeps re-install idempotent AND lets an updated recorder take effect
   -- without a game restart, with no ever-growing wrapper chain. The wrapper calls
-  -- `_G.__CR_REC` BY NAME rather than closing over it, so re-running the recorder
+  -- `CR.REC` BY NAME rather than closing over it, so re-running the recorder
   -- chunk alone (which the backlog read does) updates what an already-installed
   -- hook records.
   -- THE LIVE METHOD, NOT THE ONE SAVED A SESSION AGO (#2418). A Lua reload — a
@@ -96,18 +97,18 @@ if type(CM) == "table" and type(CM.onParseServerData) == "function" then
   -- here, and re-wrapping a stale copy would call a method belonging to a state
   -- that is gone. So the pristine one is re-taken whenever what is bound is not
   -- the wrapper this tool put there, and kept untouched when it is.
-  if CM.onParseServerData ~= _G.__CR_WRAP then
-    _G.__CR_ORIG = CM.onParseServerData
+  if CM.onParseServerData ~= CR.WRAP then
+    CR.ORIG = CM.onParseServerData
   end
-  local orig = _G.__CR_ORIG
+  local orig = CR.ORIG
   CM.onParseServerData = function(self, ...)
     local r = {orig(self, ...)}
-    pcall(_G.__CR_REC, self)
+    pcall(CR.REC, self)
     return table.unpack(r)
   end
   -- WHAT WAS BOUND, so a later drain can tell whether it is still there (#2418).
-  _G.__CR_WRAP = CM.onParseServerData
-  _G.__CR_CLASS_HOOKED = true
+  CR.WRAP = CM.onParseServerData
+  CR.CLASS_HOOKED = true
   L("class-hook on")
 else
   L("class-hook FAIL: Chat.Model.ChatMessage type="..type(CM))
@@ -122,21 +123,21 @@ end
 -- twice adds one row.
 local RD = package.loaded["Chat.Model.ChatRoomData"]
 if type(RD) == "table" and type(RD.__addChatData) == "function" then
-  if RD.__addChatData ~= _G.__CR_ADDWRAP then
-    _G.__CR_ADD = RD.__addChatData
+  if RD.__addChatData ~= CR.ADDWRAP then
+    CR.ADD = RD.__addChatData
   end
-  local add = _G.__CR_ADD
+  local add = CR.ADD
   RD.__addChatData = function(self, data, ...)
     local r = {add(self, data, ...)}
-    if type(data) == "table" then pcall(_G.__CR_REC, data) end
+    if type(data) == "table" then pcall(CR.REC, data) end
     return table.unpack(r)
   end
-  _G.__CR_ADDWRAP = RD.__addChatData
+  CR.ADDWRAP = RD.__addChatData
   L("room-hook on")
 else
   L("room-hook FAIL: Chat.Model.ChatRoomData type="..type(RD))
 end
-L("chat_reader hooks installed; buf="..#_G.__CR_BUF)
+L("chat_reader hooks installed; buf="..#CR.BUF)
 """
 
 
@@ -224,7 +225,7 @@ def main() -> int:
         """
         try:
             ev.run(chat_records.record_lua()
-                   + chat_records.backlog_lua(sink="__CR_BUF"),
+                   + chat_records.backlog_lua(sink="BUF"),
                    marker=MARKER, settle=1.5)
             return True
         except Exception as exc:            # noqa: BLE001 -- a busy VM, not a bug

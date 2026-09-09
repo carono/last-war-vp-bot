@@ -138,8 +138,8 @@ DEFAULT_EXCLUDES = [
 def install_chunk(filter_kw, depth, hook_all, dedup=False, excludes=None):
     r"""Build the Lua chunk that wraps functions and arms the call hook.
 
-    State lives in `_G.__XSTRACE.saved` = list of {tbl, key, orig} so restore can put every
-    original function back, and `_G.__XSTRACE.counts` = per-name call counts. Core Lua funcs
+    State lives in `DataCenter.__lw_xstrace.saved` = list of {tbl, key, orig} so restore can put every
+    original function back, and `DataCenter.__lw_xstrace.counts` = per-name call counts. Core Lua funcs
     and standard libraries are skipped (wrapping `pcall`/`string.find`/`tostring` — which the
     shim itself uses — would recurse or break the game), and the `CS` bridge is never
     descended into.
@@ -177,8 +177,8 @@ local pcall, select, tostring, type = pcall, select, tostring, type
 local sfind, concat, tinsert = string.find, table.concat, table.insert
 local pairs, ipairs = pairs, ipairs
 
-_G.__XSTRACE = _G.__XSTRACE or {}
-local T = _G.__XSTRACE
+DataCenter.__lw_xstrace = DataCenter.__lw_xstrace or {}
+local T = DataCenter.__lw_xstrace
 T.saved = T.saved or {}
 T.counts = T.counts or {}  -- name -> call count; dedup logs only the first hit
 T.shims = T.shims or {}    -- set of shim functions we created (never wrap our own shim)
@@ -369,7 +369,7 @@ end
 RESTORE_CHUNK = r"""
 -- LW_GAME_LOG: the tracer reads this confirmation out of Player.log along with
 -- everything else it tails, so this answer belongs there too (tools/lib/lua_eval.py).
-local T = _G.__XSTRACE
+local T = DataCenter.__lw_xstrace
 if T then
   if T.hook then pcall(function() debug.sethook() end) end
   -- summarise what actually fired: dedup only logged first hits, so the counts are the

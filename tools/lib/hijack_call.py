@@ -127,7 +127,8 @@ CALL_POLL_FAST, CALL_POLL_SLOW, CALL_FAST_FOR = 0.001, 0.02, 0.1
 #: * **call** — the managed call itself, in flight on the runtime;
 #: * **free** — waiting for RIP to leave the RWX region so it can be released.
 STATS = {"n": 0, "park_sec": 0.0, "park_tries": 0, "start_sec": 0.0,
-         "call_sec": 0.0, "free_sec": 0.0, "misses": 0, "by_label": {}}
+         "call_sec": 0.0, "free_sec": 0.0, "misses": 0, "abandoned": 0,
+         "by_label": {}}
 
 #: HOW MANY DISTINCT LABELS THE TALLY WILL HOLD (#2656). A label is written by the
 #: caller, and a caller that builds one per item (`dom.main0`, `dom.main1`, …) would
@@ -355,19 +356,57 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
             return abs(rip - safe_rip) <= rip_tol
         return nt_lo <= rip < nt_hi
 
-    region = P.VirtualAllocEx(hproc, None, 0x400, 0x3000, 0x40)  # RWX
-    if not region:
-        raise OSError(f"alloc failed err={C.get_last_error()}")
-    region = int(region)
-    result_abs, flag_abs, started_abs, code_abs = region, region + 8, region + 9, region + 0x40
-    reg_lo, reg_hi = region, region + 0x400
+    # ONE REGION PER ATTEMPT, AND NEVER A SECOND THREAD IN IT (#2665). It used to be
+    # one region for the whole call, rewritten with a fresh `orig_rip` for each candidate
+    # thread and freed at the end whatever had happened. Both halves of that can kill the
+    # client, and the second one is written in the crash dumps:
+    #
+    #   * REWRITTEN — a thread abandoned as «never started» that then does wake up runs
+    #     the shellcode built for the NEXT candidate and returns to THAT thread's parked
+    #     address, i.e. jumps into unrelated code;
+    #   * FREED — the same thread wakes at `code_abs` in memory that is no longer mapped.
+    #     On 2026-09-09 two of the client's six minidumps have RIP exactly at a
+    #     64K-aligned private address + 0x40, which is this layout's entry point and
+    #     nothing else in the process.
+    #
+    # So a region belongs to ONE thread for ever: a candidate that is abandoned keeps its
+    # own, with the shellcode replaced by a stub that goes straight home, and the region
+    # is leaked rather than freed. A leak is 64 KB of address space in a 64-bit process,
+    # counted in :data:`STATS` so it stays measurable; a free is a dead client.
+    def _new_region() -> tuple:
+        base = P.VirtualAllocEx(hproc, None, 0x400, 0x3000, 0x40)  # RWX
+        if not base:
+            raise OSError(f"alloc failed err={C.get_last_error()}")
+        base = int(base)
+        return base, base, base + 8, base + 9, base + 0x40
+
+    region, result_abs, flag_abs, started_abs, code_abs = _new_region()
+    #: True once a thread's RIP has been pointed at the live region. Such a region is
+    #: never reused and never freed by the miss path below.
+    aimed = False
 
     def _byte(addr: int) -> int:
         b = P.rpm(hproc, addr, 1)
         return b[0] if b else 0
 
     def _in_region(rip: int | None) -> bool:
-        return rip is not None and reg_lo <= rip < reg_hi
+        return rip is not None and region <= rip < region + 0x400
+
+    def _go_home(orig_rip: int) -> bytes:
+        """`jmp orig_rip`, clobbering nothing — the shellcode's own tail, alone."""
+        return b"".join([
+            b"\x50",                                            # push rax
+            b"\x48\xB8" + struct.pack("<Q", orig_rip),           # mov rax, orig_rip
+            b"\x48\x87\x04\x24",                               # xchg rax, [rsp]
+            b"\xC3",                                            # ret -> jmp orig_rip
+        ])
+
+    def _abandon(code: int, orig_rip: int) -> None:
+        """Leave a region to a thread that may still wake up in it, and let it go."""
+        stub = _go_home(orig_rip)
+        P.WriteProcessMemory(hproc, C.c_void_p(code), stub, len(stub),
+                             C.byref(C.c_size_t(0)))
+        STATS["abandoned"] += 1
 
     def _free_region_when_clear(hthr) -> None:
         """Free the RWX region only after RIP has left it (else a running thread
@@ -425,12 +464,26 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
             if SuspendThread(hthr) != 0xFFFFFFFF:
                 # re-check: it may have started in the tiny race window
                 started, done = _byte(started_abs), _byte(flag_abs)
-                if not started and not done:
+                # …AND THE FLAGS ARE NOT THE WHOLE ANSWER (#2665). `started` is raised
+                # some twenty instructions in — after seventeen pushes and `pushfq`. A
+                # thread suspended in that gap has our prologue on its stack and a flag
+                # still saying nothing began; putting its RIP back there returns it into
+                # the parked function with RSP 0x88 too low, and it dies later somewhere
+                # in the engine with nothing of ours in the picture. So the thread's own
+                # RIP decides: inside the region means it is running our code, whatever
+                # the flags say, and it is then handled by phase 2 like any other call.
+                inside = _in_region(_thread_rip(hthr))
+                if not started and not done and not inside:
                     struct.pack_into("<Q", raw, off + OFF_RIP, orig_rip)
                     struct.pack_into("<I", raw, off + OFF_FLAGS, CONTEXT_FULL)
                     SetThreadContext(hthr, cbase)
                     ResumeThread(hthr)
                     P.CloseHandle(hthr)
+                    # The restore may not take: a thread parked in the kernel can come
+                    # back on the trap frame it went in with, i.e. at `code_abs`. The
+                    # region is therefore NOT freed and NOT reused — it keeps a stub that
+                    # sends such a thread straight home.
+                    _abandon(code_abs, orig_rip)
                     return False, None
                 ResumeThread(hthr)
 
@@ -506,10 +559,15 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
             STATS["n"] += 1
             _count(label)
             STATS["park_sec"] += max(0.0, time.time() - park_began)
+            aimed = True
             handled, result = _run_on(tid, hthr, raw, cbase, off, rip)
             if handled:
                 return result
-            # not_started: this thread won't run our code — try the next one
+            # not_started: this thread won't run our code — try the next one, in a
+            # region of its own. The abandoned one belongs to the thread that was
+            # pointed at it for as long as the client lives (#2665).
+            region, result_abs, flag_abs, started_abs, code_abs = _new_region()
+            aimed = False
 
         if only_tid and time.time() < park_deadline:
             time.sleep(PARK_POLL)  # let the target thread reach the safe park
@@ -521,7 +579,9 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
                 continue
         break
 
-    P.VirtualFreeEx(hproc, C.c_void_p(region), 0, 0x8000)
+    if not aimed:
+        # Nothing was ever pointed at this one, so it is ours to release.
+        P.VirtualFreeEx(hproc, C.c_void_p(region), 0, 0x8000)
     STATS["misses"] += 1
     _count(label)
     STATS["park_sec"] += max(0.0, time.time() - park_began)

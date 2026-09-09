@@ -167,9 +167,9 @@ a singleton you can look up, so capture the live instances by wrapping their met
 
 ```lua
 local SL = require("DataCenter.LWBattle.Logic.Surfing.SurfingLogic")
-SL.OnStart = function(self,...) _G.__SR_LOGIC=self return <orig>(self,...) end
+SL.OnStart = function(self,...) DataCenter.__lw_sr_logic=self return <orig>(self,...) end
 local MM = require("Scene.LWBattle.Surfing.Monster.SurfingMonsterManager")
-MM.Init  = function(self,...) _G.__SR_MM=self return <orig>(self,...) end
+MM.Init  = function(self,...) DataCenter.__lw_sr_mm=self return <orig>(self,...) end
 ```
 
 **The obstacle model.** `SurfingMonsterManager.showList` is a table of monster objects
