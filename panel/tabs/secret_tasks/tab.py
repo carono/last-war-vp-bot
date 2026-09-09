@@ -4598,7 +4598,7 @@ class SecretTasksTab(PanelTab):
         # under the checkbox (#1294). Empty until a sprint has run, and a row that would
         # say nothing is left off the card rather than drawn blank.
         assist_tally = self.autoassist.tally_text()
-        screen = {"cards": [self._picker_card(),
+        screen = {"cards": [self._coord_card(), self._picker_card(),
                           # «АВТОЛУТ ★» HAS NO CARD OF ITS OWN ANY MORE (#2010). The
                           # person's words: «целая вкладка для одного чекбокса лишняя».
                           # It was a card holding a switch, a rule and a state line, and
@@ -4649,6 +4649,20 @@ class SecretTasksTab(PanelTab):
                                         "label": "secret.autoloot.level_min",
                                         "kind": opt_value.TEXT,
                                         "value": (str(low) if low is not None else "")},
+                                       # …AND THE PAIR THAT DECIDES WHAT THE LIST SHOWS
+                                       # (#2660), which is a different thing from the
+                                       # rule above and was a pair of boxes only the
+                                       # window had. Empty is «no bound» at either end,
+                                       # so they travel as text for the same reason the
+                                       # rule does.
+                                       {"key": "filter_from",
+                                        "label": "secret.filter_level_from",
+                                        "kind": opt_value.TEXT,
+                                        "value": self.filter_from_var.get()},
+                                       {"key": "filter_to",
+                                        "label": "secret.level_to",
+                                        "kind": opt_value.TEXT,
+                                        "value": self.filter_to_var.get()},
                                        {"key": "stale_hours",
                                        "label": "secrettasks.stale_hours",
                                        "hint": "secrettasks.stale_hours.hint",
@@ -5113,6 +5127,35 @@ class SecretTasksTab(PanelTab):
                           if self.ghost_map.monitor_var.get()
                           else "secret.monitoring.ghost.on")}
 
+    def _coord_card(self) -> dict:
+        """The window's coordinate bar, as the phone's own card (#2660).
+
+        «Перейти» was the one thing on this tab a phone could not do: the grid of
+        warzones has had its own jump since #1467 and every coordinate on the screen is
+        a link, but a tile somebody read out in chat had to be typed at the machine.
+        Three boxes and two presses, and the jump underneath is `rt.game.jump` — the very
+        one the links walk, and a camera move rather than anything sent to the game.
+
+        The lap's height, «Обойти карту» and «Обновить состояние» are already the
+        screen's own actions and are not repeated here.
+        """
+        return {"title": "coord.frame",
+                "fields": [{"key": "coord_x", "label": "coord.x",
+                            "kind": opt_value.TEXT,
+                            "value": self.coord_x_var.get()},
+                           {"key": "coord_y", "label": "coord.y",
+                            "kind": opt_value.TEXT,
+                            "value": self.coord_y_var.get()},
+                           # Empty on purpose is a jump on whatever warzone the client
+                           # is looking at — the window's own rule, so it is text and
+                           # never a number box that would make a blank into a 0.
+                           {"key": "coord_srv", "label": "coord.server",
+                            "kind": opt_value.TEXT,
+                            "value": self.coord_srv_var.get()}],
+                "actions": [{"id": "goto", "label": "coord.jump"},
+                            {"id": "reload_server",
+                             "label": "coord.reload_server"}]}
+
     def _picker_card(self) -> dict:
         """«Куда идти сегодня» — the window's magnifier grid, as the phone's card (#1467).
 
@@ -5209,6 +5252,24 @@ class SecretTasksTab(PanelTab):
                     return moved
             if key == "stale_hours":
                 self._set_stale_hours(args.get("value"))
+                return {"ok": True}
+            # THE COORDINATE BOXES AND THE DISPLAY RANGE (#2660). Written into the
+            # window's own traced variables, so the two front-ends hold one value and
+            # the profile is saved by the same trace; the traces then redraw the table
+            # and keep the rule line true, exactly as typing does at the machine.
+            if key in ("coord_x", "coord_y", "coord_srv",
+                       "filter_from", "filter_to"):
+                raw = str(args.get("value") if args.get("value") is not None
+                          else "").strip()
+                signed = key in ("coord_x", "coord_y")
+                if raw and not (raw.lstrip("-") if signed else raw).isdigit():
+                    return {"ok": False, "reason": "web.ui.not_a_number"}
+                var = {"coord_x": self.coord_x_var, "coord_y": self.coord_y_var,
+                       "coord_srv": self.coord_srv_var,
+                       "filter_from": self.filter_from_var,
+                       "filter_to": self.filter_to_var}[key]
+                self.post(lambda v=var, r=raw: v.set(r))
+                self.rt.settings.changed()
                 return {"ok": True}
             # …and the ghost standing order's own two, which moved onto this tab with it
             # (#2010). The SWITCH goes through `order.toggle`, which is what the window's
@@ -5342,6 +5403,16 @@ class SecretTasksTab(PanelTab):
             return {"ok": True}
         if action == "sweep_now":
             self.post(self._sweep_once)
+            return {"ok": True}
+        if action == "goto":
+            # «Перейти», the window's own button — the three boxes above, validated by
+            # the same method, and the same `rt.game.jump` a coordinate link walks.
+            self.post(self._goto_coord)
+            return {"ok": True}
+        if action == "reload_server":
+            # «↻ сервер» — a game round trip, and it is the method's own thread that
+            # makes it rather than this one.
+            self._load_current_server()
             return {"ok": True}
         if action == "work_day":
             # The recipe's own defaults, unchanged: what it keeps, whether it spends
