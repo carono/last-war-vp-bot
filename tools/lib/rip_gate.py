@@ -60,7 +60,46 @@ def module_of(pid: int, addr: int) -> str:
     return f"private/0x{addr:x}"
 
 
-def sample_rip(pid: int, tid: int, n: int = 40, gap: float = 0.05) -> Counter:
+#: How many times one parked address must be seen before a learn stops asking (#2667).
+#: The learn's job is to name the dominant ntdll park, and three sightings of the same
+#: address already decide it: measured live against the full 40-sample sweep, the early
+#: stop picked THE SAME address every time and paid 5-8 suspensions for it instead of 40.
+#: Every one of those is a suspend/resume of the game's main thread — 60-75 us each,
+#: measured — so this is the same answer for a fifth of the interference.
+ENOUGH_HITS = 3
+
+
+def _decided(counts: Counter, span, enough: int) -> bool:
+    """Has the sweep already named the park beyond argument?
+
+    Two conditions, and the second is the one that keeps this from being a shortcut:
+    the winner has been seen ``enough`` times, AND it leads every other address inside
+    the module — so a busy client that keeps turning up in two different ntdll waits
+    goes on being sampled until one of them is clearly the park. A learn that picks the
+    runner-up aims the gate at a spot the thread rarely reaches, which is the failure
+    #1994 spent fourteen hours inside.
+    """
+    base, size = span
+    inside = [(hits, rip) for rip, hits in counts.items()
+              if base <= rip < base + size]
+    if not inside:
+        return False
+    inside.sort(reverse=True)
+    if inside[0][0] < enough:
+        return False
+    return len(inside) == 1 or inside[0][0] > inside[1][0]
+
+
+def sample_rip(pid: int, tid: int, n: int = 40, gap: float = 0.05,
+               stop_at=None) -> Counter:
+    """Suspend/read/resume the thread up to ``n`` times; the RIPs it was found at.
+
+    ``stop_at`` is ``((base, size), enough)`` — stop the moment one address inside that
+    module has been seen ``enough`` times. EVERY SAMPLE IS A SUSPENSION OF THE CLIENT'S
+    MAIN THREAD (#2667), and a sweep that has already found the park three times is
+    paying for an answer it has: measured live, an idle client hands over the park in
+    3-6 samples and the remaining 34 change nothing.
+    """
     import time
     hthr = H.OpenThread(H.THREAD_ALL, False, tid)
     if not hthr:
@@ -68,6 +107,8 @@ def sample_rip(pid: int, tid: int, n: int = 40, gap: float = 0.05) -> Counter:
     counts: Counter = Counter()
     try:
         for _ in range(n):
+            if stop_at is not None and _decided(counts, *stop_at):
+                break
             if H.SuspendThread(hthr) == 0xFFFFFFFF:
                 continue
             raw, cbase = H._aligned_context()
@@ -91,7 +132,8 @@ def _ntdll_span(pid: int) -> tuple[int, int] | None:
         return None
 
 
-def learn_safe_rip(pid: int, tid: int, n: int = 40) -> tuple[int, int] | None:
+def learn_safe_rip(pid: int, tid: int, n: int = 40,
+                   enough: int = ENOUGH_HITS) -> tuple[int, int] | None:
     """Return (safe_rip, hit_count) for the dominant PARKED RIP, or None when the
     thread never parked while we watched.
 
@@ -109,10 +151,11 @@ def learn_safe_rip(pid: int, tid: int, n: int = 40) -> tuple[int, int] | None:
     address; and when the thread never reached ntdll at all, say so by returning
     None instead of aiming the gate at a random instruction in the render loop.
     """
-    counts = sample_rip(pid, tid, n=n)
+    span = _ntdll_span(pid)
+    counts = sample_rip(pid, tid, n=n, stop_at=None if span is None else
+                        (span, enough))
     if not counts:
         return None
-    span = _ntdll_span(pid)
     if span is None:        # cannot tell a park from anything else — old behaviour
         return counts.most_common(1)[0]
     base, size = span

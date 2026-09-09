@@ -92,7 +92,11 @@ class _Scheduler:
     """A TimerScheduler with the runner and the log captured."""
 
     def __init__(self, tmp: Path, config: dict, outcome=True, gate=None,
-                 catalogue=None, busy_retry: float = 0.0):
+                 catalogue=None, busy_retry: float = 0.0,
+                 spread: float = 0.0):
+        # THE SPREAD IS OFF BY DEFAULT HERE (#2667), so that a test about the queue, the
+        # records or a period is not also a test of how far apart two errands start. The
+        # spread has its own tests below; a case that wants it asks for it.
         self.ran: list = []
         self.logs: list = []
         self.outcome = outcome          # True / False / an Exception to raise
@@ -102,7 +106,7 @@ class _Scheduler:
             store=self.store, catalogue=lambda: self.catalogue,
             config=lambda: config, runner=self._run,
             log=lambda key, **fmt: self.logs.append(key), gate=gate,
-            busy_retry=busy_retry)
+            busy_retry=busy_retry, spread=spread)
 
     def _run(self, timer):
         self.ran.append(timer.name)
@@ -317,6 +321,80 @@ def test_the_donation_and_the_gifts_are_two_errands_on_two_clocks():
     assert s.sched.tick_once(now + 2420) == [ALLY], s.ran
     assert s.sched.tick_once(now + 3630) == [ALLY], s.ran
     assert s.ran == [ALLY, GIFTS, ALLY, ALLY, ALLY], s.ran
+
+
+# --- the spread (#2667) -----------------------------------------------------
+
+def test_a_boot_does_not_start_every_errand_at_once():
+    """THE RULE: no two scheduled errands start together, whatever the clock says.
+
+    A panel that has just been restarted finds everything overdue, and the first tick
+    used to queue the lot — fifteen scenarios borrowing the client's main thread inside
+    one minute, which is the minute the client dies in (#2665). Now a tick takes ONE,
+    and the rest keep their turn: delayed, never dropped.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    gap = timersmod.SPREAD_SEC
+    s = _Scheduler(tmp, _cfg(**{ALLY: 1200, GIFTS: 21600, BASE: 3600}), spread=gap)
+    now = time.time()
+
+    first = s.sched.tick_once(now)
+    assert len(first) == 1, "the whole boot went off at once: %r" % (first,)
+    # …and the neighbours are not merely late to the queue, they are not queued at all.
+    assert s.sched.pending() == set(), s.sched.pending()
+    assert s.sched.tick_once(now + 1) == [], s.ran
+
+    second = s.sched.tick_once(now + gap + 1)
+    assert len(second) == 1 and second != first, (first, second)
+    third = s.sched.tick_once(now + 2 * gap + 2)
+    assert len(third) == 1, third
+    # Everything that was due has now run — one at a time, and nothing lost.
+    assert sorted(s.ran) == sorted([ALLY, GIFTS, BASE]), s.ran
+    assert s.sched.tick_once(now + 3 * gap + 3) == [], s.ran
+
+
+def test_the_spread_holds_an_errand_back_and_never_drops_it():
+    """A held-back errand is offered again by a later tick, unchanged."""
+    tmp = Path(tempfile.mkdtemp())
+    gap = timersmod.SPREAD_SEC
+    s = _Scheduler(tmp, _cfg(**{ALLY: 1200, GIFTS: 21600}), spread=gap)
+    now = time.time()
+    assert len(s.sched.tick_once(now)) == 1, s.ran
+    for late in (1, 2, 3):                      # ticks inside the gap do nothing…
+        assert s.sched.tick_once(now + late) == [], s.ran
+    assert len(s.sched.tick_once(now + gap + 1)) == 1, s.ran
+    assert sorted(s.ran) == sorted([ALLY, GIFTS]), s.ran
+
+
+def test_a_press_and_a_trigger_are_never_spread():
+    """The spread is the CLOCK's, and nothing else's.
+
+    An errand fired by an event — a push, a rally banner — and one a person pressed
+    have no clock to come round again on: spreading either is a fire missed, which is
+    the behaviour change this may not cost.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    s = _Scheduler(tmp, _cfg(**{ALLY: 1200, GIFTS: 21600}),
+                   spread=timersmod.SPREAD_SEC)
+    now = time.time()
+    assert len(s.sched.tick_once(now)) == 1, s.ran          # …the gap now stands
+
+    fired = timersmod.Timer(name="rally_auto_join", scenario=("join_rally",),
+                            interval_sec=0)
+    assert s.sched.submit(fired) == "queued"
+    assert s.sched.request(s.catalogue.by_name(GIFTS)) is True
+    # Both run at once — the gap the clock is keeping does not touch either.
+    assert sorted(s.sched.drain()) == sorted(["rally_auto_join", GIFTS]), s.ran
+
+
+def test_the_ordinary_scheduler_spreads_by_default():
+    """A scheduler built the way the panel builds one keeps the rule (#2667)."""
+    assert timersmod.SPREAD_SEC > 0, timersmod.SPREAD_SEC
+    tmp = Path(tempfile.mkdtemp())
+    sched = timersmod.TimerScheduler(
+        store=_store(tmp), catalogue=_catalogue, config=lambda: _cfg(),
+        runner=lambda timer: True, log=lambda key, **fmt: None)
+    assert sched._spread == timersmod.SPREAD_SEC, sched._spread
 
 
 # --- running ----------------------------------------------------------------
@@ -1028,7 +1106,11 @@ def test_nothing_runs_in_parallel_on_the_real_worker():
     sched = timersmod.TimerScheduler(
         store=_store(tmp), catalogue=lambda: cat,
         config=lambda: _cfg(**{BASE: 3600, ALLY: 3600}),
-        runner=runner, log=lambda key, **fmt: None, tick=0.05)
+        runner=runner, log=lambda key, **fmt: None, tick=0.05,
+        # The spread is off HERE and only here: this case is about two errands never
+        # overlapping, and with the ordinary twenty-second gap between them (#2667) the
+        # second one would not start inside the test's five seconds.
+        spread=0.0)
     sched.start()
     try:
         deadline = time.time() + 5

@@ -103,6 +103,22 @@ OFF_RIP = 0xF8
 # it has gone stale again is the `park tries each` figure in the per-minute line, not an
 # argument about it.
 #
+# AND DO NOT LOOSEN IT EITHER (#2667). «Sample less often» is the obvious answer to a
+# million suspensions of the client's main thread a day, and it was measured on the live
+# client rather than argued: 12 s at each rate, same thread, same session —
+#
+#   gap 10 ms: 1 147 samples, park hit 1.6 %, 64 samples to a hit, 0.64 s to a hit
+#   gap 20 ms:   588 samples, park hit 1.9 %, 54 samples to a hit, 1.07 s to a hit
+#   gap 40 ms:   297 samples, park hit 2.0 %, 50 samples to a hit, 2.0  s to a hit
+#   gap 80 ms:   150 samples, park hit 4.0 %, 25 samples to a hit, 2.0  s to a hit
+#
+# The hit rate does rise as we look less often, but sublinearly: eight times slower buys
+# 2.5x fewer suspensions and costs 3x the wait. The panel already spends ~30 % of its
+# wall clock in this wait (18 769 s of park over 765 logged minutes, live), so paying it
+# three times over is a slower panel all day — and «the player must not notice» is the
+# condition the whole optimisation runs under. The lever that works is FEWER HIJACKS,
+# not slower sampling: 89 % of them are one `DoString(bytes)` per Lua chunk.
+#
 # The call wait starts tight and backs off: a managed call that returns in a millisecond
 # should not be found 20 ms later, and one that runs for eight seconds should not be
 # polled five thousand times to find that out.

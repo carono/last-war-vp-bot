@@ -547,16 +547,89 @@ client answers again.
    (`panel/runtime/status.py`), with the cooldown's real purpose written beside the
    number.
 
-## What is still open
+## The boot stampede is spread out, and the million suspensions are not what they were called (#2667)
 
-* **The boot stampede.** A restart is still fifteen scenarios asking for the link inside
-  one minute, and that minute is when the client dies. Nothing here spaces them out —
-  the fix above removes the races INSIDE a hijack, not the burst of hijacks. Whether the
-  first-reads should be spread over the first few minutes of a boot is a behaviour change
-  and therefore a conversation, not an agent's call.
-* **`learn_safe_rip` samples the main thread ~21 times per hijack**, each sample a
-  suspend and a resume. At 44 444 hijacks that is close to a million suspensions of the client's
-  main thread in a morning. It is the single largest thing done TO the client and it has
-  never been measured against the crash rate.
-* **The A/B nobody has run.** With three of the four mechanisms above removed, the honest
-  next step is a day of the panel with the fix against the days recorded here.
+Both of the open items below were taken up together, and one of them turned out to be
+mis-attributed. What follows is measured, not argued.
+
+### The burst is gone: a tick starts ONE errand
+
+The operator's decision, in their words: «Да, разноси, сделай правило, пусть лаг будет,
+нет веской причины все разом делать». `panel/timers.py` now queues at most one errand
+that came due by the clock and waits `SPREAD_SEC` (20 s) after it has FINISHED before
+offering the next; a boot's fifteen overdue errands are played out over about five
+minutes instead of one. A person's press and an event-driven fire (a push, a trigger,
+«сразу») are never spread — they have no clock to come round on. The rule is written in
+`CLAUDE.md` and pinned by `tests/test_panel_timers.py`.
+
+### Where the suspensions actually come from
+
+Read off 765 minute-lines of the live panel's own tally (`hijack_call.STATS`, four
+profiles, 2026-09-08…09):
+
+| | |
+| --- | ---: |
+| hijacks | 67 532 |
+| suspend/resume of the client's main thread | **1 836 605** |
+| samples per hijack | 27.2 |
+| wall time spent waiting for the park | 18 769 s |
+| of those suspensions belonging to `learn_safe_rip` | **2 320 (0.13 %)** |
+
+**The bullet that used to stand here blamed `learn_safe_rip`, and it is wrong.** A learn
+is 40 samples and happens once per evaluator build (plus once per hijack that gave up:
+58 in the whole window). The million suspensions are `hijack_call`'s park sampling —
+`PARK_POLL` at 10 ms, run until the main thread is caught within ±16 bytes of the learned
+park.
+
+One sample costs the client **60–75 µs** (median of 400, measured live, `CONTEXT_FULL`;
+`CONTEXT_CONTROL` is 5–7 % cheaper and not worth the second code path). So 1.8 M samples
+is about two minutes of suspended main thread a day in total — the interference is real
+but small, and what the crash rate correlates with is the ATTACH (67 532 of them, ×4.5
+above control), not the sample.
+
+### Polling slower is NOT the lever — measured
+
+The obvious cut is to sample less often. It does not work, and here is the A/B on the
+live client (12 s per rate, same thread, same session):
+
+| poll gap | samples taken | park hit rate | samples to a hit | wall to a hit |
+| ---: | ---: | ---: | ---: | ---: |
+| 10 ms | 1 147 | 1.6 % | 64 | 0.64 s |
+| 20 ms | 588 | 1.9 % | 54 | 1.07 s |
+| 40 ms | 297 | 2.0 % | 50 | 2.0 s |
+| 80 ms | 150 | 4.0 % | 25 | 2.0 s |
+
+The hit rate rises with the gap, but sublinearly: eight times slower buys 2.5× fewer
+suspensions and costs 3× the wait. The panel already spends 30 % of its wall clock
+waiting for the park, so paying it three times over is a slower panel all day — a
+behaviour change, and the one thing this work may not cost. **`PARK_POLL` stays at
+10 ms**; the paragraph beside it in `tools/lib/hijack_call.py` says so with these
+numbers.
+
+### What was cut, and by how much
+
+A learn stops as soon as the park is DECIDED — one ntdll address seen three times and
+clearly ahead of every other ntdll address (`rip_gate._decided`). Live A/B against the
+full 40-sample sweep, six pairs on a busy client: 26 / 40 / 23 / 38 / 12 / 34 samples
+against 40 every time — 28 % fewer on a client being played, and 3–6 samples instead of
+40 on an idle one, where the park wins at once.
+
+It also answers BETTER. On the busy client the full sweep's winner was an address seen
+**once or twice** in four of the six runs — noise, and two candidate addresses 192 bytes
+apart (two different wait syscalls) took turns. The gate accepts ±16 bytes, so a
+one-sighting winner aims it at a spot the thread rarely returns to, which is the shape of
+#1994. Requiring three sightings and a clear lead answers only when the evidence is real.
+
+### Still open
+
+* **The gate is aimed at ONE park, and the client has two.** The A/B above kept turning
+  up two dominant ntdll addresses 192 bytes apart. Accepting both learned parks would
+  roughly double the hit rate — halving both the suspensions per hijack and the wait —
+  but widening the gate is the thing that keeps the client alive, so it is a decision for
+  the person and not an agent's. Nothing here does it.
+* **The only other lever is FEWER hijacks.** 89 % of them are `DoString(bytes)`, one per
+  Lua chunk: 40 638 chunks in the same window. Cutting suspensions at scale means running
+  fewer chunks, which is a question about what the panel does, not about how it attaches.
+* **The A/B nobody has run.** With the races of #2665 removed and the burst of #2667
+  spread out, the honest next step is a day of the panel against the days recorded here —
+  specifically, how many restarts kill the client within two minutes (it was six of nine).

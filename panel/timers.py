@@ -117,6 +117,27 @@ def _dbg_window():
 # with a period shorter than this simply fires once a tick.
 TICK_SEC = 20.0
 
+# THE SPREAD — no two scheduled errands ever start together (#2667).
+#
+# The rule, in the owner's words: «Да, разноси, сделай правило, пусть лаг будет, нет
+# веской причины все разом делать». A panel that has just been restarted finds every
+# errand overdue at once, so the first tick used to queue the lot: fifteen scenarios
+# asking the client for its main thread inside one minute, and that minute is when the
+# client dies (six of nine restarts measured in #2665 killed it within 59-95 s).
+#
+# So a tick queues AT MOST ONE errand that came due by the clock, and the next one waits
+# this long after the previous one has finished. Nothing is dropped and nothing is
+# re-decided — an errand that is still due is queued by a later tick, unchanged, so the
+# whole boot's worth is played out over a few minutes instead of a few seconds. A lag of
+# a few minutes is invisible on a period of an hour, which is why it is affordable.
+#
+# WHAT IS DELIBERATELY NOT SPREAD: a person's press, and an errand fired by an EVENT (a
+# push, a trigger — `BY_TRIGGER`, and anything marked «сразу»). Those have no clock of
+# their own and are answered in seconds or not at all — a rally banner spread out by
+# twenty seconds is a rally missed, which is a behaviour change and the one thing this
+# may not cost.
+SPREAD_SEC = 20.0
+
 # Default hold after a failed run, before the timer is tried again. Per-timer now
 # (``Timer.retry_sec``): a scenario that FAILs on a precondition it will soon meet
 # (not on the base yet) wants a short retry, while a truly broken one should not
@@ -2130,7 +2151,8 @@ class TimerScheduler:
 
     def __init__(self, *, store: LastRunStore, catalogue, config, runner, log,
                  gate=None, tick: float = TICK_SEC,
-                 busy_retry: float = BUSY_RETRY_SEC, debug=None,
+                 busy_retry: float = BUSY_RETRY_SEC, spread: float = SPREAD_SEC,
+                 debug=None,
                  translate=None, day=None, label: str = "") -> None:
         # `debug` is the OWNING RUNTIME's technical logger (`rt.dbg("timers")`), so two
         # open profiles keep two debug.logs (#1206). The module-level one is the
@@ -2159,6 +2181,14 @@ class TimerScheduler:
         self._gate = gate
         self._tick = tick
         self._busy_retry = busy_retry
+        # The spread (:data:`SPREAD_SEC`): how long after the last SCHEDULED errand the
+        # next one may be queued. Zero switches it off, which is what a test that is
+        # about something else asks for.
+        self._spread = float(spread)
+        # …and when the last scheduled errand was queued or finished, on the same wall
+        # clock `enqueue_due` is given. Zero means «nothing yet», so the first errand
+        # after a start goes at once and only its neighbours wait.
+        self._spread_at = 0.0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._gate_said: str | None = None
@@ -2731,7 +2761,35 @@ class TimerScheduler:
                 return queued
             pending = allowed
         self._gate_said = None
+        pending = self._spread_out(pending, now)
         return queued + [name for name in pending if self._enqueue(name, scheduled=True)]
+
+    def _spread_out(self, pending: list, now: float) -> list:
+        """At most ONE scheduled errand at a time, spaced by :data:`SPREAD_SEC` (#2667).
+
+        Whatever is not let through stays due and is offered again by a later tick, so
+        the spread delays an errand and never drops one. Two things hold it back: a
+        scheduled errand already waiting in the queue (the previous one has not even
+        started, so a second is not a spread but a queue), and the gap since the last
+        scheduled errand was queued or finished.
+
+        A trigger's fire and a person's press do not come through here at all — they
+        enter by :meth:`submit` / :meth:`request` and are never spread.
+        """
+        if self._spread <= 0 or not pending:
+            return pending
+        with self._queue_lock:
+            waiting = [name for name, meta in self._queued_meta.items() if meta[0]]
+        if waiting or (self._spread_at and now - self._spread_at < self._spread):
+            self._dbg.debug("spread: %d due, holding back (waiting=%s, %.0fs of %.0fs)",
+                            len(pending), ",".join(waiting) or "-",
+                            max(0.0, now - self._spread_at), self._spread)
+            return []
+        self._spread_at = now
+        if len(pending) > 1:
+            self._dbg.info("spread: %d due — queueing %s, the rest wait their turn",
+                           len(pending), pending[0])
+        return pending[:1]
 
     def _run_queued(self, name: str, scheduled: bool, by: str = BY_HAND) -> str:
         """Take one errand off the queue and run it.
@@ -2791,6 +2849,12 @@ class TimerScheduler:
             self._requeue(name, scheduled)   # stays claimed: it is still waiting
             return "busy"
         self._note_done(name, by, scheduled, "done" if ok else "failed")
+        if scheduled:
+            # THE SPREAD IS MEASURED FROM THE FINISH, not from the queueing (#2667): an
+            # errand that waited five minutes behind a slow one must not be followed by
+            # its neighbour the same second, which is exactly the burst this exists to
+            # stop.
+            self._spread_at = time.time()
         self._release(name)
         return "ran" if ok else "skipped"
 

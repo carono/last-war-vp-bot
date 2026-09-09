@@ -65,7 +65,7 @@ def _rip_gate(counts: Counter, *, ntdll: bool = True):
     sys.modules.pop("rip_gate", None)
     sys.path.insert(0, str(_REPO / "tools" / "lib"))
     import rip_gate
-    rip_gate.sample_rip = lambda pid, tid, n=40, gap=0.05: counts
+    rip_gate.sample_rip = lambda pid, tid, n=40, gap=0.05, stop_at=None: counts
     return rip_gate
 
 
@@ -99,6 +99,32 @@ def test_no_ntdll_falls_back_to_the_old_answer():
 def test_nothing_sampled_is_none():
     g = _rip_gate(Counter())
     assert g.learn_safe_rip(1, 2) is None
+
+
+# --- when a learn may stop asking (#2667) -----------------------------------
+
+def test_a_decided_park_stops_the_sweep_early():
+    """Three sightings of one ntdll address, clearly ahead: the answer is in.
+
+    Every sample is a suspend and a resume of the client's main thread, so a sweep that
+    goes on to forty after the park has won is interference bought for nothing.
+    """
+    g = _rip_gate(Counter())
+    span = (NTDLL_BASE, NTDLL_SIZE)
+    assert g._decided(Counter({PARK: 3}), span, 3)
+    assert g._decided(Counter({PARK: 3, BUSY_RIP: 9}), span, 3),         "a busy render loop is not a rival — only ntdll addresses are"
+
+
+def test_an_undecided_park_keeps_sampling():
+    """Not enough, or not a clear leader — the sweep goes on to its full count."""
+    g = _rip_gate(Counter())
+    span = (NTDLL_BASE, NTDLL_SIZE)
+    assert not g._decided(Counter({PARK: 2}), span, 3), "two sightings is a coincidence"
+    assert not g._decided(Counter({PARK: 3, PARK + 0x400: 3}), span, 3), \
+        "two ntdll waits level with each other — picking either aims the gate at a spot " \
+        "the thread rarely reaches"
+    assert not g._decided(Counter({BUSY_RIP: 30}), span, 3)
+    assert not g._decided(Counter(), span, 3)
 
 
 def test_the_route_waits_for_a_busy_client_instead_of_dying():
