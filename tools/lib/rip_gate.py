@@ -69,25 +69,45 @@ def module_of(pid: int, addr: int) -> str:
 ENOUGH_HITS = 3
 
 
-def _decided(counts: Counter, span, enough: int) -> bool:
-    """Has the sweep already named the park beyond argument?
+#: How many parks the gate will aim at (#2678). The client's message pump alternates
+#: between two ntdll waits — the A/B of #2667 kept turning up two dominant addresses 192
+#: bytes apart — and a gate aimed at one of them waits out every visit to the other.
+MAX_PARKS = 2
 
-    Two conditions, and the second is the one that keeps this from being a shortcut:
-    the winner has been seen ``enough`` times, AND it leads every other address inside
-    the module — so a busy client that keeps turning up in two different ntdll waits
-    goes on being sampled until one of them is clearly the park. A learn that picks the
-    runner-up aims the gate at a spot the thread rarely reaches, which is the failure
-    #1994 spent fourteen hours inside.
-    """
+
+def _inside(counts: Counter, span) -> list:
+    """``[(hits, rip), ...]`` for the sampled addresses inside ``span``, busiest first."""
     base, size = span
-    inside = [(hits, rip) for rip, hits in counts.items()
-              if base <= rip < base + size]
+    rows = [(hits, rip) for rip, hits in counts.items() if base <= rip < base + size]
+    rows.sort(reverse=True)
+    return rows
+
+
+def _decided(counts: Counter, span, enough: int) -> bool:
+    """Has the sweep already named the client's parks beyond argument?
+
+    THE STOP RULE CHANGED WITH THE GATE (#2678). It used to stop the moment ONE address
+    led the field, which is the right answer to «which is the park» and the wrong one to
+    «which parks are there»: a sweep that leaves as soon as the winner is clear can never
+    see the second wait, so the gate it feeds is aimed at one of two and waits out every
+    visit to the other. So it now stops on either of two proofs, and both of them are
+    still evidence rather than a sample budget:
+
+      * :data:`MAX_PARKS` addresses have each been seen ``enough`` times — the parks are
+        known and there is no room for another one;
+      * ONE address has been seen ``2 * enough`` times and no other has reached
+        ``enough`` — this client parks in one place and the second slot stays empty.
+
+    The `enough` sightings requirement is untouched, so a one-sighting winner still
+    cannot aim the gate at a spot the thread rarely reaches (#1994).
+    """
+    inside = _inside(counts, span)
     if not inside:
         return False
-    inside.sort(reverse=True)
-    if inside[0][0] < enough:
-        return False
-    return len(inside) == 1 or inside[0][0] > inside[1][0]
+    strong = [row for row in inside if row[0] >= enough]
+    if len(strong) >= MAX_PARKS:
+        return True
+    return len(strong) == 1 and strong[0][0] >= 2 * enough
 
 
 def sample_rip(pid: int, tid: int, n: int = 40, gap: float = 0.05,
@@ -151,18 +171,42 @@ def learn_safe_rip(pid: int, tid: int, n: int = 40,
     address; and when the thread never reached ntdll at all, say so by returning
     None instead of aiming the gate at a random instruction in the render loop.
     """
+    got = learn_parks(pid, tid, n=n, enough=enough)
+    return got[0] if got else None
+
+
+def learn_parks(pid: int, tid: int, n: int = 40, enough: int = ENOUGH_HITS,
+                most: int = MAX_PARKS) -> list:
+    """Every PARK the main thread was found in, busiest first: ``[(rip, hits), ...]``.
+
+    The plural of :func:`learn_safe_rip`, and the one the gate is fed (#2678). A client
+    being played alternates between two ntdll waits, and both of them are a park: the
+    thread is in a syscall, about to sleep, which is the whole of what the gate is
+    checking for. Aiming at one of the two is how a live client came back «busy — it did
+    not reach its park once in 67s» for eighteen minutes on 2026-09-09 while a person was
+    playing it.
+
+    An address is a park when it has been seen ``enough`` times, exactly as before; a
+    single-sighting address is noise and is left out. When nothing reached that bar the
+    busiest ntdll address is returned alone, which is the old answer and keeps a quiet
+    client — where the park wins on sample three — behaving as it always did.
+    """
     span = _ntdll_span(pid)
     counts = sample_rip(pid, tid, n=n, stop_at=None if span is None else
                         (span, enough))
     if not counts:
-        return None
+        return []
     if span is None:        # cannot tell a park from anything else — old behaviour
-        return counts.most_common(1)[0]
-    base, size = span
-    for rip, hits in counts.most_common():
-        if base <= rip < base + size:
-            return rip, hits
-    return None
+        rip, hits = counts.most_common(1)[0]
+        return [(rip, hits)]
+    inside = _inside(counts, span)
+    if not inside:
+        return []
+    strong = [(rip, hits) for hits, rip in inside if hits >= enough][:most]
+    if strong:
+        return strong
+    hits, rip = inside[0]
+    return [(rip, hits)]
 
 
 def main() -> int:

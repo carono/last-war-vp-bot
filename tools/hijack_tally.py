@@ -15,6 +15,13 @@ the minute's tally into the profile's debug log, and this adds a day of those li
     python3 tools/hijack_tally.py --profile <name> --day 2026-09-08
     C:\Python312\python.exe tools\hijack_tally.py --log <path to debug.log>
 
+A label names the CALL — `DoString(bytes)` is 64 % of a day and every Lua chunk in the
+panel wears it, so it sizes the mass without naming who made it. The link writes a second
+line beside it («callers: …», `panel/runtime/lua_service.py::_say_timing`) that says
+which scenario, thread or child tool asked, and `--callers` adds a day of THOSE up
+(#2678). Read together they answer the only question worth acting on: which caller to
+merge, cache or batch away.
+
 It reads the rotated logs too (`debug.log`, `debug.log.1`, …), because a busy profile
 fills one in a few hours and a day is the unit worth looking at.
 """
@@ -33,8 +40,12 @@ import game_paths  # noqa: E402
 _LINE = re.compile(r"^\[(\d{4}-\d\d-\d\d) [\d:.]+\].*hijack labels [\d.]+s: (.*)$")
 #: …and its neighbour, the whole-minute total, kept as a cross-check.
 _TOTAL = re.compile(r"^\[(\d{4}-\d\d-\d\d) [\d:.]+\].*\bhijacks (\d+) in ")
+#: `[…] [link] callers: run:auto_treasure=31, child:DataCenter.__lw_chat=12`
+_CALLERS = re.compile(r"^\[(\d{4}-\d\d-\d\d) [\d:.]+\].*\bcallers: (.*)$")
 #: One `label=count` pair. A label may hold anything but whitespace and the `=` sign.
 _PAIR = re.compile(r"(\S+)=(\d+)")
+#: …and the caller line separates its pairs with a comma, so a name may hold spaces.
+_CALLER_PAIR = re.compile(r"([^,=]+)=(\d+)")
 
 
 def tally(lines, day: str | None = None) -> tuple[dict, int, int]:
@@ -57,6 +68,28 @@ def tally(lines, day: str | None = None) -> tuple[dict, int, int]:
     return by, labelled, total
 
 
+def callers(lines, day: str | None = None) -> tuple[dict, int]:
+    """Add up the «callers:» line — who ASKED, as opposed to what was called (#2678).
+
+    Truncated at the top twelve per minute by the writer, so this is a floor rather than
+    a census: a caller that never makes a minute's top twelve is invisible here. That is
+    the right trade for what it is for — finding the callers worth merging — and the
+    labelled total from :func:`tally` is the honest denominator.
+    """
+    by: dict[str, int] = {}
+    total = 0
+    for line in lines:
+        m = _CALLERS.match(line)
+        if not m or (day is not None and m.group(1) != day):
+            continue
+        for name, count in _CALLER_PAIR.findall(m.group(2)):
+            n = int(count)
+            name = name.strip()
+            by[name] = by.get(name, 0) + n
+            total += n
+    return by, total
+
+
 def logs_for(profile: str) -> list[Path]:
     d = Path(game_paths.repo_dir()) / "profiles" / profile
     return sorted(p for p in d.glob("debug.log*") if p.is_file())
@@ -68,12 +101,15 @@ def main() -> int:
     ap.add_argument("--log", action="append", default=[], help="a log by path; repeatable")
     ap.add_argument("--day", help="only this date, YYYY-MM-DD (default: every day in them)")
     ap.add_argument("--top", type=int, default=30, help="how many labels to print")
+    ap.add_argument("--callers", action="store_true",
+                    help="add up who ASKED, not what was called (#2678)")
     args = ap.parse_args()
 
     paths = [Path(p) for p in args.log] or (logs_for(args.profile) if args.profile else [])
     if not paths:
         ap.error("name a --profile or a --log")
 
+    read = callers if args.callers else tally
     by: dict[str, int] = {}
     labelled = total = 0
     for path in paths:
@@ -81,20 +117,22 @@ def main() -> int:
             print(f"[tally] no such log: {path}", file=sys.stderr)
             continue
         with path.open("rb") as fh:
-            part, part_n, part_total = tally(
-                (raw.decode("utf-8", "replace") for raw in fh), args.day)
+            got = read((raw.decode("utf-8", "replace") for raw in fh), args.day)
+        part, part_n, part_total = got if len(got) == 3 else (got[0], got[1], 0)
         for name, n in part.items():
             by[name] = by.get(name, 0) + n
         labelled += part_n
         total += part_total
 
     if not by:
-        print("nothing counted — is the panel new enough to write «hijack labels»?")
+        want = "callers" if args.callers else "hijack labels"
+        print(f"nothing counted — is the panel new enough to write «{want}»?")
         return 1
     when = args.day or "the whole of these logs"
-    print(f"{labelled} hijacks with a label over {when}"
+    what = "chunks with a caller" if args.callers else "hijacks with a label"
+    print(f"{labelled} {what} over {when}"
           + (f"  (the minute totals say {total})" if total else ""))
-    print("\n   count   share  label")
+    print("\n   count   share  " + ("caller" if args.callers else "label"))
     for name, n in sorted(by.items(), key=lambda kv: -kv[1])[:args.top]:
         print(f"  {n:>6}  {100 * n / labelled:5.1f}%  {name}")
     return 0

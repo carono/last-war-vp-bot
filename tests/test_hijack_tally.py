@@ -111,6 +111,23 @@ def test_a_label_with_odd_characters_survives() -> None:
     assert n == 16
 
 
+def test_the_callers_line_is_added_up_too():
+    """Who ASKED, as opposed to what was called (#2678).
+
+    A name may hold spaces and dots, and the pairs are comma-separated — so the label
+    reader's whitespace split cannot be reused on this line.
+    """
+    by, total = hijack_tally.callers([
+        "[2026-09-09 10:00:00.000] [INFO] [link] callers: child:SceneUtils=618, "
+        "run:auto_treasure=31, thread:work=2",
+        "[2026-09-09 10:01:00.000] [INFO] [link] callers: run:auto_treasure=9",
+        "[2026-09-08 10:01:00.000] [INFO] [link] callers: run:auto_treasure=500",
+        "[2026-09-09 10:02:00.000] [INFO] [link] hijack labels 60s: DoString(bytes)=12",
+    ], day="2026-09-09")
+    assert by == {"child:SceneUtils": 618, "run:auto_treasure": 40, "thread:work": 2}
+    assert total == 660, "another day's line was counted in"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

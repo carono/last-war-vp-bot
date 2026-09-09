@@ -315,7 +315,7 @@ def _thread_rip(hthr) -> int | None:
 
 def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
                 save_xmm: bool = False, only_tid: int | None = None,
-                safe_rip: int | None = None, rip_tol: int = 16,
+                safe_rip=None, rip_tol: int = 16,
                 park_timeout: float = 2.0, start_timeout: float = 0.6,
                 call_timeout: float = 8.0, extend_timeout: float = 8.0) -> int | None:
     """Run func(args) by hijacking a game thread parked in ntdll.
@@ -325,7 +325,8 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
     (runtime_invoke / class_init): running managed code on a random native
     worker that is not GC-registered corrupts the runtime and crashes the game.
 
-    safe_rip: if given (an absolute address, see rip_gate.learn_safe_rip), the
+    safe_rip: if given (an absolute address, or several — see
+      rip_gate.learn_safe_rip / learn_parks), the
     thread is only hijacked when its RIP is within +-rip_tol of that exact
     parked-in-a-syscall-wait address. "Anywhere in ntdll" is too loose — the
     main thread also passes through ntdll heap locks, APC dispatch and ACE's
@@ -367,9 +368,21 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
     ntbase, ntsize = P.module_base(pid, "ntdll.dll")
     nt_lo, nt_hi = ntbase, ntbase + ntsize
 
+    # THE GATE AIMS AT EVERY PARK THE CLIENT HAS, NOT AT ONE OF THEM (#2678). `safe_rip`
+    # may be one address or several: `rip_gate.learn_safe_rip` keeps turning up two
+    # dominant ntdll waits 192 bytes apart (two different syscalls the pump alternates
+    # between), and a gate aimed at whichever of them won the sweep waits out every visit
+    # to the other. Live, that is what a «hang» is: on 2026-09-09 one profile spent
+    # 12:39-12:57 answering «the client's main thread is busy — it did not reach its park
+    # once in 67s» on a client that was alive and being played. The tolerance is
+    # unchanged (+-16 bytes of a LEARNED address), so this widens WHICH parks count and
+    # not how loosely one is matched — «anywhere in ntdll» is still refused.
+    parks = ((safe_rip,) if isinstance(safe_rip, int)
+             else tuple(safe_rip) if safe_rip else ())
+
     def _parked(rip: int) -> bool:
-        if safe_rip is not None:
-            return abs(rip - safe_rip) <= rip_tol
+        if parks:
+            return any(abs(rip - one) <= rip_tol for one in parks)
         return nt_lo <= rip < nt_hi
 
     # ONE REGION PER ATTEMPT, AND NEVER A SECOND THREAD IN IT (#2665). It used to be
@@ -447,7 +460,8 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
         never ran our code (not_started) — caller should try another thread;
         the thread is cleanly restored and the handle closed here. handled=True
         means we owned the outcome (done or wedged) and freed/leaked as needed."""
-        gate = f" SAFE_RIP+0x{orig_rip - safe_rip:x}" if safe_rip is not None else ""
+        gate = (f" SAFE_RIP+0x{orig_rip - min(parks, key=lambda a: abs(orig_rip - a)):x}"
+                if parks else "")
         # fresh markers + shellcode baked with THIS thread's return address
         P.WriteProcessMemory(hproc, C.c_void_p(region), b"\x00" * 0x40, 0x40,
                              C.byref(C.c_size_t(0)))
@@ -602,8 +616,8 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
     _count(label)
     STATS["park_sec"] += max(0.0, time.time() - park_began)
     who = f"tid={only_tid}" if only_tid else "any parked thread"
-    target = (f"SAFE_RIP 0x{safe_rip:x}+-{rip_tol}" if safe_rip is not None
-              else "ntdll")
+    target = ("SAFE_RIP " + "/".join(f"0x{a:x}" for a in parks) + f"+-{rip_tol}"
+              if parks else "ntdll")
     extra = f" (last RIP seen 0x{seen_rip:x})" if seen_rip else ""
     print(f"[{label}] {who} never ran our shellcode at {target}{extra} — "
           f"aborting (safe, nothing wedged)")

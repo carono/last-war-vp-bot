@@ -154,7 +154,8 @@ class PanelRuntime:
         self.tick = Ticker(root) if root is not None else ThreadTicker()
         # …and the bus hands its facts over the same way, so a listener runs where a
         # listener has always run: on the one thread, whoever published.
-        self.bus = EventBus(root, post=(None if root is not None else self.tick.post))
+        self.bus = EventBus(root, post=(None if root is not None else self.tick.post),
+                            arm=self.tick.arm)
         # WHAT THIS PROFILE IS DOING RIGHT NOW (panel/runtime/activity.py). Handed to
         # the two things that block for whole seconds — bringing the daemon up and
         # playing a scenario — so the strip along the bottom of the window says which
