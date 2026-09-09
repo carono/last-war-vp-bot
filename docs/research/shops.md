@@ -92,6 +92,18 @@ let the whole order through: one exchange went out, the items were gone, and the
 sent anyway, one refusal per row. That is the «спамит что не хватает предметов» the person
 reported.
 
+**A CEILING STOPS THE QUEUE, IT DOES NOT STEP OVER THE ROW** (#2670, the person's report:
+«я открыл вип магазин, следующий значок взаимопонимания, но покупается что то другое»).
+The queue's next live row cost 3000 diamonds against a ceiling of 300 a run, so the run
+trimmed it to nothing, walked on and bought a row further down — with the same diamonds.
+An order of preference means the purse is SAVED for what stands higher, so once a
+currency's ceiling cannot pay for the row in hand, the rest of that currency's rows are
+left for another run, and the offer line names what was stepped over and why («пропущено:
+магазин 2: Значок Взаимопонимания — потолок валюты 5 (300) не покрывает цену 3000»).
+Proven offline against the recipe itself (lupa, no game): with a ceiling of 300 the run
+buys nothing and says so; with 5000 it buys the Значок first and only then what stands
+below it.
+
 **«КУПИТЬ ПО ПРИОРИТЕТУ» SPENDS ON THE SHELF IT IS DRAWN ON, AND NOWHERE ELSE** (#2670,
 the person's report: «почему я запускаю обмен, первый обмен проходит, но не в том
 магазине где нажимал»). The press used to hand the recipe the WHOLE plan, so a press on
