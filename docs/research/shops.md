@@ -92,6 +92,16 @@ let the whole order through: one exchange went out, the items were gone, and the
 sent anyway, one refusal per row. That is the «спамит что не хватает предметов» the person
 reported.
 
+**«ПОКУПАТЬ ВСЁ» MEANS ALL OF IT** (#2670, the person's words: «какой нахуй потолок,
+если чекбокс называется купить все»). A tick that says «all» and then buys twenty because
+of a safety catch the panel invented is a tick that lies about its own name. So the
+purchases-per-run ceiling applies only to a row with a TYPED number; an «all» row takes
+the whole quota and whatever the purse can pay for. A CURRENCY ceiling never turns «all»
+into «a little» either — it stops the row and says what it would have cost («просит 3000,
+потолок валюты 5 даёт 300 — подними потолок или сними галку»), so the decision is the
+person's. Only the diamonds ship with a ceiling at all; every other currency is earned by
+playing and already limited by the item's quota and the purse.
+
 **EVERY CUT NAMES ITS REASON** (#2670, «следующее не покупается полностью только
 часть»). Five things can trim a row, and the log used to show only the number that came
 out of them: the purchases-per-run ceiling, the item's own quota, the purse running out
