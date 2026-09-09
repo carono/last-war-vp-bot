@@ -102,6 +102,10 @@
 #            spends.
 #   phase_left  seconds to the phase border, as the caller read it. The next turn is
 #            never booked past it. 0 = unknown, and then the return clock stands alone.
+#   energy_top_up  1 (the default) tops the march energy up when the purse runs dry
+#            mid-phase, in the order the person settled — free, then the 300-diamond
+#            refill, then the bag (`top_up_march_energy`, #2664). 0 leaves the purse
+#            alone, and the hour then stops on the first empty one as it used to.
 #
 # The reading is actions/read_arms_race.md; the research is docs/research/arms-race.md.
 
@@ -111,6 +115,7 @@ ARGS drone = 1
 ARGS level = 35
 ARGS target = auto
 ARGS phase_left = 0
+ARGS energy_top_up = 1
 
 # THE CHEAPEST GATE FIRST, BECAUSE THIS RECIPE IS NOW ANSWERED BY A PUSH (#2661). The
 # relay fires on `push.world.march.del` — «a march ended» — and that push is not only
@@ -184,12 +189,34 @@ PARK rally_cost INTO DataCenter.__lw_arms_dr.cost
 # «not enough stamina in the purse» with 11500 points still owing on the last chest and
 # an hour of the phase left. `claim_free_stamina` is FREE and once a server day — it
 # spends nothing, buys nothing and says «already taken» on every later run — so the only
-# question is whether it is asked BEFORE the purse decides the hour is over. Neither of
-# the paid refills is called here: buying is the person's press, not a trigger's.
-READ_LUA (function() local p = DataCenter.__lw_arms_dr or {} local cost = math.floor(tonumber(p.cost) or 0) if cost <= 0 then return 0 end local have = 0 pcall(function() have = math.floor((LuaEntry.Player.stamina or 0) + 0) end) if have < cost then return 1 end return 0 end)() INTO arms_purse_short
+# question is whether it is asked BEFORE the purse decides the hour is over. The
+# sentence that stood here — «neither of the paid refills is called here: buying is the
+# person's press, not a trigger's» — was ENDED by the person in #2664, and the next
+# paragraph is what replaced it.
+# WHEN THE PURSE IS SHORT, ALL THREE SOURCES ARE WALKED IN THE ORDER THE PERSON SETTLED
+# (#2664), in their words: «Правила на энергию мы писали, берем бесплатное если есть,
+# покупаем за 300 алмазов, остальное берем из сумки». #2661 took the free claim here and
+# stopped at it — «Neither of the paid refills is called here: buying is the person's
+# press» — and the measurement that ended that reading is the same one that started it:
+# the hour raised nine banners and stood down on an empty purse with a chest still owing.
+# A free claim alone buys nine more banners at best; the person's answer is the ladder,
+# and it is one recipe rather than three calls repeated here: `top_up_march_energy`.
+#
+# The reading below is the gate ABOVE the ladder, and it is deliberately stricter than
+# «is the purse short»: the diamond refill cannot be undone, so it is only reached when
+# the purse is the ONLY thing standing between this run and a banner. A phase whose
+# ceiling is spent, whose chests are all scored, that is over, or that has no free squad
+# answers 0 and nothing is bought at all.
+READ_LUA (function() local p = DataCenter.__lw_arms_dr or {} local ph = DataCenter.__lw_arms_ph or {} local cost = math.floor(tonumber(p.cost) or 0) if cost <= 0 then return 0 end local have = 0 pcall(function() have = math.floor((LuaEntry.Player.stamina or 0) + 0) end) if have >= cost then return 0 end local spent = math.floor(tonumber(ph.spent) or 0) if spent + cost > math.floor(tonumber(p.cap) or 0) then return 0 end local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end if math.floor((d.event_id or 0) + 0) ~= 120004 then return 0 end local sc = math.floor((d.sc or 0) + 0) local top = 0 pcall(function() for _, b in pairs(d.score_rewards or {}) do local t = math.floor((b.target or 0) + 0) if t > top then top = t end end end) if top > 0 and sc >= top then return 0 end local afd = DataCenter.ArmyFormationDataManager local allow = {} for w in string.gmatch(tostring(p.squads or ''), '%d+') do allow[w] = 1 end local pick = 0 pcall(function() for _, v in pairs(afd.ArmyFormationList) do local idx = math.floor((v.index or -1) + 0) if allow[tostring(idx)] == 1 then local st = math.floor((v.state or -1) + 0) local ok, idle = pcall(function() return v:IsFree() end) local free = true if ok and idle ~= nil then free = (idle and true or false) end if st == 0 and free and (pick == 0 or idx < pick) then pick = idx end end end end) if pick == 0 then return 0 end return 1 end)() INTO arms_purse_short
+
+IF energy_top_up == 0
+    LOG "arms drone: energy top-up is switched off for this order — the purse is left as it is"
 
 IF arms_purse_short == 1
-    CALL claim_free_stamina
+    IF energy_top_up == 1
+        READ_LUA (function() local p = DataCenter.__lw_arms_dr or {} return math.floor(tonumber(p.cost) or 0) end)() INTO need
+        LOG "arms drone: not enough energy for the next banner — free first, then the refill, then the bag"
+        CALL top_up_march_energy
 
 READ_LUA (function() local p = DataCenter.__lw_arms_dr or {} local ph = DataCenter.__lw_arms_ph or {} local cost = math.floor(tonumber(p.cost) or 0) if cost <= 0 then return 0, 'the game prices a rally at no stamina', 0 end local spent = math.floor(tonumber(ph.spent) or 0) if spent + cost > math.floor(tonumber(p.cap) or 0) then return 0, 'the stamina ceiling of this phase is reached', 0 end local have = 0 pcall(function() have = math.floor((LuaEntry.Player.stamina or 0) + 0) end) if have < cost then return 0, 'not enough stamina in the purse', 0 end local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0, 'the game would not say which phase is running', 0 end if math.floor((d.event_id or 0) + 0) ~= 120004 then return 0, 'the drone phase is over', 0 end local sc = math.floor((d.sc or 0) + 0) local top = 0 pcall(function() for _, b in pairs(d.score_rewards or {}) do local t = math.floor((b.target or 0) + 0) if t > top then top = t end end end) if top > 0 and sc >= top then return 0, 'every chest of this phase is scored', 0 end local first = math.floor(tonumber(ph.sc_first) or -1) local made = math.floor(tonumber(ph.made) or 0) if made >= 2 and first >= 0 and sc <= first then return 0, 'this phase has paid nothing for the banners already raised', 0 end local afd = DataCenter.ArmyFormationDataManager local pick = 0 local allow = {} for w in string.gmatch(tostring(p.squads or ''), '%d+') do allow[w] = 1 end local seen = 0 pcall(function() for _, v in pairs(afd.ArmyFormationList) do local idx = math.floor((v.index or -1) + 0) if allow[tostring(idx)] == 1 then seen = seen + 1 local st = math.floor((v.state or -1) + 0) local ok, idle = pcall(function() return v:IsFree() end) local free = true if ok and idle ~= nil then free = (idle and true or false) end if st == 0 and free and (pick == 0 or idx < pick) then pick = idx end end end end) if seen == 0 then return 0, 'none of the squads this order may use is on the board', 0 end if pick == 0 then return 0, 'every squad this order may use is out', 0 end p.sc0 = sc DataCenter.__lw_arms_dr = p return 1, 'ok', pick end)() INTO arms_go, arms_why, squad
 
@@ -205,6 +232,21 @@ WHILE arms_go == 1 LIMIT 40
     READ_LUA (function() local p = DataCenter.__lw_arms_dr or {} local ph = DataCenter.__lw_arms_ph or {} ph.spent = math.floor(tonumber(ph.spent) or 0) + math.floor(tonumber(p.cost) or 0) ph.made = math.floor(tonumber(ph.made) or 0) + 1 p.made = math.floor(tonumber(p.made) or 0) + 1 if math.floor(tonumber(ph.sc_first) or -1) < 0 then ph.sc_first = math.floor(tonumber(p.sc0) or -1) end DataCenter.__lw_arms_ph = ph return math.floor(tonumber(ph.made) or 0) end)() INTO arms_phase_made
 
     READ_LUA (function() local p = DataCenter.__lw_arms_dr or {} local ph = DataCenter.__lw_arms_ph or {} local cost = math.floor(tonumber(p.cost) or 0) if cost <= 0 then return 0, 'the game prices a rally at no stamina', 0 end local spent = math.floor(tonumber(ph.spent) or 0) if spent + cost > math.floor(tonumber(p.cap) or 0) then return 0, 'the stamina ceiling of this phase is reached', 0 end local have = 0 pcall(function() have = math.floor((LuaEntry.Player.stamina or 0) + 0) end) if have < cost then return 0, 'not enough stamina in the purse', 0 end local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0, 'the game would not say which phase is running', 0 end if math.floor((d.event_id or 0) + 0) ~= 120004 then return 0, 'the drone phase is over', 0 end local sc = math.floor((d.sc or 0) + 0) local top = 0 pcall(function() for _, b in pairs(d.score_rewards or {}) do local t = math.floor((b.target or 0) + 0) if t > top then top = t end end end) if top > 0 and sc >= top then return 0, 'every chest of this phase is scored', 0 end local first = math.floor(tonumber(ph.sc_first) or -1) local made = math.floor(tonumber(ph.made) or 0) if made >= 2 and first >= 0 and sc <= first then return 0, 'this phase has paid nothing for the banners already raised', 0 end local afd = DataCenter.ArmyFormationDataManager local pick = 0 local allow = {} for w in string.gmatch(tostring(p.squads or ''), '%d+') do allow[w] = 1 end local seen = 0 pcall(function() for _, v in pairs(afd.ArmyFormationList) do local idx = math.floor((v.index or -1) + 0) if allow[tostring(idx)] == 1 then seen = seen + 1 local st = math.floor((v.state or -1) + 0) local ok, idle = pcall(function() return v:IsFree() end) local free = true if ok and idle ~= nil then free = (idle and true or false) end if st == 0 and free and (pick == 0 or idx < pick) then pick = idx end end end end) if seen == 0 then return 0, 'none of the squads this order may use is on the board', 0 end if pick == 0 then return 0, 'every squad this order may use is out', 0 end p.sc0 = sc DataCenter.__lw_arms_dr = p return 1, 'ok', pick end)() INTO arms_go, arms_why, squad
+
+    # …AND THE SAME LADDER INSIDE THE LOOP, so an empty purse pauses a banner rather than
+    # ending the hour (#2664). The gate above has just refused; if the purse is the only
+    # reason it refused, the three sources are walked and the gate asked once more. The
+    # reading is the strict one — nothing is bought for a phase that is over, spent, fully
+    # scored or out of squads — and a ladder with nothing left to give leaves the gate at 0,
+    # so the loop ends on the next line exactly as it did before.
+    IF arms_go == 0
+        IF energy_top_up == 1
+            READ_LUA (function() local p = DataCenter.__lw_arms_dr or {} local ph = DataCenter.__lw_arms_ph or {} local cost = math.floor(tonumber(p.cost) or 0) if cost <= 0 then return 0 end local have = 0 pcall(function() have = math.floor((LuaEntry.Player.stamina or 0) + 0) end) if have >= cost then return 0 end local spent = math.floor(tonumber(ph.spent) or 0) if spent + cost > math.floor(tonumber(p.cap) or 0) then return 0 end local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end if math.floor((d.event_id or 0) + 0) ~= 120004 then return 0 end local sc = math.floor((d.sc or 0) + 0) local top = 0 pcall(function() for _, b in pairs(d.score_rewards or {}) do local t = math.floor((b.target or 0) + 0) if t > top then top = t end end end) if top > 0 and sc >= top then return 0 end local afd = DataCenter.ArmyFormationDataManager local allow = {} for w in string.gmatch(tostring(p.squads or ''), '%d+') do allow[w] = 1 end local pick = 0 pcall(function() for _, v in pairs(afd.ArmyFormationList) do local idx = math.floor((v.index or -1) + 0) if allow[tostring(idx)] == 1 then local st = math.floor((v.state or -1) + 0) local ok, idle = pcall(function() return v:IsFree() end) local free = true if ok and idle ~= nil then free = (idle and true or false) end if st == 0 and free and (pick == 0 or idx < pick) then pick = idx end end end end) if pick == 0 then return 0 end return 1 end)() INTO arms_purse_short
+            IF arms_purse_short == 1
+                READ_LUA (function() local p = DataCenter.__lw_arms_dr or {} return math.floor(tonumber(p.cost) or 0) end)() INTO need
+                LOG "arms drone: the purse ran dry mid-phase — topping it up rather than standing the hour down"
+                CALL top_up_march_energy
+                READ_LUA (function() local p = DataCenter.__lw_arms_dr or {} local ph = DataCenter.__lw_arms_ph or {} local cost = math.floor(tonumber(p.cost) or 0) if cost <= 0 then return 0, 'the game prices a rally at no stamina', 0 end local spent = math.floor(tonumber(ph.spent) or 0) if spent + cost > math.floor(tonumber(p.cap) or 0) then return 0, 'the stamina ceiling of this phase is reached', 0 end local have = 0 pcall(function() have = math.floor((LuaEntry.Player.stamina or 0) + 0) end) if have < cost then return 0, 'not enough stamina in the purse', 0 end local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0, 'the game would not say which phase is running', 0 end if math.floor((d.event_id or 0) + 0) ~= 120004 then return 0, 'the drone phase is over', 0 end local sc = math.floor((d.sc or 0) + 0) local top = 0 pcall(function() for _, b in pairs(d.score_rewards or {}) do local t = math.floor((b.target or 0) + 0) if t > top then top = t end end end) if top > 0 and sc >= top then return 0, 'every chest of this phase is scored', 0 end local first = math.floor(tonumber(ph.sc_first) or -1) local made = math.floor(tonumber(ph.made) or 0) if made >= 2 and first >= 0 and sc <= first then return 0, 'this phase has paid nothing for the banners already raised', 0 end local afd = DataCenter.ArmyFormationDataManager local pick = 0 local allow = {} for w in string.gmatch(tostring(p.squads or ''), '%d+') do allow[w] = 1 end local seen = 0 pcall(function() for _, v in pairs(afd.ArmyFormationList) do local idx = math.floor((v.index or -1) + 0) if allow[tostring(idx)] == 1 then seen = seen + 1 local st = math.floor((v.state or -1) + 0) local ok, idle = pcall(function() return v:IsFree() end) local free = true if ok and idle ~= nil then free = (idle and true or false) end if st == 0 and free and (pick == 0 or idx < pick) then pick = idx end end end end) if seen == 0 then return 0, 'none of the squads this order may use is on the board', 0 end if pick == 0 then return 0, 'every squad this order may use is out', 0 end p.sc0 = sc DataCenter.__lw_arms_dr = p return 1, 'ok', pick end)() INTO arms_go, arms_why, squad
 
 # WHAT THE PHASE HAS DONE, AND NO CLOCK (#2661). The wake-up is the push — a march of
 # ours ending is `push.world.march.del`, and the «arms_drone_relay» trigger answers it by

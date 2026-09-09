@@ -230,6 +230,30 @@ check the game itself answers and it survives the rules changing under it.
   ceiling, the phase's top chest, or the squad coming off the board, whichever comes
   first. No join allowance is asked for or spent.
 
+## An empty purse pauses a banner, it does not end the hour (#2664)
+
+#2661 taught the hour to take the day's FREE energy before calling the purse empty, and
+stopped there — «buying is the person's press, not a trigger's». The person ended that
+reading in their own words: «Правила на энергию мы писали, берем бесплатное если есть,
+покупаем за 300 алмазов, остальное берем из сумки». The order was already settled (#2390)
+and already written down; what was missing was the drone hour walking it.
+
+So `arms_race_drone` plays `actions/top_up_march_energy.md` — free, then the 300-diamond
+refill, then the bag — in two places: before its first banner, and inside its loop when the
+gate has just refused. `ARGS energy_top_up = 1` switches the whole ladder off.
+
+Two things are deliberate:
+
+* **the diamonds are only spent when the purse is the ONLY refusal.** The reading above the
+  ladder repeats the gate's other tests — the phase is still 120004, its ceiling is not
+  spent, a chest is still owing, a squad is free — so a phase that would raise nothing buys
+  nothing. A purchase cannot be undone; a reading costs one round trip;
+* **the price is named before it is paid.** `buy_stamina_refill` buys only while the game
+  says no refill has been bought today (the cheap one by the person's ladder 300 / 500 /
+  1000), prices the purchase off the diamond purse afterwards, logs what it cost, and
+  blocks itself for good if that came out above `cap` = 300. Clearing the block is
+  `python -m panel.forget stamina_refill_block`.
+
 ## The other three phases: the ceilings, and what the client would not give up
 
 The person's ceilings, in their own words and settled: **«На стройку и науку нужно 3000

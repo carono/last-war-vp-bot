@@ -20,6 +20,39 @@ The reasoning is the third line: what is in the bag is a reserve that only ever 
 while the other two come back tomorrow. Spending the reserve while a free claim is standing
 there is the one order of the three that cannot be undone.
 
+### The ladder is ONE recipe, and every caller walks it (#2664)
+
+The order was restated by the person for the drone hour — «Правила на энергию мы писали,
+берем бесплатное если есть, покупаем за 300 алмазов, остальное берем из сумки» — which is
+the same order and a wider audience: it holds anywhere the energy runs out mid-phase, not
+in the zombie hunt alone.
+
+So it lives in `src/lastwar_bot/actions/top_up_march_energy.md`, one file, and a caller that
+runs dry plays that instead of growing three calls of its own. It takes:
+
+* `need` — how much energy the caller wants standing in the purse. Each rung is walked only
+  while the purse is still short of it, so a day whose free claim is taken and whose refill
+  is bought costs one reading per rung and sends nothing;
+* `cap` — the diamond ceiling, 300, handed straight to `buy_stamina_refill`;
+* `bag` — 0 leaves the reserve alone;
+* `strict` — 0, so an empty bag is a log line. It has to be: `FAIL` unwinds the CALLER
+  (docs/dsl.md), and a bag with nothing in it is no reason to end somebody's drone hour.
+
+**The bag's amount is worked out, not guessed.** `use_stamina` spends the big denominations
+first and stops SHORT rather than overshoot, so asking it for 20 with nothing but fifties in
+the bag spends nothing at all. The recipe rounds the missing energy up to something the bag
+can actually pay with and caps it at everything the bag holds; 0 means «the bag cannot
+help». Checked offline against the game's own greedy loop: 20 missing with five tens asks
+20, the same 20 with one fifty asks 50, 120 with two fifties and five tens asks 120, and an
+empty bag asks nothing.
+
+**Who walks it.** `arms_race_drone` (the drone hour, `ARGS energy_top_up = 1`) — before its
+first banner and again inside its loop, so an empty purse pauses a banner instead of ending
+the hour. The gate above the ladder is deliberately stricter than «is the purse short»: the
+diamond refill cannot be undone, so nothing is bought unless the purse is the ONLY thing
+between the run and a banner — a phase that is over, whose ceiling is spent, whose chests
+are all scored, or that has no free squad buys nothing.
+
 ## 1 — the free claim, proven live
 
 * **the message**: `MsgDefines.ClaimDailyStamina` = `user.claim.daily.stamina`, sent with an
@@ -170,3 +203,10 @@ do not walk a live window.
 `use_stamina_items` spends `STAMINA_ITEMS` — the fifty (`400401`) and the ten (`400402`) —
 biggest first, one stack at a time, never past what was asked for. It is the LAST resort by
 the operator's order above.
+
+`actions/use_stamina.md` carries `ARGS strict` since #2664: 1 (a person's press) FAILs when
+nothing was spent, 0 (a caller mid-phase) says so in the log and returns. Its own report
+variable is `stamina_report` rather than `stamina` for a reason worth knowing — `{name}` is
+substituted from the CALLER's variables when the file is parsed, and `arms_race_drone` has a
+`stamina` of its own (the phase ceiling), so the old name printed the ceiling instead of
+what the bag bought.
