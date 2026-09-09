@@ -3056,5 +3056,9 @@
   "timers.stat.arena.3v3": "Arena 3 contro 3 · punteggio {score}, posizione {rank} · vittorie {done} su {need} · tentativi rimasti {left}",
   "timers.stat.market.coins": "monete: {coins} · merci in vendita: {n}",
   "health.no_session": "nessuna sessione Windows — nessuno ha effettuato l'accesso come {user}",
-  "log.game.no_session": "Nessuno ha effettuato l'accesso come {user}, quindi questo profilo non ha una sessione Windows in cui avviare il client — non riprovo finché qualcuno non accede o non premi «Avvia». Apri la sessione: tools\\rdp_instance.py --bring-up --user {user}"
+  "log.game.no_session": "Nessuno ha effettuato l'accesso come {user}, quindi questo profilo non ha una sessione Windows in cui avviare il client — non riprovo finché qualcuno non accede o non premi «Avvia». Apri la sessione: tools\\rdp_instance.py --bring-up --user {user}",
+  "shop.arena_praise": "Dare i «mi piace» gratuiti delle arene",
+  "shop.arena_praise.hint": "Mette «mi piace» a chi è primo in classifica in entrambe le arene: tre nell'Arena della Tempesta e tre nell'arena 3 contro 3. Il gioco li paga in diamanti, un «mi piace» non costa nulla e, se non ne restano, non viene inviato nulla.",
+  "timers.stat.shop.likes": "«mi piace» rimasti · Tempesta {storm} · 3c3 {three}",
+  "timers.stat.shop.likes_done": "«mi piace» dati: i diamanti di oggi sono presi"
 }

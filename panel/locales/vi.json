@@ -3056,5 +3056,9 @@
   "timers.stat.arena.3v3": "Đấu trường 3 đấu 3 · điểm {score}, hạng {rank} · thắng {done} trên {need} · lượt còn lại {left}",
   "timers.stat.market.coins": "xu: {coins} · món đang bán: {n}",
   "health.no_session": "không có phiên Windows — không ai đăng nhập với tên {user}",
-  "log.game.no_session": "Không ai đăng nhập với tên {user}, nên hồ sơ này không có phiên Windows nào để khởi động client — tôi sẽ không thử lại cho đến khi có người đăng nhập hoặc bạn bấm «Khởi động». Mở phiên: tools\\rdp_instance.py --bring-up --user {user}"
+  "log.game.no_session": "Không ai đăng nhập với tên {user}, nên hồ sơ này không có phiên Windows nào để khởi động client — tôi sẽ không thử lại cho đến khi có người đăng nhập hoặc bạn bấm «Khởi động». Mở phiên: tools\\rdp_instance.py --bring-up --user {user}",
+  "shop.arena_praise": "Thả lượt thích miễn phí ở các đấu trường",
+  "shop.arena_praise.hint": "Thả thích cho người đứng đầu bảng xếp hạng của cả hai đấu trường — ba lần ở Đấu trường Bão Tố và ba lần ở đấu trường 3 đấu 3. Trò chơi trả kim cương cho việc đó, một lượt thích không tốn gì cả, và khi không còn lượt nào thì không gửi gì.",
+  "timers.stat.shop.likes": "lượt thích còn lại · Bão Tố {storm} · 3v3 {three}",
+  "timers.stat.shop.likes_done": "đã thả hết lượt thích — kim cương hôm nay đã nhận"
 }

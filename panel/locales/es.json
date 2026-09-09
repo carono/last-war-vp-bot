@@ -3056,5 +3056,9 @@
   "timers.stat.arena.3v3": "Arena 3 contra 3 · puntuación {score}, puesto {rank} · victorias {done} de {need} · intentos restantes {left}",
   "timers.stat.market.coins": "monedas: {coins} · artículos a la venta: {n}",
   "health.no_session": "sin sesión de Windows — nadie ha iniciado sesión como {user}",
-  "log.game.no_session": "Nadie ha iniciado sesión como {user}, así que este perfil no tiene ninguna sesión de Windows donde arrancar el cliente — no lo intento más hasta que alguien inicie sesión o pulses «Iniciar». Levanta la sesión: tools\\rdp_instance.py --bring-up --user {user}"
+  "log.game.no_session": "Nadie ha iniciado sesión como {user}, así que este perfil no tiene ninguna sesión de Windows donde arrancar el cliente — no lo intento más hasta que alguien inicie sesión o pulses «Iniciar». Levanta la sesión: tools\\rdp_instance.py --bring-up --user {user}",
+  "shop.arena_praise": "Dar los «me gusta» gratuitos de las arenas",
+  "shop.arena_praise.hint": "Da «me gusta» a quien encabeza la clasificación de ambas arenas: tres en la Arena de la Tormenta y tres en la arena 3 contra 3. El juego paga diamantes por ellos, un «me gusta» no cuesta nada y, si no quedan, no se envía nada.",
+  "timers.stat.shop.likes": "«me gusta» restantes · Tormenta {storm} · 3c3 {three}",
+  "timers.stat.shop.likes_done": "«me gusta» dados: los diamantes de hoy están cobrados"
 }
