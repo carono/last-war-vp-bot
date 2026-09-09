@@ -189,10 +189,22 @@ class Probe:
     pid: int | None = None
     conn: str | None = None      # the server endpoint, when there is a live one
     dead: int = 0                # half-closed game sockets behind a LOST verdict
+    reason: str = ""             # `game_link.Link.reason` — WHY there is no client
+    user: str = ""               # the Windows login this profile looks in, if any
 
     @property
     def online(self) -> bool:
         return self.link == ONLINE
+
+    @property
+    def no_session(self) -> bool:
+        """Nobody is logged on to the Windows session this profile names (#2677).
+
+        Its own question rather than a string comparison at each caller: the light
+        narrows red with it, the gate holds the relaunch on it, and the two must never
+        disagree about what «there is no session» means.
+        """
+        return not self.running and self.reason == game_link.NO_SESSION
 
 
 def probe(game_exe: str = GAME_EXE, user: str | None = None) -> Probe:
@@ -212,7 +224,8 @@ def probe(game_exe: str = GAME_EXE, user: str | None = None) -> Probe:
     """
     found = game_link.probe(game_exe, user=user)
     return Probe(found.running, found.link, _worded(found),
-                 pid=found.pid, conn=found.conn, dead=found.dead)
+                 pid=found.pid, conn=found.conn, dead=found.dead,
+                 reason=found.reason or "", user=found.user or "")
 
 
 #: The state a client is in → the locale key of the sentence, with and without a Windows

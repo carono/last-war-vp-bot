@@ -662,6 +662,60 @@ def test_a_kick_and_a_wedged_client_hold_it_too():
         assert rt.gate.blocks("restart_game") == "", reason
 
 
+
+# -- a Windows session nobody is logged on to (#2677) -------------------------
+
+def _no_session_light(rt) -> None:
+    """Make this profile's light the one a missing Windows session produces."""
+    rt.health.current = profile_health.verdict(running=False, session_missing=True)
+    rt.health.read_at = time.time()
+
+
+def test_a_missing_windows_session_holds_the_relaunch():
+    """No session, no client, and nowhere to start one — so nothing tries (#2677).
+
+    312 failed starts per profile in one night is what this replaces: the launcher has
+    no session to run in, `launch_game` FAILs at its first step, and the watchdog comes
+    round five minutes later and does it again until somebody logs on.
+    """
+    rt = _RT()
+    assert rt.gate.relaunch_held() is False
+    _no_session_light(rt)
+    assert rt.gate.relaunch_held() is True
+    # …AND THE PERSON'S PRESS IS STILL OPEN. `launch_game` is a recovery action, so the
+    # button in the window and on the phone goes through exactly as before — the hold is
+    # on what starts BY ITSELF, which is the whole of the rule (#2677).
+    assert rt.gate.blocks("launch_game") == ""
+
+
+def test_the_missing_session_is_said_once_and_not_per_poll():
+    """One line naming what a person has to do, and then silence (#2677)."""
+    rt = _RT()
+    _no_session_light(rt)
+    for _ in range(20):
+        rt.gate.relaunch_held()
+    assert rt.said.count("log.game.no_session") == 1, rt.said
+
+
+def test_the_session_coming_back_lets_the_relaunch_through_at_once():
+    """The retry is a STATE CHANGE, not a clock: log on and the next poll relaunches."""
+    rt = _RT()
+    _no_session_light(rt)
+    assert rt.gate.relaunch_held() is True
+    rt.health.set(profile_health.LANDING)               # somebody logged on
+    assert rt.gate.relaunch_held() is False
+    _no_session_light(rt)                               # …and it went away again
+    assert rt.gate.relaunch_held() is True
+    assert rt.said.count("log.game.no_session") == 2, rt.said
+
+
+def test_a_profile_nobody_has_polled_yet_is_not_held():
+    """«Nobody has looked» may never read as «do not try» (the rule this file keeps)."""
+    rt = _RT()
+    rt.health.current = profile_health.unread()
+    assert rt.gate.relaunch_held() is False
+    assert "log.game.no_session" not in rt.said
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

@@ -688,7 +688,13 @@ class StatusPoll:
         # needed; «демон не отвечает» must not, because the client this is about to put
         # back is what the daemon has been failing to attach to.
         if rt.gate.relaunch_held():
-            rt.dbg("status").info("watchdog held: this profile is switched off")
+            # …AND THE OTHER HOLDER IS A SESSION NOBODY IS LOGGED ON TO (#2677). The
+            # gate says which, because «switched off» and «there is no session to start
+            # it in» want opposite things done and this line is what a person reads when
+            # they ask why the client is still down.
+            rt.dbg("status").info(
+                "watchdog held: this profile is switched off"
+                if rt.power.off else "watchdog held: nobody is logged on to its session")
             return
         # SAID ONCE, ASKED EVERY POLL — and the two used to be the same `return`. This
         # method acted on the EXACT strike (`!= WATCHDOG_STRIKES`), so a client that

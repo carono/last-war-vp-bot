@@ -91,6 +91,7 @@ BAD = "bad"
 
 #: WHY, as ids. Four, and each names an act.
 NO_CLIENT = "no_client"          # red:   there is no client process
+NO_SESSION = "no_session"        # red:   …and nobody is logged on to the session it needs
 CLIENT_HUNG = "client_hung"      # amber: it is there and it is wedged
 NO_CONNECTION = "no_connection"  # amber: OUR side cannot drive it
 NO_TRAFFIC = "no_traffic"        # amber: we drive it and the server says nothing
@@ -136,7 +137,8 @@ class Health:
 def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
             server: str = SERVER_UNASKED, responding: bool = True,
             error: str = "", maintenance: bool = False,
-            in_game: "bool | None" = None, kicked: bool = False) -> Health:
+            in_game: "bool | None" = None, kicked: bool = False,
+            session_missing: bool = False) -> Health:
     """The one light for one profile, from readings somebody else has already taken.
 
     A pure function of ids: no socket, no round trip, no clock. Everything it judges is
@@ -144,7 +146,12 @@ def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
 
     THE ORDER IS THE RULE, worst first:
 
-    1. **no client process** → red. Nothing else can be true or false about it.
+    1. **no client process** → red. Nothing else can be true or false about it, and
+       it is NARROWED by ``session_missing`` (#2677): a profile that drives a client in
+       another Windows session, with nobody logged on to it, has no client and no way to
+       get one — no crash, no kick, nothing on this machine to restart. Same colour,
+       because the account is equally not playing; a different reason, because the act is
+       a person's (bring the session up) and not the panel's.
     2. **a chunk does not land, and the window is hung** → amber, the client is wedged.
     3. **a chunk does not land** → amber, and it is OUR fault until proven otherwise.
     4. **the client is showing the game's own «вход с другого устройства» modal** →
@@ -172,7 +179,7 @@ def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
                       server=server, responding=bool(responding), error=error)
 
     if not running:
-        return made(BAD, NO_CLIENT)
+        return made(BAD, NO_SESSION if session_missing else NO_CLIENT)
     if plumbing == NOT_LANDING:
         return made(WARN, CLIENT_HUNG if not responding else NO_CONNECTION)
     if kicked:

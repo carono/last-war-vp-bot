@@ -3051,5 +3051,7 @@
   "timers.stat.market.free": "gratuit aujourd'hui : {item} · et {n} de plus",
   "timers.stat.market.goods": "gratuit à prendre : {n}",
   "timers.stat.market.done": "tout le gratuit est pris",
-  "timers.stat.market.coins": "pièces : {coins} · articles en vente : {n}"
+  "timers.stat.market.coins": "pièces : {coins} · articles en vente : {n}",
+  "health.no_session": "pas de session Windows — personne n'est connecté en tant que {user}",
+  "log.game.no_session": "Personne n'est connecté en tant que {user} : ce profil n'a aucune session Windows où lancer le client — je ne réessaie plus tant que quelqu'un ne se connecte pas ou que vous n'appuyez pas sur « Démarrer ». Ouvrir la session : tools\\rdp_instance.py --bring-up --user {user}"
 }
