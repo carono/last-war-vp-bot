@@ -755,6 +755,26 @@ capture line or a collect finishing is an EVENT, answered in seconds or not at a
 (`CLAUDE.md`, «Nothing starts in a burst»). `tests/test_panel_bus_spread.py` fails if
 another topic joins it.
 
+**And the first cut of that was half the fix, which is worth writing down** because the
+measurement said so within four minutes of the restart. Spreading the LISTENERS does
+nothing about a tab whose ONE listener takes several readings, and that is where the
+burst actually was: the live log at 13:23:16 has
+
+    13:23:16.196  [vs] «read_drone_chips» …
+    13:23:16.197  [vs] «read_drone_parts» …
+    13:23:16.197  [vs] «read_survivor_tickets» …
+    13:23:16.198  [vs] «read_ready_buildings» …
+    13:23:16.198  [vs] «read_research_queues» …
+    13:23:16.199  [vs] «read_arms_race» …
+    13:23:16.199  [vs] «read_vs_score» …
+
+— seven scenarios of ONE tab inside four milliseconds, on a client that had been in the
+game for four seconds. So the gap and the mechanism moved into
+`panel/runtime/spread.py`, the bus uses it for the listeners and
+`panel/tabs/vs.py::_read_all` uses it for its own five. The lesson generalises: **the unit
+that must not burst is the CHUNK, not the subscriber** — anything that takes several
+readings off one event spreads them itself.
+
 ### Where the 40 638 chunks a day actually come from
 
 `tools/hijack_tally.py` sizes the exposure by LABEL and 64 % of it is one label,

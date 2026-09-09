@@ -27,6 +27,7 @@ import time
 from ..runtime import bus
 from ..runtime import game_words
 from ..runtime import store
+from ..runtime import spread
 from .inventory import cell_url
 from .vs_duel import DAYS, VsDuelTab, _Choice, walk_items
 
@@ -1466,16 +1467,29 @@ class VsTab(VsDuelTab):
             return
         self._read_all_at = now
         self._tries += 1
-        self._read_bag()
-        self._read_builds()
-        # …AND THE SCIENCE CENTRES (#2662), the reading Wednesday's own list is drawn
-        # from. After this one the queue's own pushes and its alarm move it.
-        self._read_research()
-        # …AND THE HOUR OF THE ARMS RACE (#2635), which is the first reading of the card
-        # standing at the top of this page. After this one the game says when it moved.
-        self._read_arms()
-        # …AND THE SCORE OF THE DUEL (#2645), which is what this whole page is about.
-        self._read_score()
+        # ONE AT A TIME, NOT ALL AT ONCE (#2678). These five are seven scenarios, every
+        # one of them a chunk in the game and so an attach — a suspend of the client's
+        # main thread. Called in a row they land inside four milliseconds: the live log of
+        # 2026-09-09 has `read_drone_chips` … `read_vs_score` at 13:23:16.196-16.199, on a
+        # client that had been in the game for four seconds. That first minute is when it
+        # dies (`docs/research/client-crashes.md`), which is why `CLAUDE.md` says nothing
+        # starts in a burst and why the errands were spread in #2667.
+        #
+        # The first still goes at once, so the page is not slower to say anything; the
+        # rest are booked on the panel's own clock. The retry below is unchanged — a
+        # reading refused by the gate is asked again a minute later as it always was.
+        spread.spread(getattr(self.rt.tick, "arm", None), [
+            self._read_bag,
+            self._read_builds,
+            # …AND THE SCIENCE CENTRES (#2662), the reading Wednesday's own list is drawn
+            # from. After this one the queue's own pushes and its alarm move it.
+            self._read_research,
+            # …AND THE HOUR OF THE ARMS RACE (#2635), the first reading of the card
+            # standing at the top of this page. After this one the game says when it moved.
+            self._read_arms,
+            # …AND THE SCORE OF THE DUEL (#2645), which is what this whole page is about.
+            self._read_score,
+        ], tag="vs.first")
         # …AND THE NET UNDER IT. A scenario refused by the gate answers nothing and says
         # so in the log; the edge that started this does not come round again, so a page
         # that was unlucky once would stay on yesterday's numbers all day. This asks

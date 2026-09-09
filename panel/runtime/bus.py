@@ -16,6 +16,8 @@ destroyed widget.
 """
 from __future__ import annotations
 
+from . import spread as _spread
+
 #: «The client is up, logged in and answering» — published once per appearance by
 #: :class:`~panel.runtime.status.StatusPoll`, on the edge and never on the clock.
 #:
@@ -27,20 +29,12 @@ from __future__ import annotations
 #: which is the other time everything it holds may have moved unheard.
 GAME_READY = "game.ready"
 
-#: How far apart the listeners of a SPREAD topic are told, in seconds (#2678).
-#:
-#: `GAME_READY` is the one moment every push-driven board takes its first reading, so
-#: every one of them read at once: ten chunks inside thirty seconds of a client that had
-#: just got into the game, each one an attach — a suspend of the game's main thread, a
-#: redirect of its RIP and a restore. That minute is when the client dies; six of nine
-#: measured restarts killed it 59-95 s in (`docs/research/client-crashes.md`).
-#:
-#: It is the same cure the errands got in #2667 and the same decision behind it, in the
-#: person's words: «Да, разноси, сделай правило, пусть лаг будет, нет веской причины все
-#: разом делать». Nothing is dropped and nothing is re-decided — every listener is told,
-#: in the order it subscribed, a few seconds apart. A board is at worst a minute older
-#: than it could be, on a reading that is then kept current by the wire.
-SPREAD_SEC = 6.0
+#: How far apart the listeners of a SPREAD topic are told, in seconds (#2678). The gap
+#: and the mechanism live in `panel/runtime/spread.py`, because a tab whose ONE listener
+#: takes several readings has to spread those the same way — a burst inside one handler
+#: is the same burst, and the live log of 2026-09-09 has seven `read_*` of one tab inside
+#: four milliseconds.
+SPREAD_SEC = _spread.SPREAD_SEC
 
 #: The topics delivered that way. Only the boot's own stampede is on the list: a push, a
 #: capture line or a collect finishing is an EVENT and is answered at once, exactly as
@@ -57,7 +51,6 @@ class EventBus:
         #: spread cannot happen and the topic is delivered whole — which is what a bare
         #: harness and a test get, and what the panel did before #2678.
         self._arm = arm
-        self._spread_n = 0
         #: How a fact gets onto the ONE thread when there is no widget to hand it to —
         #: the windowless clock's own queue (#1976, P3). Without either, a fact is
         #: delivered where it was published, which is what a bare harness and a test get.
@@ -113,20 +106,21 @@ class EventBus:
         the thing `subscribe`'s unsubscribe callable exists to prevent.
         """
         live = self._subs.setdefault(topic, [])
-        for i, func in enumerate(listeners):
-            if i == 0:
-                self._hand_over([func], payload)
-                continue
-            self._spread_n += 1
-            name = f"bus.spread.{self._spread_n}"
 
-            def _turn(f=func, p=payload) -> None:
+        def _turn(f, p=payload):
+            def _go() -> None:
                 if f in live:
                     self._deliver([f], p)
-            try:
-                self._arm(name, int(i * SPREAD_SEC * 1000), _turn)
-            except Exception:                    # noqa: BLE001 — a clock that will not
-                self._deliver([func], payload)   # book still owes the listener its fact
+            return _go
+
+        # The first is handed over the way every fact has always been handed over — onto
+        # the one thread, by whichever of the three routes this bus has; the rest ride the
+        # clock, which is already that thread.
+        self._hand_over(listeners[:1], payload)
+        # The no-op stands in for the listener already told: `spread` runs its first
+        # step at once, and the first step here has happened one line up.
+        _spread.spread(self._arm, [lambda: None] + [_turn(f) for f in listeners[1:]],
+                       tag="bus.ready")
 
     def _hand_over(self, listeners, payload) -> None:
         """Deliver on the ONE thread, whichever of the three ways this bus has."""

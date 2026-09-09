@@ -41,6 +41,7 @@ _pkg = sys.modules.setdefault("panel", types.ModuleType("panel"))
 _pkg.__path__ = [str(_REPO / "panel")]
 _rt = sys.modules.setdefault("panel.runtime", types.ModuleType("panel.runtime"))
 _rt.__path__ = [str(_REPO / "panel" / "runtime")]
+spread = importlib.import_module("panel.runtime.spread")
 bus = importlib.import_module("panel.runtime.bus")
 
 
@@ -153,6 +154,59 @@ def test_only_the_boot_is_on_the_spread_list():
     assert bus.SPREAD_TOPICS == frozenset({bus.GAME_READY}), \
         "an EVENT was put on the spread list — those are answered in seconds or not " \
         "at all (CLAUDE.md, «Nothing starts in a burst»)"
+
+
+# --- the helper both of them use -------------------------------------------
+
+def test_the_first_step_runs_at_once_and_the_rest_are_booked():
+    clock = Clock()
+    done: list = []
+    booked = spread.spread(clock.arm, [lambda i=i: done.append(i) for i in range(3)])
+    assert done == [0], f"a spread fired more than its first step: {done}"
+    assert booked == 2
+    clock.run_all()
+    assert done == [0, 1, 2], f"a step was lost or reordered: {done}"
+
+
+def test_the_steps_are_one_gap_apart():
+    clock = Clock()
+    spread.spread(clock.arm, [lambda: None] * 4, gap=2.0)
+    assert [ms for _n, ms, _f in clock.booked] == [2000, 4000, 6000]
+
+
+def test_no_clock_runs_everything_and_loses_nothing():
+    done: list = []
+    booked = spread.spread(None, [lambda i=i: done.append(i) for i in range(3)])
+    assert done == [0, 1, 2] and booked == 0
+
+
+def test_a_step_that_raises_does_not_stop_the_spread():
+    clock = Clock()
+    done: list = []
+
+    def _bad():
+        raise RuntimeError("the board is gone")
+
+    spread.spread(clock.arm, [_bad, lambda: done.append("after")])
+    clock.run_all()
+    assert done == ["after"]
+
+
+def test_an_empty_spread_is_not_an_error():
+    assert spread.spread(Clock().arm, []) == 0
+    assert spread.spread(Clock().arm, [None, None]) == 0
+
+
+def test_the_vs_tab_spreads_its_own_first_reads():
+    """A burst inside ONE listener is the same burst (#2678).
+
+    The tab takes seven readings off one `GAME_READY`, and the live log of 2026-09-09
+    has all of them inside four milliseconds.
+    """
+    src = (_REPO / "panel" / "tabs" / "vs.py").read_text(encoding="utf-8")
+    assert "spread.spread(" in src, "the vs tab went back to reading everything at once"
+    assert "self._read_bag," in src and "self._read_score," in src, \
+        "the reads are not the spread's steps any more"
 
 
 def _main() -> int:
