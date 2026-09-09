@@ -53,6 +53,14 @@ What is NOT on the row and has to be asked for:
 `shopGoodsNumDic` was empty on the account this was read from even where goods had been
 bought, so **the count is asked for, never read off that dictionary**.
 
+**And it does not move for a purchase made this way.** Measured live on 2026-09-09: a row
+was bought, the item arrived in the bag (1004 → 1005) and `GetShopGoodsNum` read 0 before
+and 0 after. The client keeps that counter up to date from the shop PAGE, which the panel
+never opens. So the counter is what the panel draws for «сколько уже куплено», and the
+PROOF that a purchase landed is **what the bag holds, before and after** — a proof that
+read the counter reported every working purchase as a failed one, which is exactly what it
+did until this was found.
+
 ## 2. What a purchase puts on the wire
 
 `MsgDefines.BuyCommonShopGoods` → **`user.shop.buy.new`**, and its body was read WITHOUT
@@ -73,6 +81,11 @@ SFSNetwork.SendMessage(MsgDefines.BuyCommonShopGoods, row.id, {}, count)
 sends it empty. Sent as a bare number in place of the array, the message raises inside
 the client's own `BuyCommonShopGoodsMessage.lua` — which is how the argument order was
 found in the first place.
+
+**Confirmed live on 2026-09-09**, with the person's permission and on the cheapest row of
+the alliance shelf: the send above, and the resource item it hands over went up by exactly
+one in the bag. The alternative reading of the payload — `id` as the SHOP type with the
+rows inside `goodsArr` — was never needed and is not what the client sends.
 
 Two neighbours of it, read the same way and not used: `user.get.shop.info{PutInt:type}`
 asks the server for one shelf, `user.shop.refresh{PutInt:type}` buys a re-roll.
