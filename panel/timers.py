@@ -1059,6 +1059,27 @@ RETIRED_SCENARIOS: dict[str, tuple[str, ...]] = {
 }
 
 
+#: What a row saved BEFORE an errand's scenario was replaced still names, keyed by the
+#: timer's name. A profile's list is its own and outlives the built-ins (#2017), so a row
+#: written by an older panel spells its scenario out — and :func:`parse_catalogue` takes
+#: what the row says over the catalogue's. That is right for a scenario somebody chose and
+#: wrong for one the row is merely REMEMBERING, and the difference is invisible in a file.
+#:
+#: It cost the whole arena (#2688). #2602 put «Арена Шторма» in the building beside the
+#: 3v3 challenge and pointed the one arena row at `arena_battles`, which asks which of the
+#: two is open and plays that one — but every profile that had ever run kept
+#: `"scenario": "arena_3v3_battles"` in its saved row. So the hourly errand went on playing
+#: the 3v3 recipe alone, which reads its own window, finds it shut and ends there:
+#: «the 3v3 arena is not running right now», once an hour, all day, while the storm arena
+#: stood open and unplayed.
+#:
+#: Only an EXACT match is upgraded, so a scenario somebody deliberately typed is left
+#: alone; anything else the row says still wins.
+SUPERSEDED_SCENARIOS: dict[str, tuple[str, ...]] = {
+    "arena_3v3_battles": ("arena_3v3_battles",),
+}
+
+
 def _as_scenario(raw) -> tuple[str, ...]:
     """Coerce a ``scenario`` field into a tuple of steps."""
     if isinstance(raw, str):
@@ -1540,6 +1561,10 @@ def parse_catalogue(data, path: str | None = None,
         scenario = _as_scenario(raw.get("scenario"))
         if not scenario:
             scenario = base.scenario if base else RETIRED_SCENARIOS.get(name, ())
+        elif base is not None and scenario == SUPERSEDED_SCENARIOS.get(name):
+            # The row is remembering what this errand USED to run, not choosing it
+            # (:data:`SUPERSEDED_SCENARIOS`). The catalogue's is the current answer.
+            scenario = base.scenario
         if not scenario:
             errors.append(Message("log.timers.no_scenario",
                                   f"{name}: no scenario to run — skipped", name=name))

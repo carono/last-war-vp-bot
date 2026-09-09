@@ -81,42 +81,42 @@ READ_LUA (function() local B = DataCenter.__lw_a3v3 return math.floor((B.open or
 
 IF arena_open != 1
     LOG "the 3v3 arena is not running right now"
-    STOP "the event is shut"
+ELSE
 
-# --- how many battles are owed -------------------------------------------------
-# The server's own `winTimes` when the client has been told it; otherwise the log's
-# ceiling decides between «owed for certain» and «one battle to find out».
-# ONE CALL, NOT ONE PER QUESTION (#2404). A read is a thread hijack into the
-# client at half a second a time whatever it asks, and the machine can make about
-# 1.4 of them a second in total (`docs/research/link-contention.md`), so a run of
-# readings one statement at a time is that many seconds of everybody's budget for
-# answers the game could hand over together. What each one is, and why it is asked,
-# is on the comments and LOG lines that follow.
-READ_LUA (function() local __v0 = (function() local B = DataCenter.__lw_a3v3 local target = {wins} local left = math.floor((B.left or 0) + 0) local want = 0 if left > 0 then local won = math.floor((B.won or -1) + 0) if won >= 0 then want = target - won if want < 0 then want = 0 end elseif math.floor((B.ceiling or 0) + 0) < target then want = target - math.floor((B.ceiling or 0) + 0) else want = 1 end if want > left then want = left end local cap = {cap} if want > cap then want = cap end end B.todo = want return want end)() local __v1 = (function() local B = DataCenter.__lw_a3v3 local won = math.floor((B.won or -1) + 0) local w = 'not said yet' if won >= 0 then w = tostring(won) end return 'wins today ' .. w .. ' of {wins}, challenges left ' .. math.floor((B.left or 0) + 0) .. ', battle log today ' .. math.floor((B.logged or 0) + 0) .. ' row(s) with ' .. math.floor((B.ceiling or 0) + 0) .. ' won' end)() return __v0, __v1 end)() INTO arena_todo, arena_state
+    # --- how many battles are owed -------------------------------------------------
+    # The server's own `winTimes` when the client has been told it; otherwise the log's
+    # ceiling decides between «owed for certain» and «one battle to find out».
+    # ONE CALL, NOT ONE PER QUESTION (#2404). A read is a thread hijack into the
+    # client at half a second a time whatever it asks, and the machine can make about
+    # 1.4 of them a second in total (`docs/research/link-contention.md`), so a run of
+    # readings one statement at a time is that many seconds of everybody's budget for
+    # answers the game could hand over together. What each one is, and why it is asked,
+    # is on the comments and LOG lines that follow.
+    READ_LUA (function() local __v0 = (function() local B = DataCenter.__lw_a3v3 local target = {wins} local left = math.floor((B.left or 0) + 0) local want = 0 if left > 0 then local won = math.floor((B.won or -1) + 0) if won >= 0 then want = target - won if want < 0 then want = 0 end elseif math.floor((B.ceiling or 0) + 0) < target then want = target - math.floor((B.ceiling or 0) + 0) else want = 1 end if want > left then want = left end local cap = {cap} if want > cap then want = cap end end B.todo = want return want end)() local __v1 = (function() local B = DataCenter.__lw_a3v3 local won = math.floor((B.won or -1) + 0) local w = 'not said yet' if won >= 0 then w = tostring(won) end return 'wins today ' .. w .. ' of {wins}, challenges left ' .. math.floor((B.left or 0) + 0) .. ', battle log today ' .. math.floor((B.logged or 0) + 0) .. ' row(s) with ' .. math.floor((B.ceiling or 0) + 0) .. ' won' end)() return __v0, __v1 end)() INTO arena_todo, arena_state
 
-LOG "3v3 arena: {arena_state} — {arena_todo} battle(s) to fight"
+    LOG "3v3 arena: {arena_state} — {arena_todo} battle(s) to fight"
 
-IF arena_todo < 1
-    LOG "the day's 3v3 arena wins are already in, or the day's challenges are spent"
-    STOP "nothing left to fight today"
+    IF arena_todo < 1
+        LOG "the day's 3v3 arena wins are already in, or the day's challenges are spent"
+    ELSE
 
-# --- fight, re-asking the counts after every battle -------------------------------
-# The LIMIT is a safety rail rather than the rule: the loop leaves when the SERVER says
-# the wins are in or the challenges are gone.
-WHILE arena_todo > 0 LIMIT 30
-    LUA pcall(function() local B = DataCenter.__lw_a3v3 B.match = nil B.battle = nil SFSNetwork.SendMessage(MsgDefines.Get3V3ArenaMatchInfo) end)
-    WAIT 2
-    READ_LUA (function() local ok, out = pcall(function() local B = DataCenter.__lw_a3v3 local m = DataCenter.LW3V3Manager local msg = B.match if type(msg) ~= 'table' or type(msg.otherInfo) ~= 'table' then return 'no opponent came back' end m:SetType(1) m:SetOpponentData(msg.otherInfo) m:StartBattle() return 'sent' end) if not ok then return 'the battle was refused by the client: ' .. tostring(out) end return out end)() INTO arena_sent
-    WAIT 4
-    READ_LUA (function() local ok, out = pcall(function() local B = DataCenter.__lw_a3v3 local r = B.battle if type(r) ~= 'table' then B.strikes = math.floor((B.strikes or 0) + 0) + 1 return 'the server said nothing about the battle' end if r.errorCode ~= nil then B.strikes = math.floor((B.strikes or 0) + 0) + 1 return 'the server refused the battle (' .. tostring(r.errorCode) .. ')' end B.strikes = 0 B.made = math.floor((B.made or 0) + 0) + 1 local win = (r.win == true) or (math.floor((r.win or 0) + 0) == 1) if win then B.mywins = math.floor((B.mywins or 0) + 0) + 1 else B.mylosses = math.floor((B.mylosses or 0) + 0) + 1 end if type(r.winTimes) == 'number' then B.won = math.floor(r.winTimes + 0) elseif math.floor((B.won or -1) + 0) >= 0 then if win then B.won = math.floor(B.won + 0) + 1 end else B.won = math.floor((B.mywins or 0) + 0) end local zero = 0 pcall(function() zero = math.floor(((UITimeManager:GetInstance():GetTomorrowZero() or 0) + 0) / 1000) end) if zero > 0 then B.dayZero = zero B.dayWon = math.floor((B.won or 0) + 0) end local left = -1 if type(r.battleTimes) == 'number' then left = math.floor(r.battleTimes + 0) end if left >= 0 then B.left = left end local score = math.floor((r.ownerNewScore or 0) + 0) local rank = math.floor((r.curRank or 0) + 0) return 'battle ' .. math.floor(B.made) .. ': ' .. (win and 'WON' or 'lost') .. ', wins today ' .. math.floor(B.won) .. ' of {wins}, challenges left ' .. math.floor(B.left) .. ', score ' .. score .. ' (rank ' .. rank .. ')' end) if not ok then return 'the battle result could not be read: ' .. tostring(out) end return out end)() INTO arena_round
-    LOG "{arena_round}"
-    READ_LUA (function() local B = DataCenter.__lw_a3v3 if math.floor((B.strikes or 0) + 0) >= 2 then B.todo = 0 return 0 end local target = {wins} local left = math.floor((B.left or 0) + 0) local want = 0 if left > 0 then local won = math.floor((B.won or -1) + 0) if won >= 0 then want = target - won if want < 0 then want = 0 end else want = 1 end if want > left then want = left end end B.todo = want return want end)() INTO arena_todo
+        # --- fight, re-asking the counts after every battle -------------------------------
+        # The LIMIT is a safety rail rather than the rule: the loop leaves when the SERVER says
+        # the wins are in or the challenges are gone.
+        WHILE arena_todo > 0 LIMIT 30
+            LUA pcall(function() local B = DataCenter.__lw_a3v3 B.match = nil B.battle = nil SFSNetwork.SendMessage(MsgDefines.Get3V3ArenaMatchInfo) end)
+            WAIT 2
+            READ_LUA (function() local ok, out = pcall(function() local B = DataCenter.__lw_a3v3 local m = DataCenter.LW3V3Manager local msg = B.match if type(msg) ~= 'table' or type(msg.otherInfo) ~= 'table' then return 'no opponent came back' end m:SetType(1) m:SetOpponentData(msg.otherInfo) m:StartBattle() return 'sent' end) if not ok then return 'the battle was refused by the client: ' .. tostring(out) end return out end)() INTO arena_sent
+            WAIT 4
+            READ_LUA (function() local ok, out = pcall(function() local B = DataCenter.__lw_a3v3 local r = B.battle if type(r) ~= 'table' then B.strikes = math.floor((B.strikes or 0) + 0) + 1 return 'the server said nothing about the battle' end if r.errorCode ~= nil then B.strikes = math.floor((B.strikes or 0) + 0) + 1 return 'the server refused the battle (' .. tostring(r.errorCode) .. ')' end B.strikes = 0 B.made = math.floor((B.made or 0) + 0) + 1 local win = (r.win == true) or (math.floor((r.win or 0) + 0) == 1) if win then B.mywins = math.floor((B.mywins or 0) + 0) + 1 else B.mylosses = math.floor((B.mylosses or 0) + 0) + 1 end if type(r.winTimes) == 'number' then B.won = math.floor(r.winTimes + 0) elseif math.floor((B.won or -1) + 0) >= 0 then if win then B.won = math.floor(B.won + 0) + 1 end else B.won = math.floor((B.mywins or 0) + 0) end local zero = 0 pcall(function() zero = math.floor(((UITimeManager:GetInstance():GetTomorrowZero() or 0) + 0) / 1000) end) if zero > 0 then B.dayZero = zero B.dayWon = math.floor((B.won or 0) + 0) end local left = -1 if type(r.battleTimes) == 'number' then left = math.floor(r.battleTimes + 0) end if left >= 0 then B.left = left end local score = math.floor((r.ownerNewScore or 0) + 0) local rank = math.floor((r.curRank or 0) + 0) return 'battle ' .. math.floor(B.made) .. ': ' .. (win and 'WON' or 'lost') .. ', wins today ' .. math.floor(B.won) .. ' of {wins}, challenges left ' .. math.floor(B.left) .. ', score ' .. score .. ' (rank ' .. rank .. ')' end) if not ok then return 'the battle result could not be read: ' .. tostring(out) end return out end)() INTO arena_round
+            LOG "{arena_round}"
+            READ_LUA (function() local B = DataCenter.__lw_a3v3 if math.floor((B.strikes or 0) + 0) >= 2 then B.todo = 0 return 0 end local target = {wins} local left = math.floor((B.left or 0) + 0) local want = 0 if left > 0 then local won = math.floor((B.won or -1) + 0) if won >= 0 then want = target - won if want < 0 then want = 0 end else want = 1 end if want > left then want = left end end B.todo = want return want end)() INTO arena_todo
 
-READ_LUA (function() local B = DataCenter.__lw_a3v3 return 'fought ' .. math.floor((B.made or 0) + 0) .. ', won ' .. math.floor((B.mywins or 0) + 0) .. ', lost ' .. math.floor((B.mylosses or 0) + 0) .. ', wins today ' .. math.floor((B.won or 0) + 0) .. ' of {wins}, challenges left ' .. math.floor((B.left or 0) + 0) .. ', strikes ' .. math.floor((B.strikes or 0) + 0) end)() INTO arena_report
+        READ_LUA (function() local B = DataCenter.__lw_a3v3 return 'fought ' .. math.floor((B.made or 0) + 0) .. ', won ' .. math.floor((B.mywins or 0) + 0) .. ', lost ' .. math.floor((B.mylosses or 0) + 0) .. ', wins today ' .. math.floor((B.won or 0) + 0) .. ' of {wins}, challenges left ' .. math.floor((B.left or 0) + 0) .. ', strikes ' .. math.floor((B.strikes or 0) + 0) end)() INTO arena_report
 
-LOG "3v3 arena: {arena_report}"
+        LOG "3v3 arena: {arena_report}"
 
-READ_LUA (function() local B = DataCenter.__lw_a3v3 return math.floor((B.strikes or 0) + 0) end)() INTO arena_strikes
+        READ_LUA (function() local B = DataCenter.__lw_a3v3 return math.floor((B.strikes or 0) + 0) end)() INTO arena_strikes
 
-IF arena_strikes > 1
-    FAIL "the 3v3 arena refused two battles in a row — the clock will try again"
+        IF arena_strikes > 1
+            FAIL "the 3v3 arena refused two battles in a row — the clock will try again"

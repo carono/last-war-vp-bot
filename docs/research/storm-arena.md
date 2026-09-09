@@ -178,6 +178,26 @@ a message left.
 The panel plays it from «Таймеры» as `arena_3v3_battles` (the row's name is kept so
 nobody's schedule is thrown away) and from «Чеклист» as the «Арена» line's press.
 
+### …and pointing the CATALOGUE at it was not enough (#2688)
+
+The row's name was kept and its SCENARIO changed, and that is the half that did not
+arrive. A profile's list is its own and outlives the built-ins (#2017): every row saved
+before #2602 spells out `"scenario": "arena_3v3_battles"`, and `parse_catalogue` takes
+what the row says over the catalogue's — rightly, for a scenario somebody chose. So on
+every account that had ever run, the hourly errand went on playing the 3v3 recipe alone,
+which reads its own window, finds it shut while the storm arena is the event in the
+building, and ends there. Measured on the live panel, 2026-09-07 17:07:33::
+
+    [timer] arena_3v3_battles:   READ_LUA arena_open = 0
+    [timer] arena_3v3_battles:     LOG "the 3v3 arena is not running right now"
+    [timer] arena_3v3_battles:     STOP -> halt requested (the event is shut)
+
+…once an hour, all day, with `open=1 left=5` on the storm arena beside it. The cure is
+`panel/timers.SUPERSEDED_SCENARIOS`: a saved row whose scenario is EXACTLY the one this
+errand used to run is upgraded to the built-in's, and anything else the row says still
+wins. Whatever changes an errand's scenario next has to go on that list, or it reaches
+only accounts that have never run.
+
 ## 9. What is not done
 
 * **The other phase** (§5) — `new.arena.battle` with `heroInfos` and a `squadNo`.
