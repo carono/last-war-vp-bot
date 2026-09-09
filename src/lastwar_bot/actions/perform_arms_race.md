@@ -84,6 +84,7 @@ ARGS free_minutes = 0
 ARGS stamina = 300
 ARGS rallies = 0
 ARGS squad = 1
+ARGS squads = 1,2,3,4
 ARGS level = 35
 ARGS target = auto
 
@@ -115,14 +116,14 @@ IF arms_event == 120004
     # the phase lasts four hours, so `arms_race_drone` overwrites `next_run_in` with the
     # seconds until the squad is home again — capped at the border `phase_left` carries.
     # It leaves 0 there when there is nothing left to gain, and then the border stands.
-    # A RETRY THAT IS NOT THE PHASE BORDER (#2661). `next_run_in` was filled with the
-    # border a few lines up, and the schedule books it in a `finally` — so a drone run
-    # that FAILS half way (the search finding nothing, the client busy) used to cost the
-    # WHOLE remaining phase: measured live on 2026-09-09, one attempt at 07:12, one
-    # failure, and the next turn booked 228 minutes out, past the phase's own end. Ten
-    # minutes is the row's own `retry_sec`. A run that reaches its end overwrites this
-    # with the squad's clock or with 0, exactly as before.
-    READ_LUA 600 INTO next_run_in
+    # NO RETRY CLOCK AT ALL, AND THAT IS THE POINT (#2661). This branch used to leave
+    # the phase border in `next_run_in` and, after #2661's first pass, ten minutes on a
+    # failure — and the person's answer to both was the same: «Какой нахуй повтор через
+    # 10 минут, у тебя есть пуши». A march of ours ending is announced
+    # (`push.world.march.del`); the «arms_drone_relay» trigger answers that push by
+    # playing `arms_race_drone` again, which raises the next banner with whichever squad
+    # has just come home. The border this line already holds stays as the SAFETY NET —
+    # a profile whose ear is down still works the hour, only slowly.
     CALL arms_race_drone
     # AND THE CHESTS THE BANNERS JUST PAID FOR (#2574). The phase is worked to its end,
     # so the chests are taken at the end of every round of it rather than only at the
