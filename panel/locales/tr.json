@@ -3051,6 +3051,9 @@
   "timers.stat.market.free": "bugün ücretsiz: {item} · ve {n} tane daha",
   "timers.stat.market.goods": "ücretsiz alınacak: {n}",
   "timers.stat.market.done": "ücretsiz olan her şey alındı",
+  "timers.stat.arena.closed": "şu anda arena etkinliği yok",
+  "timers.stat.arena.storm": "Fırtına Areni · puan {score}, sıra {rank} · savaş {done} / {need} · kalan hak {left}",
+  "timers.stat.arena.3v3": "3'e 3 Arena · puan {score}, sıra {rank} · galibiyet {done} / {need} · kalan hak {left}",
   "timers.stat.market.coins": "para: {coins} · satıştaki mal: {n}",
   "health.no_session": "Windows oturumu yok — {user} olarak oturum açan yok",
   "log.game.no_session": "{user} olarak oturum açan yok, bu yüzden bu profilin istemciyi başlatacağı bir Windows oturumu yok — biri oturum açana ya da «Başlat»a basana kadar yeniden denemiyorum. Oturumu açın: tools\\rdp_instance.py --bring-up --user {user}"

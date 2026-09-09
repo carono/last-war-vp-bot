@@ -174,6 +174,11 @@ a message left.
   it cannot fight; fails when two battles in a row could not be made at all.
 * `actions/arena_battles.md` — the press behind the one «Арена» row: it asks the two
   managers' own windows which event the building is running and plays that one.
+* `actions/read_arena.md` — the READING behind the card on «Таймеры» (#2688): the same
+  «which of the two is running» question, and then that event's score, rank, day count
+  and attempts in one line. `panel/runtime/arena_live.py` takes it when the client gets
+  into the game and then at the event's own end or the day's reset — the arena has no
+  push, so those two known moments are all there is, and there is no «Обновить».
 
 The panel plays it from «Таймеры» as `arena_3v3_battles` (the row's name is kept so
 nobody's schedule is thrown away) and from «Чеклист» as the «Арена» line's press.

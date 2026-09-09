@@ -3051,6 +3051,9 @@
   "timers.stat.market.free": "free today: {item} · and {n} more to take",
   "timers.stat.market.goods": "free to take: {n}",
   "timers.stat.market.done": "everything free is taken",
+  "timers.stat.arena.closed": "no arena event is running",
+  "timers.stat.arena.storm": "Storm Arena · score {score}, rank {rank} · battles {done} of {need} · attempts left {left}",
+  "timers.stat.arena.3v3": "3v3 Arena · score {score}, rank {rank} · wins {done} of {need} · attempts left {left}",
   "timers.stat.market.coins": "coins: {coins} · rows on sale: {n}",
   "health.no_session": "no Windows session — nobody is logged on as {user}",
   "log.game.no_session": "nobody is logged on as {user}, so this profile has no Windows session to start the client in — I will not try again until somebody logs on or you press «Start». Bring the session up: tools\\rdp_instance.py --bring-up --user {user}"

@@ -3051,6 +3051,9 @@
   "timers.stat.market.free": "hôm nay miễn phí: {item} · và {n} món nữa",
   "timers.stat.market.goods": "miễn phí để lấy: {n}",
   "timers.stat.market.done": "đã lấy hết phần miễn phí",
+  "timers.stat.arena.closed": "hiện không có sự kiện đấu trường nào",
+  "timers.stat.arena.storm": "Đấu trường Bão Tố · điểm {score}, hạng {rank} · trận {done} trên {need} · lượt còn lại {left}",
+  "timers.stat.arena.3v3": "Đấu trường 3 đấu 3 · điểm {score}, hạng {rank} · thắng {done} trên {need} · lượt còn lại {left}",
   "timers.stat.market.coins": "xu: {coins} · món đang bán: {n}",
   "health.no_session": "không có phiên Windows — không ai đăng nhập với tên {user}",
   "log.game.no_session": "Không ai đăng nhập với tên {user}, nên hồ sơ này không có phiên Windows nào để khởi động client — tôi sẽ không thử lại cho đến khi có người đăng nhập hoặc bạn bấm «Khởi động». Mở phiên: tools\\rdp_instance.py --bring-up --user {user}"

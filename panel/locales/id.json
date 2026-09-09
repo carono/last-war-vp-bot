@@ -3051,6 +3051,9 @@
   "timers.stat.market.free": "gratis hari ini: {item} · dan {n} lagi",
   "timers.stat.market.goods": "gratis untuk diambil: {n}",
   "timers.stat.market.done": "semua yang gratis sudah diambil",
+  "timers.stat.arena.closed": "tidak ada event arena yang berjalan",
+  "timers.stat.arena.storm": "Arena Badai · skor {score}, peringkat {rank} · pertarungan {done} dari {need} · sisa percobaan {left}",
+  "timers.stat.arena.3v3": "Arena 3 lawan 3 · skor {score}, peringkat {rank} · kemenangan {done} dari {need} · sisa percobaan {left}",
   "timers.stat.market.coins": "koin: {coins} · barang dijual: {n}",
   "health.no_session": "tidak ada sesi Windows — tidak ada yang masuk sebagai {user}",
   "log.game.no_session": "Tidak ada yang masuk sebagai {user}, jadi profil ini tidak punya sesi Windows untuk menjalankan klien — saya tidak mencoba lagi sampai ada yang masuk atau Anda menekan «Jalankan». Hidupkan sesinya: tools\\rdp_instance.py --bring-up --user {user}"

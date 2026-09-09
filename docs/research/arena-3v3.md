@@ -182,3 +182,16 @@ from «Чеклист» as the «Арена» line's press.
 * **«Арена Шторма» is no longer untouched, and it was never `gale.arena.*`** — it is
   `new.arena.*`, it is running, and the bot fights it: `docs/research/storm-arena.md`.
   The two share one row on the board, because they share one building (#2602).
+
+## The card on «Таймеры» (#2688)
+
+`actions/read_arena.md` answers «which arena is the building running, and how do we stand
+in it» in one line, and `panel/runtime/arena_live.py` keeps the last one with the moment
+it landed. The 3v3 half of it is the same reading as `read_arena_3v3.md` narrowed to what
+a card shows: the score and rank off the newest row of the battle log, the challenges
+left, and the day's wins — which stay a DASH until a battle has answered (§4), because a
+count the server has not sent is not zero.
+
+The target the card compares those wins against is the errand's own `wins` argument and
+not a number written into the reading: the server carries no such field, and the row on
+«Таймеры» is where that knob lives.

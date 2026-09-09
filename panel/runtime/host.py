@@ -332,6 +332,7 @@ class PanelRuntime:
         self._market = None             # …and the Glittering Market's own ear (#2636)
         self._shops = None              # …and the shelves of every shop (#2666)
         self._invasion = None           # …and «Вторжение зомби»'s (#2647)
+        self._arena = None              # …and the arena building's (#2688)
         self._players = None            # …and the register every source writes into
         self._secret_days = None        # …and the book of star-secret-task days (#1467)
         self._store = None              # …and this profile's database (#1398)
@@ -405,6 +406,15 @@ class PanelRuntime:
             self.shops.start()
         except Exception:                 # noqa: BLE001 — the panel still works
             self.dbg("shops").error("could not start the shop watch", exc_info=True)
+        # …AND THE ARENA'S (#2688). The building has no page either, and the person
+        # asked its card to say WHICH arena is running and how the account stands in it.
+        # One reading when the client gets into the game, then one alarm at the moment
+        # the state is known to move — the event's own end, or the day's reset — because
+        # the arena has no push at all (panel/runtime/arena_live.py).
+        try:
+            self.arena.start()
+        except Exception:                 # noqa: BLE001 — the panel still works
+            self.dbg("arena").error("could not start the arena watch", exc_info=True)
         # …AND THE INVASION'S, for the same reason again (#2647). «Вторжение зомби» is
         # what the golden zombies belong to, and a hunt started outside its window walks
         # the world scene, a squad refill, the day's free energy and a lap of the map to
@@ -551,6 +561,21 @@ class PanelRuntime:
             from .shops_live import ShopWatch
             self._shops = ShopWatch(self)
         return self._shops
+
+    @property
+    def arena(self):
+        """This profile's ear for the arena building (#2688).
+
+        On the runtime rather than on a page because the arena HAS no page: its card
+        lives on «Таймеры», which draws rows and never reads the game. One reading when
+        the client gets into the game, then one alarm at the event's own end or the day's
+        reset — the arena announces nothing, so those two known moments are all there is
+        (panel/runtime/arena_live.py).
+        """
+        if self._arena is None:
+            from .arena_live import ArenaWatch
+            self._arena = ArenaWatch(self)
+        return self._arena
 
     @property
     def invasion(self):

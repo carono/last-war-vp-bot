@@ -3051,6 +3051,9 @@
   "timers.stat.market.free": "grátis hoje: {item} · e mais {n} a pegar",
   "timers.stat.market.goods": "grátis a pegar: {n}",
   "timers.stat.market.done": "tudo o que é grátis já foi pego",
+  "timers.stat.arena.closed": "nenhum evento da arena está a decorrer",
+  "timers.stat.arena.storm": "Arena da Tempestade · pontuação {score}, posição {rank} · combates {done} de {need} · tentativas restantes {left}",
+  "timers.stat.arena.3v3": "Arena 3 contra 3 · pontuação {score}, posição {rank} · vitórias {done} de {need} · tentativas restantes {left}",
   "timers.stat.market.coins": "moedas: {coins} · itens à venda: {n}",
   "health.no_session": "sem sessão do Windows — ninguém está conectado como {user}",
   "log.game.no_session": "Ninguém está conectado como {user}, portanto este perfil não tem uma sessão do Windows onde iniciar o cliente — não tento de novo até alguém entrar ou você pressionar «Iniciar». Levante a sessão: tools\\rdp_instance.py --bring-up --user {user}"
