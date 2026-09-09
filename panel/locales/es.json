@@ -1020,7 +1020,7 @@
   "shop.kind.money": "Escaparate de pago",
   "shop.kind.other": "Tienda n.º {shop}",
   "shop.shelves": "Tiendas",
-  "shop.shelves.hint": "Las tiendas que tiene la cuenta, tal como las enumera el juego. Elige una en la tira y debajo aparecen sus artículos, con el precio y lo que queda del cupo.",
+  "shop.shelves.hint": "Las tiendas que tiene la cuenta, tal como las enumera el juego.",
   "shop.pick": "Tienda",
   "shop.age": "leído hace {age} s",
   "shop.unread": "las tiendas aún no se han leído — se leen cuando el cliente entra en el juego",

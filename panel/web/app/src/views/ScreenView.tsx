@@ -551,8 +551,11 @@ function GoodItem({ item, screen, after }: { item: ViewItem; screen: string; aft
      on the tile. The word each of them is stays as the tooltip, exactly as a `tiles`
      tile keeps it. */
   const bits = (item.facts || []).map((f, i) => (
-    <span className="bit" key={i} title={t(f.label)}>
-      {!f.value ? t(f.label) : f.translate ? t(f.value) : f.value}
+    <span className="bit" key={i}>
+      {/* THE WORD IS ON THE TILE, not only in a tooltip: a phone has no hover, and «5»
+          under a price is a number nobody can name. A fact with no VALUE is a mark and
+          its label is already the word (#1999). */}
+      {!f.value ? t(f.label) : t(f.label) + ' ' + (f.translate ? t(f.value) : f.value)}
     </span>
   ))
   const inside = (
@@ -571,7 +574,11 @@ function GoodItem({ item, screen, after }: { item: ViewItem; screen: string; aft
         {item.detail ? <span className="many">{item.detail}</span> : null}
       </span>
       <span className="gname">{item.label ? t(item.label) : item.text}</span>
-      {item.price ? <span className="gprice">{item.price}</span> : null}
+      {item.price ? (
+        <span className="gprice" title={item.price}>
+          {item.price}
+        </span>
+      ) : null}
       {bits.length ? <span className="bits">{bits}</span> : null}
     </>
   )

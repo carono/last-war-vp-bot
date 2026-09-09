@@ -1020,7 +1020,7 @@
   "shop.kind.money": "Vitrine paga",
   "shop.kind.other": "Loja n.º {shop}",
   "shop.shelves": "Lojas",
-  "shop.shelves.hint": "As lojas que a conta tem, tal como o jogo as lista. Escolha uma na faixa e os seus artigos aparecem abaixo, com o preço e o que resta da cota.",
+  "shop.shelves.hint": "As lojas que a conta tem, tal como o jogo as lista.",
   "shop.pick": "Loja",
   "shop.age": "lido há {age} s",
   "shop.unread": "as lojas ainda não foram lidas — a leitura acontece quando o cliente entra no jogo",

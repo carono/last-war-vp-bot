@@ -1020,7 +1020,7 @@
   "shop.kind.money": "Vitrine payante",
   "shop.kind.other": "Boutique n° {shop}",
   "shop.shelves": "Magasins",
-  "shop.shelves.hint": "Les boutiques dont dispose le compte, telles que le jeu les énumère. Choisissez-en une dans le bandeau et ses articles s'affichent dessous, avec le prix et le reste du quota.",
+  "shop.shelves.hint": "Les boutiques dont dispose le compte, telles que le jeu les énumère.",
   "shop.pick": "Magasin",
   "shop.age": "lu il y a {age} s",
   "shop.unread": "les magasins n'ont pas encore été lus — la lecture se fait quand le client entre dans le jeu",

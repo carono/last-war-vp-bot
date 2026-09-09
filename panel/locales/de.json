@@ -1020,7 +1020,7 @@
   "shop.kind.money": "Bezahl-Schaufenster",
   "shop.kind.other": "Shop Nr. {shop}",
   "shop.shelves": "Shops",
-  "shop.shelves.hint": "Die Shops, die das Konto hat, genau so, wie das Spiel sie auflistet. Wähle oben einen aus, und darunter stehen seine Waren mit Preis und verbleibendem Limit.",
+  "shop.shelves.hint": "Die Shops, die das Konto hat, genau so, wie das Spiel sie auflistet.",
   "shop.pick": "Shop",
   "shop.age": "vor {age} s gelesen",
   "shop.unread": "die Shops wurden noch nicht gelesen — gelesen wird, wenn der Client ins Spiel kommt",
