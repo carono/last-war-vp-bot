@@ -1447,6 +1447,22 @@ class WebApi:
         started = rt.play_async(name, clean or None, tag="web", human=True)
         return {"ok": bool(started), "busy": not started, "name": name}
 
+    def stop_action(self, name: str, profile: str | None = None) -> dict:
+        """Ask the runs of ONE scenario to halt — the window's «Стоп», on the phone.
+
+        The «Сценарии» screen could start a run and not end it, so a recipe that turned
+        out to be walking the wrong map had to be waited out or stopped by «Прервать»,
+        which ends everything the profile is doing. This is `stop_timer`'s call for a
+        scenario rather than an errand: it asks between steps, so the step in flight
+        finishes and nothing is left half-sent. Nothing running is `stopped: 0` and not
+        an error — «уже не идёт» is a perfectly good outcome of pressing stop.
+        """
+        rt = self._runtime(profile)
+        if rt.actions.resolve(name) is None:
+            return {"error": "unknown"}
+        asked = interruptmod.stop_named(rt, name)
+        return {"ok": True, "name": name, "stopped": len(asked)}
+
     # -- the client's life ----------------------------------------------------
     def game(self, action: str, profile: str | None = None) -> dict:
         """Start the client, close it, or put it back — the window's three buttons.
@@ -2361,6 +2377,8 @@ class WebApi:
             if path == "/api/triggers/now":
                 return _answer(self.set_trigger_immediate(
                     name, bool(body.get("immediate")), who))
+            if path == "/api/actions/stop":
+                return _answer(self.stop_action(name, who))
             if path == "/api/actions/run":
                 return _answer(self.run_action(name, who, body.get("args") or {}))
             if path == "/api/game":

@@ -117,7 +117,7 @@ from ..runtime import busy as busymod
 from ..runtime import errand_stats as statsmod
 from ..runtime.log_view import LogPane
 from ..runtime.paths import TOOLS, TOOLS_LIB, repo_rel
-from ..widgets import font as ui_font, numeric_spinbox
+from ..widgets import font as ui_font
 from .base import PanelTab
 from .develop_busy import BusyView
 
@@ -223,8 +223,6 @@ class DevelopTab(PanelTab):
         # drawn on is built when somebody looks at it and the profile's block arrives
         # long before that (`PanelTab.LAZY`, one level down — see the module docstring).
         self._cancel = None            # threading.Event of the run in flight, else None
-        self._scn_loop_stop = threading.Event()
-        self._scn_loop_thread: threading.Thread | None = None
         self._scn_running: str | None = None
         self._scn_editor_name: str | None = None
         self._scn_editor_path: str | None = None
@@ -235,8 +233,6 @@ class DevelopTab(PanelTab):
         #: yet, so a profile saved before anybody opened «Сценарии» keeps its choice.
         self._scn_saved_name = ""
         self._scn_args_var = statevar.string(rt.root)
-        self._scn_interval_var = statevar.string(rt.root, "60")
-        self._scn_loop_var = statevar.boolean(rt.root, False)
         self._scn_dev_var = statevar.boolean(rt.root, False)
         # -- the busy debugger (#1392), drawn by its own module --
         self._busy = BusyView(self)
@@ -524,12 +520,6 @@ class DevelopTab(PanelTab):
         self._scn_stop_btn = self.tr(ttk.Button(controls, command=self._stop_scenario,
                                                  state="disabled"), "scenarios.stop")
         self._scn_stop_btn.pack(side="left", padx=(0, 4), ipady=2)
-        self.tr(ttk.Checkbutton(controls, variable=self._scn_loop_var,
-                                 command=self._toggle_scenario_loop),
-                 "scenarios.loop").pack(side="left", padx=(8, 2))
-        self.tr(ttk.Label(controls), "scenarios.interval").pack(side="left", padx=(6, 2))
-        numeric_spinbox(controls, from_=5, to=86400, width=6,
-                    textvariable=self._scn_interval_var).pack(side="left")
         self.tr(ttk.Button(controls, command=self._refresh_actions),
                  "scenarios.refresh").pack(side="right")
         # actions/dev/ is deliberately hidden from the picker — but it also hid
@@ -585,16 +575,15 @@ class DevelopTab(PanelTab):
 
     # -- lifecycle -------------------------------------------------------------
     def panic(self) -> None:
-        """«Стоп всё»: the recording stops, and any run or loop in flight halts.
+        """«Стоп всё»: the recording stops, and any run in flight halts.
 
         The recording matters most here — the tracer's hooks are in the client's
-        Lua and the stop is what takes them back out. A running or looping
-        scenario is asked to halt at its next step, same as its own Stop button.
+        Lua and the stop is what takes them back out. A running scenario is asked to
+        halt at its next step, same as its own Stop button.
         """
         self._was_sniffing = bool(self._sniff_var.get())
         self._sniff_var.set(False)
         self._stop_sniff()
-        self._stop_scenario_loop()
         self._stop_scenario()
 
     def resume(self) -> None:
@@ -633,7 +622,6 @@ class DevelopTab(PanelTab):
         if self._log is not None:
             self._log.destroy()
             self._log = None
-        self._stop_scenario_loop()
         self._stop_sniff()
         for name in ("sniff_ready", "sniff_flush"):
             self.rt.tick.disarm(name)
@@ -904,7 +892,6 @@ class DevelopTab(PanelTab):
             # an inner page is drawn as late as the tab is (#1415).
             "scenario_selected": self._scn_editor_name or self._scn_saved_name or "",
             "scenario_args": self._scn_args_var.get(),
-            "scenario_interval": self._scn_interval_var.get(),
             # …and which producer the log pane is narrowed to. It was a top-level
             # `log_filter` while the log was the shell's (#1391); `LEGACY_KEYS` above
             # carries an older profile's answer into this block.
@@ -917,7 +904,6 @@ class DevelopTab(PanelTab):
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         self._scn_args_var.set(raw.get("scenario_args", ""))
-        self._scn_interval_var.set(str(raw.get("scenario_interval", "60")))
         self._scn_saved_name = str(raw.get("scenario_selected") or "")
         self._select_saved_scenario(self._scn_saved_name)
         self._log_filter = str(raw.get("log_filter") or "")
@@ -933,7 +919,7 @@ class DevelopTab(PanelTab):
         # The log's filter is NOT here: its pane is made when its page is first opened,
         # which is long after the shell's one pass over this list, so it traces itself
         # (see `_build_log`).
-        return [self._scn_args_var, self._scn_interval_var, self._page_var]
+        return [self._scn_args_var, self._page_var]
 
     def _sniff_timeout(self) -> float:
         return self.rt.settings.opt_float("sniff_ready_timeout", low=1.0, high=600.0)
@@ -1585,15 +1571,12 @@ class DevelopTab(PanelTab):
 
         Not a kill: the interpreter checks the flag between statements, between the
         presses of a repeat and between the polls of a WAIT, so the step in flight
-        finishes and nothing is left half-sent to the game. A looping run is stopped
-        too, or the loop would start the next pass a second later.
+        finishes and nothing is left half-sent to the game.
         """
         cancel = self._cancel
         if cancel is None:
             return
         cancel.set()
-        if getattr(self, "_scn_loop_var", None) is not None and self._scn_loop_var.get():
-            self._stop_scenario_loop()
         self.say("action", "scenarios.stopping", name=self._scn_running or "")
 
     # -- scenario editor ----------------------------------------------------
@@ -1739,50 +1722,6 @@ class DevelopTab(PanelTab):
                 pass
             return "break"
         return None                         # other Ctrl+combos pass through
-
-    def _toggle_scenario_loop(self) -> None:
-        if self._scn_loop_var.get():
-            self._start_scenario_loop()
-        else:
-            self._stop_scenario_loop()
-
-    def _start_scenario_loop(self) -> None:
-        name = self._selected_action_name()
-        if name is None:
-            self._scn_loop_var.set(False)
-            self.say("action", "scenarios.none_selected")
-            return
-        args = self._scenario_args()
-        if args is None:                      # unreadable JSON — already complained
-            self._scn_loop_var.set(False)
-            return
-        try:
-            interval = max(5, int(self._scn_interval_var.get()))
-        except ValueError:
-            interval = 60
-        self._scn_loop_stop.clear()
-        self.say("action", "scenarios.loop_on", sec=interval)
-
-        def loop() -> None:
-            while not self._scn_loop_stop.is_set():
-                self.play(name, args)
-                # Wait out the interval, but also block while a run is still busy so
-                # a slow action never overlaps its own next tick.
-                self._scn_loop_stop.wait(interval)
-                while self.rt.game.busy and not self._scn_loop_stop.is_set():
-                    self._scn_loop_stop.wait(0.5)
-
-        self._scn_loop_thread = threading.Thread(target=loop, daemon=True)
-        self._scn_loop_thread.start()
-
-    def _stop_scenario_loop(self) -> None:
-        stop = getattr(self, "_scn_loop_stop", None)
-        if stop is None:
-            return
-        stop.set()
-        if getattr(self, "_scn_loop_var", None) is not None:
-            self._scn_loop_var.set(False)
-        self.say("action", "scenarios.loop_off")
 
 
 if __name__ == "__main__":

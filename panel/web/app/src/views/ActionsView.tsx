@@ -55,6 +55,25 @@ export function ActionsView({
               >
                 {t('web.ui.run')}
               </button>
+              {/* AND THE WAY BACK OUT (#2660). The screen could start a run and not end
+                  it: a recipe walking the wrong map had to be waited out, or stopped
+                  with «Прервать», which ends everything the profile is doing. It asks
+                  between steps, so the step in flight finishes. */}
+              {action.name === running ? (
+                <button
+                  className="go"
+                  onClick={async () => {
+                    const answer = await post<PressAnswer>('/api/actions/stop', {
+                      name: action.name,
+                    })
+                    toast(answer.ok ? t('web.ui.stopped', { name: action.title })
+                                    : t('web.ui.refused'))
+                    refresh()
+                  }}
+                >
+                  {t('web.ui.stop')}
+                </button>
+              ) : null}
             </div>
           </div>
         ))}
