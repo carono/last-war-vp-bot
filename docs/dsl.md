@@ -803,6 +803,21 @@ with it:
 * a name the expression had no value for is `None`, and an expression that ERRORS sets
   every name to `None` — a missing answer, never a shifted one.
 
+**NEIGHBOURING SINGLE READS ARE JOINED FOR YOU (#2660).** A run of `READ_LUA … INTO
+<one name>` lines with nothing between them is turned into ONE call by the parser, up
+to `script_engine.READ_COALESCE_MAX` at a time — across the recipes in this repository
+that is 923 reads asked as 707 calls. It is safe to do without reading the expressions
+because `{name}` is substituted when the file is PARSED, so a read can never depend on
+a read that ran a moment before it; anything that is not such a read — a `LUA`, a `TAP`,
+an `IF`, even a `LOG` — ends the run and keeps its neighbours apart.
+
+The joining does not change what lands in a variable. Unlike the several-values form
+above, each expression keeps its OWN `pcall` inside the chunk: a `nil` still arrives as
+the string «nil», and an expression that raises leaves `None` in ITS name and nothing in
+anybody else's. So writing the reads on one line with several names is still worth doing
+where the questions belong together — it says so in the recipe — but a recipe that does
+not is no longer paying a round trip a line.
+
 Variables are then tested with a **numeric condition** in `IF`/`WHILE`:
 `<var> <op> <number>`, where `<op>` is `==`, `!=`, `>`, `<`, `>=`, `<=`. Testing a
 variable that was never set, or one holding a non-numeric value, is a runtime error.
