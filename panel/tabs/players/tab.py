@@ -252,6 +252,14 @@ BLANK_FILTER = {"text": "", "level_min": None, "level_max": None,
                 "server": "", "rect": None, "circle": None,
                 "seen": "any", "noted": False}
 
+#: HOW LONG A KEYSTROKE WAITS BEFORE THE TABLE IS REBUILT (#2660). Every letter typed
+#: into «Поиск» traces a Tk variable, and the trace used to re-sort the whole register
+#: and rebuild the tree — so «Player» was six full repaints of a few thousand rows, on
+#: the Tk thread every open profile shares. The state still moves on the keystroke; only
+#: the DRAWING waits, so a person who stops typing sees the answer a quarter of a second
+#: later and a person still typing sees nothing they were going to keep anyway.
+SEARCH_SETTLE_MS = 250
+
 #: How long a «Забыть» press from the phone stays armed. Long enough to press twice on
 #: purpose, short enough that a phone left in a pocket disarms itself.
 FORGET_ARMED_SEC = 30
@@ -316,6 +324,8 @@ class PlayersTab(PanelTab):
         #: thousand md5 sums (`tools/lib/player_faces.py`), and `web_view` runs on the Tk
         #: thread every open profile shares.
         self._faces = {}
+        #: The pending redraw of the table, or None — see :meth:`_repaint_soon`.
+        self._repaint_job = None
         #: WHICH PAGE OF THE REGISTER THE PHONE IS ON, counted from zero (#2133). State
         #: rather than a query parameter so that everything which INVALIDATES a page —
         #: a filter, a sort, a search — resets it in the one place it is set
@@ -607,6 +617,28 @@ class PlayersTab(PanelTab):
                                   else None)
         self._filter["noted"] = bool(self._noted.get())
         self._turned()
+        self._repaint_soon()
+
+    def _repaint_soon(self) -> None:
+        """Redraw the table once the typing has stopped (#2660).
+
+        Called from the Tk thread — it is a variable's own trace — so `after` is the
+        right hand-over here and `rt.post` is not. A pending redraw is cancelled rather
+        than queued behind the new one: what a person wants to see is the LAST thing
+        they typed, and every draw before it is a table nobody read.
+        """
+        if not self.drawn:
+            return
+        job, self._repaint_job = self._repaint_job, None
+        if job is not None:
+            try:
+                self.rt.root.after_cancel(job)
+            except Exception:                # noqa: BLE001 — a redraw, never the panel
+                pass
+        self._repaint_job = self.rt.root.after(SEARCH_SETTLE_MS, self._repaint_now)
+
+    def _repaint_now(self) -> None:
+        self._repaint_job = None
         self._render()
 
     def _on_choice(self, key: str, steps, index: int) -> None:
@@ -1108,6 +1140,9 @@ class PlayersTab(PanelTab):
     def _web_filter_fields(self) -> list:
         """EVERY FILTER THE WINDOW HAS, as the knobs this front-end already draws.
 
+        Every one of them SINCE #2660 — the alliance and the two map shapes were the
+        three the docstring claimed and the list did not have.
+
         `choice` and `switch` are `ui/FieldRow.tsx` — nothing new is written and the
         moved value travels back through the screen's own `set` press. They open behind
         the grid's gear, in the one modal (`CLAUDE.md`), because a form of five controls
@@ -1138,9 +1173,34 @@ class PlayersTab(PanelTab):
              "value": f.get("seen") or "any",
              "options": [{"value": s, "text": self.t("players.seen." + s)}
                          for s in SEEN_STEPS]},
+            # THE ALLIANCE, WHICH IS HOW ANYBODY ACTUALLY NARROWS THIS LIST (#2660).
+            # It was a box at the machine and nothing at all on the phone — «покажи мне
+            # только этих» is the first question a register of a few thousand players is
+            # asked, and it could only be asked at the desk. The tags are the REGISTER's
+            # own, exactly as the servers are: a list written here would offer alliances
+            # nobody has ever seen.
+            {"key": "f_alliance", "label": "players.filter.alliance", "kind": "choice",
+             "value": str(f.get("alliance") or ""),
+             "options": ([{"value": "", "text": self.t("players.server.any")}]
+                         + [{"value": a, "text": a}
+                            for a in self._registry.alliances()])},
+            # …AND THE TWO SHAPES ON THE MAP. Four boxes and three boxes are what the
+            # window gives them; on a phone that is seven number pads on one sheet, so
+            # each travels as ONE line of digits and the hint says which. Anything that
+            # is not the whole shape clears the filter rather than half-applying it —
+            # the same rule `_on_filter_changed` follows for the typed boxes.
+            {"key": "f_rect", "label": "players.filter.rect", "kind": "text",
+             "value": self._web_shape("rect"), "hint": "players.filter.rect.hint"},
+            {"key": "f_circle", "label": "players.filter.circle", "kind": "text",
+             "value": self._web_shape("circle"), "hint": "players.filter.circle.hint"},
             {"key": "f_noted", "label": "players.filter.noted", "kind": "switch",
              "value": bool(f.get("noted"))},
         ]
+
+    def _web_shape(self, key: str) -> str:
+        """A rectangle or a circle as the phone types it — `"512,377,600,450"`."""
+        shape = self._filter.get(key)
+        return ",".join(str(int(v)) for v in shape) if shape else ""
 
     def _web_sorts(self) -> list:
         """THE SORT, AS SMALL BUTTONS OVER THE GRID (#2308).
@@ -1404,6 +1464,27 @@ class PlayersTab(PanelTab):
                 if number not in steps:
                     return {"ok": False, "reason": "players.web.no_such_filter"}
                 self._filter[key] = number
+        elif which == "alliance":
+            # A tag the register has never heard of narrows to nothing and looks like a
+            # broken page, so it is refused the way a bad server number is.
+            if text and text not in self._registry.alliances():
+                return {"ok": False, "reason": "players.web.no_such_filter"}
+            self._filter["alliance"] = text
+        elif which in ("rect", "circle"):
+            want = 4 if which == "rect" else 3
+            parts = [p.strip() for p in text.replace(";", ",").split(",") if p.strip()]
+            numbers = []
+            for part in parts:
+                try:
+                    numbers.append(int(float(part)))
+                except (TypeError, ValueError):
+                    return {"ok": False, "reason": "web.ui.not_a_number"}
+            if numbers and len(numbers) != want:
+                # HALF A SHAPE IS NOT A SHAPE — the same rule the window's own boxes
+                # follow, said out loud here because a filter that quietly did nothing
+                # is exactly how «показано 0» reads from the other side.
+                return {"ok": False, "reason": "players.web.no_such_filter"}
+            self._filter[which] = tuple(numbers) if numbers else None
         else:
             return {"error": "unknown"}
         self._turned()
