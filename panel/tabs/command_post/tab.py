@@ -733,6 +733,10 @@ class SharedMissionsPane(_Pane):
         # double a line and a robbery can find its target again.
         self._rows: dict[str, dict] = {}
         self._child = None
+        # THE BOX EXISTS BEFORE ANYBODY LOOKS (#2660). It used to be made in `build`, so
+        # a panel with no window — which is every live one — had no `_listen_var` at all
+        # and the phone's own switch would have raised rather than listened.
+        self._listen_var = statevar.boolean(getattr(rt, "root", None), False)
         super().__init__(rt, tab, parent)
 
     def build(self) -> None:
@@ -748,7 +752,6 @@ class SharedMissionsPane(_Pane):
         box.pack(fill="x")
         row1 = ttk.Frame(box)
         row1.pack(fill="x")
-        self._listen_var = statevar.boolean(self.rt.root, False)
         self.rt.tr(ttk.Checkbutton(row1, variable=self._listen_var,
                                 command=self._toggle_listen),
                 "cmdpost.shared.listen").pack(side="left")
@@ -1574,8 +1577,21 @@ class CommandPostTab(PanelTab):
                                "value": str(m.steal_count or 0)}],
                     "until": float(m.expire_time) / 1000.0 if m.expire_time else None,
                 })
-        return {"title": "cmdpost.tab.ghost", "rows": rows, "fields": fields,
+        return {"title": "cmdpost.tab.ghost", "rows": rows,
+                # «СКАНИРОВАТЬ», AS A SWITCH (#2660): it runs for a fixed window and the
+                # button says «Остановить» while it does, which is a switch by another
+                # name. A passive capture child, exactly like the sniffers of #2072 —
+                # nothing is sent to the game and nothing is spent.
+                "fields": fields + [self._web_scan_field("ghost", "ghost_scan")],
                 "items": items, "empty": "cmdpost.ghost.empty"}
+
+    def _web_scan_field(self, key: str, field: str) -> dict:
+        """One page's «Сканировать» as a switch — on while its child is alive."""
+        pane = self._by_key.get(key)
+        return {"key": field, "label": "cmdpost.scan", "kind": "switch",
+                "value": bool(pane is not None
+                              and getattr(pane, "_scan_child", None) is not None),
+                "hint": "cmdpost.scan.hint"}
 
     def _ghost_item(self, coords, target) -> dict:
         """One row of the page's own list, with the press it is allowed to offer.
@@ -1624,6 +1640,14 @@ class CommandPostTab(PanelTab):
         rows = ([{"label": "cmdpost.shared.frame", "value": pane.autoloot_line()}]
                 if pane is not None else [])
         return {"title": "cmdpost.tab.shared", "items": items, "rows": rows,
+                # THE EAR ITSELF, AS A SWITCH (#2660). It was a checkbox at the machine
+                # and a reading here, which on a panel with no window is a switch NOBODY
+                # can throw — the same shape as the sniffers of #2072 and the ghost order
+                # of #2010. It starts a passive listener and never a press at the game.
+                "fields": [{"key": "shared_listen", "label": "cmdpost.shared.listen",
+                            "kind": "switch",
+                            "value": bool(pane is not None
+                                          and getattr(pane, "_child", None) is not None)}],
                 "empty": "cmdpost.shared.empty"}
 
     def _web_treasures(self, coords) -> dict:
@@ -1681,7 +1705,8 @@ class CommandPostTab(PanelTab):
                                      [self._treasure_squad()], single=True,
                                      squads=TREASURE_SQUADS)]
         return {"title": "cmdpost.tab.treasure", "rows": rows, "items": items,
-                "fields": fields, "empty": "cmdpost.treasure.empty"}
+                "fields": fields + [self._web_scan_field("treasure", "treasure_scan")],
+                "empty": "cmdpost.treasure.empty"}
 
     def _treasure_squad(self) -> int:
         """The squad the digging page is set to — the window's own box, read once."""
@@ -1703,6 +1728,33 @@ class CommandPostTab(PanelTab):
         self.rt.settings.changed()
         return {"ok": True, "squad": wanted}
 
+    def _web_press_watch(self, key: str, value) -> dict:
+        """Start or stop one of the three passive watchers, from the phone (#2660).
+
+        Two map scans and the alliance ear. None of them presses anything at the game:
+        they decode what is already crossing the wire and write it down, which is why
+        they may travel at all (`CLAUDE.md`, and the sniffers of #2072 went the same
+        way). A switch already in the asked-for position is answered «done» rather than
+        toggled, so a stale screen cannot stop a scan somebody else just started.
+        """
+        want = value is True or str(value).strip().lower() in ("1", "true", "on")
+        if key == "shared_listen":
+            pane = self._by_key.get("shared")
+            if pane is None:
+                return {"error": "unknown"}
+            if want == (getattr(pane, "_child", None) is not None):
+                return {"ok": True}
+            pane._listen_var.set(want)
+            pane._toggle_listen()
+            return {"ok": True}
+        pane = self._by_key.get("ghost" if key == "ghost_scan" else "treasure")
+        if pane is None or not hasattr(pane, "_scan"):
+            return {"error": "unknown"}
+        if want == (getattr(pane, "_scan_child", None) is not None):
+            return {"ok": True}
+        pane._scan()
+        return {"ok": True}
+
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить» re-reads the stores by repainting; no game, no press.
 
@@ -1721,6 +1773,9 @@ class CommandPostTab(PanelTab):
                       if page is not None else None)
             if answer is None and key == "treasure_squad":
                 answer = self._set_treasure_squad(args.get("value"))
+            if answer is None and key in ("ghost_scan", "treasure_scan",
+                                          "shared_listen"):
+                answer = self._web_press_watch(key, args.get("value"))
             if answer is None:
                 answer = self._web_press_ghost(key, args.get("value"))
             return answer if answer is not None else {"error": "unknown"}
