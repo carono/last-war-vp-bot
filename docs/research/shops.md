@@ -50,8 +50,32 @@ What is NOT on the row and has to be asked for:
   answers `<23994>` for some types, which is the client's own «no word for this»; the
   panel then draws the amount alone rather than a name it made up.
 
-`shopGoodsNumDic` was empty on the account this was read from even where goods had been
-bought, so **the count is asked for, never read off that dictionary**.
+`shopGoodsNumDic` is not the counter at all — it holds ONE NUMBER per shop type (how
+many rows that shelf has: `1=12 2=27 7=36 …`).
+
+**WHERE «how many have I bought» REALLY LIVES (#2670), and the whole toast storm was
+this:**
+
+    CommonShopManager.goodsInfoDic[<shop type>][<row id>] = {id, startTime, boughtTimes}
+
+`GetShopGoodsNum(row)` answers **0 for every row, always** — measured live against an
+account that had just spent five quotas. Read straight out of `goodsInfoDic` the same
+rows said `7/70035 5/5`, `7/70020 5/5`, `7/70030 1/1`, `7/70026 2500/2500`,
+`100/100001 10/10`. So the autobuy walked its whole order every run, re-sent purchases
+the server had already given out, and the client answered each with «произошла ошибка» /
+«недостаточно предметов» — a toast per refusal, which is exactly what the person
+reported. Every recipe here reads `boughtTimes` now; `GetShopGoodsNum` is not used.
+
+Two neighbours that do NOT help: `MsgDefines.UserGetShopNumsInfo` raises for every
+argument shape tried (none, int, int+array, array), and `GetCommonShopInfo(type)` sends
+but changes nothing in those tables.
+
+**AND A BALANCE IS NOT A CEILING.** Diamonds are `LuaEntry.Player.gold` (32093 on the
+account this was read from); `LuaEntry.Resource:GetCntByResType(5)` answers 0 for them,
+and answers correctly for alliance points (`1004`). For some currencies — the expedition
+shelf's `7`, honour's `40` — it answers 0 on an account that demonstrably has them, so a
+zero from it means «cannot see», never «empty»: the recipes trim by a balance only when
+they actually read a positive one.
 
 **And it does not move for a purchase made this way.** Measured live on 2026-09-09: a row
 was bought, the item arrived in the bag (1004 → 1005) and `GetShopGoodsNum` read 0 before
