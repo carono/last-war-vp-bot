@@ -2327,3 +2327,45 @@ button.good-tap:disabled { opacity: 0.6; }
   font-size: 10px;
   font-weight: 600;
 }
+
+/* -- the shop's order, apart from the rest of the shelf (#2670) ------------------
+   «Те что мы выбрали для автопокупки, должны быть отделены от остальных, можно какую-то
+   линию или на блоки разделить». A heading with a line under it, and the sections
+   stacked — the queue first, whatever shelf each of its rows came off, then the shelf. */
+.goods-part + .goods-part { margin-top: var(--gap); }
+.goods-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--card-edge);
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink-soft);
+}
+/* One item of a sortable grid — the grid cell itself, so the tile inside keeps every
+   rule it has. */
+.sortable { min-width: 0; }
+.sortable.held { opacity: 0.6; }
+
+/* THE GRIP, and it is the ONLY thing on the page that swallows a touch drag
+   (`touch-action: none`). Everything else scrolls as it always did, which is what keeps
+   a wall of tiles a page a thumb can get past. */
+.grip {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  padding: 0 5px;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--card-edge);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: grab;
+  touch-action: none;
+}
+.grip:active { cursor: grabbing; border-color: var(--accent); }

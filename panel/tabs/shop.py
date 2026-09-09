@@ -132,8 +132,12 @@ def plan_parse(raw) -> list:
             count = int(bits[3]) if len(bits) > 3 and bits[3] else 1
         except (TypeError, ValueError):
             count = 1
+        # ZERO IS «ALL OF IT» (#2670), not «none»: the person asked for a tick that says
+        # «покупать все» beside the one that says how many, and the recipe reads the same
+        # number — `count = 0` means «as many as the quota, the purse and the ceilings
+        # allow». A row is taken OUT of the order by dropping it, never by a count.
         out.append({"kind": bits[0], "shop": bits[1], "id": bits[2],
-                    "count": max(1, count)})
+                    "count": max(0, count)})
     return out
 
 
@@ -375,22 +379,72 @@ class ShopTab(PanelTab):
                 return entry["count"]
         return 1
 
-    def set_place(self, kind: str, shop: str, ident: str, place) -> None:
-        """Move one row to that place in the order. 0 takes it out of the list.
+    def is_auto(self, kind: str, shop: str, ident: str) -> bool:
+        """Is this row in the autobuy's order at all — the tick «Покупать автоматически»."""
+        return self.place_of(kind, shop, ident) > 0
 
-        A place past the end lands at the end, which is what a person typing «99» means.
+    def buys_all(self, kind: str, shop: str, ident: str) -> bool:
+        """Does the order say «as many as I can» for this row — `count = 0` (#2670)."""
+        for entry in self.plan():
+            if (entry["kind"], entry["shop"], entry["id"]) == (kind, shop, ident):
+                return int(entry["count"]) == 0
+        return False
+
+    def set_auto(self, kind: str, shop: str, ident: str, on) -> None:
+        """Put the row in the order, or take it out — the tick, not a typed number.
+
+        A row joins at the END: it is the person's own list, and something they have just
+        ticked has no claim on being bought before what they ticked yesterday. Where it
+        goes after that is decided by dragging it (#2670).
         """
-        try:
-            want = int(str(place).strip() or 0)
-        except (TypeError, ValueError):
-            return
-        entries = [e for e in self.plan()
-                   if (e["kind"], e["shop"], e["id"]) != (kind, shop, ident)]
-        if want > 0:
-            entry = {"kind": kind, "shop": shop, "id": ident,
-                     "count": self.count_of(kind, shop, ident)}
-            entries.insert(min(max(0, want - 1), len(entries)), entry)
+        want = on not in ("0", "", "false", "False", None, 0, False)
+        entries = self.plan()
+        here = [e for e in entries
+                if (e["kind"], e["shop"], e["id"]) == (kind, shop, ident)]
+        if want and not here:
+            entries.append({"kind": kind, "shop": shop, "id": ident, "count": 1})
+        elif not want and here:
+            entries = [e for e in entries
+                       if (e["kind"], e["shop"], e["id"]) != (kind, shop, ident)]
         self.set_plan(entries)
+
+    def set_all(self, kind: str, shop: str, ident: str, on) -> None:
+        """«Покупать всё» — the row's count becomes 0, which the recipe reads as «as many
+        as the quota, the purse and the ceilings allow».
+
+        Ticking it on a row that is not in the order puts it in: asking for all of
+        something the errand would never look at is not a state anybody means.
+        """
+        want = on not in ("0", "", "false", "False", None, 0, False)
+        entries = self.plan()
+        for entry in entries:
+            if (entry["kind"], entry["shop"], entry["id"]) == (kind, shop, ident):
+                entry["count"] = 0 if want else max(1, int(entry["count"] or 1))
+                self.set_plan(entries)
+                return
+        if want:
+            entries.append({"kind": kind, "shop": shop, "id": ident, "count": 0})
+            self.set_plan(entries)
+
+    def set_order(self, ids) -> None:
+        """The whole order at once, as the phone dragged it: «kind:shop:id,…».
+
+        What each row BUYS is not in that list and is not touched — only where it stands.
+        A row the phone did not name keeps its place at the end rather than being dropped:
+        a screen drawn a moment before a second front-end added something must not delete
+        what it never saw.
+        """
+        held = {(e["kind"], e["shop"], e["id"]): e for e in self.plan()}
+        out: list = []
+        for piece in str(ids or "").split(","):
+            bits = [b.strip() for b in piece.split(":")]
+            if len(bits) < 3:
+                continue
+            entry = held.pop((bits[0], bits[1], bits[2]), None)
+            if entry is not None:
+                out.append(entry)
+        out.extend(held.values())
+        self.set_plan(out)
 
     def set_count(self, kind: str, shop: str, ident: str, count) -> None:
         """How many of one row one run may buy. A row not in the order is left out."""
@@ -499,6 +553,15 @@ class ShopTab(PanelTab):
         chosen = self._pick if any(self._pick == k for k, _t, _r in shelves) else shelves[0][0]
         rows = next(r for k, _t, r in shelves if k == chosen)
         kind, _sep, shop = chosen.partition(":")
+        # THE ORDER STANDS ABOVE THE SHELF AND APART FROM IT (#2670) — the person's
+        # words: «Те что мы выбрали для автопокупки, должны быть отделены от остальных».
+        # It is the whole order, whichever shelf each row came off: a queue drawn one
+        # shelf at a time is a queue whose order says nothing.
+        queue = self.queue_items(shelves)
+        picked = {(e["kind"], e["shop"], e["id"]) for e in self.plan()}
+        rest = [self.good(kind, shop, row, group="shop.rest")
+                for row in rows[:SHELF_MAX]
+                if (kind, shop, str(row.get("id") or "")) not in picked]
         return [{"title": "shop.shelves",
                  "head": self.t("shop.age", age=int(age)) if age is not None else "",
                  "note": "shop.shelves.hint",
@@ -507,7 +570,28 @@ class ShopTab(PanelTab):
                  "fields": [{"key": "pick", "label": "shop.pick", "kind": "chips",
                              "value": chosen, "options": choices}],
                  "actions": [{"id": "autobuy", "label": "shop.autobuy.now"}],
-                 "items": [self.good(kind, shop, row) for row in rows[:SHELF_MAX]]}]
+                 "items": queue + rest}]
+
+    def queue_items(self, shelves) -> list:
+        """The autobuy's order, in ITS order, drawn as goods that can be dragged.
+
+        A row whose shelf the reading does not hold is left out rather than drawn as an
+        id: it is a row the panel cannot describe, and a tile with a number where a name
+        goes is the bug #2666 already fixed once.
+        """
+        held = {}
+        for key, _title, rows in shelves:
+            kind, _sep, shop = key.partition(":")
+            for row in rows:
+                held[(kind, shop, str(row.get("id") or ""))] = row
+        out = []
+        for entry in self.plan():
+            row = held.get((entry["kind"], entry["shop"], entry["id"]))
+            if row is None:
+                continue
+            out.append(self.good(entry["kind"], entry["shop"], row,
+                                 group="shop.queue", drag=True))
+        return out
 
     def shelf_name(self, key: str, title: str) -> str:
         """What a shelf is called on the strip.
@@ -527,7 +611,8 @@ class ShopTab(PanelTab):
         and its number when it did not — never somebody else's word for it."""
         return self._money.get(str(currency)) or ""
 
-    def good(self, kind: str, shop: str, row: dict) -> dict:
+    def good(self, kind: str, shop: str, row: dict, *, group: str = "",
+             drag: bool = False) -> dict:
         """One row of a shelf as the phone draws it: the picture, the price, the press.
 
         THE PICTURE IS THE GAME'S OWN and never a stand-in: `cell_url` composes the
@@ -560,12 +645,25 @@ class ShopTab(PanelTab):
         if row.get("cost") and not row.get("afford"):
             facts.append({"label": "shop.short", "value": ""})
         place = self.place_of(kind, shop, ident)
+        # A ROW THAT TAKES AS MANY AS IT CAN SAYS SO ON THE TILE (#2670), as a mark: a
+        # tick nobody can see from the outside is a tick nobody trusts, and the gear it
+        # lives behind is two taps away.
+        if place and self.buys_all(kind, shop, ident):
+            facts.insert(0, {"label": "shop.all.mark", "value": ""})
         item = {"text": str(row.get("name") or ident),
                 "detail": (self.t("shop.count", count=row.get("count"))
                            if int(row.get("count") or 0) > 1 else ""),
                 "facts": facts,
                 "price": price,
                 "shape": "picture"}
+        if group:
+            item["group"] = group
+        # WHAT CAN BE DRAGGED, AND WHAT IT IS CALLED WHEN IT LANDS. Only a row already in
+        # the order: dragging is how the ORDER is set, and a row outside it has no place
+        # to be moved to. The name it travels under is the same triple every press here
+        # uses, so nothing new has to be matched up on the way back.
+        if drag:
+            item["drag_id"] = "%s:%s:%s" % (kind, shop, ident)
         picture = cell_url(row.get("icon"), row.get("colour"))
         if picture:
             item["icon"] = picture
@@ -575,13 +673,21 @@ class ShopTab(PanelTab):
         # — no manager holds them and no message buys one — so a button there would be a
         # button that cannot work (docs/research/shops.md).
         if kind != "money":
+            # THE KNOBS ARE TWO TICKS AND A NUMBER (#2670), and the person named both
+            # ticks: «нужна галка покупать все, и галка покупать автоматически». WHERE a
+            # row stands is no longer typed here — it is dragged, which is what the
+            # `drag_id` above is for — so the priority box is gone rather than left
+            # beside a gesture that contradicts it.
+            all_of = self.buys_all(kind, shop, ident)
             item["options"] = [
-                {"key": "prio:%s:%s:%s" % (kind, shop, ident), "label": "shop.prio",
-                 "hint": "shop.prio.hint", "kind": "number", "min": 0, "max": 99,
-                 "value": place},
+                {"key": "auto:%s:%s:%s" % (kind, shop, ident), "label": "shop.auto",
+                 "hint": "shop.auto.hint", "kind": "switch",
+                 "value": self.is_auto(kind, shop, ident)},
+                {"key": "all:%s:%s:%s" % (kind, shop, ident), "label": "shop.all",
+                 "hint": "shop.all.hint", "kind": "switch", "value": all_of},
                 {"key": "qty:%s:%s:%s" % (kind, shop, ident), "label": "shop.qty",
                  "hint": "shop.qty.hint", "kind": "number", "min": 1, "max": 999,
-                 "value": self.count_of(kind, shop, ident)}]
+                 "value": max(1, self.count_of(kind, shop, ident))}]
             item["options_title"] = "shop.knobs"
             item["actions"] = [
                 {"id": "buy", "label": "shop.buy",
@@ -622,11 +728,19 @@ class ShopTab(PanelTab):
             if key == "pick":
                 self._pick = str(args.get("value") or "")
                 return {"ok": True}
+            # THE WHOLE ORDER, AS THE PHONE DRAGGED IT (#2670). One press for a move,
+            # not one per row: what a drag produces is a LIST, and sending it a pair at a
+            # time is how two front-ends end up disagreeing about the middle of it.
+            if key == "order":
+                self.set_order(args.get("value"))
+                return {"ok": True}
             head, _sep, tail = key.partition(":")
             bits = tail.split(":")
-            if head in ("prio", "qty") and len(bits) == 3:
-                if head == "prio":
-                    self.set_place(bits[0], bits[1], bits[2], args.get("value"))
+            if head in ("auto", "all", "qty") and len(bits) == 3:
+                if head == "auto":
+                    self.set_auto(bits[0], bits[1], bits[2], args.get("value"))
+                elif head == "all":
+                    self.set_all(bits[0], bits[1], bits[2], args.get("value"))
                 else:
                     self.set_count(bits[0], bits[1], bits[2], args.get("value"))
                 return {"ok": True}

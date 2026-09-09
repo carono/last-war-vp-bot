@@ -7,6 +7,7 @@ import { useToast } from '../ui/Toast'
 import { ErrandCard, ErrandSwitch } from '../ui/ErrandCard'
 import { FieldRow } from '../ui/FieldRow'
 import { Modal } from '../ui/Modal'
+import { Sortable } from '../ui/Sortable'
 import { firstPlace, Marked, useJump } from '../ui/Coord'
 import { WorldMap } from './WorldMap'
 import { ChatView } from './ChatView'
@@ -543,7 +544,20 @@ function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; s
  * A tile whose item carries no press — a storefront that wants money, which is not on the
  * wire at all — is drawn as the same square and does nothing when it is tapped.
  */
-function GoodItem({ item, screen, after }: { item: ViewItem; screen: string; after: () => void }) {
+function GoodItem({
+  item,
+  screen,
+  after,
+  grip,
+}: {
+  item: ViewItem
+  screen: string
+  after: () => void
+  /* THE HANDLE THAT DRAGS THIS TILE (#2670), handed in by `ui/Sortable.tsx` — the tile
+     draws it and knows nothing about how a drag works. Absent on a tile that is not in
+     a list anybody may reorder. */
+  grip?: ReactNode
+}) {
   const gear = useItemGear(item, screen, after)
   const acts = item.actions || []
   const buy = acts[0]
@@ -595,8 +609,70 @@ function GoodItem({ item, screen, after }: { item: ViewItem; screen: string; aft
           of the press. */}
       {item.badge ? <span className="prio">{item.badge}</span> : null}
       {gear.button}
+      {grip}
       {gear.sheet}
     </div>
+  )
+}
+
+/* A `grid` CARD, IN SECTIONS, WITH THE FIRST OF THEM DRAGGABLE (#2670).
+ *
+ * The person asked for two things about the shop's order — «сделай драг-енд-дроп
+ * сортировку элементов» and «те что мы выбрали для автопокупки, должны быть отделены от
+ * остальных» — and they are one shape: the items arrive already grouped (`item.group`, a
+ * locale key), each group is drawn under its own heading, and a group whose items carry
+ * a `drag_id` is drawn through `ui/Sortable.tsx` instead of a plain grid.
+ *
+ * Nothing here knows what a shop is: a group is a heading, a drag is an order, and both
+ * come off the item. The reorder travels back as the screen's own `set` press with the
+ * key `order` — no new route, and the tab decides what the list MEANS.
+ */
+function GoodsGrid({ items, screen, after }: { items: ViewItem[]; screen: string; after: () => void }) {
+  const groups: { key: string; items: ViewItem[] }[] = []
+  items.forEach((item) => {
+    const key = item.group || ''
+    const last = groups[groups.length - 1]
+    if (last && last.key === key) last.items.push(item)
+    else groups.push({ key, items: [item] })
+  })
+  const order = async (ids: string[]) => {
+    await post<PressAnswer>('/api/screen/press', {
+      id: screen,
+      action: 'set',
+      args: { key: 'order', value: ids.join(',') },
+    })
+    after()
+  }
+  return (
+    <>
+      {groups.map((group) => {
+        const draggable = group.items.every((item) => item.drag_id)
+        return (
+          <div className="goods-part" key={group.key || 'plain'}>
+            {group.key ? <div className="goods-head">{t(group.key)}</div> : null}
+            {group.items.length && draggable ? (
+              <Sortable
+                className="goods"
+                ids={group.items.map((item) => item.drag_id as string)}
+                onOrder={(ids) => void order(ids)}
+                render={(id, grip) => {
+                  const item = group.items.find((one) => one.drag_id === id)
+                  return item ? (
+                    <GoodItem item={item} screen={screen} after={after} grip={grip} />
+                  ) : null
+                }}
+              />
+            ) : (
+              <div className="goods">
+                {group.items.map((item, i) => (
+                  <GoodItem key={i} item={item} screen={screen} after={after} />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </>
   )
 }
 
@@ -929,11 +1005,7 @@ function Card({
           ))}
         </div>
       ) : gridded ? (
-        <div className="goods">
-          {drawing.map((item, i) => (
-            <GoodItem key={i} item={item} screen={screen} after={after} />
-          ))}
-        </div>
+        <GoodsGrid items={drawing} screen={screen} after={after} />
       ) : tiled ? (
         <div className="minis">
           {drawing.map((item, i) => (

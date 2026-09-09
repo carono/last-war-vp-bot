@@ -1038,6 +1038,23 @@ said so. A tile whose item carries no action is drawn the same and does nothing.
 currency), never a key; it is a field of its own rather than one fact among several
 because on a shop tile it is the line the eye goes to.
 
+**A `grid` card may arrive in SECTIONS, and one of them may be DRAGGED** (#2670). An
+item may carry `group` — a locale key — and the front-end draws a heading with a line
+under it the first time the key changes; that is how a list says «these ones are chosen
+and those are the rest» without a second card. An item may also carry `drag_id`, and a
+group whose items ALL carry one is drawn through `panel/web/app/src/ui/Sortable.tsx`
+instead of a plain grid: each tile grows a grip, dragging it reorders the group under the
+finger, and releasing sends ONE `set` press with the key `order` and the whole list as
+its value. What that list means is the TAB's to decide — the front-end knows only that
+the person put them in that order.
+
+`ui/Sortable.tsx` is the only draggable list on this front-end and it stays that way:
+improve it, never fork it. Two things about it are not decoration. The drag is on a GRIP
+rather than on the whole tile, because a tile that captured every touch is a page a thumb
+cannot scroll past; the grip is the one element on the page with `touch-action: none`. And
+it is POINTER events, so a mouse and a finger are the same code — no separate touch path
+to keep in step.
+
 **A choice whose options are the page's own tabs is a STRIP, not a dropdown** (#2670). A
 field may say `kind = "chips"`, and it is drawn as the `.chip` the card strip and the sort
 bar already wear — every option on screen, a press sends the screen's own `set`. Reach for

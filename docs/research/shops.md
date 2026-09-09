@@ -146,6 +146,27 @@ The goods are `layout: "grid"`: a small square tile with the item's own picture,
 one purchase gives stamped on its corner, the name on one line and the price under it —
 the game's own shape, and the whole tile is the purchase, which is the game's own gesture.
 
+**HOW THE AUTOBUY'S ORDER IS SET (#2670), and it is no longer a typed number.** The
+person's words: «В настройках товара нужна галка покупать все, и галка покупать
+автоматически. Сортировка по приоритету, сделай драг-енд-дроп… Те что мы выбрали для
+автопокупки, должны быть отделены от остальных». So:
+
+* **the gear on a tile holds two ticks and a number** — «Покупать автоматически» (is the
+  row in the order at all: on puts it at the END of the list, off drops it), «Покупать
+  всё» (`count = 0` in the plan, which the recipe reads as «as many as the quota, the
+  purse and the ceilings allow»), and how many per run for a row that is not «all»;
+* **where a row stands is DRAGGED**, by the grip in the corner of its tile, and the whole
+  new order travels back as one `set` press with the key `order`. The priority box is
+  gone: a number and a gesture that both claim to set the same thing is one of them
+  lying;
+* **the order is drawn as its own section above the shelf**, whatever shelf each of its
+  rows came off, so the queue and its order are visible from any tab of the shop. A row
+  in the order is not drawn a second time among the shelf's own goods.
+
+The plan string is unchanged in shape — `kind:shop:id:count`, comma separated — so
+nothing had to be migrated; what changed is that **0 now means «all of it»** rather than
+being clamped up to 1, and the recipe reads it that way (`actions/autobuy_shop_goods.md`).
+
 ## 5. The shelves' own names
 
 The client keeps them as locale KEYS — `CommonShopManager:GetDecorationShopName()` answers
