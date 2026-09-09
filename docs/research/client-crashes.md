@@ -562,6 +562,20 @@ minutes instead of one. A person's press and an event-driven fire (a push, a tri
 «сразу») are never spread — they have no clock to come round on. The rule is written in
 `CLAUDE.md` and pinned by `tests/test_panel_timers.py`.
 
+**The first live restart on the fix showed where the rest of the burst was**, and it is
+worth recording because the clock was not it: the panel restarted at 11:16:17 on
+2026-09-09, the gate held everything while the client was down, and when the link went
+green six PARKED FIRES were released inside one second (11:17:04). The client crashed at
+11:17:08 — `UnityPlayer.dll`, four seconds later. So a fire coming off the gate is spread
+on the same gap; it is already minutes late and `GATE_KEEP_SEC` (600 s) leaves room for
+thirty of them to drain at 20 s apart.
+
+What is still NOT spread, and is a question for the person rather than an agent: the
+tabs' first readings on `bus.GAME_READY`. The same boot put ten of them in the log inside
+thirty seconds (`read_drone_chips`, `read_arms_race`, `read_vs_score`, …). Each is one
+chunk rather than a scenario, and delaying one shows a board a minute older than it could
+be — which is exactly the kind of visible change this work may not make on its own.
+
 ### Where the suspensions actually come from
 
 Read off 765 minute-lines of the live panel's own tally (`hijack_call.STATS`, four

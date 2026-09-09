@@ -1785,6 +1785,52 @@ def test_a_gated_fire_carries_its_reason_and_who_fired_it():
     assert rows[0]["by"] == timersmod.BY_TRIGGER, rows[0]
 
 
+def test_the_gate_opening_lets_them_through_one_at_a_time():
+    """The boot's real burst, and it is spread too (#2667).
+
+    Everything fired while the client was down waits behind the gate, and the gate opens
+    the moment the link goes green — which used to release the whole pile in one second,
+    at the one moment the client can least take it. Measured live on 2026-09-09: the
+    panel restarted at 11:16:17, six parked fires were released at 11:17:04 and the
+    client crashed at 11:17:08.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    cat = _catalogue()
+    shut = ["timers.log.skip_game"]
+    sched = timersmod.TimerScheduler(
+        store=_store(tmp), catalogue=lambda: cat, config=lambda: cat.default_config(),
+        runner=lambda t: True, log=lambda key, **fmt: None,
+        gate=lambda name=None: shut[0], spread=timersmod.SPREAD_SEC)
+
+    def _fire(name):
+        return type("_E", (), {"name": name, "scenario": (), "immediate": False,
+                               "interval_sec": 0, "retry_sec": 0})()
+
+    for name in ("push_one", "push_two", "push_three"):
+        sched.submit(_fire(name))
+    sched.drain()
+    assert len(sched.gated()) == 3, sched.gated()
+
+    was_retry = timersmod.GATE_RETRY_SEC
+    timersmod.GATE_RETRY_SEC = 0.0                 # not what this test is about
+    try:
+        shut[0] = None                             # …the client is back
+        sched.enqueue_due()
+        assert len(sched.gated()) == 2, \
+            "the pile came off the gate at once: %r" % (sched.gated(),)
+        sched.enqueue_due()
+        assert len(sched.gated()) == 2, "a second one followed inside the gap"
+
+        sched._gate_at = 0.0                       # the gap has passed
+        sched.enqueue_due()
+        assert len(sched.gated()) == 1, sched.gated()
+    finally:
+        timersmod.GATE_RETRY_SEC = was_retry
+    # …and nothing was lost on the way: what is not queued is still parked.
+    still_here = {n for n in sched.pending() if n.startswith("push_")}
+    assert len(still_here) + len(sched.gated()) == 3, (still_here, sched.gated())
+
+
 def test_finished_and_cancelled_errands_stay_readable_in_recent():
     """Nothing that leaves the queue vanishes without a trace (#1500)."""
     tmp = Path(tempfile.mkdtemp())
