@@ -2272,18 +2272,17 @@ class SecretTasksTab(PanelTab):
         self.post(self._retitle_sweep)
 
     def _sweep_stop(self) -> None:
-        """Disown the waypoints still pending — the press that was missing."""
+        """Disown the waypoints still pending — by playing the recipe that does it.
+
+        It used to assemble the Lua here and run it through the evaluator: the last
+        hand-driven press on this bar, and the thing `CLAUDE.md` forbids. The ability is
+        `actions/stop_map_sweep.md`, and it is played `human=True` because the lap it
+        interrupts is holding the claim — a person pressing «Остановить» is exactly the
+        case that gate exists for (#1910).
+        """
         self.say("coord", "log.coord.sweep_stopped")
-
-        def work() -> None:
-            try:
-                import lua_actions
-                self.rt.game.evaluator().run(lua_actions.fast_map_sweep_stop(),
-                                             marker="ACT", settle=0.6)
-            except Exception:                 # noqa: BLE001 — a stop is never fatal
-                pass
-
-        threading.Thread(target=work, daemon=True).start()
+        if not self.rt.play_async("stop_map_sweep", tag="coord", human=True):
+            self.say("coord", "log.coord.sweep_stop_failed")
         self._sweep_ended()
 
     def _retitle_sweep(self) -> None:

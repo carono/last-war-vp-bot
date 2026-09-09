@@ -353,6 +353,7 @@
   "log.coord.clicked": "kliknięcie → {where}",
   "log.coord.jumping": "skok do {where}",
   "log.coord.sweep_stopped": "objazd zatrzymany — kamera zostaje tam, gdzie doszła",
+  "log.coord.sweep_stop_failed": "nie udało się zatrzymać obchodu — gra jest zajęta czymś innym",
   "log.coord.sweep_unwatched": "monitorowanie jest wyłączone — okrążenie poruszy mapę, ale nikt nie zapisze tego, co przyjdzie",
   "log.coord.sweep_wiped": "lista wyczyszczona pod ten objazd: {n} wiersz(y) — zapełni się tym, co jest teraz na mapie",
   "log.coord.sweeping": "jedno okrążenie mapy, «{level}», około {secs} s",

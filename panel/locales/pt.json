@@ -353,6 +353,7 @@
   "log.coord.clicked": "clique → {where}",
   "log.coord.jumping": "pulando para {where}",
   "log.coord.sweep_stopped": "a volta foi parada — a câmera fica onde chegou",
+  "log.coord.sweep_stop_failed": "não foi possível parar a volta — o jogo está ocupado com outra coisa",
   "log.coord.sweep_unwatched": "o monitor está desligado — a volta moverá o mapa, mas ninguém anotará o que chegar",
   "log.coord.sweep_wiped": "a lista foi esvaziada para esta volta: {n} linha(s) — enche de novo com o que está no mapa agora",
   "log.coord.sweeping": "uma volta pelo mapa, «{level}», cerca de {secs} s",

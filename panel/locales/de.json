@@ -353,6 +353,7 @@
   "log.coord.clicked": "Klick → {where}",
   "log.coord.jumping": "springe zu {where}",
   "log.coord.sweep_stopped": "die Runde wurde gestoppt — die Kamera bleibt, wo sie war",
+  "log.coord.sweep_stop_failed": "der Rundgang ließ sich nicht stoppen — das Spiel ist anderweitig beschäftigt",
   "log.coord.sweep_unwatched": "die Überwachung ist aus — die Runde bewegt die Karte, aber niemand schreibt auf, was ankommt",
   "log.coord.sweep_wiped": "die Liste wurde für diese Runde geleert: {n} Zeile(n) — sie füllt sich mit dem, was jetzt auf der Karte ist",
   "log.coord.sweeping": "eine Runde über die Karte, «{level}», etwa {secs} s",

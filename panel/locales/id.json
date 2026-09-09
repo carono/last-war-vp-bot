@@ -353,6 +353,7 @@
   "log.coord.clicked": "klik → {where}",
   "log.coord.jumping": "melompat ke {where}",
   "log.coord.sweep_stopped": "keliling dihentikan — kamera tetap di tempat terakhir",
+  "log.coord.sweep_stop_failed": "putaran tidak bisa dihentikan — permainan sedang sibuk",
   "log.coord.sweep_unwatched": "pemantauan mati — putaran akan menggerakkan peta, tetapi tidak ada yang mencatat hasilnya",
   "log.coord.sweep_wiped": "daftar dikosongkan untuk keliling ini: {n} baris — akan terisi dengan yang ada di peta sekarang",
   "log.coord.sweeping": "satu putaran peta, «{level}», sekitar {secs} d",

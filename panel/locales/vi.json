@@ -353,6 +353,7 @@
   "log.coord.clicked": "bấm → {where}",
   "log.coord.jumping": "đang nhảy tới {where}",
   "log.coord.sweep_stopped": "đã dừng vòng quét — camera ở lại nơi vừa tới",
+  "log.coord.sweep_stop_failed": "không thể dừng vòng quét — trò chơi đang bận việc khác",
   "log.coord.sweep_unwatched": "giám sát đang tắt — vòng quét sẽ di chuyển bản đồ nhưng không ai ghi lại thứ nhận được",
   "log.coord.sweep_wiped": "đã xoá danh sách cho vòng này: {n} dòng — nó sẽ đầy lại bằng những gì đang có trên bản đồ",
   "log.coord.sweeping": "một vòng bản đồ, «{level}», khoảng {secs} giây",

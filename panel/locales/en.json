@@ -353,6 +353,7 @@
   "log.coord.clicked": "click → {where}",
   "log.coord.jumping": "jumping to {where}",
   "log.coord.sweep_stopped": "the lap was stopped — the camera stays where it got to",
+  "log.coord.sweep_stop_failed": "the lap could not be stopped — the game is busy with something else",
   "log.coord.sweep_unwatched": "the monitor is off — the lap will move the map and nobody will write down what arrives",
   "log.coord.sweep_wiped": "the list was emptied for this lap: {n} row(s) — it fills again with what is on the map now",
   "log.coord.sweeping": "one lap of the map, «{level}», about {secs}s",
