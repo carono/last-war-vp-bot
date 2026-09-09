@@ -8,7 +8,7 @@ Method: no live probing was needed for the reading half. One recorded whole-serv
 at camera height 600 (`results/lv_a600.jsonl`, git-ignored) holds 6 723 player-base
 tiles, 183 alliance-city tiles and 23 more, which is enough to answer «what is on a
 tile» by counting rather than by guessing. The panel side is `panel/tabs/players/`, the
-listener `tools/lib/world_index.py`, and the rule `panel/kept.py`.
+listener `tools/lib/world_index.py`, and the removal rule (`docs/panel-storage.md`).
 
 ---
 
@@ -108,9 +108,12 @@ The capture keeps a **live view** (`world_map.json`, `players` — evicted after
 minutes, capped at 20 000 because a lap delivers 6 723 tiles in about three seconds) and
 the panel keeps the **register** (`players.json`, per profile).
 
-**A row leaves the register for exactly one reason: a person pressed «Забыть».** The
-store is a `panel/kept.py` `Kept` that accepts `PERSON_ASKED` and nothing else, so a
-removal for any other reason raises where it is written. A lap that drove over nobody, a
+**A row leaves the register for exactly one reason: a person pressed «Забыть».** It was
+written here that the store is a `panel/kept.py` `Kept` accepting `PERSON_ASKED` and
+nothing else, so that a removal for any other reason would raise where it is written —
+that was the PLAN and it was never carried out; the type had no callers and was deleted
+in #2660. The rule is unchanged and is kept by the register having no other removal call
+at all. A lap that drove over nobody, a
 capture that was not running, a client that was not logged in and a panel that was
 restarted are all the same event — «this read said nothing» — and none of them may take
 a name off the list. Everything else the page does is a FILTER: «давно не виден» hides a
