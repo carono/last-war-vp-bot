@@ -679,8 +679,13 @@ class ShopTab(PanelTab):
         # price line keeps.
         money = self.shelf_money(rows)
         word = self.money_name(money)
+        # A CURRENCY THE CLIENT HAS NO WORD FOR IS ITS NUMBER, said as one (#2670): the
+        # game answers an unresolved key for the diamonds themselves, and «Потолок
+        # трат: 5» is not a sentence. «валюта №5» is the same honesty the unnamed
+        # shelves keep — a number, spelled as a number, never a name invented here.
         caps = ([{"key": "cap:" + money, "label": "shop.cap",
-                  "label_fmt": {"currency": word or money},
+                  "label_fmt": {"currency": word or self.t("shop.money.other",
+                                                           money=money)},
                   "hint": "shop.cap.hint", "kind": "number",
                   "min": self.NO_CAP, "max": 1000000,
                   "value": self.cap_of(money)}]

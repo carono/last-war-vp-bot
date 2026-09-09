@@ -1036,6 +1036,7 @@
   "shop.knobs": "Autozakup",
   "shop.cap": "Limit wydatków: {currency}",
   "shop.cap.hint": "Ile własnej waluty tego sklepu może wydać jeden przebieg autozakupu. −1 — bez limitu, 0 — nic.",
+  "shop.money.other": "waluta nr {money}",
   "shop.caps.title": "Ustawienia sklepu",
   "shop.opt.caps": "Limity wydatków wg waluty",
   "shop.opt.caps.hint": "«waluta:limit» po przecinku — ta sama wartość, którą wpisuje koło zębate każdego sklepu. Waluta niewymieniona nie ma limitu: zdobywa się ją grą, a limit towaru już ją ogranicza. 5 to diamenty.",
