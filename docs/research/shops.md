@@ -70,6 +70,29 @@ Two neighbours that do NOT help: `MsgDefines.UserGetShopNumsInfo` raises for eve
 argument shape tried (none, int, int+array, array), and `GetCommonShopInfo(type)` sends
 but changes nothing in those tables.
 
+**A SHELF IS PAID FOUR DIFFERENT WAYS, and two of them are not in the resource table at
+all** (#2670). Measured live:
+
+| currency | where the balance is | read |
+|---|---|---|
+| `5` (diamonds) | `LuaEntry.Player.gold` | 32093 |
+| `1004` (alliance points) | `LuaEntry.Resource:GetCntByResType` | 90630 |
+| `7` (expedition) | the row's `currencyId` as a BAG ITEM (`900002`) | 49881 |
+| `40` (honour) | the row's `resourceitem_id` (`7016`) via `ResourceItemDataManager` | 11 |
+
+The last two are the EXCHANGE shelves — their success line is «обмен успешен» — and both
+answer 0 through `GetCntByResType`. A gate that only knew that table saw «cannot see» and
+let the whole order through: one exchange went out, the items were gone, and the rest was
+sent anyway, one refusal per row. That is the «спамит что не хватает предметов» the person
+reported.
+
+**AND THE PICKS COUNT THE PURSE DOWN.** Every row is chosen before the first message
+leaves, so the game cannot know what our own earlier picks have already promised — the
+first purchase landed and every later one was judged against a balance that no longer
+existed. The recipe keeps a running `paid` per currency now. A purse it cannot read at
+all, or one whose number is smaller than a single price (honour reads 11 against 30000 —
+the unit is not what it looks like), buys exactly ONE attempt per currency per run.
+
 **AND A BALANCE IS NOT A CEILING.** Diamonds are `LuaEntry.Player.gold` (32093 on the
 account this was read from); `LuaEntry.Resource:GetCntByResType(5)` answers 0 for them,
 and answers correctly for alliance points (`1004`). For some currencies — the expedition
