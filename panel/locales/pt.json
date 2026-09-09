@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "Entrar sozinho nas mobilizações do Exercício da Aliança",
   "autorally.drill.frame": "Exercício da Aliança",
   "autorally.drill.hint": "Clique num esquadrão para mudar o papel dele: vazio — fica em casa · ✓ — entra · 🚩 — lidera (levanta o estandarte). Só um pode liderar; tire o atual para mover o estandarte.",
+  "autorally.drill.leader": "Esquadrão líder",
   "autorally.drill.squads": "Esquadrões:",
   "autorally.frame": "Mobilização Automática",
   "autorally.group": "Ataque em grupo automático — tudo o que ele faz sozinho",

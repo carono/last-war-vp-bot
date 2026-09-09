@@ -64,7 +64,7 @@ from ..base import PanelTab, TriggerSpec
 from . import autorally as autorallymod
 from . import limits as rallylimits
 from . import roster as rostermod
-from .autorally import AutoRallyPage
+from .autorally import AutoRallyPage, RALLY_ELITE_MAX, RALLY_ELITE_MIN
 
 # The kind vocabulary, read off the live game config (tools/lib/rally_kinds.py, #1317).
 import coords                                                         # noqa: E402
@@ -781,7 +781,8 @@ class RallyTab(PanelTab):
                       # that is served, translated and editable is still MISSING if it is
                       # not on the route somebody walks to it by. So they are fields of
                       # «Автостяг» again: one card, one subject, nothing to discover.
-                      "fields": list(switches["fields"]) + self._web_squad_fields(),
+                      "fields": (list(switches["fields"]) + self._web_squad_fields()
+                                 + self._web_drill_fields()),
                       "items": list(page["items"]),
                       "rows": page["rows"]})
         # …AND THE CAPS, as tiles with a picture and a gear each (#2051). They were fields
@@ -865,6 +866,45 @@ class RallyTab(PanelTab):
         """
         return [squad_picker.field(self.rt, "squads", "squads.title",
                                    self.autorally.join_squads())]
+
+    def _web_drill_fields(self) -> list:
+        """The DRILL's squads, the banner they raise, and the elite level (#2660).
+
+        They were readings here and boxes at the machine, which is the half-answer this
+        file has already had to undo twice: a person who can SEE that squad 3 is out of
+        the drill and cannot put it back has been told something and given nothing. The
+        window's tri-state button is two questions to a thumb — who is in, and which of
+        them carries the banner — so it is drawn as the one picker plus a choice, and the
+        rule «one squad leads» is enforced where it always was (`cycle_drill_squad`).
+
+        Not a second copy of anything: these write `AutoRally`'s own `_drill_state` and
+        `_create_flagship`, the very fields the window's buttons walk.
+        """
+        page = self.autorally
+        inside = [s for s in RALLY_SQUADS
+                  if page._drill_state.get(s, autorallymod.DRILL_OFF)
+                  != autorallymod.DRILL_OFF]
+        leader = next((s for s in RALLY_SQUADS
+                       if page._drill_state.get(s) == autorallymod.DRILL_FLAG), None)
+        none = self.t("rally.state.none")
+        return [
+            squad_picker.field(self.rt, "drill_squads", "autorally.drill.squads",
+                               inside),
+            {"key": "drill_flag", "label": "autorally.drill.leader",
+             "kind": opt_value.CHOICE, "value": (str(leader) if leader else ""),
+             "options": ([{"value": "", "text": none}]
+                         + [{"value": str(s), "text": str(s)} for s in inside])},
+            # The creator raises a banner, so at most ONE squad carries it — a choice
+            # rather than a picker, which is what the window's own buttons enforce.
+            {"key": "create_flag", "label": "autorally.create.squads",
+             "kind": opt_value.CHOICE,
+             "value": (str(page._create_flagship) if page._create_flagship else ""),
+             "options": ([{"value": "", "text": none}]
+                         + [{"value": str(s), "text": str(s)} for s in RALLY_SQUADS])},
+            {"key": "create_elite", "label": "autorally.create.elite",
+             "kind": opt_value.NUMBER, "value": page.create_elite_level(),
+             "min": RALLY_ELITE_MIN, "max": RALLY_ELITE_MAX},
+        ]
 
     def _web_roster_cards(self) -> list:
         """The live block, as the phone draws it: a card per banner (#1324).
@@ -1254,6 +1294,8 @@ class RallyTab(PanelTab):
                 # on, so the write is the whole list and never a diff the panel has to
                 # guess at.
                 return self._web_press_join_squads(raw)
+            if key in ("drill_squads", "drill_flag", "create_flag", "create_elite"):
+                return self._web_press_drill(key, raw)
             return self._web_press_switch(key, bool(raw))
         if action in ("launch", "stop"):
             # The window's own two buttons under the manual form. `_launch` refuses an
@@ -1476,6 +1518,58 @@ class RallyTab(PanelTab):
         want = set(squad_picker.chosen_from(value))
         for squad in RALLY_SQUADS:
             self.set_join_squad(squad, squad in want)
+        return {"ok": True}
+
+    def _web_press_drill(self, key: str, value) -> dict:
+        """The drill's squads and the creator's banner, written from the phone (#2660).
+
+        Straight into `AutoRally`'s own state — the same two fields the window's buttons
+        walk — and then the buttons are REDRAWN on the Tk thread, so a window left open
+        beside the phone does not go on showing yesterday's marks. `rt.post` and never
+        `root.after`: this runs on the web server's thread (`panel/tabs/base.py`).
+        """
+        page = self.autorally
+        if key == "create_elite":
+            raw = str(value if value is not None else "").strip()
+            if not raw.isdigit() or not (RALLY_ELITE_MIN <= int(raw) <= RALLY_ELITE_MAX):
+                return {"ok": False, "reason": "web.ui.not_a_number"}
+            page._create_elite_var.set(str(int(raw)))
+            self.rt.settings.changed()
+            return {"ok": True}
+        if key == "create_flag":
+            raw = str(value if value is not None else "").strip()
+            if raw and (not raw.isdigit() or int(raw) not in RALLY_SQUADS):
+                return {"error": "unknown"}
+            page._create_flagship = int(raw) if raw else None
+            self.rt.post(page.paint_create_squads)
+            self.rt.settings.changed()
+            return {"ok": True}
+        if key == "drill_flag":
+            raw = str(value if value is not None else "").strip()
+            if raw and (not raw.isdigit() or int(raw) not in RALLY_SQUADS):
+                return {"error": "unknown"}
+            for squad in RALLY_SQUADS:
+                if page._drill_state.get(squad) == autorallymod.DRILL_FLAG:
+                    page._drill_state[squad] = autorallymod.DRILL_ON
+            if raw:
+                # A squad cannot LEAD a drill it is not in — the window's own rule, and
+                # the reason picking a leader also puts it in rather than refusing.
+                page._drill_state[int(raw)] = autorallymod.DRILL_FLAG
+            self.rt.post(page.paint_drill_squads)
+            self.rt.settings.changed()
+            return {"ok": True}
+        want = set(squad_picker.chosen_from(value))
+        for squad in RALLY_SQUADS:
+            was = page._drill_state.get(squad, autorallymod.DRILL_OFF)
+            if squad in want:
+                # A squad already leading keeps the banner; one being added joins as an
+                # ordinary member.
+                page._drill_state[squad] = (was if was != autorallymod.DRILL_OFF
+                                            else autorallymod.DRILL_ON)
+            else:
+                page._drill_state[squad] = autorallymod.DRILL_OFF
+        self.rt.post(page.paint_drill_squads)
+        self.rt.settings.changed()
         return {"ok": True}
 
     def _web_press_run(self, key: str, value) -> dict:

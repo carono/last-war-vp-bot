@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "Unirse solo a las reuniones del Ejercicio de Alianza",
   "autorally.drill.frame": "Ejercicio de Alianza",
   "autorally.drill.hint": "Pulsa un escuadrón para cambiar su papel: vacío — se queda · ✓ — se une · 🚩 — lidera (alza el estandarte). Solo uno puede liderar; quita el actual para mover el estandarte.",
+  "autorally.drill.leader": "Escuadrón líder",
   "autorally.drill.squads": "Escuadrones:",
   "autorally.frame": "Reunión Automática",
   "autorally.group": "Concentración automática — todo lo que hace solo",

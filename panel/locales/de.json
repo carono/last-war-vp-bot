@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "Versammlungen der Allianz-Übung selbsttätig beitreten",
   "autorally.drill.frame": "Allianz-Übung",
   "autorally.drill.hint": "Klicke eine Truppe an, um ihre Aufgabe zu ändern: leer — bleibt zu Hause · ✓ — tritt bei · 🚩 — führt (hebt das Banner). Nur eine Truppe kann führen; hebe die aktuelle Wahl auf, um das Banner zu versetzen.",
+  "autorally.drill.leader": "Anführende Truppe",
   "autorally.drill.squads": "Truppen:",
   "autorally.frame": "Automatische Versammlung",
   "autorally.group": "Auto-Sammelangriff — alles, was er allein macht",

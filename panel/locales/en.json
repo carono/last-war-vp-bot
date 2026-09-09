@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "Join Alliance Exercise rallies automatically",
   "autorally.drill.frame": "Alliance Exercise",
   "autorally.drill.hint": "Click a squad to change what it does: blank — stays home · ✓ — joins · 🚩 — leads (raises the banner). Only one squad can lead; clear the current one to move the banner.",
+  "autorally.drill.leader": "Leading squad",
   "autorally.drill.squads": "Squads:",
   "autorally.frame": "Auto Rally",
   "autorally.group": "Auto rally — everything it does by itself",
