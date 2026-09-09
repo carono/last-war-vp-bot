@@ -110,6 +110,26 @@ def gated_chunk(btn, cap: int) -> str:
 #: a macro's press from «two seconds of asking, 90 ms of pressing» into a press.
 LINK_VERDICT_TTL = 10.0
 
+#: HOW OFTEN A `WAIT` ASKS (#2660). Most conditions worth waiting on are a round trip to
+#: the game's Lua VM at about 0.15 s each (`docs/research/game-call-latency.md`), and the
+#: step used to be a flat 0.3 s — four hundred questions over the three minutes
+#: `launch_game` allows, on the one link everything else in the panel is queuing for.
+#: The first :data:`WAIT_STEP_QUICK_SEC` keep the old step, so a short wait notices its
+#: sign exactly as fast as before; after that the step grows by
+#: :data:`WAIT_STEP_GROWTH` up to :data:`WAIT_STEP_MAX`, which is also the longest
+#: anything now waits past the moment its sign appears.
+WAIT_STEP_MIN = 0.3
+WAIT_STEP_MAX = 1.5
+WAIT_STEP_GROWTH = 1.5
+WAIT_STEP_QUICK_SEC = 3.0
+
+#: The same, for a `TAP`'s own «did the value move» poll. It watches for a change the
+#: SERVER makes, which does not arrive sooner for being asked about more often — and it
+#: used to ask every 0.05 s, i.e. as fast as the link could answer, for the whole of the
+#: button's `wait`.
+VERIFY_STEP_MIN = 0.1
+VERIFY_STEP_MAX = 0.5
+
 #: `{(port, windows user): (expires_at, verdict)}` — see :meth:`Interpreter._link_verdict`.
 #: Process-wide because the panel runs every profile's scenarios in one process, and
 #: keyed by the client so that two profiles never read each other's answer.
@@ -2336,13 +2356,21 @@ class Interpreter:
         # meaningless until the press opened the thing it reads. Poll for ANY readable
         # value in that case, which is still more than «the Lua did not raise».
         deadline = time.monotonic() + max(0.0, float(btn.wait))
+        step = VERIFY_STEP_MIN
         while True:
             now = self._eval_lua_value(btn.verify_lua)
             if now is not None and now != before:
                 return True
             if time.monotonic() >= deadline:
                 return False
-            time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+            # …AND THIS ONE GROWS TOO (#2660). Every turn of it is `_eval_lua_value` —
+            # one more round trip to the same VM the press just used — and a 0.05 s
+            # sleep between them meant the loop asked as fast as the link could answer,
+            # for as long as the button's `wait` allowed. The value it is watching for is
+            # set by the SERVER's reply, which does not arrive faster for being asked
+            # about more often.
+            time.sleep(min(step, max(0.0, deadline - time.monotonic())))
+            step = min(step * WAIT_STEP_GROWTH, VERIFY_STEP_MAX)
 
     def _relay(self, btn, lines) -> None:
         """Say the marker lines this button DECLARED the run is entitled to hear (#1416).
@@ -3781,6 +3809,15 @@ class Interpreter:
         deadline = started + stmt.timeout
         self._ready_why = None
         said: "str | None" = None
+        # THE STEP GROWS (#2660). Most conditions worth waiting on — `scene`, a squad's
+        # state, whether the client is in the game — are a round trip to the game's Lua
+        # VM, and a round trip is about 0.15 s (`docs/research/game-call-latency.md`).
+        # A fixed 0.3 s step therefore asked the client four hundred times over the three
+        # minutes `launch_game` waits, and every one of those questions is a moment the
+        # exclusive link was not being used for anything else. The first few seconds keep
+        # the old step, so a short wait is as quick to notice as it ever was; after that
+        # it backs off, and the longest anything waits past its sign is WAIT_STEP_MAX.
+        step = WAIT_STEP_MIN
         while time.monotonic() < deadline:
             self._check_cancel()
             if self.eval_condition(stmt.condition, stmt.line_no):
@@ -3795,7 +3832,9 @@ class Interpreter:
                 said = self._ready_why
                 self._log(f"WAIT {stmt.condition} — {said} "
                           f"({time.monotonic() - started:.1f}s)")
-            time.sleep(0.3)
+            time.sleep(min(step, max(0.0, deadline - time.monotonic())))
+            if time.monotonic() - started >= WAIT_STEP_QUICK_SEC:
+                step = min(step * WAIT_STEP_GROWTH, WAIT_STEP_MAX)
         raise ScriptRuntimeError(
             f"line {stmt.line_no}: WAIT {stmt.condition} timed out after {stmt.timeout:.1f}s"
             + (f" — {self._ready_why}" if self._ready_why else "")
