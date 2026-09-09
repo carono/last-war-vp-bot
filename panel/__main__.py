@@ -4281,28 +4281,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _release_busy(self) -> None:
         self._game.release()
 
-    def _act(self, chunk: str, tag: str, label: str, settle: float = 1.2) -> None:
-        if not self._claim_busy():
-            self._say("panel", "busy")
-            return
-        self._log_put(f"[{tag}] {label}")
-
-        def work() -> None:
-            try:
-                if not self._link_lands() and not self._ensure_link():
-                    self._say(tag, "log.no_link")
-                    return
-                for ln in self._client.run(chunk, marker="ACT", settle=settle):
-                    self._log_put(f"[{tag}] {ln}")
-                self._say(tag, "log.done")
-            except Exception as exc:
-                self._say(tag, "log.error", error=exc)
-            finally:
-                self._release_busy()
-                self._later(400, self._refresh_status)
-
-        threading.Thread(target=self._bound(work), daemon=True).start()
-
     # -- game lifecycle -----------------------------------------------------
     #
     # Both buttons used to refuse a profile whose client lives in another Windows
