@@ -91,7 +91,7 @@ class ProfileHealth:
     is a live bug in this panel (#1295) rather than a theoretical one.
     """
 
-    __slots__ = ("_health", "_client", "_at", "_server_at")
+    __slots__ = ("_health", "_client", "_at", "_server_at", "_user")
 
     def __init__(self) -> None:
         self._health = profile_health.unread()
@@ -99,6 +99,8 @@ class ProfileHealth:
         #: second line. `None` until something has read this profile.
         self._client: "Message | None" = None
         self._at = 0.0
+        #: …and the session's login, for the same reason (see :meth:`update`).
+        self._user = ""
         #: When the game SERVER last answered — `0.0` while it never has. Green rests on
         #: that moment (#2061), so both front-ends draw its age beside the colour.
         self._server_at = 0.0
@@ -135,6 +137,10 @@ class ProfileHealth:
         looks like — into «клиент запущен, но в игру не вошёл».
         """
         self._client = getattr(probe, "message", None)
+        #: The Windows login this profile looks in, kept for the SENTENCE (#2677):
+        #: «нет сессии Windows — пользователь {user} не залогинен» names it, and a
+        #: `Message` built without it prints the placeholder itself.
+        self._user = str(getattr(probe, "user", "") or "")
         self._server_at = float(server_at or 0.0)
         self._health = profile_health.verdict(
             running=bool(getattr(probe, "running", False)), plumbing=plumbing,
@@ -183,7 +189,8 @@ class ProfileHealth:
         """WHY this colour, as a `Message` — the tooltip's first line, and the log's."""
         health = self._health
         key = _WORDS.get(health.reason, "health.no_client")
-        return Message(key, health.reason.replace("_", " "), error=health.error or "")
+        return Message(key, health.reason.replace("_", " "),
+                       error=health.error or "", user=self._user)
 
     def lines(self, t) -> list:
         """The tooltip, in the panel's language: why, and WHICH READING said so.
