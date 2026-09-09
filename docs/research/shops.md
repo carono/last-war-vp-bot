@@ -171,6 +171,15 @@ person's words: «В настройках товара нужна галка п�
   (`kind:shop:id:count`), so «per shelf» is a way of READING it, not a second copy of
   anything (`CLAUDE.md`: one state, several places that draw it).
 
+**A ROW WHOSE QUOTA IS SPENT IS GREY AND HAS NO BUTTON** (#2670, the person's words:
+«Сери иконку предмета, если всё выкуплено»). The tile's picture greys, «осталось 0»
+becomes the mark «выкуплено», and the panel does not send the press at all — a picture
+that only LOOKS spent while its button still puts `user.shop.buy.new` on the wire is a
+refusal a second late. `web_press` refuses it too, off the last reading, for the press
+that arrives from an older screen. The KNOBS stay: the quota comes back on the shelf's
+own reset, and putting a row into the queue is exactly what somebody does while looking
+at one they have just used up.
+
 The plan string is unchanged in shape — `kind:shop:id:count`, comma separated — so
 nothing had to be migrated; what changed is that **0 now means «all of it»** rather than
 being clamped up to 1, and the recipe reads it that way (`actions/autobuy_shop_goods.md`).

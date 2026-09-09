@@ -1029,6 +1029,7 @@
   "shop.price": "Harga",
   "shop.cost": "{amount} {currency}",
   "shop.left": "sisa",
+  "shop.spent": "habis",
   "shop.free": "gratis",
   "shop.count": "×{count}",
   "shop.place": "No. {place}",

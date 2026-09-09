@@ -1029,6 +1029,7 @@
   "shop.price": "Prezzo",
   "shop.cost": "{amount} {currency}",
   "shop.left": "rimasti",
+  "shop.spent": "esaurito",
   "shop.free": "gratis",
   "shop.count": "×{count}",
   "shop.place": "n. {place}",

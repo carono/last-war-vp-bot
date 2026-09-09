@@ -1029,6 +1029,7 @@
   "shop.price": "Giá bán",
   "shop.cost": "{amount} {currency}",
   "shop.left": "còn lại",
+  "shop.spent": "đã hết",
   "shop.free": "miễn phí",
   "shop.count": "×{count}",
   "shop.place": "số {place}",

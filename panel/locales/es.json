@@ -1029,6 +1029,7 @@
   "shop.price": "Precio",
   "shop.cost": "{amount} {currency}",
   "shop.left": "quedan",
+  "shop.spent": "agotado",
   "shop.free": "gratis",
   "shop.count": "×{count}",
   "shop.place": "n.º {place}",
