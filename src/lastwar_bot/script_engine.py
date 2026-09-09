@@ -571,6 +571,13 @@ class ReadLuaStmt(_Stmt):
     expr: str
     var: str
     names: tuple = ()
+    #: SEVERAL INDEPENDENT EXPRESSIONS, one per name, asked in ONE call (#2660). Set by
+    #: :func:`_coalesce_reads` when neighbouring reads are joined; empty for a read
+    #: written as one line in a recipe. It is not the same thing as `names` with one
+    #: `expr`: there the expression returns several values, here each name has an
+    #: expression of its own and its own `pcall`, so one failing read cannot take its
+    #: neighbours' answers with it.
+    exprs: tuple = ()
 
 
 @dataclass(slots=True)
@@ -955,6 +962,57 @@ def prepare_source(text: str, variables: dict | None) -> tuple[str, dict]:
     return substitute(body, merged), merged
 
 
+#: HOW MANY NEIGHBOURING READS ARE ASKED IN ONE CALL (#2660). A round trip to the game's
+#: Lua VM costs about 0.15 s whatever it carries (`docs/research/game-call-latency.md`),
+#: so `refresh_secret_tasks` — 41 consecutive `READ_LUA` lines — spent six seconds asking
+#: and almost none of it reading. The cap is here so that one chunk stays something a
+#: person can read in a log and so a recipe with a hundred reads does not build a chunk
+#: nobody can debug.
+READ_COALESCE_MAX = 12
+
+
+def _coalesce_reads(statements: list) -> list:
+    """Join NEIGHBOURING `READ_LUA … INTO <one name>` statements into one call.
+
+    Safe to do without looking at what the expressions say, and that is the whole reason
+    it is done here rather than by hand in 124 recipes: `{name}` is substituted when the
+    file is PARSED (:func:`substitute`), so a read's expression can never depend on a
+    read that ran a moment earlier — there is nothing between two neighbouring reads for
+    the merge to lose. Anything that is not such a read ends the run, so a `LUA`, a
+    `TAP`, an `IF` or a `LOG` between two reads keeps them apart exactly as before.
+
+    Each expression keeps its OWN `pcall` inside the chunk, so the merged read answers
+    per name exactly as the separate ones did: a value, or `None` for the one that
+    failed. A multi-name read (`INTO a, b, c`) is left alone — it already is one call.
+    """
+    out: list = []
+    run: list = []
+
+    def flush() -> None:
+        if not run:
+            return
+        if len(run) == 1:
+            out.append(run[0])
+        else:
+            names = tuple(stmt.var for stmt in run)
+            out.append(ReadLuaStmt(
+                text=run[0].text, line_no=run[0].line_no,
+                expr=run[0].expr, var=names[0], names=names,
+                exprs=tuple(stmt.expr for stmt in run)))
+        run.clear()
+
+    for stmt in statements:
+        if isinstance(stmt, ReadLuaStmt) and len(stmt.names) == 1 and not stmt.exprs:
+            run.append(stmt)
+            if len(run) >= READ_COALESCE_MAX:
+                flush()
+            continue
+        flush()
+        out.append(stmt)
+    flush()
+    return out
+
+
 def _parse_block(lines, i, base_indent):
     statements: list[Any] = []
     while i < len(lines):
@@ -971,7 +1029,7 @@ def _parse_block(lines, i, base_indent):
             )
         stmt, i = _parse_one(lines, i, indent)
         statements.append(stmt)
-    return statements, i
+    return _coalesce_reads(statements), i
 
 
 def _parse_one(lines, i, indent):
@@ -2965,6 +3023,9 @@ class Interpreter:
         Numeric results are stored as int/float so numeric conditions work; anything
         else is stored as its string form. A Lua-side error stores None and logs it.
         """
+        if stmt.exprs:
+            self._do_read_lua_batch(stmt)
+            return
         if len(stmt.names) > 1:
             self._do_read_lua_many(stmt)
             return
@@ -3025,6 +3086,51 @@ class Interpreter:
         said = []
         for i, name in enumerate(stmt.names):
             value = _coerce(parts[i].strip()) if i < len(parts) else None
+            self.ctx.vars[name] = value
+            said.append(f"{name} = {value!r}")
+        self._log("READ_LUA " + ", ".join(said))
+
+    def _do_read_lua_batch(self, stmt: ReadLuaStmt) -> None:
+        """Neighbouring reads, joined by :func:`_coalesce_reads` — ONE call, N answers.
+
+        Each expression is wrapped in its own `pcall` and its own `tostring`, so what
+        lands in a variable is byte for byte what the same line asked on its own would
+        have put there: a value, `"nil"` where the expression answered nothing, and
+        `None` where it raised — with the error said in the log under the name it
+        belongs to rather than as one verdict over the whole group.
+        """
+        parts = []
+        for expr in stmt.exprs:
+            parts.append(
+                "out[#out+1] = one(function() return %s end)" % expr)
+        chunk = (
+            "local out = {} "
+            "local function one(f) "
+            "local ok,v = pcall(f) "
+            'if not ok then return "ERR:"..tostring(v) end '
+            'if v == nil then return "nil" end '
+            "return tostring(v) end "
+            + " ".join(parts) + " "
+            'CS.UnityEngine.Debug.LogError("RLUA "..table.concat(out, "	"))'
+        )
+        raw: "str | None" = None
+        for ln in self._run_lua(chunk, marker="RLUA"):
+            if "RLUA " in ln:
+                raw = ln.split("RLUA ", 1)[1]
+        pieces = (raw or "").split(self.READ_SEP)
+        said = []
+        for i, name in enumerate(stmt.names):
+            token = pieces[i].strip() if i < len(pieces) else ""
+            if raw is None or (i >= len(pieces)):
+                value = None
+            elif token.startswith("ERR:"):
+                # Said under the NAME it belongs to, in the words the single-line read
+                # uses. What a group must never do is report one failure as if every
+                # read in it had failed.
+                self._log(f"READ_LUA {name} error: {token[4:]}")
+                value = None
+            else:
+                value = _coerce(token)
             self.ctx.vars[name] = value
             said.append(f"{name} = {value!r}")
         self._log("READ_LUA " + ", ".join(said))
