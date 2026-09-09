@@ -27,16 +27,15 @@ were two different answers to the same question: a tile the list had dropped as 
 could still be a target here, and a tile the list was drawing as ready might not be one.
 The list is the model every source fills (the capture, the client's own tables, the
 alliance pushes) and the one every actuality check already runs against, so it is the
-only sensible thing to choose out of. What is CHOSEN then travels to the child by name
-(`steal_secret_task.py --targets uuid:server,…`): the child re-derives nothing, which is
-the same disagreement one step further down.
+only sensible thing to choose out of.
 
-AND THE ROBBERY ITSELF IS A SCENARIO (#1188). The child is run with `--queue-only`: it
-parks the chosen tiles in the game VM and stops, and `actions/steal_secret_task.md` does
-the pressing. Two steps rather than one because the recipe SPENDS a queue and does not
-fill one — `TAP` takes no arguments, so a robbery cannot name its victim in the DSL —
-and one step rather than none because `CLAUDE.md` is binding: the ability lives in the
-scenario, and the panel plays it.
+AND THE ROBBERY IS ONE STEP (#1272). What is written above used to end differently, and
+the correction is worth keeping: the poll spawned `steal_secret_task.py --queue-only` to
+park the chosen tiles in the game VM and then played the recipe to press them, on the
+reasoning that `TAP` takes no arguments so a robbery cannot name its victim in the DSL.
+True of `TAP` and never true of the RECIPE, which takes `ARGS` — and the parking child
+was measured at five seconds, in the middle of a race decided in fractions of one. The
+queue travels as an argument now and `_rob` plays `actions/steal_secret_task.md` once.
 
 Two paths on purpose. The listener robs a *shared* secret task the instant its push
 crosses the wire (< 1 s), which is the case a human used to win; the poll is the slower

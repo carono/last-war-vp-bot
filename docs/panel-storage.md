@@ -114,7 +114,7 @@ exists to remove in the first place.
 | `world_treasures.json` | what the treasure scan currently sees (a capture checkpoint — stays a file) |
 | `world_map.json` | what the SECOND listener inside the secret-task capture currently sees off the same map responses (#1289, #1335) — mines, player trucks, alliance trains and now players. A live view: rewritten every tick, stale rows evicted, each kind capped. A capture checkpoint — stays a file. It also carries WHERE THE CAMERA HAS BEEN since #2018 (`coverage`, written by `WorldIndex.checkpoint()`), which the panel folds into the `world_coverage` blob in `panel.db` — so the grid crosses a file on its way into the database. Asked and answered by the person, «Оставь»: this file is the CHANNEL between the panel and the child it spawned, not the store; the durable copy is the blob (`docs/research/world-schematic-map.md`) |
 | `world_state_monsters.json` → **`panel.db`** | the world «Monsters» page's own gathered list — the ONE of the four world pages that keeps one at all; mines, trains and trucks are re-read from `world_map.json` above and never had a file of their own. **In the database since #1465** as the blob `world_state_monsters`, and **in a TABLE of its own since #1963** (`monsters`). It outgrew the blob and the measurement says by how much: 31 828 rows, 9.8 MB of JSON, re-serialised and written **from the Tk thread** on every poll of the follow clock — 0.20–0.32 s, five times a minute, per profile. A table writes the fifty-odd rows a poll actually saw, ages out with one `DELETE … WHERE seen_at < ?` instead of a rewrite of the survivors, and answers «только текущая зона» with a `WHERE server = ?`. Both older homes — the blob and, before it, the file — are carried across once by `store.monsters_import_blob_once`, which also drops the blob row so the megabytes stop looking like a live checkpoint |
-| `players.json` → **`panel.db`** | the «Игроки» REGISTER — every player this account has met, kept for good (#1335, #1371). **In the database since #1398**; the file is imported once and then kept beside it as `players.json.imported`. Written through ONE entrance, `rt.players.sighted(records, source=…)` (`panel/runtime/players.py`), by everything that already sees a player: the map sweep's checkpoint, the live block of banners, the chat, the alliance roster and the owner of a tile. Every field carries `src[field] = [source, when]`, stamped when the VALUE changes and never on a mere re-confirmation — a lap re-lists four thousand unchanged players every twenty seconds. Not `world_map.json`: that one is what the capture can see right now, this one only ever grows and gives a row up for one reason, which is a person pressing «Забыть» (`panel/kept.py`, `PERSON_ASKED`). Holds what the map says (name, HQ level, alliance tag and name, coordinates, server, country), what a profile reply added if one ever arrived (power, army power, kills, SVIP), the note the GAME holds on that player, and the mark the PERSON wrote here — which no lap may touch |
+| `players.json` → **`panel.db`** | the «Игроки» REGISTER — every player this account has met, kept for good (#1335, #1371). **In the database since #1398**; the file is imported once and then kept beside it as `players.json.imported`. Written through ONE entrance, `rt.players.sighted(records, source=…)` (`panel/runtime/players.py`), by everything that already sees a player: the map sweep's checkpoint, the live block of banners, the chat, the alliance roster and the owner of a tile. Every field carries `src[field] = [source, when]`, stamped when the VALUE changes and never on a mere re-confirmation — a lap re-lists four thousand unchanged players every twenty seconds. Not `world_map.json`: that one is what the capture can see right now, this one only ever grows and gives a row up for one reason, which is a person pressing «Забыть» (`panel/tabs/players/tab.py`; the `Kept` type this used to name was deleted in #2660 — it was never adopted, and the rule it described is enforced by the register itself). Holds what the map says (name, HQ level, alliance tag and name, coordinates, server, country), what a profile reply added if one ever arrived (power, army power, kills, SVIP), the note the GAME holds on that player, and the mark the PERSON wrote here — which no lap may touch |
 | `rally_log.jsonl` | rally-monitor output. Append-only — stays a file |
 | `rally_limits.json` | the per-KIND daily caps the auto-join obeys — a SETTING a person edits from the «Авторалли» page; since #2017 it is a row in `panel.db` (`settings:rally_limits`) rather than a file. Since #1317 the kinds are the game's own species (Doom Elite, Doom Walker, Zombie Boss, the General's Trial's two instructors, the Alliance Exercise, the Zombie Invasion). It carries a `v`, which is what tells a pre-rename `doom_elite` from the species of that name and whether a seed of ours that changed has been carried across (`v = 3`: the Wandering Mummy Warlord went back to the ordinary twenty, and a file still holding the old seed is moved once and rewritten). Every kind ships capped at 20 and the four Golden ones uncapped. **The total daily ceiling is NOT here** — it is one number in the tab's config block (`autorally.daily_max`), judged against the game's own count, and neither is the soldier floor (`autorally.min_soldiers`) |
 | `rally_counts.json` → **`panel.db`** | what the panel has counted today, per kind — a COUNTER, not a setting, so unlike its `rally_limits.json` neighbour it moved (#1465). The counts carry the client's own `day_end_ms`, so they reset on the SERVER's day. **In the database since #1465**, under the name `rally_counts` |
@@ -219,8 +219,8 @@ opened» — which is what `docs/research/profile-isolation.md` is a list of. A 
 On a live profile `players.json` was 11.5 MB and 17 374 rows. `json.load` took 0.97 s,
 `json.dump` took 1.45 s, and the whole file was rewritten on **every change** — which,
 while a lap of the map is running, is almost every tick. The «Игроки» page then read all
-of it into memory to filter and sort it in Python. None of that is a bug in
-`panel/kept.py`; it is what a whole-file JSON list costs once it stops being small.
+of it into memory to filter and sort it in Python. None of that is a bug in the
+register; it is what a whole-file JSON list costs once it stops being small.
 
 ### What is in it, and what is deliberately not
 
@@ -292,30 +292,26 @@ overwriting, months later, what a person has since edited.
 writers in threads and in a separate process, the batching, the rollback, and the four
 promises the import makes.
 
-## A list whose removals name a reason — `panel/kept.py`
+## A list whose removals name a reason — the rule, and the type that was deleted
 
 Three of these files lost data in one day, in the same way each time: a read came back
 EMPTY or FAILED, was treated as authority, and rows a person had paid for with laps of the
-map were deleted. #1272 answered it for the ★ tile list as a prose rule; #1282 put the
-same invariant in a type, so the other stores can have it without anybody re-deriving it.
+map were deleted. **The rule that came out of it stands and is binding:** a row leaves a
+list for its own countdown running out, or because the game answered ABOUT THAT ROW that
+it is gone, or because a person pressed «очистить» — and «the read came back empty» is
+deliberately not one of them, because an empty read is the ordinary shape of a client that
+was busy, not logged in, or answering something else.
 
-A `Kept` list has **no `clear()` and no way to assign its contents** — a wipe fails where
-it is written. It removes rows through one door, and that door takes a reason:
+#1272 wrote the rule out for the ★ tile list, in prose, with every removal site naming the
+clause it executes and an audit test that walks every door (`THE_LIST_RULE` in
+`panel/tabs/secret_tasks/tab.py`). That is where it lives and it works.
 
-| reason | what it means |
-|---|---|
-| `EXPIRED` | the row's own countdown ran out |
-| `GAME_SAID_GONE` | the game answered ABOUT this row and said it is not there |
-| `PERSON_ASKED` | somebody pressed «очистить» — the only clause that may empty a list |
-
-Each store declares which of the three it accepts, so a list that may only shed expired
-rows refuses the others by construction. **«The read came back empty» is deliberately not
-a reason**: `merge()` only ever adds and updates, so an empty read removes nothing and a
-partial one keeps the fields it did not mention. Writes are atomic — a panel killed
-mid-save reads back the previous whole list, never half of one.
-
-`tests/test_panel_kept.py` pins all of it, including the absence of every name a wipe
-might plausibly be written under.
+**#1282 also put the invariant in a TYPE — `panel/kept.py`, a list with no `clear()`, one
+removal call taking `EXPIRED` / `GAME_SAID_GONE` / `PERSON_ASKED`, and a `merge()` that
+could only add — and no store was ever migrated onto it.** It sat for months with eleven
+tests and no callers, which reads to the next person like machinery something depends on,
+so #2660 deleted it. The design is in that commit's history if the next list wants it;
+what is NOT optional is the rule above, however a given store chooses to enforce it.
 
 ## Why there were two directories called `profiles`
 

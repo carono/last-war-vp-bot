@@ -349,9 +349,14 @@ class AutoRallyPage:
             var.set(bool(wanted))
         self.rt.settings.changed()
 
-    # -- the caps file (its own per-profile file, not the settings blob) -----
+    # -- the per-KIND caps: a row of their own in `panel.db`, not this page's block --
     def save_limits(self) -> None:
-        """Persist the edited per-type caps to the profile's rally_limits.json."""
+        """Persist the edited per-type caps — `settings:rally_limits` in `panel.db`.
+
+        It said «the profile's rally_limits.json» until #2660 and the file has not been
+        the home since #2017: everything is in the database, and a profile that still
+        had the file had it carried across once (`panel/runtime/settings_files.py`).
+        """
         if self.rt.settings.loading or not self._limit_vars or self._limits is None:
             return
         limits = self._limits

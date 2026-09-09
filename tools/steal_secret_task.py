@@ -94,8 +94,13 @@ class NotLoggedIn(RuntimeError):
 DETAIL_TRIES, DETAIL_PAUSE = 3, 0.7
 
 
-def _num(line: str, key: str) -> int:
-    """Pull `key=<int>` out of an `ACT …` log line (0 when absent)."""
+def num_field(line: str, key: str) -> int:
+    """Pull `key=<int>` out of an `ACT …` log line (0 when absent).
+
+    PUBLIC because the panel reads the same lines (#2660). It was `_num` and the ★ tab
+    called it through the underscore, which is a module promising nothing and a caller
+    depending on it anyway — the shape a rename breaks silently.
+    """
     if key + "=" not in line:
         return 0
     tail = line.split(key + "=", 1)[1].split()[0]
@@ -103,6 +108,11 @@ def _num(line: str, key: str) -> int:
         return int(tail)
     except ValueError:
         return 0
+
+
+#: The name it had while it was private. Kept so a script somebody wrote against it
+#: does not break on a rename that was ours to make.
+_num = num_field
 
 
 def read_status(ev) -> tuple[int, int]:
@@ -125,7 +135,7 @@ def read_status(ev) -> tuple[int, int]:
         game_clock.note(server_ms, sent, back)
     for ln in lines:
         if "status left=" in ln:
-            return _num(ln, "left"), _num(ln, "queued")
+            return num_field(ln, "left"), num_field(ln, "queued")
     return 0, 0
 
 
@@ -148,7 +158,7 @@ def resolve_uuid(ev, x: int, y: int, server: int) -> int:
         # per coordinate.
         for ln in ev.run(read, MARKER, 0.4, early=True):
             if "detail uuid=" in ln:
-                uuid = _num(ln, "uuid")
+                uuid = num_field(ln, "uuid")
                 if uuid:
                     return uuid
     return 0
@@ -223,7 +233,7 @@ def apply_cfg_rank(ev, tasks, say=print, cache=None) -> int:
         for line in ev.run(lua_actions.dispatch_task_cfg_rank(missing), MARKER, 1.0):
             if " CFG cfg=" not in line:
                 continue
-            cfg, lvl, spec = _num(line, "cfg"), _num(line, "lvl"), _num(line, "spec")
+            cfg, lvl, spec = num_field(line, "cfg"), num_field(line, "lvl"), num_field(line, "spec")
             if cfg:
                 ranks[cfg] = (lvl, spec)
                 if cache is not None:
@@ -339,7 +349,7 @@ def _vm_raidable_tasks(ev) -> list:
     return _read_vt(ev, lua_actions.secret_task_raidable_alliance())
 
 
-def _vm_all_alliance_tasks(ev) -> list:
+def all_alliance_tasks(ev) -> list:
     """Every *live* alliance secret task, dispatch finished or still counting down.
 
     The wider read of `secret_task_all_alliance()` (not-expired, a slot free, but the
@@ -349,6 +359,10 @@ def _vm_all_alliance_tasks(ev) -> list:
     tell the states apart against the local clock.
     """
     return _read_vt(ev, lua_actions.secret_task_all_alliance())
+
+
+#: …and this one's old private name, for the same reason.
+_vm_all_alliance_tasks = all_alliance_tasks
 
 
 def _read_vt(ev, chunk: str) -> list:

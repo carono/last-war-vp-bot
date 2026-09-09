@@ -3808,10 +3808,10 @@ class SecretTasksTab(PanelTab):
                                    stealer.MARKER, 1.0) or ():
                     if " CFG cfg=" not in line:
                         continue
-                    cfg = stealer._num(line, "cfg")
+                    cfg = stealer.num_field(line, "cfg")
                     if cfg:
-                        ranks[cfg] = (stealer._num(line, "lvl"),
-                                      stealer._num(line, "spec"))
+                        ranks[cfg] = (stealer.num_field(line, "lvl"),
+                                      stealer.num_field(line, "spec"))
             except Exception:            # noqa: BLE001 — no daemon, no game: keep digits
                 ranks = {}
             self.after(lambda: self._cfg_landed(ranks))
@@ -3933,7 +3933,7 @@ class SecretTasksTab(PanelTab):
         its own (:meth:`_roster`).
         """
         import steal_secret_task
-        tasks = steal_secret_task._vm_all_alliance_tasks(self.rt.game.evaluator())
+        tasks = steal_secret_task.all_alliance_tasks(self.rt.game.evaluator())
         return self._abroad_only([t for t in tasks if t.starred])
 
     def _answerable(self, row, answered: bool, source: str) -> bool:
@@ -6459,7 +6459,7 @@ class SecretTasksTab(PanelTab):
     def _poll_work(self, keys: list) -> None:
         try:
             import steal_secret_task
-            live = {str(t.uuid): t for t in steal_secret_task._vm_all_alliance_tasks(
+            live = {str(t.uuid): t for t in steal_secret_task.all_alliance_tasks(
                 self.rt.game.evaluator())}
         except Exception:                     # noqa: BLE001 — a failed read proves nothing
             live = None

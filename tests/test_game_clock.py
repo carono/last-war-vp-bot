@@ -153,7 +153,7 @@ def test_a_read_with_no_clock_in_it_is_a_client_that_cannot_answer():
             return []                              # no clock, no tasks, no error
 
     try:
-        steal._vm_all_alliance_tasks(_LoginScreen())
+        steal.all_alliance_tasks(_LoginScreen())
     except steal.NotLoggedIn:
         pass
     else:
