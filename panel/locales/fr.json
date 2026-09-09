@@ -1031,7 +1031,7 @@
   "shop.left": "restant",
   "shop.free": "gratuit",
   "shop.count": "×{count}",
-  "shop.place": "priorité {place}",
+  "shop.place": "n° {place}",
   "shop.knobs": "Achat automatique",
   "shop.auto": "Acheter automatiquement",
   "shop.auto.hint": "Met cet article dans la file de l'achat automatique. Il se place à la fin ; faites-le glisser par la poignée pour le remonter.",

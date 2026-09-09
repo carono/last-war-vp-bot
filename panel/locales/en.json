@@ -1031,7 +1031,7 @@
   "shop.left": "left",
   "shop.free": "free",
   "shop.count": "×{count}",
-  "shop.place": "priority {place}",
+  "shop.place": "#{place}",
   "shop.knobs": "Autobuy",
   "shop.auto": "Buy automatically",
   "shop.auto.hint": "Puts this item in the autobuy's queue. It joins at the end; drag it by the handle to move it up.",

@@ -159,9 +159,17 @@ person's words: «В настройках товара нужна галка п�
   new order travels back as one `set` press with the key `order`. The priority box is
   gone: a number and a gesture that both claim to set the same thing is one of them
   lying;
-* **the order is drawn as its own section above the shelf**, whatever shelf each of its
-  rows came off, so the queue and its order are visible from any tab of the shop. A row
-  in the order is not drawn a second time among the shelf's own goods.
+* **EVERY SHELF HAS AN ORDER OF ITS OWN**, and it is drawn as its own section above that
+  shelf's goods — the person's correction, in their words: «Очередь для автопокупки у
+  каждого магазина своя, не нужно все в одном месте выводить, меняем магазин, меняется
+  очередь». So the block shows THIS shelf's queue, «№1» means «first on this shelf», and
+  a drag moves only the rows it names: the named rows' slots in the plan are refilled in
+  the new order, so the other shelves keep theirs. A row in the queue is not drawn a
+  second time among the shelf's own goods.
+
+  The STORE is still the one plan string — a row already carries the shop it belongs to
+  (`kind:shop:id:count`), so «per shelf» is a way of READING it, not a second copy of
+  anything (`CLAUDE.md`: one state, several places that draw it).
 
 The plan string is unchanged in shape — `kind:shop:id:count`, comma separated — so
 nothing had to be migrated; what changed is that **0 now means «all of it»** rather than

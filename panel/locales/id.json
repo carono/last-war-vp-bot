@@ -1031,7 +1031,7 @@
   "shop.left": "sisa",
   "shop.free": "gratis",
   "shop.count": "×{count}",
-  "shop.place": "prioritas {place}",
+  "shop.place": "No. {place}",
   "shop.knobs": "Beli otomatis",
   "shop.auto": "Beli otomatis",
   "shop.auto.hint": "Menaruh barang ini di antrean pembelian otomatis. Masuk di akhir; seret gagangnya untuk menaikkannya.",

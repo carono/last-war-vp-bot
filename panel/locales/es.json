@@ -1031,7 +1031,7 @@
   "shop.left": "quedan",
   "shop.free": "gratis",
   "shop.count": "×{count}",
-  "shop.place": "prioridad {place}",
+  "shop.place": "n.º {place}",
   "shop.knobs": "Compra automática",
   "shop.auto": "Comprar automáticamente",
   "shop.auto.hint": "Pone este artículo en la cola de la compra automática. Entra al final; arrástralo por el asa para subirlo.",

@@ -2316,10 +2316,16 @@ button.good-tap:disabled { opacity: 0.6; }
   font-size: 12px;
   background: var(--card);
 }
+/* WHERE THE ROW STANDS IN THE QUEUE, and it is a NUMBER (#2670): «приоритет 1» spelled
+   out was a bar across the item's own picture, on a tile 106 px wide. */
 .good .prio {
   position: absolute;
   top: 2px;
   left: 2px;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 0 5px;
   border-radius: 6px;
   background: var(--accent);
