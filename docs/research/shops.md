@@ -111,7 +111,12 @@ window has asked the server for the page, and the panel does not open windows.
 * `actions/read_shops.md` — one round trip against the client's own memory, no question on
   the wire. It packs every row of every shelf into one line (fifteen fields, the name
   last) and the money shelf into another.
-* `actions/buy_shop_goods.md` — one row, by a person's press, with the price said first.
+* `actions/buy_shop_goods.md` — one row, by a person's press, with the price said first,
+  and the modal it ends in shut behind it: the recipe puts in the reward EAR of #2027 /
+  #2642 (`watch_reward_popups`) before it sends and drains it afterwards
+  (`collect_reward_popups`), so the window the client raises is closed by the client the
+  instant it opens — and only a window the game has just called a reward for. Never
+  `DestroyAllWindow` (#2670).
 * `actions/autobuy_shop_goods.md` — the order of preference, walked from the top, within
   the quota, within the CURRENCY's own ceiling and within the purchases-per-run ceiling. Ships
   OFF. It covers EVERY shelf, the diamond ones included — the person's decision, in their

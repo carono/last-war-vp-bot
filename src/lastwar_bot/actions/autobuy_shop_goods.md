@@ -59,8 +59,20 @@
 
 ARGS plan =
 ARGS caps = 5:300
+
 ARGS diamond_cap = 300
 ARGS cap = 20
+
+# A PURCHASE ENDS IN A MODAL, AND THE MODAL IS SHUT BEHIND IT (#2670, the person's
+# words: «после покупки закрывай модальные окна»). The panel presses headless, so
+# nobody in front of the client asked for that window — it lands on top of the game
+# anyway and stays there. The ear is the one from #2027/#2642: `watch_reward_popups`
+# wraps the client's OWN reward-show and window-open calls, so a modal that arrives
+# late is shut the instant it opens, by the client, with nothing asked of the game
+# — and only a window the game itself has just called a reward for (`Reward` /
+# `GetGift` in its name) can ever be closed by it. `DestroyAllWindow` is never used
+# and never will be (`CLAUDE.md`): it takes the HUD with it and does not come back.
+TAP watch_reward_popups
 
 READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local C = DataCenter.CommonShopManager local plan = '{plan}' local order = {} for piece in plan:gmatch('[^,]+') do local bits = {} for b in piece:gmatch('[^:]+') do bits[#bits + 1] = b end if #bits >= 3 then order[#order + 1] = {kind = bits[1], shop = num(bits[2]), id = bits[3], count = math.max(0, num(bits[4] or '1'))} end end DataCenter.__lw_shop_plan = order local rows = {} local caps = {} local capstr = '{caps}' if capstr:match('%S') == nil then capstr = '5:' .. num('{diamond_cap}') end for piece in capstr:gmatch('[^,]+') do local a, b = piece:match('(%-?%d+)%s*:%s*(%-?%d+)') if a ~= nil then caps[num(a)] = num(b) end end local left = num('{cap}') if left < 1 then left = 1 end local spent = {} local picked = {} for _, e in ipairs(order) do if left <= 0 then break end local P = nil if e.kind == 'common' then for _, p in pairs((C.goodsShopDic or {})[e.shop] or {}) do if tostring(p.id) == e.id then P = p end end end if P ~= nil then local want = e.count if want < 1 then want = left end if want > left then want = left end if num(P.maxTimes) > 0 then local bought = 0 pcall(function() bought = num(C:GetShopGoodsNum(P)) end) local room = num(P.maxTimes) - bought if want > room then want = room end end while want > 0 do local ok = false pcall(function() ok = (C:CheckCostEnough(P, want) == true) end) if ok then break end want = want - 1 end local cur = num(P.currencyType) local lim = caps[cur] if want > 0 and lim ~= nil and lim >= 0 then local price = num(P.costNum) local room = lim - (spent[cur] or 0) local fit = want if price > 0 then fit = math.floor(room / price) end if want > fit then want = fit end end if want > 0 then spent[cur] = (spent[cur] or 0) + want * num(P.costNum) end if want > 0 then left = left - want local gid, res = num(P.itemId), 0 if gid == 0 then local r = nil pcall(function() r = P:GetRewardData() end) if r ~= nil then gid = num(r.itemId) if num(r.rewardType) == 27 then res = 1 end end end picked[#picked + 1] = {row = P, n = want, gives = gid, res = res} local nm = '' pcall(function() nm = tostring(DataCenter.ItemTemplateManager:GetName(num(P.itemId)) or '') end) local cn = '' pcall(function() cn = tostring(DataCenter.ResourceManager:GetResourceNameByType(num(P.currencyType)) or '') end) if cn:sub(1, 1) == '<' then cn = 'валюта ' .. num(P.currencyType) end rows[#rows + 1] = nm .. ' x' .. want .. ' за ' .. (want * num(P.costNum)) .. ' (' .. cn .. ')' end end end DataCenter.__lw_shop_picked = picked if #rows == 0 then return 'по очереди покупать нечего' end local sums = {} for cur, amount in pairs(spent) do local nm = '' pcall(function() nm = tostring(DataCenter.ResourceManager:GetResourceNameByType(cur) or '') end) if nm == '' or nm:sub(1, 1) == '<' then nm = 'валюта ' .. cur end local lim = caps[cur] sums[#sums + 1] = nm .. ' ' .. amount .. ((lim ~= nil and lim >= 0) and (' из ' .. lim) or '') end return 'собираюсь купить: ' .. table.concat(rows, '; ') .. ((#sums > 0) and (' (тратится: ' .. table.concat(sums, ', ') .. ')') or '') end)() INTO offer
 LOG "автопокупка: {offer}"
@@ -77,3 +89,7 @@ WAIT 4
 
 READ_LUA (function() local picked = DataCenter.__lw_shop_picked or {} local held = DataCenter.__lw_shop_held_all or {} local bag = DataCenter.__lw_shop_bag local moved = 0 for i, e in ipairs(picked) do local now = held[i] or 0 if bag ~= nil then now = bag(e) end moved = moved + (now - (held[i] or 0)) end return moved end)() INTO bought
 LOG "автопокупка: в сумке прибавилось — {bought}"
+
+# …AND THE DRAIN, which says what was in the window and puts the ear back into a
+# client that has restarted since the last one.
+CALL collect_reward_popups
