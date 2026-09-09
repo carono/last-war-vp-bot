@@ -319,3 +319,29 @@ session is the modal appearing, because it wants a hit big enough for the game t
 The next day's errand is what will show the `закрыл 1` in the log.
 
 `docs/farming.md` marks «Кодовое имя» ✅.
+
+## When it is read, and why never on a clock (#2660)
+
+`actions/read_codename_event.md` is a read of the client's own manager, but it is not
+free: the first step SENDS the server `user.get.act.boss.march`, because the manager is
+empty until it has been asked. «Чеклист» used to play it every three minutes while the
+tab was open, which is one get every three minutes per open profile, for a card whose
+numbers move only when we attack.
+
+The owner ended that, in these words:
+
+> «Ради кодового имени спамить не нужно, почитали на время выполнения карточки,
+> выполнили задание и все, не нужно больше ничего читать без повода».
+
+So the reading is taken for a REASON and never otherwise:
+
+* right before the card's own errand is played, and right after it — the second one is
+  what shows the result;
+* when a person presses «Обновить» on the board, which is somebody asking;
+* never on a timer, never on opening the tab, and never «на всякий случай». The age of
+  the last reading is drawn beside it, so a stale card looks stale instead of being
+  quietly refreshed behind the person.
+
+The daily board beside it (`actions/read_daily_checklist.md`, which sends nothing) is
+read on events: `bus.GAME_READY`, the pushes the tab subscribes to, and one alarm at the
+server's own midnight.

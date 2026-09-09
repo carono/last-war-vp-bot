@@ -15,10 +15,26 @@ the entire value of reading instead of ticking (:mod:`.model`).
 
 **Where the state comes from.** One scenario, `actions/read_daily_checklist.md`, one
 round trip, one line of `key=value` pairs — the panel assembles no Lua and holds no gate
-(`CLAUDE.md`). It is re-read: when the tab is first opened, every few minutes while it is
-open, when a push that changes one of these facts crosses the wire, and whenever the
-person presses «Обновить». Every count in it is the SAME expression the matching press is
-gated on, so the checklist and the button can never disagree about how much work there is.
+(`CLAUDE.md`). Every count in it is the SAME expression the matching press is gated on, so
+the checklist and the button can never disagree about how much work there is.
+
+**THERE IS NO POLL, AND NOBODY MAY PUT ONE BACK (#2660).** This board used to re-read the
+game every three minutes while it was open — both scenarios, and one of them SENDS
+(`read_codename_event.md` fires `user.get.act.boss.march`). The owner ended it, in these
+words:
+
+    «Ради кодового имени спамить не нужно, почитали на время выполнения карточки,
+     выполнили задание и все, не нужно больше ничего читать без повода».
+
+So the daily reading is taken on EVENTS and on nothing else: the first time the tab is
+opened, when the client gets into the game (`bus.GAME_READY`, which fires again after a
+lost link comes back), when one of the pushes this tab subscribes to crosses the wire
+(`WIRE_PATTERNS`, debounced), when the GAME's own day turns over (one alarm at the
+server's midnight, re-armed — a known moment, not a question asked on repeat), and when
+the person presses «Обновить». **«Кодовое имя» is read only for a REASON**: right before
+its own errand is played and right after it, so the card shows what came of it — plus a
+person's «Обновить», which is somebody asking. Opening the tab is not a reason; the age
+of the reading is drawn beside it, so an old one looks old.
 
 **No ROW has a press on it, and none ever will.** An errand is done because the game says
 so, and a «Выполнить» beside a line is a button somebody expects to have ticked that
@@ -82,6 +98,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
+from ...runtime import bus
 from ...widgets import ScrollableFrame, font as ui_font, tk_stringvar
 from ..base import PanelTab
 from . import model as modelmod
@@ -160,13 +177,25 @@ class ChecklistTab(PanelTab):
     NEEDS = frozenset({"daemon", "actions", "children"})
     WEB_SCREEN = True
 
-    #: A re-read while the tab is simply open. Three minutes: far cheaper than the
-    #: reading is worth (one round trip, ~0.2 s) and far more often than a day.
-    REFRESH_SEC = 180
-    #: On being shown again, re-read anything older than this rather than the full period.
-    STALE_SEC = 60
-    #: How often the status line's «прочитано N назад» and the countdown are redrawn.
+    #: THERE IS NO POLL (#2660). This board used to re-read the game every three minutes
+    #: while it was open — both scenarios, one of which SENDS
+    #: (`user.get.act.boss.march`). The owner ended it in these words:
+    #:
+    #:   «Ради кодового имени спамить не нужно, почитали на время выполнения карточки,
+    #:    выполнили задание и все, не нужно больше ничего читать без повода».
+    #:
+    #: So the daily reading is taken on an EVENT — the client getting into the game, a
+    #: push the tab is already subscribed to, the game's own day turning over — and
+    #: «Кодовое имя» is read only for a REASON: right before an errand of its own is
+    #: played and right after, so the card shows what came of it. Nothing here has a
+    #: clock any more except the repaint below, which asks the game nothing.
+    #: How often the status line's «прочитано N назад» and the countdowns are redrawn.
+    #: A DRAWING clock: it reads nothing, sends nothing and touches no scenario.
     TICK_MS = 15_000
+    #: The day's own turnover is a KNOWN MOMENT, not a question asked on repeat — one
+    #: alarm at the server's midnight, re-armed for the next one. Late by this much on
+    #: purpose, so the game has finished rolling the day over before it is asked.
+    DAY_GRACE_MS = 20_000
     #: A push is a hint, not a reading: wait this long so a burst of them costs one read.
     PUSH_DELAY_MS = 3_000
 
@@ -189,6 +218,11 @@ class ChecklistTab(PanelTab):
         #: told what the first one was (#1910).
         self._human = False
         self._wire_off: list = []
+        #: The `bus.GAME_READY` subscription — the client getting into the game is one of
+        #: the two events this board reads on (#2660).
+        self._ready_off = None
+        #: Is the event's own reading wanted by the run in flight? See :meth:`refresh`.
+        self._want_codename = False
         #: How the trucks are to be improved before they go — a choice, not a reading,
         #: so it is a variable the profile keeps rather than something re-read.
         self._truck_mode = tk_stringvar(self.rt.root)
@@ -219,29 +253,77 @@ class ChecklistTab(PanelTab):
         self._render()
 
     def ensure_loaded(self) -> None:
-        """Start listening, start the clock, and take the first reading.
+        """Start listening, start the repaint clock, and take the ONE first reading.
 
         Not EAGER, so this runs the first time somebody opens the tab — a profile that
         never looks at the checklist pays nothing for it, and one that does gets a board
         that is true within a second of arriving.
+
+        Read once, then listen (#2660): the first reading is here, and everything after
+        it is an event — `bus.GAME_READY`, a push, or the game's own midnight.
         """
         self._listen()
+        self._hear_game_ready()
         self._tick()
+        self._arm_day_alarm()
         self.refresh()
 
+    # -- the two events that re-read, and the one clock that draws ------------
+    def _hear_game_ready(self) -> None:
+        """Re-read when the client gets into the game — and when a lost link comes back.
+
+        The one moment everything on this board may have moved unheard, and the edge the
+        panel already publishes for exactly this (`panel/runtime/status.py`).
+        """
+        if self._ready_off is not None:
+            return
+        try:
+            self._ready_off = self.rt.bus.subscribe(bus.GAME_READY,
+                                                    lambda _p=None: self.refresh())
+        except Exception:                   # noqa: BLE001 — a board, never the panel
+            self._ready_off = None
+
+    def _arm_day_alarm(self) -> None:
+        """One alarm at the SERVER's midnight — the moment every daily quota refills.
+
+        A known moment, not a question asked on repeat: the tab sleeps until it and
+        re-arms itself for the next one. A panel that does not know the boundary yet
+        (`day_reset` has never been synced) arms nothing rather than guessing — the
+        pushes and `GAME_READY` still carry the board, and the age says how old it is.
+        """
+        try:
+            left = int(self.rt.day.seconds_to_reset())
+        except Exception:                   # noqa: BLE001
+            return
+        if left <= 0:
+            return
+        self.rt.tick.arm("checklist_day", left * 1000 + self.DAY_GRACE_MS,
+                         self._day_turned)
+
+    def _day_turned(self) -> None:
+        """The server's day rolled over: everything the board counts has refilled."""
+        self.refresh()
+        self._arm_day_alarm()
+
     def on_show(self) -> None:
-        """Somebody is looking: re-read anything stale, and pick the watch back up.
+        """Somebody is looking: pick the ear and the clocks back up. NO READ (#2660).
 
         Re-arming here is what brings the tab back after «Стоп всё» — `panic` stops it
-        asking, and coming back to the tab is the person saying to carry on. Both calls
-        are idempotent, so an ordinary show costs a dictionary lookup.
+        listening, and coming back to the tab is the person saying to carry on. All of
+        it is idempotent, so an ordinary show costs a dictionary lookup.
+
+        Opening a tab is not a reason to ask the game anything: what is on screen is what
+        the last event left, with its age beside it. The exception is a board that has
+        never been read at all, which has nothing to show and no event behind it yet.
         """
         self._listen()
-        if self._age() > self.STALE_SEC:
+        self._hear_game_ready()
+        if self._reading is None and modelmod.DAILY in modelmod.visible_sources():
             self.refresh()
         else:
             self._refresh_status()
         self.rt.tick.arm("checklist_poll", self.TICK_MS, self._tick)
+        self._arm_day_alarm()
 
     def on_language_change(self) -> None:
         self._render()
@@ -263,11 +345,19 @@ class ChecklistTab(PanelTab):
         """
         self.rt.tick.disarm("checklist_poll")
         self.rt.tick.disarm("checklist_push")
+        self.rt.tick.disarm("checklist_day")
         self._unlisten()
 
     def shutdown(self) -> None:
         self.rt.tick.disarm("checklist_poll")
         self.rt.tick.disarm("checklist_push")
+        self.rt.tick.disarm("checklist_day")
+        if self._ready_off is not None:
+            try:
+                self._ready_off()
+            except Exception:               # noqa: BLE001 — already gone
+                pass
+            self._ready_off = None
         self._unlisten()
 
     # -- hearing the game ---------------------------------------------------
@@ -314,12 +404,14 @@ class ChecklistTab(PanelTab):
 
     # -- the reading --------------------------------------------------------
     def _tick(self) -> None:
-        """Repaint the ages, and take a fresh reading when the old one is stale."""
+        """Repaint «прочитано N назад» and the countdowns. IT READS NOTHING (#2660).
+
+        The board's own clock used to take a reading here every three minutes; it draws
+        now, and only draws. An old reading is drawn as old rather than replaced behind
+        the person's back.
+        """
         try:
-            if not self._busy and self._age() >= self.REFRESH_SEC:
-                self.refresh()
-            else:
-                self._refresh_status()
+            self._refresh_status()
         finally:
             self.rt.tick.arm("checklist_poll", self.TICK_MS, self._tick)
 
@@ -349,7 +441,7 @@ class ChecklistTab(PanelTab):
         age = self._age()
         return "—" if age == float("inf") else modelmod.ago(age)
 
-    def refresh(self, human: bool = False) -> bool:
+    def refresh(self, human: bool = False, codename: bool = False) -> bool:
         """Ask the game what the day still owes. `False` if it could not be asked now.
 
         `human` is «Обновить» — a person is at the button, and the gate lets a press
@@ -370,6 +462,10 @@ class ChecklistTab(PanelTab):
             return False
         self._busy = True
         self._human = human
+        # «Кодовое имя» IS NOT PART OF AN ORDINARY REFRESH (#2660). Its reading sends the
+        # server a get, and the owner's rule is that it happens for a reason: around the
+        # card's own errand, or because a person pressed «Обновить» and is looking at it.
+        self._want_codename = bool(codename or human)
         self._refresh_status()
         if modelmod.DAILY not in modelmod.visible_sources():
             return self._read_codename()
@@ -393,7 +489,10 @@ class ChecklistTab(PanelTab):
         Lua into the daily scenario is exactly how two front-ends come to disagree about
         one number. A VM call is about 0.15 s and this runs every few minutes.
         """
-        if modelmod.CODENAME not in modelmod.visible_sources():
+        if (modelmod.CODENAME not in modelmod.visible_sources()
+                or not self._want_codename):
+            # No reason, no read (#2660). The card keeps what it last learnt, with its
+            # age beside it, until its own errand is played or a person asks.
             self._read_done()
             return False
         started = self.rt.play_async(
@@ -450,6 +549,25 @@ class ChecklistTab(PanelTab):
         self._render()
         title = self.t(errand.title_key)
         self.say("checklist", "checklist.log.run", title=title)
+        if key in self.CODENAME_KEYS:
+            # «Почитали на время выполнения карточки» (#2660): the event's state is read
+            # RIGHT BEFORE its errand — the boss respawns during the day and the card may
+            # have been standing still for hours — and again right after, in `_ran`.
+            # A read that cannot be taken (the game is busy) does not hold the press up:
+            # the errand's own scenario carries its gates.
+            started = self.rt.play_async(
+                modelmod.CODENAME_ACTION, tag="checklist", human=True,
+                on_result=self._codename_back,
+                on_done=lambda key=key, errand=errand, title=title:
+                    self._play_errand(key, errand, title))
+            if not started:
+                return self._play_errand(key, errand, title)
+            return True
+        return self._play_errand(key, errand, title)
+
+    def _play_errand(self, key: str, errand, title: str) -> bool:
+        """Play one errand's own scenario and re-read when it is over."""
+        self._render()
         started = self.rt.play_async(
             errand.scenario, self._args_for(key), tag="checklist", human=True,
             on_result=lambda outcome, title=title: self._ran_back(outcome, title),
@@ -457,6 +575,11 @@ class ChecklistTab(PanelTab):
         if not started:
             self._ran(key)
         return started
+
+    #: The errands whose card is «Кодовое имя» — the only ones a codename reading is
+    #: taken for (#2660). Named off the model rather than spelled out here, so a second
+    #: errand on that card is covered by existing.
+    CODENAME_KEYS = frozenset(errand.key for errand in modelmod.CODENAME_ERRANDS)
 
     def _args_for(self, key: str) -> dict:
         """What this errand is played WITH — empty for all but one of them.
@@ -479,10 +602,15 @@ class ChecklistTab(PanelTab):
                      error=(getattr(outcome, "reason", "") or "?"))
 
     def _ran(self, key: str) -> None:
-        """The scenario is over: forget it and ask the game what changed."""
+        """The scenario is over: forget it and ask the game what changed.
+
+        The event's own card is re-read only when the errand that just ran was ITS
+        errand — «выполнили задание» is the reason, and the reading right after it is
+        what shows the result (#2660).
+        """
         self._running.discard(key)
         self._render()
-        self.refresh()
+        self.refresh(codename=key in self.CODENAME_KEYS)
 
     # -- the board ----------------------------------------------------------
     def states(self) -> list:
