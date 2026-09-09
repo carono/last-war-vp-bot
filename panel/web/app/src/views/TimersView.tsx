@@ -8,6 +8,7 @@ import { span, t, when } from '../i18n'
 import { ErrandCard, ErrandSwitch } from '../ui/ErrandCard'
 import { FieldRow } from '../ui/FieldRow'
 import { Modal } from '../ui/Modal'
+import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
 import type {
   ArmsNow,
@@ -321,16 +322,30 @@ export function TimersView({
   triggers,
   orders,
   now,
+  running,
   refresh,
 }: {
   timers: TimerRow[]
   triggers: TriggerRow[]
   orders?: OrderRow[]
   now: number
+  running: boolean
   refresh: () => Promise<void>
 }) {
   return (
     <>
+      {/* THE SCHEDULE'S MASTER SWITCH (#2660). «Прервать» stops the scheduler thread,
+          and the only way back used to be the window's own checkbox — so on a panel
+          nobody is standing at, a schedule stopped from a bus stayed stopped and every
+          card below went on drawing its own switch as if it meant something. */}
+      <SwitchRow
+        title={t('timers.scheduler')}
+        on={running}
+        onChange={async (want) => {
+          await post('/api/timers/scheduler', { enabled: want })
+          await refresh()
+        }}
+      />
       <div className="tiles">
         {timers
           .filter((row) => row.name !== ARMS_ERRAND)

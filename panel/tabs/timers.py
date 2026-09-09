@@ -1030,6 +1030,20 @@ class TimersTab(PanelTab):
             self.rt.schedule.stop()
             self.say("timer", "timers.log.scheduler_off")
 
+    def set_scheduler(self, on: bool) -> bool:
+        """Throw the master switch from OUTSIDE the window (#2660).
+
+        The phone's own switch calls this rather than the runtime directly, so the box
+        and the scheduler thread move together: a window left showing «Расписание
+        работает» over a schedule somebody stopped from a bus is the one failure this
+        avoids. Answers False when the tab is not drawn — then the caller does it itself.
+        """
+        if not hasattr(self, "_sched_var"):
+            return False
+        self._sched_var.set(bool(on))
+        self._toggle_schedule()
+        return True
+
     def _timer_cancel(self, timer) -> None:
         """The row's «✕»: take a WAITING errand back off the queue.
 
