@@ -46,13 +46,23 @@ export function Sortable({
   render: (id: string, grip: ReactNode) => ReactNode
 }) {
   const [order, setOrder] = useState<string[]>(ids)
+  /* THE ORDER AS IT STANDS RIGHT NOW, beside the state that draws it. A drag reads it
+     on every move and the release SENDS it, and neither may go through a state updater:
+     React batches those and may run one twice, so a side effect inside one is a press
+     that sometimes fires twice and sometimes not at all. Measured live (#2670): the
+     tiles swapped under the finger and the panel never heard about it. */
+  const live = useRef<string[]>(ids)
   const held = useRef<string | null>(null)
   const stamp = ids.join(',')
+  const put = (next: string[]) => {
+    live.current = next
+    setOrder(next)
+  }
   /* THE PANEL IS THE TRUTH the moment it answers. A drag paints the new order at once —
      a list that springs back under the thumb reads as a move that did not land — and the
      next screen answer replaces it, which is what makes a rejected move visible. */
   useEffect(() => {
-    if (!held.current) setOrder(ids)
+    if (!held.current) put(ids)
      
   }, [stamp])
 
@@ -82,27 +92,23 @@ export function Sortable({
         if (held.current !== id) return
         const over = at(e)
         if (!over || over === id) return
-        setOrder((was) => {
-          const from = was.indexOf(id)
-          const to = was.indexOf(over)
-          if (from < 0 || to < 0) return was
-          const next = was.slice()
-          next.splice(to, 0, next.splice(from, 1)[0])
-          return next
-        })
+        const was = live.current
+        const from = was.indexOf(id)
+        const to = was.indexOf(over)
+        if (from < 0 || to < 0) return
+        const next = was.slice()
+        next.splice(to, 0, next.splice(from, 1)[0])
+        put(next)
       }}
       onPointerUp={(e) => {
         if (held.current !== id) return
         held.current = null
         e.currentTarget.releasePointerCapture(e.pointerId)
-        setOrder((was) => {
-          if (was.join(',') !== stamp) onOrder(was)
-          return was
-        })
+        if (live.current.join(',') !== stamp) onOrder(live.current)
       }}
       onPointerCancel={() => {
         held.current = null
-        setOrder(ids)
+        put(ids)
       }}
     >
       {'☰'}
