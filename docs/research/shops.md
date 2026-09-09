@@ -38,9 +38,15 @@ in the same dictionary without being drawn.
 What is NOT on the row and has to be asked for:
 
 * **how many have been bought** — `CommonShopManager:GetShopGoodsNum(row)`;
-* **whether the account can pay** — `CommonShopManager:CheckCostEnough(row, n)`. It is the
-  GAME's own answer and it is used as the gate rather than a sum done in the panel: a
-  price can be met out of more than one purse and that arithmetic is the client's;
+* **whether the account can pay** — WORKED OUT HERE, and never asked of the game.
+  **`CommonShopManager:CheckCostEnough` IS THE TOAST** (#2670): when it answers «no» it
+  also puts «Недостаточно предметов» on the screen. Caught with the stack —
+  `UIUtil.ShowTipsId(120021)` ← `CommonShopManager.lua:436` ← our own chunk. `read_shops`
+  asked it about every row of every shelf (183 of them) on every reading — at
+  `GAME_READY`, on a balance push and after each purchase — so one reading raised one
+  toast per row the account cannot afford. That is the storm the person reported for a
+  day, and it had nothing to do with buying: the purchases themselves were silent.
+  Nothing in this repository calls it any more; the purse table above is the gate;
 * **when the quota comes back** — `CommonShopManager:GetLimitShopNextRefreshTs(shopType)`,
   in milliseconds;
 * **the item's picture and rarity** — `ItemTemplateManager:GetItemTemplate(itemId)`
