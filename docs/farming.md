@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **38%** — 78 of 203
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 79 of 203
 
-🟩 78 done · 🟨 95 partly · 🟥 30 not automated
+🟩 79 done · 🟨 94 partly · 🟥 30 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -162,7 +162,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Taking the boxes — both ladders, the phase's own three and the day's, claimed the moment the score has earned them and before anything is spent. A box is taken and never given back, so it is done on every run whatever the phase is. Live: three phase boxes and three day boxes in one pass.
 - ✅ The building phase and the technology phase — the two that pay for minutes of speed-up. The bot pours minutes into the queue with the most time left, spends the phase's own kind of speed-up before the universal ones and the small pieces before the big ones, and stops at the first of three limits: the top box of the phase, the ceiling the person set, or what the queue can still absorb. It never spends diamonds. It also checks the price of a minute against the game rather than trusting a number: one piece goes out first, the score is read before and after, and everything else is planned on what that piece actually paid — a phase that stops paying stops the run. Live: a technology phase and a building phase each taken to the top box exactly, 3 000 minutes for the second of them, with the pieces spent counted in the log.
 - ✅ Hiring on the hero phase — the phase whose points come from the tavern. Live: one hire, 400 points.
-- 🟡 The drone phase — raises rallies for the points until the phase ends, stopping at whichever comes first: the stamina ceiling of the phase, the phase's top chest, or a squad that is out. There is no rally allowance in it — a banner the account raises is not a banner it joined. Watched live on 2026-09-08 and it raised nothing at all: the price of a rally never reached the game, so every round said the game charged nothing for one. Fixed; not yet seen scoring in a real session.
+- ✅ The drone phase — raises rallies for the points until the phase ends, one per free squad, and it wakes on the game's own pushes rather than on a clock: a march of ours ending and the account's own score moving both send it out again the moment a squad is home. It stops at whichever comes first: the stamina ceiling of the phase, the phase's top chest, or every squad being out. Before it calls the purse empty it takes the day's free march energy, which costs nothing and can be had once a day; it never buys. The chests the hour earns are claimed by the hour itself, not left for the phase border. There is no rally allowance in it — a banner the account raises is not a banner it joined. Live on 2026-09-09: twelve banners, the score from 0 to 30 500 of the 30 000 the top chest wants, and all three chests taken
 - 🟡 The unit phase — the one whose points come from soldiers. The bot takes in every barracks that has finished its batch and starts the biggest new batch each free barracks will take, under a ceiling counted in soldiers, because what it spends here is the base's own resources. The two presses were proven live on their own — two barracks collected and two started on five hundred each, worth 28 000 of that phase's 75 000 — but the whole phase has not yet run end to end by itself. Switched off by default, with its own switch: an account saving resources for a building can say no to this without saying no to the speed-ups.
 - 🟡 The event on a schedule — one row that does whatever the phase in front of it pays for, claims the boxes and then sleeps to the phase border rather than to a clock, so it wakes when the game changes phase. Ships switched off, and the spending of speed-ups is a separate switch that is off too, with a ceiling in minutes beside it — both reachable from the phone.
 
