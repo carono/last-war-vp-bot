@@ -541,6 +541,18 @@ How, and how not:
 * **Never `taskkill`, never kill the process by hand.** The user has forbidden it: the
   orderly restart takes every open profile down and brings them back, and a killed panel
   leaves locks, children and a client nobody let go of.
+* **A RESTART COSTS A CLIENT, so several fixes cost ONE restart (#2678).** The rule above
+  is what makes a fix real; what it is not is a licence for a restart per commit. Measured
+  on 2026-09-09: **30 of 41 panel restarts were followed by a fresh client pid within ten
+  minutes, median 128 seconds**, and the person's report that day was «каждые 2 3 минуты
+  вышибает клиент». The hours line up with the presses and not with any commit — 2
+  restarts and 2 client deaths at 10:00, 11 and 8 at 13:00. Several agents each obeying
+  «restart after any fix» IS the fault. So `panel/runtime/panel_control.py` HOLDS a
+  restart asked for inside `COALESCE_SEC` of the last boot: it is never refused, every ask
+  re-arms the one chain, and ten asks in five minutes cost the game one restart instead of
+  ten. The panel that comes up is on the newest code, which is what every one of those
+  asks wanted. **A held restart is still a delivered fix** — wait for it and read the log,
+  do not press again, and never work around the hold.
 * Then **read the log and say what you saw**. A restart is claimed when a line proves it —
   a new pid in `panel_alive.json`, the boot lines in the profile's log, and, where the fix
   prints something the old code could not, that line appearing in a run. «Перезапустил» on

@@ -1535,6 +1535,7 @@
   "log.update.channel.dev": "cập nhật giờ bám theo đầu nhánh — bản dev",
   "log.update.fail_error": "cập nhật thất bại: {detail}",
   "log.panel.restarting": "đang khởi động lại bảng — các hồ sơ đang mở sẽ trở lại",
+  "log.panel.restart_held": "bảng điều khiển vừa khởi động lại — lần khởi động lại này được giữ {seconds}s để nhiều bản sửa chỉ tốn của trò chơi một lần khởi động lại",
   "tab.vs": "VS",
   "tab.vs_duel": "Đấu VS",
   "vsduel.hint": "Cuộc đấu cho điểm theo một nhóm hành động khác nhau mỗi ngày. Hãy đánh dấu những gì cần làm trong ngày đó, và giới hạn mức được tiêu. Chưa có gì tự chạy — các lựa chọn được giữ lại cho tới khi chính các hành động ấy xuất hiện. Bỏ đánh dấu tên của một ngày sẽ bỏ qua hoàn toàn ngày đó.",

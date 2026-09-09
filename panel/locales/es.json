@@ -1535,6 +1535,7 @@
   "log.update.channel.dev": "las actualizaciones ahora siguen la punta de la rama — la versión dev",
   "log.update.fail_error": "la actualización falló: {detail}",
   "log.panel.restarting": "reiniciando el panel — los perfiles abiertos volverán",
+  "log.panel.restart_held": "el panel acaba de reiniciarse — este reinicio se retiene {seconds}s para que varias correcciones le cuesten al juego un solo reinicio",
   "tab.vs": "VS",
   "tab.vs_duel": "Duelo VS",
   "vsduel.hint": "El duelo da puntos por un conjunto de acciones distinto cada día. Marca lo que hay que hacer en cada día y limita lo que puede gastar. Todavía no corre nada solo — las elecciones se guardan para cuando lleguen las acciones. Desmarcar el nombre de un día hace que ese día se omita por completo.",
