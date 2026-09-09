@@ -38,6 +38,13 @@ KIND_KEYS = {
 }
 
 
+#: HOW LONG A BURST OF EVENTS WAITS BEFORE THE TABLE IS REPAINTED (#2660). The repaint
+#: destroys and rebuilds every label in the grid, and the events arrive in bursts — one
+#: harvest prices about 25 balance pushes. A second is invisible on a table of days and
+#: turns a burst into one repaint of the Tk thread every open profile shares.
+REDRAW_MS = 900
+
+
 class RewardsTab(PanelTab):
     ID = "rewards"
     TITLE_KEY = "tab.rewards"
@@ -70,10 +77,16 @@ class RewardsTab(PanelTab):
             book.watch(self._booked)
 
     def _booked(self, _rows) -> None:
-        """One drain, booked: repaint on the Tk thread."""
-        self.post(self.redraw)
+        """One drain, booked: repaint on the Tk thread, at most once a second (#2660).
+
+        A drain books several rows at a time and the repaint destroys and rebuilds every
+        label in the grid; `arm` cancels the pending one, so a burst costs ONE repaint
+        of the Tk thread every open profile shares.
+        """
+        self.post(lambda: self.rt.tick.arm("rewards_redraw", REDRAW_MS, self.redraw))
 
     def shutdown(self) -> None:
+        self.rt.tick.disarm("rewards_redraw")
         book = getattr(self.rt, "rewards", None)
         if book is not None and hasattr(book, "unwatch"):
             book.unwatch(self._booked)
