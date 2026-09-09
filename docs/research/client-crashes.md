@@ -570,7 +570,8 @@ green six PARKED FIRES were released inside one second (11:17:04). The client cr
 on the same gap; it is already minutes late and `GATE_KEEP_SEC` (600 s) leaves room for
 thirty of them to drain at 20 s apart.
 
-What is still NOT spread, and is a question for the person rather than an agent: the
+What is still NOT spread, and is a question for the person rather than an agent — it
+was answered in #2678, see «the boot's readings are spread out» below: the
 tabs' first readings on `bus.GAME_READY`. The same boot put ten of them in the log inside
 thirty seconds (`read_drone_chips`, `read_arms_race`, `read_vs_score`, …). Each is one
 chunk rather than a scenario, and delaying one shows a board a minute older than it could
@@ -640,7 +641,9 @@ one-sighting winner aims it at a spot the thread rarely returns to, which is the
   up two dominant ntdll addresses 192 bytes apart. Accepting both learned parks would
   roughly double the hit rate — halving both the suspensions per hijack and the wait —
   but widening the gate is the thing that keeps the client alive, so it is a decision for
-  the person and not an agent's. Nothing here does it.
+  the person and not an agent's. Nothing here does it. **#2678 does** — the person gave
+  the decision, and the section «The client also HANGS» below is what it cost and what it
+  bought.
 * **The only other lever is FEWER hijacks.** 89 % of them are `DoString(bytes)`, one per
   Lua chunk: 40 638 chunks in the same window. Cutting suspensions at scale means running
   fewer chunks, which is a question about what the panel does, not about how it attaches.
@@ -666,3 +669,121 @@ the same two queries — the `Application Error` entries for the game, and the p
 * **The A/B nobody has run.** With the races of #2665 removed and the burst of #2667
   spread out, the honest next step is a day of the panel against the days recorded here —
   specifically, how many restarts kill the client within two minutes (it was six of nine).
+
+## The client also HANGS, and that is a different fault (#2678)
+
+The operator's report was «постоянно зависает и падает», and every measurement above is
+about the second half of it. The first half has its own signature and its own cause, and
+it had never been counted.
+
+**A hang is: the process is alive, the window is there, the person is playing — and the
+panel can run nothing in it.** It says so in the profile's `debug.log`, in the sentence
+`xlua_route` writes when a step runs out of budget:
+
+    client-busy: <label>: the client's main thread is busy — it did not reach its park
+    once in 67s, so nothing can be run in it yet
+
+Counted over the live logs of 2026-09-09 (three profiles, one of them the only one with
+a client up):
+
+| | |
+| --- | ---: |
+| hang refusals, whole day | **10** |
+| profiles they happened on | 1 of 3 |
+| the episode they belong to | 12:39:45 → 12:57:09 — **17 minutes** |
+| how long each waited before giving up | 30–67 s |
+| crashes in the same log (`LastWar.exe not running`) | 267 poll lines over three hours |
+
+So the day's hangs are ONE episode of a quarter of an hour, and during it the client was
+not hung at all: it was being played. What was stuck was the gate.
+
+### The cause: the gate was aimed at one park, and the client has two
+
+`rip_gate.learn_safe_rip` answered with the single most-sampled ntdll address and
+`hijack_call` accepted the main thread only within ±16 bytes of that one address. The A/B
+of #2667 had already recorded what is wrong with that: on a busy client the sweep kept
+turning up **two dominant ntdll addresses 192 bytes apart** — two different syscall waits
+the message pump alternates between — and they took turns at leading. Both are a park by
+the only definition that matters: the thread is in a syscall, holding no runtime lock,
+about to sleep. Aiming at one of them means waiting out every visit to the other, and
+when the client settles into the one that lost the sweep, the panel waits it out for as
+long as that lasts. Seventeen minutes, on 2026-09-09.
+
+That entry closed with «widening the gate is the thing that keeps the client alive, so it
+is a decision for the person and not an agent's». The person has since given it: «чини
+рестарты… даю добро на главный рычаг».
+
+### What was done
+
+**The gate aims at every park the client HAS.** `rip_gate.learn_parks` returns up to
+`MAX_PARKS` (2) ntdll addresses, each proven by `ENOUGH_HITS` sightings; `hijack_call`
+takes `safe_rip` as one address or several and accepts the thread within ±16 bytes of
+ANY of them. Three things are deliberately unchanged:
+
+* **the tolerance** — ±16 bytes around a LEARNED address, never «anywhere in ntdll»;
+* **the evidence bar** — an address seen once is noise and is not a park (#1994);
+* **the fallback** — a sweep where nothing reached the bar still answers with its
+  busiest ntdll address alone, which is exactly the old answer.
+
+The learn's stop rule had to move with it, and this is the part worth remembering: the
+#2667 early stop («one address, three sightings, clearly ahead») answers *which is the
+park* and by construction can never see the *second* one. So it now stops on either of
+two proofs — both parks seen `ENOUGH_HITS` times, or one seen twice that with no rival
+reaching the bar. An idle client, where the park wins at once, pays six samples instead
+of three; a busy one, where both waits show up, stops as early as it used to.
+
+Expected effect, from the same A/B: the park hit rate roughly doubles, so both the
+suspensions per hijack and the wall clock spent waiting for the park roughly halve — and
+a client that settles into either wait is takeable instead of being waited out.
+
+### And the boot's readings are spread out — the burst #2667 named and left
+
+#2667 spread the errands and the gate, and wrote down the one burst it had not taken:
+«the tabs' first readings on `bus.GAME_READY` — the same boot put ten of them in the log
+inside thirty seconds». Each is a chunk, each chunk is an attach, and that first minute
+is when the client dies.
+
+`panel/runtime/bus.py` now delivers a SPREAD topic one listener at a time, `SPREAD_SEC`
+(6 s) apart, on the clock the panel already runs its chains on. The first listener is
+told at once — a spread that delayed even the first reading would be lag bought for
+nothing — and ten boards are read over about a minute instead of inside one. Nothing is
+dropped, the order is the order they subscribed in, and a listener whose tab was switched
+off in the meantime is skipped rather than called.
+
+`GAME_READY` is the only topic on that list, and it is meant to stay that way: a push, a
+capture line or a collect finishing is an EVENT, answered in seconds or not at all
+(`CLAUDE.md`, «Nothing starts in a burst»). `tests/test_panel_bus_spread.py` fails if
+another topic joins it.
+
+### Where the 40 638 chunks a day actually come from
+
+`tools/hijack_tally.py` sizes the exposure by LABEL and 64 % of it is one label,
+`DoString(bytes)` — every Lua chunk the panel runs wears it, so it says how big the mass
+is and nothing about who made it. The link has been writing the other half of the answer
+beside it all along («callers: …», `lua_service.py::_say_timing`), and `--callers` now
+adds a day of those up. Read on the live logs of 2026-09-09, one profile, 4 326 chunks:
+
+| caller | chunks | share |
+| --- | ---: | ---: |
+| `child:SceneUtils` | 618 | 14.3 % |
+| `thread:work` | 422 | 9.8 % |
+| `child:DataCenter.__lw_chat` | 412 | 9.5 % |
+| `child:left` | 370 | 8.6 % |
+| `trigger-poll-treasure_auto` | 280 | 6.5 % |
+| `child:CS.UnityEngine.Object.FindObject` | 227 | 5.2 % |
+| `trigger-poll-session_kick` | 197 | 4.6 % |
+| …and a tail of `child:DataCenter.*` | ~900 | ~21 % |
+
+Two facts fall out of it, and both are for the next piece of work rather than this one:
+
+* **More than half of every chunk is a CHILD** — a spawned tool asking through the
+  panel's door. Cutting the mass means merging what those tools ask, not changing how
+  the panel attaches. `child:` names are the first identifier in the chunk, which is
+  enough to find the caller and not enough to name it: the honest next step is to carry
+  the tool's own name through the door.
+* **The attach itself is not free either.** The same day's labels hold 2 695 hijacks that
+  are NOT `DoString` — `iterMgrM`, `mpc`, `rettypename`, `getret` and the class lookups —
+  against 25 evaluator builds. That is **108 attaches per build**, 36 % of the day's
+  total, spent resolving the same methods of the same client build every time. Every one
+  of them is a park wait and a suspend. Caching those resolutions per `GameAssembly.dll`
+  build is the largest single cut still on the table.

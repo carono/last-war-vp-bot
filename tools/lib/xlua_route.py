@@ -68,7 +68,7 @@ class X:
         self._s = {}
         self._pinned = {}
         self._chunk_arr, self._chunk_cap, self._chunk_bad = 0, 0, False
-        print(f"pid={self.pid} SAFE_RIP=0x{self.sr:x}")
+        print(f"pid={self.pid} SAFE_RIP=" + "/".join(f"0x{a:x}" for a in self.sr))
 
     #: BUSY_MARK — how the panel tells «the client is busy» from every other reason
     #: nothing lands. It travels inside the message rather than as a type, because the
@@ -98,18 +98,22 @@ class X:
                           f"— it did not reach its park once in {waited:.0f}s, so nothing "
                           f"can be run in it yet")
 
-    def _learn_park(self, budget: float = 30.0) -> int:
-        """The main thread's parked RIP, waited for rather than sampled once.
+    def _learn_park(self, budget: float = 30.0) -> tuple:
+        """The main thread's parked RIPs, waited for rather than sampled once.
 
         A busy client reaches the park a few per cent of the time, so a single sweep of
         40 samples can genuinely miss it — and answering «busy» off one miss is how a
         client that was perfectly takeable a second later got refused.
+
+        PLURAL SINCE #2678: the pump alternates between two ntdll waits and both of them
+        are a park, so the gate is handed every address the sweep proved rather than
+        whichever one led it. A quiet client still answers with one.
         """
         started = time.time()
         while True:
-            got = R.learn_safe_rip(self.pid, self.mt, n=40)
-            if got is not None:
-                return got[0]
+            got = R.learn_parks(self.pid, self.mt, n=40)
+            if got:
+                return tuple(rip for rip, _hits in got)
             if time.time() - started >= budget:
                 raise self.busy("park", time.time() - started)
             time.sleep(0.5)
@@ -117,9 +121,13 @@ class X:
     def hj(self, func, args, label):
         """One gated hijack — retried, and with the park re-learned between tries.
 
-        THE GATE IS NOT WIDENED, THE WAIT IS. Where the thread may be taken is what
+        THE GATE'S TOLERANCE IS NOT WIDENED, THE WAIT IS — and since #2678 the gate
+        knows about BOTH of the client's parks. Where the thread may be taken is what
         keeps the client alive (§1 of `docs/research/il2cpp-invoke-stability.md`), and
-        that is untouched: ±16 bytes of the park, main thread only. What changes is that
+        that is untouched in the way that matters: ±16 bytes of a LEARNED park, main
+        thread only, never «anywhere in ntdll». What changed is that a pump alternating
+        between two syscall waits is caught in either of them instead of being waited out
+        in one — the eighteen-minute «client-busy» of 2026-09-09. What changes is that
         a step no longer gives up after one four-second look — it waits, re-learns the
         park in case the thread has moved to a different wait, and only calls the client
         busy after :data:`STEP_BUDGET`. A build of the evaluator makes dozens of these,
@@ -141,10 +149,13 @@ class X:
             waited = time.time() - started
             if waited >= self.STEP_BUDGET:
                 raise self.busy(label, waited)
-            fresh = R.learn_safe_rip(self.pid, self.mt, n=40)
-            if fresh is not None and fresh[0] != self.sr:
-                print(f"[{label}] re-learned SAFE_RIP 0x{self.sr:x} -> 0x{fresh[0]:x}")
-                self.sr = fresh[0]
+            fresh = R.learn_parks(self.pid, self.mt, n=40)
+            got = tuple(rip for rip, _hits in fresh or ())
+            if got and got != tuple(self.sr):
+                was = "/".join(f"0x{a:x}" for a in self.sr)
+                now = "/".join(f"0x{a:x}" for a in got)
+                print(f"[{label}] re-learned SAFE_RIP {was} -> {now}")
+                self.sr = got
             if waited - said >= self.SAY_EVERY:
                 said = waited
                 print(f"[{label}] still waiting for the client's park — {waited:.0f}s")

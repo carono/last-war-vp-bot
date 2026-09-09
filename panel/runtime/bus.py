@@ -27,11 +27,37 @@ from __future__ import annotations
 #: which is the other time everything it holds may have moved unheard.
 GAME_READY = "game.ready"
 
+#: How far apart the listeners of a SPREAD topic are told, in seconds (#2678).
+#:
+#: `GAME_READY` is the one moment every push-driven board takes its first reading, so
+#: every one of them read at once: ten chunks inside thirty seconds of a client that had
+#: just got into the game, each one an attach — a suspend of the game's main thread, a
+#: redirect of its RIP and a restore. That minute is when the client dies; six of nine
+#: measured restarts killed it 59-95 s in (`docs/research/client-crashes.md`).
+#:
+#: It is the same cure the errands got in #2667 and the same decision behind it, in the
+#: person's words: «Да, разноси, сделай правило, пусть лаг будет, нет веской причины все
+#: разом делать». Nothing is dropped and nothing is re-decided — every listener is told,
+#: in the order it subscribed, a few seconds apart. A board is at worst a minute older
+#: than it could be, on a reading that is then kept current by the wire.
+SPREAD_SEC = 6.0
+
+#: The topics delivered that way. Only the boot's own stampede is on the list: a push, a
+#: capture line or a collect finishing is an EVENT and is answered at once, exactly as
+#: `CLAUDE.md` («Nothing starts in a burst») requires.
+SPREAD_TOPICS = frozenset({GAME_READY})
+
 
 class EventBus:
-    def __init__(self, widget=None, post=None) -> None:
+    def __init__(self, widget=None, post=None, arm=None) -> None:
         self._subs: dict = {}
         self._w = widget
+        #: The clock's one-shot booker (`panel/runtime/tick.py::Ticker.arm`), used to
+        #: hand a SPREAD topic's listeners their turn one at a time. Without one the
+        #: spread cannot happen and the topic is delivered whole — which is what a bare
+        #: harness and a test get, and what the panel did before #2678.
+        self._arm = arm
+        self._spread_n = 0
         #: How a fact gets onto the ONE thread when there is no widget to hand it to —
         #: the windowless clock's own queue (#1976, P3). Without either, a fact is
         #: delivered where it was published, which is what a bare harness and a test get.
@@ -53,6 +79,9 @@ class EventBus:
         listeners = list(self._subs.get(topic, ()))
         if not listeners:
             return
+        if topic in SPREAD_TOPICS and self._arm is not None and len(listeners) > 1:
+            self._spread(topic, listeners, payload)
+            return
         if self._w is None:
             if self._post is not None:
                 self._post(lambda: self._deliver(listeners, payload))
@@ -63,6 +92,50 @@ class EventBus:
         # is nearly always published by a WORKER — a capture line, a collect finishing,
         # a wire event — and `after` from a worker blocks it on the event loop that
         # draws every open profile (#1226).
+        from .tick import poster
+
+        post = poster(self._w)
+        if post is None:
+            self._deliver(listeners, payload)
+            return
+        post.post(lambda: self._deliver(listeners, payload))
+
+    def _spread(self, topic: str, listeners, payload) -> None:
+        """Tell the listeners of ``topic`` one at a time, :data:`SPREAD_SEC` apart.
+
+        The first is told at once — a spread that made even the first reading wait would
+        be a delay with nothing to show for it — and the rest are booked on the clock,
+        each on a name of its own so no two of them cancel each other. The booking runs
+        on the one thread the chains run on, which is where a listener has always run.
+
+        A listener that has unsubscribed by the time its turn comes is skipped: the tab
+        it belonged to may have been switched off, and repainting a destroyed widget is
+        the thing `subscribe`'s unsubscribe callable exists to prevent.
+        """
+        live = self._subs.setdefault(topic, [])
+        for i, func in enumerate(listeners):
+            if i == 0:
+                self._hand_over([func], payload)
+                continue
+            self._spread_n += 1
+            name = f"bus.spread.{self._spread_n}"
+
+            def _turn(f=func, p=payload) -> None:
+                if f in live:
+                    self._deliver([f], p)
+            try:
+                self._arm(name, int(i * SPREAD_SEC * 1000), _turn)
+            except Exception:                    # noqa: BLE001 — a clock that will not
+                self._deliver([func], payload)   # book still owes the listener its fact
+
+    def _hand_over(self, listeners, payload) -> None:
+        """Deliver on the ONE thread, whichever of the three ways this bus has."""
+        if self._w is None:
+            if self._post is not None:
+                self._post(lambda: self._deliver(listeners, payload))
+                return
+            self._deliver(listeners, payload)
+            return
         from .tick import poster
 
         post = poster(self._w)

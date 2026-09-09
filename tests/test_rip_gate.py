@@ -104,27 +104,88 @@ def test_nothing_sampled_is_none():
 # --- when a learn may stop asking (#2667) -----------------------------------
 
 def test_a_decided_park_stops_the_sweep_early():
-    """Three sightings of one ntdll address, clearly ahead: the answer is in.
+    """Both parks proven, or one park proven twice over: the answer is in.
 
     Every sample is a suspend and a resume of the client's main thread, so a sweep that
-    goes on to forty after the park has won is interference bought for nothing.
+    goes on to forty after the parks are known is interference bought for nothing.
+
+    THE BAR ROSE WITH #2678 and it is deliberate. Stopping the moment ONE address led
+    the field answers «which is the park» and can never see the second wait, so the gate
+    it fed was aimed at one of two — which is the eighteen minutes of «client-busy» this
+    file's neighbour records. So one address stops the sweep only when it has been seen
+    twice the bar and nothing else has reached the bar at all.
     """
     g = _rip_gate(Counter())
     span = (NTDLL_BASE, NTDLL_SIZE)
-    assert g._decided(Counter({PARK: 3}), span, 3)
-    assert g._decided(Counter({PARK: 3, BUSY_RIP: 9}), span, 3),         "a busy render loop is not a rival — only ntdll addresses are"
+    assert g._decided(Counter({PARK: 3, PARK + 0xC0: 3}), span, 3), \
+        "both of the client's waits are proven — there is nothing left to learn"
+    assert g._decided(Counter({PARK: 6}), span, 3), \
+        "one wait, seen twice over, with no rival: this client parks in one place"
+    assert g._decided(Counter({PARK: 6, BUSY_RIP: 9}), span, 3), \
+        "a busy render loop is not a rival — only ntdll addresses are"
 
 
 def test_an_undecided_park_keeps_sampling():
-    """Not enough, or not a clear leader — the sweep goes on to its full count."""
+    """Not enough evidence yet — the sweep goes on to its full count."""
     g = _rip_gate(Counter())
     span = (NTDLL_BASE, NTDLL_SIZE)
     assert not g._decided(Counter({PARK: 2}), span, 3), "two sightings is a coincidence"
-    assert not g._decided(Counter({PARK: 3, PARK + 0x400: 3}), span, 3), \
-        "two ntdll waits level with each other — picking either aims the gate at a spot " \
-        "the thread rarely reaches"
+    assert not g._decided(Counter({PARK: 3}), span, 3), \
+        "one proven wait is not proof there is no second one — keep looking"
+    assert not g._decided(Counter({PARK: 5, PARK + 0x400: 2}), span, 3), \
+        "the runner-up is still unproven and the leader has not doubled the bar"
     assert not g._decided(Counter({BUSY_RIP: 30}), span, 3)
     assert not g._decided(Counter(), span, 3)
+
+
+# --- the gate aims at EVERY park the client has (#2678) ---------------------
+
+def test_both_parks_are_learned_busiest_first():
+    """The measured shape: two ntdll waits 192 bytes apart, taking turns.
+
+    A gate aimed at whichever of them won the sweep waits out every visit to the other,
+    and on 2026-09-09 that was one profile answering «the client's main thread is busy —
+    it did not reach its park once in 67s» from 12:39 to 12:57, on a client somebody was
+    playing at the time.
+    """
+    other = PARK + 0xC0
+    g = _rip_gate(Counter({PARK: 12, other: 9, BUSY_RIP: 20}))
+    assert g.learn_parks(1, 2) == [(PARK, 12), (other, 9)]
+
+
+def test_a_single_sighting_is_never_a_park():
+    """Noise stays out — the #1994 rule, unchanged by the gate being plural."""
+    g = _rip_gate(Counter({PARK: 8, PARK + 0xC0: 1}))
+    assert g.learn_parks(1, 2) == [(PARK, 8)]
+
+
+def test_no_more_parks_than_the_gate_takes():
+    counts = Counter({PARK + 0x40 * i: 9 - i for i in range(4)})
+    g = _rip_gate(counts)
+    assert len(g.learn_parks(1, 2)) == g.MAX_PARKS
+
+
+def test_a_weak_sweep_still_answers_with_its_best():
+    """Nothing reached the bar: the busiest ntdll address, alone — the old answer."""
+    g = _rip_gate(Counter({PARK: 2, PARK + 0xC0: 1}))
+    assert g.learn_parks(1, 2) == [(PARK, 2)]
+    assert g.learn_safe_rip(1, 2) == (PARK, 2)
+
+
+def test_the_gate_matches_any_learned_park_and_nothing_else():
+    """Read off `hijack_call`: several addresses, the same ±16 bytes around each."""
+    src = (_REPO / "tools" / "lib" / "hijack_call.py").read_text(encoding="utf-8")
+    assert "any(abs(rip - one) <= rip_tol for one in parks)" in src, \
+        "the gate stopped accepting every learned park"
+    assert "return nt_lo <= rip < nt_hi" in src, \
+        "the un-gated fallback (no park learned at all) went missing"
+
+
+def test_the_route_hands_the_gate_every_park():
+    src = (_REPO / "tools" / "lib" / "xlua_route.py").read_text(encoding="utf-8")
+    assert "R.learn_parks(" in src, "the route went back to learning one park"
+    assert "safe_rip=self.sr" in src and "rip_tol=16" in src, \
+        "the tolerance around a park is not ±16 bytes any more"
 
 
 def test_the_route_waits_for_a_busy_client_instead_of_dying():
