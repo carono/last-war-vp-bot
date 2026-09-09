@@ -73,18 +73,48 @@ COVERAGE_KEEP_SEC = 7 * 24 * 3600
 MAX_COVERAGE_CELLS = 13000
 
 
+#: The last parse of each checkpoint, keyed by what the file LOOKED like when it was
+#: read: `{path: (mtime, size, parsed)}` (#2660). A capture child rewrites these whole
+#: on every tick, and `world_map.json` is megabytes — so a page being looked at was
+#: parsing all of it on every poll, whether or not the child had written anything since.
+#: The mtime and the size together are the honest test of «is this the same file»: a
+#: rewrite always moves the mtime, and the size catches the rare rewrite inside one
+#: clock tick.
+#:
+#: WHAT COMES BACK MUST NOT BE MUTATED. Every caller in this module reads it and builds
+#: its own objects (`_object`, `_rows`), which is what makes the sharing safe; a caller
+#: that wants to change something copies it first.
+_PARSED: dict = {}
+
+
 def _load(path: str):
     """The JSON at `path`, or `None` — a checkpoint that is missing or half-written.
 
     A capture child rewrites these whole on every tick, so a reader that happened to
     look mid-write sees a truncated file. That is a moment old, never an error worth
     showing: the next read has it.
+
+    Parsed once per WRITE rather than once per read (:data:`_PARSED`).
     """
     try:
-        with open(path, encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
+        stat = os.stat(path)
+        stamp = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        _PARSED.pop(path, None)
         return None
+    held = _PARSED.get(path)
+    if held is not None and held[0] == stamp:
+        return held[1]
+    try:
+        with open(path, encoding="utf-8") as fh:
+            parsed = json.load(fh)
+    except (OSError, ValueError):
+        # A half-written file is a moment old and not an error — and it is deliberately
+        # NOT remembered, so the next reader tries again rather than being handed the
+        # nothing this one saw.
+        return None
+    _PARSED[path] = (stamp, parsed)
+    return parsed
 
 
 def _age(path: str):
@@ -270,6 +300,11 @@ def coverage(rt, fresh=None) -> dict:
                            {"cell": cell, "sizes": sizes, "cells": merged})
         except Exception:      # noqa: BLE001 — a picture is never worth an exception
             pass
+        # …and NOT through `blob_submit`, which the audit of #2659 proposed: the very
+        # next poll reads this row back and folds the checkpoint into it again, so a
+        # queued write that has not landed yet is coverage silently thrown away. The
+        # write is rare in any case — a poll that finds nothing new leaves `changed`
+        # false and writes nothing at all.
 
     rows = []
     for key, row in merged.items():
