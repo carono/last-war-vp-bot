@@ -92,6 +92,16 @@ let the whole order through: one exchange went out, the items were gone, and the
 sent anyway, one refusal per row. That is the «спамит что не хватает предметов» the person
 reported.
 
+**EVERY CUT NAMES ITS REASON** (#2670, «следующее не покупается полностью только
+часть»). Five things can trim a row, and the log used to show only the number that came
+out of them: the purchases-per-run ceiling, the item's own quota, the purse running out
+mid-run, a purse the client will not show, and the currency's own ceiling. Each writes
+its sentence now — «x7 из 47 — лимит товара 10, уже куплено 3», «x20 из 50 — потолок
+покупок за прогон (20)», «x17 из 50 — платы хватает только на 17» — and a row cut to
+nothing joins «пропущено» with the same words, including «уже куплено 3 из 3» for a row
+that has reached the total it was asked for. Proven offline against the recipe (lupa, no
+game, no sends), one case per knife.
+
 **A CEILING STOPS THE QUEUE, IT DOES NOT STEP OVER THE ROW** (#2670, the person's report:
 «я открыл вип магазин, следующий значок взаимопонимания, но покупается что то другое»).
 The queue's next live row cost 3000 diamonds against a ceiling of 300 a run, so the run
