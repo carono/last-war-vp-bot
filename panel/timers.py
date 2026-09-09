@@ -485,6 +485,23 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.buy_glitter_market_goods",
     ),
     Timer(
+        name="autobuy_shop_goods",
+        scenario=("autobuy_shop_goods",),
+        # SIX HOURS, which is how often the shelves that restock have restocked. A run
+        # with an empty order reads the shelves the panel has already read and sends
+        # nothing at all.
+        interval_sec=21600,
+        retry_sec=600,
+        # OFF, and it is the one exception the «ships switched on» rule names (#2390): a
+        # purchase is irreversible and this one can spend a currency the account earned
+        # over weeks. It never fires until the person switches it on, its order is empty
+        # until they put something in it, and the diamonds it may spend are 0 until they
+        # type a ceiling.
+        enabled=False,
+        args={"plan": "", "diamond_cap": 0, "cap": 20},
+        label_key="timers.item.autobuy_shop_goods",
+    ),
+    Timer(
         name="lucky_share",
         scenario=("share_lucky_packet",),
         # HALF AN HOUR, and it is the person's own choice (#2397): «раз в полчаса тоже

@@ -329,6 +329,7 @@ class PanelRuntime:
         self._fireworks = None          # …and about the fireworks going off (#1677)
         self._rewards = None            # …and the reward popups it shut (#2027)
         self._market = None             # …and the Glittering Market's own ear (#2636)
+        self._shops = None              # …and the shelves of every shop (#2666)
         self._invasion = None           # …and «Вторжение зомби»'s (#2647)
         self._players = None            # …and the register every source writes into
         self._secret_days = None        # …and the book of star-secret-task days (#1467)
@@ -394,6 +395,15 @@ class PanelRuntime:
             self.market.start()
         except Exception:                 # noqa: BLE001 — the panel still works
             self.dbg("market").error("could not start the market watch", exc_info=True)
+        # …AND THE SHOPS' EAR (#2666). «Магазин» has a page, but the AUTOBUY errand
+        # spends the same reading and must work in a profile whose page is switched off
+        # — so the ear is the profile's, not the tab's. One reading when the client gets
+        # into the game, one when a balance moved, one after a purchase of ours, and no
+        # clock anywhere (panel/runtime/shops_live.py).
+        try:
+            self.shops.start()
+        except Exception:                 # noqa: BLE001 — the panel still works
+            self.dbg("shops").error("could not start the shop watch", exc_info=True)
         # …AND THE INVASION'S, for the same reason again (#2647). «Вторжение зомби» is
         # what the golden zombies belong to, and a hunt started outside its window walks
         # the world scene, a squad refill, the day's free energy and a lap of the map to
@@ -525,6 +535,21 @@ class PanelRuntime:
             from .market_live import MarketWatch
             self._market = MarketWatch(self)
         return self._market
+
+    @property
+    def shops(self):
+        """This profile's ear for the shelves of every shop the account has (#2666).
+
+        On the runtime and not on «Магазин» for the reason the market's is on it: the
+        SCHEDULE asks it — «Автопокупка» spends the same reading — and a profile that
+        does not draw the page still has that errand. One reading when the client gets
+        into the game, one when a balance push says something moved, one after a
+        purchase of ours, and no clock anywhere (panel/runtime/shops_live.py).
+        """
+        if self._shops is None:
+            from .shops_live import ShopWatch
+            self._shops = ShopWatch(self)
+        return self._shops
 
     @property
     def invasion(self):
