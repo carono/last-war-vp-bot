@@ -2208,3 +2208,116 @@ body.chatting .head-row .status { padding-top: 0; }
 .phase .name { font-weight: 600; }
 .phase .small { grid-column: 2; }
 .phase b { grid-column: 3; grid-row: 1 / span 2; }
+
+/* -- a shop shelf, as the game draws one (#2670) --------------------------------
+   «Карточки меньше и квадратные, ближе к игровому виду». A shelf is thirty-six goods,
+   and as errand cards 280 px wide it was a page nobody scrolled to the end of. Here it
+   is a wall of small squares: the picture, the name on one line, the price under it.
+   Never a breakpoint — the grid fills with whatever the screen is wide enough for, so
+   the same shelf is three columns on a phone and eight on the machine. */
+.goods {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+.good { position: relative; min-width: 0; }
+/* THE WHOLE TILE IS THE PRESS, and it wears the same skin whether it is one or not. */
+.good-tap {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  padding: 6px;
+  text-align: center;
+  color: inherit;
+  font: inherit;
+  background: var(--bg-soft);
+  border: 1px solid var(--card-edge);
+  border-radius: 10px;
+  min-width: 0;
+}
+button.good-tap { cursor: pointer; }
+button.good-tap:active { border-color: var(--accent); }
+button.good-tap:disabled { opacity: 0.6; }
+/* THE PICTURE IS THE TILE — square, whatever the sprite's own proportions are. */
+.good .pic {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--card);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.good .pic img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.good .pic .letter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 22px;
+  color: var(--ink-soft);
+}
+/* How many one purchase gives, stamped on the corner of the picture the way the game
+   stamps it. */
+.good .many {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+/* The name is small and never wraps: a tile that grows a second line stops being square
+   and the wall stops reading as one. */
+.good .gname {
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.good .gprice { font-size: 12px; font-weight: 650; }
+.good .bits {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 5px;
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+.good .bit {
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The gear and the priority mark sit ON the tile and outside its press: moving a knob
+   must never buy anything. */
+.good > .go.icon {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 0 4px;
+  min-height: 0;
+  min-width: 0;
+  line-height: 1.4;
+  font-size: 12px;
+  background: var(--card);
+}
+.good .prio {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
