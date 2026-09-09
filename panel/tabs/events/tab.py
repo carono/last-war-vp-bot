@@ -364,6 +364,8 @@ class EventsTab(PanelTab):
         # than on the next four-hourly turn.
         schedule.register_args(modelmod.ARMS_RELAY, self.arms_relay_args)
         schedule.register_report(modelmod.ARMS_RELAY, self.arms_report)
+        schedule.register_args(modelmod.ARMS_RELAY_SCORE, self.arms_relay_args)
+        schedule.register_report(modelmod.ARMS_RELAY_SCORE, self.arms_report)
         self._arms_args_registered = True
 
     def _register_golden_args(self) -> None:
