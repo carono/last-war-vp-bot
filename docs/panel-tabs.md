@@ -1021,6 +1021,30 @@ it, the name on a single line cut with an ellipsis, the item's `toggle` as the s
 the top-right corner, its `pill`, its `state` and its facts on the line under the name,
 and its `actions` on one short row at the bottom, beside the gear its `options` open.
 
+**A card of GOODS is drawn as a wall of small squares** (#2670). A card may say
+`"layout": "grid"`, and then its `items` are small SQUARE tiles: the item's `icon`, its
+`detail` stamped on the corner of the picture (what one purchase gives), its `text` on one
+line, its `price` under that on one line, and its facts in the smallest line of all — each
+with its own word, because a phone has no tooltip. Its `badge` is a mark in the top-left
+corner and its `options` are the gear in the top-right, outside the press.
+
+**The whole tile IS the first of its `actions`**, which is how a shop works in the game:
+you tap the thing you want. It is the same `PressButton` every other press on this
+front-end is — it grew a skin and a body rather than a copy of itself — so the `confirm`,
+the busy lock and the toast are unchanged, and a purchase still asks first because the tab
+said so. A tile whose item carries no action is drawn the same and does nothing.
+
+`price` is DATA the panel already composed (the amount and the game's own word for the
+currency), never a key; it is a field of its own rather than one fact among several
+because on a shop tile it is the line the eye goes to.
+
+**A choice whose options are the page's own tabs is a STRIP, not a dropdown** (#2670). A
+field may say `kind = "chips"`, and it is drawn as the `.chip` the card strip and the sort
+bar already wear — every option on screen, a press sends the screen's own `set`. Reach for
+it exactly when the options ARE the page: a shelf of a shop, a section of a list. A
+`choice` behind a `select` hides all but one of them, which on «Магазин» meant eleven
+shops nobody could find.
+
 It is deliberately **not** a fourth shape. The card was written for the errands
 (5daa8eb2, #2061) and it moved into `ui/` the day the register of players needed one —
 «A control that exists twice is written once» (`CLAUDE.md`). Improve that component; do
