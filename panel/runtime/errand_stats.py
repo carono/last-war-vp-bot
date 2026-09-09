@@ -700,6 +700,56 @@ def _arms_chests(rt) -> "dict | None":
 #: Errand name -> what to draw under its block. An errand that is not here draws
 #: nothing, and that is a deliberate answer rather than a gap to be filled in with a
 #: poll: see the module docstring, and the survey in `docs/research/errand-stats.md`.
+def _arena(rt) -> "dict | None":
+    """The arena: WHICH event the building is running, and how the account stands (#2688).
+
+    The person asked for both in those words — «пусть в карточке будет написано, какая
+    сейчас арена активна и счет нужен» — and the two arenas do not count the same thing,
+    so neither is made to look like the other: the 3v3 challenge's day is counted in
+    WINS and the storm arena's in BATTLES (`docs/research/arena-3v3.md` §4).
+
+    The reading is `panel/runtime/arena_live.py` — taken when the client got into the
+    game and then at the event's own end or the day's reset, never on a clock — so this
+    line costs nothing and carries its own AGE, which is what makes a stale number
+    honest rather than wrong.
+
+    `done` is a dash on the 3v3 until a battle has answered, and the target is the
+    errand's own `wins` argument rather than a number invented here: the server does not
+    carry one, and the row is where that knob lives.
+    """
+    from . import arena_live
+
+    fields, age = arena_live.state(rt)
+    if age is None:
+        return None
+    which = str(fields.get("which") or "")
+    if which == "none":
+        return {"key": "timers.stat.arena.closed", "fmt": {}, "age": age}
+    if which not in ("3v3", "storm"):
+        return None
+    dash = "—"
+    score = fields.get("score")
+    rank = fields.get("rank")
+    done = fields.get("done")
+    left = fields.get("left")
+    if which == "storm":
+        need = fields.get("need")
+        return {"key": "timers.stat.arena.storm",
+                "fmt": {"score": score if score is not None else dash,
+                        "rank": rank if rank is not None else dash,
+                        "done": done if done is not None else dash,
+                        "need": need if need is not None else dash,
+                        "left": left if left is not None else dash},
+                "age": age}
+    return {"key": "timers.stat.arena.3v3",
+            "fmt": {"score": score if score is not None else dash,
+                    "rank": rank if rank is not None else dash,
+                    "done": done if done is not None else dash,
+                    "need": _int(_timer_args(rt, "arena_3v3_battles").get("wins"), 5),
+                    "left": left if left is not None else dash},
+            "age": age}
+
+
 def _market(rt) -> "dict | None":
     """«Сверкающий рынок»: what is free right now, off the last reading (#2636).
 
@@ -780,6 +830,10 @@ PROVIDERS: dict = {
     # on the event's own push — no clock, and no «Обновить» anywhere.
     "collect_glittering_market": _market,
     "buy_glitter_market_goods": _market_coins,
+    # …and the arena building (#2688), whose card had to say WHICH of the two events is
+    # in it: the row is named for the 3v3 challenge only because renaming a timer throws
+    # away the schedule somebody set on it, and its scenario plays whichever is open.
+    "arena_3v3_battles": _arena,
     # …and the rows #2579 gave a line to, every one of them off the SAME reading the
     # eight above ride on or off the panel's own record — not one new question.
     "heal_units": _hospital,
