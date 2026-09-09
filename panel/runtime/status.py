@@ -39,6 +39,7 @@ from dataclasses import dataclass
 import profile_health
 
 from . import bus
+from . import crash_log
 from . import game_process
 from . import recovery as recoverymod
 
@@ -277,6 +278,14 @@ class StatusPoll:
         # the probe's own sentence and which Windows session this panel is looking in,
         # because «no client» has several different causes and they want opposite acts.
         self._note_verdict(health, found)
+        # The recorder is told the pid the poll has ALREADY read — no new question, and
+        # it is how the crash block can say how long the client had been up (#2678).
+        try:
+            rec = crash_log.for_rt(rt)
+            if rec is not None and getattr(found, "running", False):
+                rec.saw_pid(getattr(found, "pid", 0))
+        except Exception:                     # noqa: BLE001 — a note, never the poll
+            pass
         # THE LINK'S OWN SUPERVISOR (#1911): if a chunk is not landing — including the
         # first poll after a client appears, when nothing has ever landed — take hold of
         # the client. Not while the person has switched the profile off.
@@ -655,6 +664,18 @@ class StatusPoll:
             return                        # still counting
         if self._game_gone == WATCHDOG_STRIKES and self._game_was_up:
             rt.say("game", "log.game.gone")
+            # …AND THE BLACK BOX (#2678). One block into this profile's own `debug.log`,
+            # built entirely out of what the panel already knows — the last chunk, the
+            # attach counters, the recovery state, the run-up. The person's instruction
+            # was «давай расширенное логирование веди», and the point of writing it HERE
+            # is that this is the only moment when what led up to a crash is still in
+            # memory: an hour later the log has rotated and the counters have moved on.
+            try:
+                rec = crash_log.for_rt(rt)
+                if rec is not None:
+                    rec.died(rt)
+            except Exception:                 # noqa: BLE001 — a diagnostic, never the poll
+                pass
         if not rt.settings.opt_bool("watchdog"):
             return
         # …AND NOT WHILE THE PANEL IS STOPPED (#1393). The client going away is exactly
@@ -712,6 +733,12 @@ class StatusPoll:
         # what clears it, which is the only event that makes the sentence new again.
         self._watchdog_last = time.time()
         rt.say("game", "log.game.watchdog_relaunch")
+        # …AND THE REASON, IN THE BLACK BOX (#2678). A relaunch is one of the two things
+        # that reliably precede the next death — the other is a panel restart — so the
+        # run-up of the NEXT crash block has to carry it, with what made this one happen.
+        crash_log.note(rt, "relaunch",
+                       f"the watchdog is putting the client back after "
+                       f"{self._game_gone} dead readings")
         rt.play_async("launch_game")
 
     # -- the server probe ----------------------------------------------------

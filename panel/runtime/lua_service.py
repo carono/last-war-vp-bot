@@ -48,6 +48,8 @@ import time
 
 import lua_client
 
+from . import crash_log
+
 #: How often the watch thread looks in: follow the client across a restart, and probe
 #: the link if nothing has landed lately. Five seconds — the same interval the daemon
 #: used, for the same reason: a client restart takes the better part of a minute, so
@@ -255,6 +257,17 @@ class LuaService:
         #: …and the same for the hijack's own phases (:meth:`_say_hijack`).
         self._hijack_was: dict = {}
 
+    @property
+    def _crash(self):
+        """The black box of the LINK (#2678), or ``None`` when the logging is off.
+
+        The link's and not a profile's, deliberately: this object is shared by every
+        profile open on this Windows session, so a chunk's caller is a fact about the
+        machine — see `panel/runtime/crash_log.py::LINK`. The crash block prints it
+        beside the dying profile's own notes.
+        """
+        return crash_log.of(crash_log.LINK) if crash_log.on() else None
+
     # -- the connection ------------------------------------------------------
     @property
     def port(self) -> int:
@@ -361,6 +374,12 @@ class LuaService:
         if who == "thread:_serve":
             who = _child_of(chunk)
         times.who[who] = times.who.get(who, 0) + 1
+        # THE BLACK BOX'S CHEAPEST HALF (#2678): one assignment per call, so the crash
+        # block can say what the panel was doing in the last second of the client's life.
+        # `LW_CRASH_LOG=full` also appends it to the ring; at the default level this is a
+        # tuple store and nothing else.
+        if self._crash is not None:
+            self._crash.chunk(who, marker)
         if not (token or "").strip():
             # AN UNLEASED CALL IS LET THROUGH — that is the gate's own rule, and it is
             # the one way a chunk reaches the client beside whoever holds the claim
@@ -373,9 +392,16 @@ class LuaService:
                                      sentinel=sentinel)
         except self._mod.ClientUnreachable as exc:
             self._error = str(exc)
+            if self._crash is not None:
+                self._crash.note("gone", f"{who}: {exc}")
             raise lua_client.ClientGone(str(exc)) from exc
         except BaseException as exc:                  # noqa: BLE001 — the caller's chunk
             self._error = f"{type(exc).__name__}: {exc}"
+            # A REFUSAL IS THE RUN-UP (#2678). «client-busy», «OpenThread failed err=87»
+            # and «returned None» are the three sentences a dying client says before the
+            # process goes, and they were only ever findable by grepping afterwards.
+            if self._crash is not None:
+                self._crash.note("refused", f"{who}: {type(exc).__name__}: {exc}")
             raise
         self._error = ""
         return lines
@@ -387,8 +413,15 @@ class LuaService:
         except BaseException as exc:                  # noqa: BLE001 — a state, not a crash
             self._error = f"{type(exc).__name__}: {exc}"
             self._note_warn("could not attach: %s", exc)
+            if self._crash is not None:
+                self._crash.note("attach", f"refused: {exc}")
             return False
         self._error = ""
+        # EVERY ATTACH IS A NOTE (#2678). A re-attach is one of the two moments a client
+        # is known to die around — the other is a panel restart, which is a re-attach by
+        # another name — so the run-up in the crash block has to carry them.
+        if self._crash is not None:
+            self._crash.note("attach", f"took hold of pid {self._daemon.target_pid()}")
         return True
 
     # -- readings ------------------------------------------------------------
