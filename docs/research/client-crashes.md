@@ -873,3 +873,46 @@ and the client still dies about two to three minutes after a restart rather than
 one. What this section adds is the reason the day looked like a regression when no code
 had regressed — and the arithmetic that says a fix which halves the crashes is worth
 nothing on a day with three times the restarts.
+
+## The black box: what the panel was doing when it died (#2678)
+
+Everything above was arrived at by grepping a log hours after the fact, and twice the log
+had rotated first. The person's instruction was one sentence — «давай расширенное
+логирование веди» — so the panel now keeps its own run-up and writes it out at the moment
+that matters.
+
+`panel/runtime/crash_log.py`. One recorder per profile, plus one for the LINK (which is
+the machine's, deliberately: one Windows session holds one client and `LuaService` is
+shared by every profile open on it). The block lands in the PROFILE's `debug.log` — never
+`panel.log`, which the person reads and which does not rotate.
+
+**It asks the game nothing, and that is the rule it is written under.** A diagnostic that
+costs a chunk is a chunk the errand did not get; one that costs a chunk while the client
+is dying is worse than useless. Every figure in the block is a counter the panel already
+keeps or a stamp it already wrote:
+
+| in the block | where it comes from | what it costs |
+| --- | --- | --- |
+| the last chunk — caller, marker, how long ago | `lua_service.run` already computes `who` | one tuple assignment per call |
+| pid and how long this panel had known it | the status poll's own reading | nothing |
+| hijacks, park tries each, misses, regions abandoned, top labels | `hijack_call.STATS`, as a DELTA since the last block | nothing |
+| the panel's head, pid and uptime | `updates.boot()` | nothing |
+| `up` / `ready` / attached pid / last error | the link's own verdicts | nothing |
+| recovery strikes, restarts, kick hold | `rt.recovery.state()` | nothing |
+| the run-up — the last 200 notes | a bounded deque | a deque append, and only where a note is made |
+| the Windows `Application Error` | `tools/crash_report.py` in a thread, throttled to once per ten minutes | a PowerShell, never the game |
+
+Notes are made where something happens that a later crash may be explained by: an attach
+taken or refused, a chunk refused (`client-busy`, `OpenThread ... err=87`, «returned
+None»), a client that went away mid-chunk, a fresh pid, and the watchdog putting the
+client back with the reading count that made it.
+
+`LW_CRASH_LOG` switches it: `off` writes nothing at all, `on` (the default) writes the
+block, `full` also records every chunk. Only `full` costs anything per call, and even then
+it is a `deque.append`. Read on every call rather than cached, because turning the detail
+down is something a person does to a panel that is already running badly, and a value read
+at import would need the restart this exists to make unnecessary.
+
+`tests/test_panel_crash_log.py` pins all of it, including the rule: the module's own source
+is searched for `run_action(`, `play_async(`, `.evaluator(` and `READ_LUA`, and finding one
+fails the test.
