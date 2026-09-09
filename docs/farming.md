@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 79 of 203
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 81 of 207
 
-🟩 79 done · 🟨 94 partly · 🟥 30 not automated
+🟩 81 done · 🟨 96 partly · 🟥 30 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -284,7 +284,11 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - ✅ Taking everything the shop gives for nothing, in one press with no window opened: today's free gift from the week-card page, the daily reward of the week cards already held, what a running month card owes for today, and every level of an event battle pass («Акция») that has been earned and not yet paid out — the free track always, the premium one when it has already been unlocked. Nothing is ever bought — no diamonds, no gold bricks, no honour, no coupons — and every other tab of the shop is left alone. What is on offer is asked of the game rather than counted by the panel, so a day already collected is a clean no-op that says so, and a claim the game refuses is reported as refused instead of being written down as done. Its own page shows what is waiting and offers the press; runs on its own every six hours from «Таймеры», switched on out of the box — it can spend nothing, so there is nothing to protect an account from
 - 🟡 Three more free claims the shop opens only on some days — the free spin the decoration shop keeps for itself, the free reward of the recharge page, and the daily free one of the camp — go with the same press and the same errand. Each is taken only when the game's own counter says it is on offer, so a day with nothing waiting sends nothing at all; nothing is bought and nothing is topped up, and the only attempt spent is one the game itself calls free. All three gates were read live and all three were closed that day, so the claims themselves have not been seen arriving yet
-- ❌ Anything in the shop that costs something — every one of the fifteen tabs of the two shop windows sells for a currency, and the panel makes no purchases; buying levels of a battle pass is a purchase too and is never made
+- ✅ Every shop the account has, on the phone, with the game's own pictures — the shelves are read out of the client without opening a window, and the page draws them the way the game does: pick a shop and its goods appear as the same cells the bag uses, each with what it gives, what it costs and in which currency, and how much of its limit is left. Which shops there are is the game's answer, never a list in the panel, so a shelf that opens for an account this month appears by itself. The reading is taken when the client gets into the game and again when a balance moves, never on a clock, and its age is drawn beside it, so there is no «Обновить» to press. Read live over every one of the account's 181 rows: not one without a name, not one without a picture
+- ✅ Buying one item by hand — press it on the shelf, answer «are you sure?», and the run says what it is about to spend before it sends anything: the item, how many, the price and the currency by name, the limit left and what the bag already holds. It refuses instead of guessing: a row that does not exist, a quota used up, or a price the game itself says the account cannot pay are all a «no» with the reason in the log. Proven live on the cheapest row of the alliance shop, with the owner's permission — the item arrived in the bag
+- 🟡 Buying by an order of preference, on its own — behind each item's gear there is a place in the queue and how many to take per run; the errand then walks that queue from the top, buys what the quotas and the ceilings allow, steps over what it cannot afford and names every price before it spends it. It ships SWITCHED OFF with an empty queue: a purchase cannot be undone. It may spend in any shop, the diamond ones included, and what guards that is a ceiling on the diamonds one run may spend — 300 to begin with, the same number already settled for the energy refill. Not yet seen firing on its own schedule
+- 🟡 The storefronts that want real money are shown and never pressed — the week-card shelf is drawn with what each card hands over, so the page is the whole shop rather than the part the bot can spend. No button, and no price: a pack is bought through the platform's own purchase and neither the price nor the purchase is on this side of the client at all
+- ❌ Buying levels of a battle pass — a purchase, and it is never made
 - 🟡 The shop opens and switches between its tabs on command
 
 ### Promotions
@@ -404,7 +408,7 @@ The routine as it is actually played, against what the bot covers.
 | Help alliancemates who ask | ✅ |
 | Fire the profession skills that came off cooldown | 🟡 the no-target ones · ✅ Win-Win · ❌ the rest of the targeted ones |
 | General's challenge, free heroes in the tavern | ❌ |
-| Shop purchases from a list | ❌ |
+| Shop purchases from a list | 🟡 the shelves, the pictures and buying one item by hand are proven live; the queue that spends them by itself ships switched off and has not been seen firing on a schedule |
 | Free diamonds at the «Glittering Market» | ✅ the daily free reward and the zero-cost goods are taken on a schedule, proven on a live account; buying its coins is a purchase and is never made |
 | Treasure maps and the exchange | ❌ |
 
