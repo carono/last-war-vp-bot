@@ -23,6 +23,13 @@ from .base import PanelTab, TriggerSpec
 INTAKE_GAINS = "stats.gains"
 
 
+#: HOW LONG A BURST OF EVENTS WAITS BEFORE THE TABLE IS REPAINTED (#2660). The repaint
+#: destroys and rebuilds every label in the grid, and the events arrive in bursts — one
+#: harvest prices about 25 balance pushes. A second is invisible on a table of days and
+#: turns a burst into one repaint of the Tk thread every open profile shares.
+REDRAW_MS = 900
+
+
 class StatsTab(PanelTab):
     ID = "stats"
     TITLE_KEY = "tab.stats"
@@ -124,9 +131,14 @@ class StatsTab(PanelTab):
         resourcestatsmod.save_stats_to_store(self.rt.store, self._stats)
         self.say("trigger", "triggers.log.resource_gain",
                  what=", ".join(f"{k} +{v}" for k, v in gains.items()))
-        self.post(self.redraw)
+        # …AND THE TABLE IS REPAINTED AT MOST ONCE A SECOND (#2660). A harvest emits
+        # about 25 balance pushes, each of them priced here, and each used to destroy
+        # and rebuild every label in the grid on the Tk thread every open profile
+        # shares. `arm` cancels the pending repaint, so a burst costs ONE.
+        self.post(lambda: self.rt.tick.arm("stats_redraw", REDRAW_MS, self.redraw))
 
     def shutdown(self) -> None:
+        self.rt.tick.disarm("stats_redraw")
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
