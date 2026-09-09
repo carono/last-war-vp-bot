@@ -1343,6 +1343,31 @@ class WebApi:
         queued = bool(rt.schedule.timers.request(timer))
         return {"ok": queued, "queued": queued, "name": name}
 
+    def set_scheduler(self, on: bool, profile: str | None = None) -> dict:
+        """The schedule's MASTER switch, from the phone (#2660).
+
+        «Стоп всё» stops the scheduler thread, and until this route the only way back was
+        the window's own checkbox — so a panel with no window, which is every live one,
+        had a schedule that could be stopped and never started again. Through the tab
+        where one is drawn, so its box and the thread cannot disagree; through the
+        runtime where there is none.
+        """
+        rt = self._runtime(profile)
+        tab = rt.tabs.get("timers")
+        if tab is not None and getattr(tab, "built", True) \
+                and hasattr(tab, "set_scheduler"):
+            done: dict = {}
+            self._on_tk(rt, lambda: done.update(ok=bool(tab.set_scheduler(on))))
+            if done.get("ok"):
+                return {"ok": True, "running": bool(on)}
+        if on:
+            rt.schedule.start()
+            rt.say("timer", "timers.log.scheduler_on")
+        else:
+            rt.schedule.stop()
+            rt.say("timer", "timers.log.scheduler_off")
+        return {"ok": True, "running": bool(on)}
+
     def stop_timer(self, name: str, profile: str | None = None) -> dict:
         """End what THIS row is running, and nothing else (#2408).
 
@@ -2321,6 +2346,8 @@ class WebApi:
                 return _answer(self.delete_timer(name, who))
             if path == "/api/timers/run":
                 return _answer(self.run_timer(name, who))
+            if path == "/api/timers/scheduler":
+                return _answer(self.set_scheduler(bool(body.get("enabled")), who))
             if path == "/api/timers/stop":
                 return _answer(self.stop_timer(name, who))
             if path == "/api/triggers/set":

@@ -250,6 +250,8 @@ function Panel() {
   const [profiles, setProfiles] = useState<Profiles>({ profiles: [] })
   const [state, setState] = useState<State | null>(null)
   const [timers, setTimers] = useState<TimerRow[]>([])
+  // The schedule's master switch, off `/api/timers` (#2660).
+  const [scheduling, setScheduling] = useState(true)
   const [triggers, setTriggers] = useState<TriggerRow[]>([])
   /* The watchers that are in no catalogue, drawn among the listeners (#2017). */
   const [orders, setOrders] = useState<OrderRow[]>([])
@@ -303,8 +305,11 @@ function Panel() {
 
   const refreshTimers = useCallback(async () => {
     try {
-      const answer = await get<{ timers?: TimerRow[]; triggers?: TriggerRow[] }>('/api/timers')
+      const answer = await get<{ timers?: TimerRow[]; triggers?: TriggerRow[]; running?: boolean }>(
+        '/api/timers',
+      )
       setTimers(answer.timers || [])
+      setScheduling(!!answer.running)
     } catch {
       /* the tick says so */
     }
@@ -611,6 +616,7 @@ function Panel() {
             triggers={triggers}
             orders={orders}
             now={state?.time || 0}
+            running={scheduling}
             refresh={refreshTimers}
           />
         ) : (
