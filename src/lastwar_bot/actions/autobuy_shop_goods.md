@@ -11,9 +11,21 @@
 #   plan         — the order, as «Магазин» writes it: `kind:shop:id:count`, comma
 #                  separated, most wanted first. Empty means «nothing chosen», and the
 #                  recipe says so and stops.
-#   diamond_cap  — the most DIAMONDS one run may spend. 0 — the default — means not one,
-#                  and a row priced in diamonds is skipped rather than bought.
+#   diamond_cap  — the most DIAMONDS one run may spend. It is a CEILING and not a ban:
+#                  the person's decision, in their words, is «любая автопокупка» — every
+#                  shop, the diamond shelves included — with «настраиваемый ПОТОЛОК ТРАТ
+#                  за цикл» as the safeguard instead of a forbidden currency (#2666). So
+#                  a diamond row is bought up to what the ceiling still has room for and
+#                  TRIMMED rather than dropped: a ceiling of 300 over a row priced at 100
+#                  buys three, not none. 0 means «not one diamond», which is the same
+#                  knob turned all the way down rather than a different rule.
 #   cap          — the most purchases one run may make at all, whatever the order says.
+#
+# WHAT IT SHIPS AS: switched OFF, with an empty order and a diamond ceiling of 300 — the
+# number the person already settled for the energy refill (#2390), so the panel is not
+# inventing a scale of its own. Nothing is spent until somebody turns the errand on, and
+# the order and both ceilings are visible on «Магазин» and behind the gear on «Таймеры»
+# before that happens.
 #
 # WHAT IT DOES, and the order is the whole of it: it walks the plan from the top, and for
 # each row it takes as many as the row's own quota allows, as many as the ceilings allow,
@@ -29,10 +41,10 @@
 # The wire and the shape of a shelf are docs/research/shops.md.
 
 ARGS plan =
-ARGS diamond_cap = 0
+ARGS diamond_cap = 300
 ARGS cap = 20
 
-READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local C = DataCenter.CommonShopManager local plan = '{plan}' local order = {} for piece in plan:gmatch('[^,]+') do local bits = {} for b in piece:gmatch('[^:]+') do bits[#bits + 1] = b end if #bits >= 3 then order[#order + 1] = {kind = bits[1], shop = num(bits[2]), id = bits[3], count = math.max(1, num(bits[4] or '1'))} end end DataCenter.__lw_shop_plan = order local rows = {} local diamonds = num('{diamond_cap}') local left = num('{cap}') if left < 1 then left = 1 end local spent_d = 0 local picked = {} for _, e in ipairs(order) do if left <= 0 then break end local P = nil if e.kind == 'common' then for _, p in pairs((C.goodsShopDic or {})[e.shop] or {}) do if tostring(p.id) == e.id then P = p end end end if P ~= nil then local want = e.count if want > left then want = left end if num(P.maxTimes) > 0 then local bought = 0 pcall(function() bought = num(C:GetShopGoodsNum(P)) end) local room = num(P.maxTimes) - bought if want > room then want = room end end while want > 0 do local ok = false pcall(function() ok = (C:CheckCostEnough(P, want) == true) end) if ok then break end want = want - 1 end if want > 0 and num(P.currencyType) == 5 then local price = want * num(P.costNum) if spent_d + price > diamonds then want = 0 end if want > 0 then spent_d = spent_d + price end end if want > 0 then left = left - want picked[#picked + 1] = {row = P, n = want} local nm = '' pcall(function() nm = tostring(DataCenter.ItemTemplateManager:GetName(num(P.itemId)) or '') end) rows[#rows + 1] = nm .. ' x' .. want .. ' за ' .. (want * num(P.costNum)) end end end DataCenter.__lw_shop_picked = picked if #rows == 0 then return 'по очереди покупать нечего' end return 'собираюсь купить: ' .. table.concat(rows, '; ') .. (spent_d > 0 and (' (алмазов ' .. spent_d .. ' из ' .. diamonds .. ')') or '') end)() INTO offer
+READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local C = DataCenter.CommonShopManager local plan = '{plan}' local order = {} for piece in plan:gmatch('[^,]+') do local bits = {} for b in piece:gmatch('[^:]+') do bits[#bits + 1] = b end if #bits >= 3 then order[#order + 1] = {kind = bits[1], shop = num(bits[2]), id = bits[3], count = math.max(1, num(bits[4] or '1'))} end end DataCenter.__lw_shop_plan = order local rows = {} local diamonds = num('{diamond_cap}') local left = num('{cap}') if left < 1 then left = 1 end local spent_d = 0 local picked = {} for _, e in ipairs(order) do if left <= 0 then break end local P = nil if e.kind == 'common' then for _, p in pairs((C.goodsShopDic or {})[e.shop] or {}) do if tostring(p.id) == e.id then P = p end end end if P ~= nil then local want = e.count if want > left then want = left end if num(P.maxTimes) > 0 then local bought = 0 pcall(function() bought = num(C:GetShopGoodsNum(P)) end) local room = num(P.maxTimes) - bought if want > room then want = room end end while want > 0 do local ok = false pcall(function() ok = (C:CheckCostEnough(P, want) == true) end) if ok then break end want = want - 1 end if want > 0 and num(P.currencyType) == 5 then local price = num(P.costNum) local room = diamonds - spent_d local fit = want if price > 0 then fit = math.floor(room / price) end if want > fit then want = fit end if want > 0 then spent_d = spent_d + want * price end end if want > 0 then left = left - want picked[#picked + 1] = {row = P, n = want} local nm = '' pcall(function() nm = tostring(DataCenter.ItemTemplateManager:GetName(num(P.itemId)) or '') end) local cn = '' pcall(function() cn = tostring(DataCenter.ResourceManager:GetResourceNameByType(num(P.currencyType)) or '') end) if cn:sub(1, 1) == '<' then cn = 'валюта ' .. num(P.currencyType) end rows[#rows + 1] = nm .. ' x' .. want .. ' за ' .. (want * num(P.costNum)) .. ' (' .. cn .. ')' end end end DataCenter.__lw_shop_picked = picked if #rows == 0 then return 'по очереди покупать нечего' end return 'собираюсь купить: ' .. table.concat(rows, '; ') .. (spent_d > 0 and (' (алмазов ' .. spent_d .. ' из ' .. diamonds .. ')') or '') end)() INTO offer
 LOG "автопокупка: {offer}"
 
 READ_LUA (function() local picked = DataCenter.__lw_shop_picked or {} local n = 0 for _ in ipairs(picked) do n = n + 1 end return n end)() INTO lots

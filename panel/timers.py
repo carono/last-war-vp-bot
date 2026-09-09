@@ -494,11 +494,16 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         retry_sec=600,
         # OFF, and it is the one exception the «ships switched on» rule names (#2390): a
         # purchase is irreversible and this one can spend a currency the account earned
-        # over weeks. It never fires until the person switches it on, its order is empty
-        # until they put something in it, and the diamonds it may spend are 0 until they
-        # type a ceiling.
+        # over weeks. It never fires until the person switches it on, and its order is
+        # empty until they put something in it.
+        #
+        # EVERY SHOP, THE DIAMOND ONES INCLUDED — the person's decision, in their words:
+        # «любая автопокупка» (#2666). The safeguard they asked for is a CEILING on what
+        # one run may spend in diamonds rather than a currency this errand may not touch,
+        # and it starts at 300 — the number already settled for the energy refill (#2390),
+        # so the panel is not inventing a scale of its own.
         enabled=False,
-        args={"plan": "", "diamond_cap": 0, "cap": 20},
+        args={"plan": "", "diamond_cap": 300, "cap": 20},
         label_key="timers.item.autobuy_shop_goods",
     ),
     Timer(

@@ -1040,7 +1040,7 @@
   "shop.buy.confirm": "Comprar «{name}» por {amount} {currency}? Uma compra não pode ser desfeita.",
   "shop.autobuy.now": "Comprar por prioridade",
   "shop.opt.diamond_cap": "Diamantes por execução",
-  "shop.opt.diamond_cap.hint": "0 significa nem um diamante, e é o valor por omissão. Acima de 0 a compra automática pode pagar artigos em diamantes, até este valor por execução.",
+  "shop.opt.diamond_cap.hint": "O máximo de diamantes que uma execução pode gastar. A compra automática funciona em todas as lojas, incluindo as de diamantes — isto é um teto de gasto, não uma moeda proibida. 300 por omissão; 0 significa nem um diamante.",
   "shop.opt.cap": "Compras por execução",
   "shop.opt.cap.hint": "O máximo de compras de uma execução, diga o que disser a ordem.",
   "timers.item.autobuy_shop_goods": "Lojas: compra pela ordem definida em «Loja»",

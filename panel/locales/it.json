@@ -1040,7 +1040,7 @@
   "shop.buy.confirm": "Acquistare «{name}» per {amount} {currency}? Un acquisto non si può annullare.",
   "shop.autobuy.now": "Acquista per priorità",
   "shop.opt.diamond_cap": "Diamanti per esecuzione",
-  "shop.opt.diamond_cap.hint": "0 significa nemmeno un diamante, ed è il valore predefinito. Sopra 0 l'acquisto automatico può pagare articoli in diamanti, fino a questo importo per esecuzione.",
+  "shop.opt.diamond_cap.hint": "Il massimo di diamanti che una esecuzione può spendere. L'acquisto automatico funziona in ogni negozio, compresi quelli in diamanti: è un tetto di spesa, non una valuta vietata. 300 di base; 0 significa nemmeno un diamante.",
   "shop.opt.cap": "Acquisti per esecuzione",
   "shop.opt.cap.hint": "Il numero massimo di acquisti di una esecuzione, qualunque cosa dica l'ordine.",
   "timers.item.autobuy_shop_goods": "Negozi: acquisto secondo l'ordine impostato su «Negozio»",
