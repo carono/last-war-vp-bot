@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "Rejoindre automatiquement les ralliements d'Exercice d'Alliance",
   "autorally.drill.frame": "Exercice d'Alliance",
   "autorally.drill.hint": "Clique sur une équipe pour changer son rôle : vide — elle reste · ✓ — elle rejoint · 🚩 — elle mène (lève l'étendard). Une seule équipe peut mener ; enlève celle en place pour déplacer l'étendard.",
+  "autorally.drill.leader": "Équipe meneuse",
   "autorally.drill.squads": "Équipes :",
   "autorally.frame": "Ralliement Auto",
   "autorally.group": "Ralliement auto — tout ce qu'il fait seul",

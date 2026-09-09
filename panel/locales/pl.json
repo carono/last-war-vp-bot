@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "Dołączać sam do rajdów Ćwiczeń Sojuszu",
   "autorally.drill.frame": "Ćwiczenia Sojuszu",
   "autorally.drill.hint": "Kliknij oddział, aby zmienić jego rolę: puste — zostaje w domu · ✓ — dołącza · 🚩 — prowadzi (podnosi sztandar). Prowadzić może tylko jeden; zdejmij obecny, aby przenieść sztandar.",
+  "autorally.drill.leader": "Oddział prowadzący",
   "autorally.drill.squads": "Oddziały:",
   "autorally.frame": "Automatyczny rajd",
   "autorally.group": "Autozbiórka — wszystko, co robi sama",

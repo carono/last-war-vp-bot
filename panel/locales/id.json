@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "Ikut sendiri ke reli Latihan Aliansi",
   "autorally.drill.frame": "Latihan Aliansi",
   "autorally.drill.hint": "Klik sebuah skuad untuk mengubah perannya: kosong — tinggal di rumah · ✓ — ikut · 🚩 — memimpin (mengangkat panji). Hanya satu yang bisa memimpin; lepaskan yang sekarang untuk memindahkan panji.",
+  "autorally.drill.leader": "Skuad pemimpin",
   "autorally.drill.squads": "Skuad:",
   "autorally.frame": "Reli Otomatis",
   "autorally.group": "Rally otomatis — semua yang dilakukannya sendiri",

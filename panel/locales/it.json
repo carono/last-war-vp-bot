@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "Unirsi da sé ai rally dell'Esercitazione dell'Alleanza",
   "autorally.drill.frame": "Esercitazione dell'Alleanza",
   "autorally.drill.hint": "Clicca una squadra per cambiarne il compito: vuoto — resta a casa · ✓ — si unisce · 🚩 — guida (alza lo stendardo). Solo una squadra può guidare; togli quella attuale per spostare lo stendardo.",
+  "autorally.drill.leader": "Squadra guida",
   "autorally.drill.squads": "Squadre:",
   "autorally.frame": "Rally Automatico",
   "autorally.group": "Raduno automatico — tutto ciò che fa da solo",

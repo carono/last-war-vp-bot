@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "İttifak Tatbikatı rallilerine kendiliğinden katıl",
   "autorally.drill.frame": "İttifak Tatbikatı",
   "autorally.drill.hint": "Bir takımın ne yapacağını değiştirmek için ona tıkla: boş — evde kalır · ✓ — katılır · 🚩 — önderlik eder (sancağı kaldırır). Yalnız biri önderlik edebilir; sancağı taşımak için şimdikini kaldır.",
+  "autorally.drill.leader": "Öncü takım",
   "autorally.drill.squads": "Takımlar:",
   "autorally.frame": "Otomatik Ralli",
   "autorally.group": "Otomatik saldırı birliği — kendi başına yaptığı her şey",

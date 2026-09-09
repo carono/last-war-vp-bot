@@ -50,6 +50,7 @@
   "autorally.drill.enabled": "Tự vào các tập kết Diễn Tập Liên Minh",
   "autorally.drill.frame": "Diễn Tập Liên Minh",
   "autorally.drill.hint": "Bấm vào một đội để đổi việc của nó: trống — ở nhà · ✓ — tham gia · 🚩 — dẫn đầu (giương cờ). Chỉ một đội được dẫn đầu; bỏ chọn đội hiện tại để chuyển cờ.",
+  "autorally.drill.leader": "Đội dẫn đầu",
   "autorally.drill.squads": "Các đội:",
   "autorally.frame": "Tập Kết Tự Động",
   "autorally.group": "Tập kết tự động — mọi thứ nó tự làm",
