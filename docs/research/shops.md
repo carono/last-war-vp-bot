@@ -86,6 +86,17 @@ let the whole order through: one exchange went out, the items were gone, and the
 sent anyway, one refusal per row. That is the «спамит что не хватает предметов» the person
 reported.
 
+**«КУПИТЬ ПО ПРИОРИТЕТУ» SPENDS ON THE SHELF IT IS DRAWN ON, AND NOWHERE ELSE** (#2670,
+the person's report: «почему я запускаю обмен, первый обмен проходит, но не в том
+магазине где нажимал»). The press used to hand the recipe the WHOLE plan, so a press on
+the expedition shelf walked into the alliance and honour ones too — buying where it
+could and being refused where the pay had already gone, which is where the «спам» came
+from and why every check made on the shelf being pressed came back clean. The queue is
+per shop by the person's own decision, so the press is too; the SCHEDULE still walks the
+whole order, because that is what a nightly errand is for. Every line of the offer now
+names its shelf («магазин 100: …»), so the next mix-up is one line of the log rather
+than a live hunt.
+
 **AND THE PICKS COUNT THE PURSE DOWN.** Every row is chosen before the first message
 leaves, so the game cannot know what our own earlier picks have already promised — the
 first purchase landed and every later one was judged against a balance that no longer
