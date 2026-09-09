@@ -201,3 +201,20 @@ WHILE arms_go == 1 LIMIT 40
 READ_LUA (function() local ph = DataCenter.__lw_arms_ph or {} local p = DataCenter.__lw_arms_dr or {} local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) local sc = -1 local top = 0 if d ~= nil then sc = math.floor((d.sc or 0) + 0) pcall(function() for _, b in pairs(d.score_rewards or {}) do local t = math.floor((b.target or 0) + 0) if t > top then top = t end end end) end local made = math.floor(tonumber(ph.made) or 0) local spent = math.floor(tonumber(ph.spent) or 0) local cap = math.floor(tonumber(p.cap) or 0) return 'phase rallies=' .. made .. ' stamina=' .. spent .. '/' .. cap .. ' score=' .. sc .. '/' .. top, made end)() INTO arms_drone_report, arms_drone_made
 
 LOG "arms drone: {arms_drone_report} — {arms_why}"
+
+# THE CHESTS THE HOUR EARNS ARE TAKEN INSIDE THE HOUR (#2661). Measured live on
+# 2026-09-09: the score passed the second chest's target (12000) at 09:31 and the row
+# still read `receive == 0` at 09:50 — nineteen minutes of an earned chest sitting
+# unclaimed — because the only thing that claims is `perform_arms_race`, and during the
+# drone hour the banners are raised by the two wire triggers, which play THIS recipe and
+# nothing else. A chest is not spent, it is owed, so leaving it for the phase border is
+# a reward the account has and cannot see.
+#
+# The gate is one read rather than the claim recipe itself: a trigger fires on every
+# march that ends in view, and `claim_arms_chests` opens with a `CALL read_arms_race`.
+# Asking «is any row owed» costs one Lua read and is false on almost every fire.
+READ_LUA (function() local M = DataCenter.ActivityPersonalArmsDataManager local d = nil pcall(function() for _, v in pairs(M.dataDict or {}) do if type(v) == 'table' and v.event_id ~= nil then d = v break end end end) if d == nil then return 0 end local sc = math.floor((d.sc or 0) + 0) local owed = 0 for _, b in pairs(d.score_rewards or {}) do if type(b) == 'table' then local got = math.floor((b.receive or 0) + 0) local target = math.floor((b.target or 0) + 0) if got == 0 and target > 0 and sc >= target then owed = owed + 1 end end end return owed end)() INTO arms_drone_owed
+
+IF arms_drone_owed > 0
+    LOG "the drone hour has earned {arms_drone_owed} chest(s) nobody has taken — claiming them now"
+    CALL claim_arms_chests
