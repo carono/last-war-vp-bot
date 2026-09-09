@@ -67,26 +67,35 @@ export function Sortable({
      
   }, [stamp])
 
-  /* THE MOVES ARE LISTENED FOR ON THE WINDOW, NOT ON THE GRIP (#2670), and that is the
-   * second thing this component got wrong rather than a style: the grip took a pointer
-   * capture, and the first reorder MOVES the grip's own tile in the DOM — after which
-   * WebKit stopped delivering to it, no `pointerup` ever arrived and the release that
-   * sends the order never ran. Measured live: the tiles swapped under the finger and
-   * the panel's plan was untouched, twice.
+  /* THE MOVES ARE LISTENED FOR ON THE WINDOW, AND THEY ARE HOOKED UP INSIDE THE PRESS
+   * ITSELF (#2670). Two measured mistakes are pinned here, both of which looked like the
+   * drag working — the tiles moved under the finger — while the panel heard nothing:
    *
-   * A window listener cannot be moved out from under the drag, and it ends the drag on
-   * `pointerup` wherever the finger happens to be — including outside the grid, which is
-   * where a thumb lets go about half the time. */
-  useEffect(() => {
-    if (!dragging) return
-    const id = dragging
+   * 1. THE GRIP TOOK A POINTER CAPTURE. The first reorder MOVES the grip's own tile in
+   *    the DOM, and after that WebKit delivered nothing more to it: no `pointermove`, no
+   *    `pointerup`, so the release that sends the order never ran.
+   * 2. THE WINDOW LISTENERS WERE ARMED BY AN EFFECT on a piece of state. React commits
+   *    state a tick later, so a drag whose first move lands in the same tick as the press
+   *    — every synthetic one, and a fast thumb — moved with no listener attached.
+   *
+   * So the press hooks the window up itself, synchronously, and the state it also sets is
+   * only what draws the tile as lifted. A window cannot be moved out from under a drag,
+   * and it ends one on `pointerup` wherever the finger happens to be — including outside
+   * the grid, which is where a thumb lets go about half the time. */
+  const undo = useRef<(() => void) | null>(null)
+  useEffect(() => () => undo.current?.(), [])
+
+  const start = (id: string) => {
+    undo.current?.()
+    held.current = id
+    setDragging(id)
     const at = (event: PointerEvent) => {
       const under = document.elementFromPoint(event.clientX, event.clientY)
       const box = under?.closest('[data-sort-id]')
       return box ? box.getAttribute('data-sort-id') : null
     }
     const move = (event: PointerEvent) => {
-      event.preventDefault()
+      if (event.cancelable) event.preventDefault()
       const over = at(event)
       if (!over || over === id) return
       const was = live.current
@@ -97,26 +106,30 @@ export function Sortable({
       next.splice(to, 0, next.splice(from, 1)[0])
       put(next)
     }
-    const stop = () => {
+    const off = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', drop)
+      undo.current = null
       held.current = null
       setDragging(null)
-      if (live.current.join(',') !== stamp) onOrder(live.current)
     }
-    const drop = () => {
-      held.current = null
-      setDragging(null)
+    function stop() {
+      const want = live.current
+      off()
+      // Only a move that CHANGED something is a press: letting go where you picked up is
+      // not an order, and a press per touch would be a press per accidental tap.
+      if (want.join(',') !== stamp) onOrder(want)
+    }
+    function drop() {
+      off()
       put(ids)
     }
     window.addEventListener('pointermove', move, { passive: false })
     window.addEventListener('pointerup', stop)
     window.addEventListener('pointercancel', drop)
-    return () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', stop)
-      window.removeEventListener('pointercancel', drop)
-    }
-     
-  }, [dragging, stamp])
+    undo.current = off
+  }
 
   const grip = (id: string) => (
     <button
@@ -130,9 +143,8 @@ export function Sortable({
       }}
       onPointerDown={(e) => {
         e.stopPropagation()
-        e.preventDefault()
-        held.current = id
-        setDragging(id)
+        if (e.cancelable) e.preventDefault()
+        start(id)
       }}
     >
       {'\u2630'}
