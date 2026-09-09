@@ -20,10 +20,10 @@ import { t } from '../i18n'
  * did, and the tile itself stays the purchase.
  *
  * POINTER EVENTS, so a mouse and a thumb are the same code — the browser's own answer to
- * «works on the phone AND at the machine». The grip captures the pointer, so the moves
- * keep arriving even when the finger leaves the tile it started on, and what is under
- * the finger is asked of the DOM (`elementFromPoint`) rather than worked out from
- * coordinates the layout would have to be re-measured for.
+ * «works on the phone AND at the machine». The moves are listened for on the WINDOW for
+ * as long as a drag lasts (see the effect below for what a pointer capture cost here),
+ * and what is under the finger is asked of the DOM (`elementFromPoint`) rather than
+ * worked out from coordinates the layout would have to be re-measured for.
  *
  * WHAT IT PROMISES THE CALLER: the order it is DRAWING follows the ids it was handed —
  * so a screen re-read that disagrees wins — and `onOrder` is called once, on release,
@@ -53,6 +53,7 @@ export function Sortable({
      tiles swapped under the finger and the panel never heard about it. */
   const live = useRef<string[]>(ids)
   const held = useRef<string | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
   const stamp = ids.join(',')
   const put = (next: string[]) => {
     live.current = next
@@ -66,11 +67,56 @@ export function Sortable({
      
   }, [stamp])
 
-  const at = (event: { clientX: number; clientY: number }) => {
-    const under = document.elementFromPoint(event.clientX, event.clientY)
-    const box = under?.closest('[data-sort-id]')
-    return box ? box.getAttribute('data-sort-id') : null
-  }
+  /* THE MOVES ARE LISTENED FOR ON THE WINDOW, NOT ON THE GRIP (#2670), and that is the
+   * second thing this component got wrong rather than a style: the grip took a pointer
+   * capture, and the first reorder MOVES the grip's own tile in the DOM — after which
+   * WebKit stopped delivering to it, no `pointerup` ever arrived and the release that
+   * sends the order never ran. Measured live: the tiles swapped under the finger and
+   * the panel's plan was untouched, twice.
+   *
+   * A window listener cannot be moved out from under the drag, and it ends the drag on
+   * `pointerup` wherever the finger happens to be — including outside the grid, which is
+   * where a thumb lets go about half the time. */
+  useEffect(() => {
+    if (!dragging) return
+    const id = dragging
+    const at = (event: PointerEvent) => {
+      const under = document.elementFromPoint(event.clientX, event.clientY)
+      const box = under?.closest('[data-sort-id]')
+      return box ? box.getAttribute('data-sort-id') : null
+    }
+    const move = (event: PointerEvent) => {
+      event.preventDefault()
+      const over = at(event)
+      if (!over || over === id) return
+      const was = live.current
+      const from = was.indexOf(id)
+      const to = was.indexOf(over)
+      if (from < 0 || to < 0) return
+      const next = was.slice()
+      next.splice(to, 0, next.splice(from, 1)[0])
+      put(next)
+    }
+    const stop = () => {
+      held.current = null
+      setDragging(null)
+      if (live.current.join(',') !== stamp) onOrder(live.current)
+    }
+    const drop = () => {
+      held.current = null
+      setDragging(null)
+      put(ids)
+    }
+    window.addEventListener('pointermove', move, { passive: false })
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', drop)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', drop)
+    }
+     
+  }, [dragging, stamp])
 
   const grip = (id: string) => (
     <button
@@ -86,32 +132,10 @@ export function Sortable({
         e.stopPropagation()
         e.preventDefault()
         held.current = id
-        e.currentTarget.setPointerCapture(e.pointerId)
-      }}
-      onPointerMove={(e) => {
-        if (held.current !== id) return
-        const over = at(e)
-        if (!over || over === id) return
-        const was = live.current
-        const from = was.indexOf(id)
-        const to = was.indexOf(over)
-        if (from < 0 || to < 0) return
-        const next = was.slice()
-        next.splice(to, 0, next.splice(from, 1)[0])
-        put(next)
-      }}
-      onPointerUp={(e) => {
-        if (held.current !== id) return
-        held.current = null
-        e.currentTarget.releasePointerCapture(e.pointerId)
-        if (live.current.join(',') !== stamp) onOrder(live.current)
-      }}
-      onPointerCancel={() => {
-        held.current = null
-        put(ids)
+        setDragging(id)
       }}
     >
-      {'☰'}
+      {'\u2630'}
     </button>
   )
 
@@ -119,7 +143,7 @@ export function Sortable({
     <div className={className}>
       {order.map((id) => (
         <div
-          className={'sortable' + (held.current === id ? ' held' : '')}
+          className={'sortable' + (dragging === id ? ' held' : '')}
           key={id}
           data-sort-id={id}
         >
