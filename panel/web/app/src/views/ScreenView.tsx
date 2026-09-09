@@ -27,10 +27,18 @@ function PressButton({
   action,
   screen,
   after,
+  className,
+  children,
 }: {
   action: ViewAction
   screen: string
   after: () => void
+  /* WHAT THE PRESS LOOKS LIKE, when it is not a button on a row (#2670). A shop tile IS
+     its own «Купить» — the game's own gesture — and a second copy of the press logic to
+     make that happen is exactly what «A control that exists twice is written once»
+     forbids. So the tile hands its skin and its body to the one press there is. */
+  className?: string
+  children?: ReactNode
 }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
@@ -48,9 +56,9 @@ function PressButton({
   const label = t(action.label)
   return (
     <button
-      className={sign ? 'go icon run' : 'go'}
-      title={sign ? label : undefined}
-      aria-label={sign ? label : undefined}
+      className={className || (sign ? 'go icon run' : 'go')}
+      title={sign || children ? label : undefined}
+      aria-label={sign || children ? label : undefined}
       disabled={busy || !!action.disabled}
       onClick={async () => {
         let pending = false
@@ -87,7 +95,7 @@ function PressButton({
         }
       }}
     >
-      {sign ? '\u25B6' : label}
+      {children ?? (sign ? '\u25B6' : label)}
     </button>
   )
 }
@@ -515,6 +523,76 @@ function CardItem({ item, now, screen, after }: { item: ViewItem; now: number; s
   )
 }
 
+/* ONE ITEM OF A `layout: "grid"` CARD (#2670) — a shop's shelf, drawn as the game draws
+ * one.
+ *
+ * The person's words: «Грид нужно переделать, карточки меньше и квадратные, ближе к
+ * игровому виду». A shelf of thirty-six goods was thirty-six errand cards 280 px wide
+ * with a picture, a name, a line of facts and two buttons each — a page nobody scrolls
+ * to the end of. In the game the same shelf is a wall of small squares: the item's own
+ * picture, how many one purchase gives stamped on it, the name under it and the price
+ * under that.
+ *
+ * SO THE WHOLE TILE IS THE PURCHASE. That is the game's gesture and it is the ONE press
+ * this front-end has — `PressButton` with the tile as its body — so the confirmation, the
+ * busy lock and the toast are the same ones every other press gets, and a purchase still
+ * asks first because the tab said so (`confirm`). The gear stays a button of its own in
+ * the corner, outside the press: the knobs behind it are the autobuy's order, and moving
+ * one must never buy anything.
+ *
+ * A tile whose item carries no press — a storefront that wants money, which is not on the
+ * wire at all — is drawn as the same square and does nothing when it is tapped.
+ */
+function GoodItem({ item, screen, after }: { item: ViewItem; screen: string; after: () => void }) {
+  const gear = useItemGear(item, screen, after)
+  const acts = item.actions || []
+  const buy = acts[0]
+  /* What is left of the quota, and «не хватает» — the values alone, in the smallest line
+     on the tile. The word each of them is stays as the tooltip, exactly as a `tiles`
+     tile keeps it. */
+  const bits = (item.facts || []).map((f, i) => (
+    <span className="bit" key={i} title={t(f.label)}>
+      {!f.value ? t(f.label) : f.translate ? t(f.value) : f.value}
+    </span>
+  ))
+  const inside = (
+    <>
+      <span className="pic">
+        {item.icon ? (
+          <img src={item.icon} alt="" aria-hidden="true" />
+        ) : (
+          /* A MACHINE THAT HAS NOT EXTRACTED THE ART DRAWS A LETTER, never somebody
+             else's picture — the same contract every icon route on this front-end
+             keeps. */
+          <b className="letter">{(item.text || '?').slice(0, 1)}</b>
+        )}
+        {/* HOW MANY ONE PURCHASE GIVES, stamped on the picture the way the game stamps
+            it. */}
+        {item.detail ? <span className="many">{item.detail}</span> : null}
+      </span>
+      <span className="gname">{item.label ? t(item.label) : item.text}</span>
+      {item.price ? <span className="gprice">{item.price}</span> : null}
+      {bits.length ? <span className="bits">{bits}</span> : null}
+    </>
+  )
+  return (
+    <div className="good">
+      {buy ? (
+        <PressButton action={buy} screen={screen} after={after} className="good-tap">
+          {inside}
+        </PressButton>
+      ) : (
+        <div className="good-tap">{inside}</div>
+      )}
+      {/* WHERE THE ROW STANDS IN THE AUTOBUY'S ORDER, at its name (#2308's rule) and out
+          of the press. */}
+      {item.badge ? <span className="prio">{item.badge}</span> : null}
+      {gear.button}
+      {gear.sheet}
+    </div>
+  )
+}
+
 /* ONE ITEM OF A `layout: "tiles"` CARD — a small button rather than a wide row (#1999).
  *
  * The person's words: «карта, секретки грабеж: делаем не грид с секретками в одну строку,
@@ -745,7 +823,10 @@ function Card({
      game's own header, which fits nine balances into three short rows because none of
      them is spelled out. The exact figure is the pill's title, so nothing is lost. */
   const pilled = card.layout === 'pills'
-  const page = tiled ? PAGE_TILES : PAGE_ITEMS
+  /* A SHELF OF A SHOP (#2670) — small squares, and as many of them on a page as of any
+     other small thing. */
+  const gridded = card.layout === 'grid'
+  const page = tiled || gridded ? PAGE_TILES : PAGE_ITEMS
   const [shown, setShown] = useState(page)
   // A narrowed search starts from the top again: «показать ещё» over a list that has
   // just changed under the person is the wrong twenty.
@@ -838,6 +919,12 @@ function Card({
               )}
               <b>{item.short || item.detail}</b>
             </span>
+          ))}
+        </div>
+      ) : gridded ? (
+        <div className="goods">
+          {drawing.map((item, i) => (
+            <GoodItem key={i} item={item} screen={screen} after={after} />
           ))}
         </div>
       ) : tiled ? (

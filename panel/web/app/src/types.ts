@@ -320,6 +320,10 @@ export interface ViewItem {
   avatar?: string
   /** The short form of the number a resource pill shows — `38.0M` (#2418). */
   short?: string
+  /* WHAT A `grid` TILE SAYS UNDER THE PICTURE (#2670) — the price, already composed by
+     the panel in the game's own words. Data, never a key. It is a field of its own and
+     not one fact among several because on a shop tile it is the line the eye goes to. */
+  price?: string
   icon?: string
   pill?: string
   facts?: Fact[]
@@ -388,7 +392,11 @@ export interface Field {
      (#2017). Data, filled in by the panel, never a second key to translate. */
   label_fmt?: Record<string, unknown>
   hint?: string
-  kind: 'switch' | 'number' | 'text' | 'choice' | 'squads'
+  /* `chips` is `choice` drawn as a STRIP of buttons instead of a dropdown (#2670) —
+     the same chip the card strip and the sort bar are made of, so a thumb learns one
+     shape. For a choice whose options are the page's own tabs: a shop's shelves are
+     read by looking at them, and a dropdown hides eleven of the twelve. */
+  kind: 'switch' | 'number' | 'text' | 'choice' | 'chips' | 'squads'
   value: string | number | boolean
   min?: number
   max?: number
@@ -430,8 +438,11 @@ export interface ViewCard {
      items are PLACES — a coordinate, a level, a state and the press that goes there;
      `cards` is the card an errand is drawn as (`ui/ErrandCard.tsx`), for a card whose
      items have a FACE — a picture behind them, a name on one line, a switch in the
-     corner and their presses on one row. */
-  layout?: 'rows' | 'tiles' | 'cards' | 'pills'
+     corner and their presses on one row.
+     `grid` is the shop shelf (#2670): a small SQUARE tile — the item's own picture, its
+     name on one line and its price under it, which is how the game itself draws a shop.
+     The whole tile is the press where the item carries one. */
+  layout?: 'rows' | 'tiles' | 'cards' | 'pills' | 'grid'
   head?: string
   head_parts?: MarkedText
   empty?: string

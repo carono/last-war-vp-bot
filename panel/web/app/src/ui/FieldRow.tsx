@@ -57,6 +57,29 @@ export function FieldRow({
        own squads, with the heroes standing in them. */
     return <SquadPicker field={field} send={(key, value) => send(key, value)} after={after} />
   }
+  if (field.kind === 'chips') {
+    /* A CHOICE WHOSE OPTIONS ARE THE PAGE'S OWN TABS (#2670). The same `.chip` the card
+       strip and the sort bar wear — one shape for «which of these am I looking at» — and
+       every option is on screen, which a dropdown is not: the shop's twelve shelves
+       behind a `select` read as one shop with eleven invisible neighbours, and that is
+       what the person reported. */
+    return (
+      <div className="field">
+        <div className="chips">
+          {(field.options || []).map((option) => (
+            <button
+              key={option.value}
+              className={'chip' + (String(field.value ?? '') === option.value ? ' on' : '')}
+              onClick={() => void commit(option.value)}
+            >
+              {option.text}
+            </button>
+          ))}
+        </div>
+        {field.hint ? <p className="muted small">{t(field.hint)}</p> : null}
+      </div>
+    )
+  }
   if (field.kind === 'choice') {
     return (
       <div className="field">

@@ -464,38 +464,63 @@ class ShopTab(PanelTab):
                    "hint": "shop." + key + ".hint", "kind": "switch",
                    "value": self.knob(key)}
                   for key in KNOBS]
-        free = {"title": "shop.frame", "note": "shop.hint",
-                "rows": rows, "fields": fields}
-        cards = [free] + self.shelf_cards()
+        # THE READINGS AND THE PERMISSIONS ARE TWO CARDS (#2670), and that is not a
+        # decoration: a screen of more than two cards is drawn as a strip of chips with
+        # ONE card open, and the card the strip opens by itself is the one marked
+        # `main` — the shelves. Kept as one card the page had exactly two, the strip
+        # disappeared, and the shelves stood under seventeen rows of free-claim
+        # bookkeeping.
+        free = {"title": "shop.frame", "note": "shop.hint", "rows": rows}
+        knobs = {"title": "shop.free.knobs", "fields": fields}
+        cards = [free, knobs] + self.shelf_cards()
         return {"cards": cards,
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
                             {"id": "collect", "label": "shop.collect"}]}
 
     def shelf_cards(self) -> list:
-        """The picker, and the goods of the ONE shelf it has chosen.
+        """ONE card: the strip of every shelf the account has, and the goods of the open one.
 
-        Two cards and never one per shelf: the goods of every shelf at once is a screen
-        re-read of some eighty kilobytes every two and a half seconds, and a person reads
-        one shelf at a time.
+        IT WAS TWO, AND THE SECOND ONE HID THE FIRST (#2670). The picker used to be a
+        card of its own with a dropdown in it, and a screen of several cards draws ONE at
+        a time — so the phone opened the shelves card, saw «Магазин бриллиантов» and had
+        no way of knowing eleven more shelves were behind a chip called «Магазины». The
+        person's report was exactly that: «вижу магазин бриллиантов, других не вижу».
+
+        So the picker is a STRIP on the goods card itself, above the goods, the way the
+        game's own shop draws its tabs. Still one shelf's goods in the payload and never
+        all of them: two hundred rows with a picture, a price and a gear each is eighty
+        kilobytes every two and a half seconds, and a person reads one shelf at a time.
         """
         shelves, age = self.shelves()
         if not shelves:
             return [{"title": "shop.shelves", "empty": "shop.unread"}]
-        choices = [{"value": key, "text": self.t(title)} for key, title, _rows in shelves]
+        choices = [{"value": key, "text": self.shelf_name(key, title)}
+                   for key, title, _rows in shelves]
         chosen = self._pick if any(self._pick == k for k, _t, _r in shelves) else shelves[0][0]
-        pick = {"title": "shop.shelves",
-                "head": self.t("shop.age", age=int(age)) if age is not None else "",
-                "note": "shop.shelves.hint",
-                "fields": [{"key": "pick", "label": "shop.pick", "kind": "choice",
-                            "value": chosen, "options": choices}],
-                "actions": [{"id": "autobuy", "label": "shop.autobuy.now"}]}
         rows = next(r for k, _t, r in shelves if k == chosen)
         kind, _sep, shop = chosen.partition(":")
-        goods = {"title": next(t for k, t, _r in shelves if k == chosen),
-                 "main": True, "layout": "cards", "search": True,
+        return [{"title": "shop.shelves",
+                 "head": self.t("shop.age", age=int(age)) if age is not None else "",
+                 "note": "shop.shelves.hint",
+                 "main": True, "layout": "grid", "search": True,
                  "empty": "shop.shelf.empty",
-                 "items": [self.good(kind, shop, row) for row in rows[:SHELF_MAX]]}
-        return [pick, goods]
+                 "fields": [{"key": "pick", "label": "shop.pick", "kind": "chips",
+                             "value": chosen, "options": choices}],
+                 "actions": [{"id": "autobuy", "label": "shop.autobuy.now"}],
+                 "items": [self.good(kind, shop, row) for row in rows[:SHELF_MAX]]}]
+
+    def shelf_name(self, key: str, title: str) -> str:
+        """What a shelf is called on the strip.
+
+        A shelf this panel has a word for is called by it; one it has not is called by
+        the NUMBER the client numbers it with — «Магазин №9» — and never by a word made
+        up for it. Two unnamed shelves both saying «Магазин» is what the strip looked
+        like before (#2670), and two identical chips are one chip nobody can choose.
+        """
+        if title != OTHER_KEY:
+            return self.t(title)
+        _kind, _sep, shop = key.partition(":")
+        return self.t(OTHER_KEY, shop=shop)
 
     def money_name(self, currency: str) -> str:
         """What a currency is called. The game's own name when the reading carried one,
@@ -517,11 +542,14 @@ class ShopTab(PanelTab):
         # invented for it would be a name this panel made up — so the amount stands
         # alone, on the shelf that is already named after the currency it spends.
         word = self.money_name(str(row.get("cost_id") or ""))
-        facts = [{"label": "shop.price",
-                  "value": (self.t("shop.free") if not row.get("cost")
-                            else self.t("shop.cost", amount=row.get("cost"),
-                                        currency=word).strip()
-                            if word else str(row.get("cost")))}]
+        # THE PRICE IS THE TILE'S OWN LINE (#2670) and not one fact among several: the
+        # game draws a shop as a picture with a price under it, and that is what the
+        # person asked for — «карточки меньше и квадратные, ближе к игровому виду».
+        price = (self.t("shop.free") if not row.get("cost")
+                 else self.t("shop.cost", amount=row.get("cost"),
+                             currency=word).strip()
+                 if word else str(row.get("cost")))
+        facts = []
         if row.get("limit"):
             facts.append({"label": "shop.left", "value": str(left)})
         # WHETHER THE ACCOUNT CAN PAY is the GAME's answer, never a sum done here: a
@@ -533,6 +561,7 @@ class ShopTab(PanelTab):
                 "detail": (self.t("shop.count", count=row.get("count"))
                            if int(row.get("count") or 0) > 1 else ""),
                 "facts": facts,
+                "price": price,
                 "shape": "picture"}
         picture = cell_url(row.get("icon"), row.get("colour"))
         if picture:
