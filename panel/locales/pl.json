@@ -3056,5 +3056,9 @@
   "timers.stat.arena.3v3": "Arena 3 na 3 · wynik {score}, miejsce {rank} · zwycięstwa {done} z {need} · pozostałe próby {left}",
   "timers.stat.market.coins": "monety: {coins} · towarów w sprzedaży: {n}",
   "health.no_session": "brak sesji Windows — nikt nie jest zalogowany jako {user}",
-  "log.game.no_session": "Nikt nie jest zalogowany jako {user}, więc ten profil nie ma sesji Windows, w której mógłby uruchomić klienta — nie próbuję dalej, dopóki ktoś się nie zaloguje albo nie naciśniesz «Uruchom». Podnieś sesję: tools\\rdp_instance.py --bring-up --user {user}"
+  "log.game.no_session": "Nikt nie jest zalogowany jako {user}, więc ten profil nie ma sesji Windows, w której mógłby uruchomić klienta — nie próbuję dalej, dopóki ktoś się nie zaloguje albo nie naciśniesz «Uruchom». Podnieś sesję: tools\\rdp_instance.py --bring-up --user {user}",
+  "shop.arena_praise": "Dawaj darmowe polubienia na arenach",
+  "shop.arena_praise.hint": "Polubia pierwszego w rankingu obu aren — trzy razy na Arenie Burzy i trzy razy na arenie 3 na 3. Gra płaci za nie diamentami, polubienie nic nie kosztuje, a gdy żadne nie zostało, nic nie jest wysyłane.",
+  "timers.stat.shop.likes": "polubień zostało · Burza {storm} · 3 na 3 {three}",
+  "timers.stat.shop.likes_done": "polubienia oddane — dzisiejsze diamenty odebrane"
 }

@@ -3056,5 +3056,9 @@
   "timers.stat.arena.3v3": "Arena 3 lawan 3 · skor {score}, peringkat {rank} · kemenangan {done} dari {need} · sisa percobaan {left}",
   "timers.stat.market.coins": "koin: {coins} · barang dijual: {n}",
   "health.no_session": "tidak ada sesi Windows — tidak ada yang masuk sebagai {user}",
-  "log.game.no_session": "Tidak ada yang masuk sebagai {user}, jadi profil ini tidak punya sesi Windows untuk menjalankan klien — saya tidak mencoba lagi sampai ada yang masuk atau Anda menekan «Jalankan». Hidupkan sesinya: tools\\rdp_instance.py --bring-up --user {user}"
+  "log.game.no_session": "Tidak ada yang masuk sebagai {user}, jadi profil ini tidak punya sesi Windows untuk menjalankan klien — saya tidak mencoba lagi sampai ada yang masuk atau Anda menekan «Jalankan». Hidupkan sesinya: tools\\rdp_instance.py --bring-up --user {user}",
+  "shop.arena_praise": "Berikan suka gratis di arena",
+  "shop.arena_praise.hint": "Menyukai pemain peringkat satu di kedua arena — tiga kali di Arena Badai dan tiga kali di arena 3 lawan 3. Permainan membayarnya dengan berlian, satu suka tidak memakan biaya apa pun, dan jika tidak ada yang tersisa tidak ada yang dikirim.",
+  "timers.stat.shop.likes": "sisa suka · Badai {storm} · 3v3 {three}",
+  "timers.stat.shop.likes_done": "suka sudah diberikan — berlian hari ini sudah diambil"
 }

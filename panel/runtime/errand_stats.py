@@ -750,6 +750,36 @@ def _arena(rt) -> "dict | None":
             "age": age}
 
 
+def _shop_likes(rt) -> "dict | None":
+    """The free diamonds the two arenas pay for a LIKE, on the card that takes them (#2689).
+
+    The person put the likes on «Магазин: бесплатное» themselves, and asked the card to
+    say what is left of them on BOTH arenas — «3 раза там и 3 раза там». So the line is
+    the two counts the server keeps, and when both are spent it says the day's diamonds
+    are in rather than drawing two zeros nobody can read.
+
+    The reading is `panel/runtime/arena_live.py` — taken when the client got into the
+    game, at the day's reset and on the answer to a like — so this line costs nothing and
+    carries its own AGE, which is what makes a stale number honest rather than wrong.
+    """
+    from . import arena_live
+
+    fields, age = arena_live.state(rt)
+    if age is None:
+        return None
+    storm = fields.get("like_storm")
+    three = fields.get("like_three")
+    if storm is None and three is None:
+        return None
+    if storm == 0 and three == 0:
+        return {"key": "timers.stat.shop.likes_done", "fmt": {}, "age": age}
+    dash = "—"
+    return {"key": "timers.stat.shop.likes",
+            "fmt": {"storm": storm if storm is not None else dash,
+                    "three": three if three is not None else dash},
+            "age": age}
+
+
 def _market(rt) -> "dict | None":
     """«Сверкающий рынок»: what is free right now, off the last reading (#2636).
 
@@ -829,6 +859,9 @@ PROVIDERS: dict = {
     # `panel/runtime/market_live.py`, which is taken on the client entering the game and
     # on the event's own push — no clock, and no «Обновить» anywhere.
     "collect_glittering_market": _market,
+    # …and the free diamonds the arenas pay for a like, on the card the person asked for
+    # them on (#2689). Same reading as the arena card, no question of its own.
+    "collect_shop_freebies": _shop_likes,
     "buy_glitter_market_goods": _market_coins,
     # …and the arena building (#2688), whose card had to say WHICH of the two events is
     # in it: the row is named for the 3v3 challenge only because renaming a timer throws

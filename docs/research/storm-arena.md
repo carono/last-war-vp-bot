@@ -208,4 +208,49 @@ only accounts that have never run.
 * **The other phase** (§5) — `new.arena.battle` with `heroInfos` and a `squadNo`.
 * **The line-up is not chosen by the bot.** `new.arena.kof.save` would let a scenario
   re-order the three teams; nobody has asked for it.
-* **The likes and the promotion** (`new.arena.praise`, `new.arena.promote`) are untouched.
+* **The promotion** (`new.arena.promote`) is untouched.
+* **The likes are done** (#2689): `actions/praise_arenas.md`, §10.
+
+## 10. The likes, and the diamonds they pay (#2689)
+
+The person's words: «нужно лайкать 3 раза топового игрока в рейтинге, 3 раза там и 3 раза
+там» — three likes a day on this arena and three on the 3v3 one, and the game pays
+diamonds for them. A like costs NOTHING; the only thing it uses is the day's own count.
+
+| where | the count | the send |
+|---|---|---|
+| storm arena | `NewPeakArenaManager.rankData.remainPraise` (and `HavePraiseNum()`) | `MsgDefines.NewArenaPraise` = `new.arena.praise`, `NewPeakArenaManager:SendNewArenaPraise` |
+| 3v3 challenge | `LW3V3ArenaManager.remainPraise`, else the rank reply's own | `MsgDefines.Arena3V3Like` = `score.arena.praise`, `LW3V3ArenaManager:SendLike` |
+
+**WHO is liked is the game's own answer**: the row at `rank = 1` of the ladder, which for
+the storm arena rides on `new.arena.rank.list` (`rankData.players`, 807 rows when it was
+read, each with `rank`, `uid`, `praise`) and for the 3v3 on its own rank reply, kept by an
+ear of its own — `__lw_praise`, never the guarded `__lw_a3v3` / `__lw_storm` hooks, which
+refuse a second wrapper silently.
+
+**THE GATE IS `remainPraise` AND NOTHING ELSE.** A zero is an honest «the day's likes are
+given», not a fault: measured on 2026-09-09 the account read zero because the person had
+already given them by hand. A run that finds a zero sends nothing.
+
+**WHAT IS NOT CONFIRMED YET, and how it is written to fail safely.** The ARGUMENT of the
+send could not be measured the day this was written — the likes were spent, so no send
+could be made and nothing could be read back from one. The recipe therefore calls the
+CLIENT'S OWN sender first (`SendNewArenaPraise` / `SendLike` with the top row's `uid`),
+falls back to the bare message with the same `uid`, names in the log which of the two
+carried, and re-asks both ladders afterwards so what it reports is what MOVED. The first
+live run after a day reset is what settles it.
+
+## 11. A stale opponent list is not a refusal (#2689)
+
+Measured live: after a battle the five opponents on the reply can already be one row
+behind the server's, and the next round is answered
+
+```
+errorCode = E000000   errorMsg = "new_arena_tips_38 not in battleList"
+```
+
+The battle costs nothing, but two of those in a row used to end the run in an error and
+throw the rest of the day's attempts away. `storm_arena_battles.md` now tells that
+refusal apart from every other one: it asks for the list again with the free
+`isRefresh = 0`, fights on, and counts the round as empty rather than as a strike — up to
+three re-asks a run.

@@ -195,3 +195,17 @@ count the server has not sent is not zero.
 The target the card compares those wins against is the errand's own `wins` argument and
 not a number written into the reading: the server carries no such field, and the row on
 «Таймеры» is where that knob lives.
+
+## The likes (#2689)
+
+`MsgDefines.Arena3V3Like` = `score.arena.praise`, and the client's own sender is
+`LW3V3ArenaManager:SendLike`. What the day still allows is `remainPraise` — on the
+manager when the manager has been told, otherwise on the reply to the rank ask, which is
+kept by the `__lw_praise` ear. The ability itself is `actions/praise_arenas.md` and it
+does both arenas at once; the whole of what is known, what is not, and why the send is
+written to fail safely is `docs/research/storm-arena.md` §10.
+
+`Get3V3ArenaRankList` is asked with a bare `0`. It came back with nothing when it was
+tried with `0`, `1` and `2` on 2026-09-09 — on a client whose 3v3 event was SHUT, which
+is the likeliest reason and is not proven; the recipe reads the count off whichever of
+the two places has it and gives no like at all when neither does.

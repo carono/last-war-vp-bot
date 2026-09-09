@@ -40,7 +40,11 @@
 #      score;
 #   8. takes the GOLLOES CAMP's daily free one when the camp offers it —
 #      `receive.golloes.daily.free.reward`, no payload;
-#   9. reads the gates back and reports what MOVED rather than what was sent.
+#   9. gives the day's free LIKES on both arenas — three on «Арена Шторма» and three
+#      on the 3v3 challenge, to whoever stands at the top of each ladder. The game
+#      pays diamonds for them, they cost nothing at all, and a day with none left is
+#      a run that sends nothing (`actions/praise_arenas.md`);
+#  10. reads the gates back and reports what MOVED rather than what was sent.
 #
 # THE LAST THREE ARE GATED AND WERE ALL CLOSED THE DAY THEY WERE ADDED (2026-09-04): the
 # decoration shop was not even selling, the recharge one had been taken earlier that game
@@ -67,6 +71,7 @@ ARGS battle_pass = 1
 ARGS decoration_free = 1
 ARGS recharge_free = 1
 ARGS golloes_free = 1
+ARGS arena_praise = 1
 
 # ---- what the game says is waiting -------------------------------------------------
 CALL read_shop_freebies
@@ -121,6 +126,15 @@ IF golloes_free == 1
     IF golloes_due > 0
         LUA pcall(function() SFSNetwork.SendMessage(MsgDefines.ClaimGolloesFreeReward) end)
         WAIT 2.5
+
+# ---- 8. the likes the two arenas pay diamonds for -------------------------------------
+# The person asked for these on THIS card — «в карточку магазин бесплатно добавь сбор
+# ежедневных бесплатных алмазов на арене шторма и 3 на 3» — and they belong here by the
+# same rule everything else on it does: a like costs nothing, the day allows a few of
+# them, and a day they are not given is a day of free diamonds thrown away. The ability
+# itself is its own recipe and this only plays it.
+IF arena_praise == 1
+    CALL praise_arenas
 
 # ---- what actually moved ------------------------------------------------------------
 READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local was = DataCenter.__lw_shop or {} local M = DataCenter.WeekCardManager local free = false pcall(function() free = (M:CheckIfHasFreeReward() == true) end) local due = 0 pcall(function() for _, c in pairs(M:GetWeekCardList() or {}) do if num(c:GetStatus()) == 2 then due = due + 1 end end end) local said = {} if num(was.free) == 1 then said[#said + 1] = 'подарок=' .. (free and 'ОТКАЗАНО — всё ещё предлагается' or 'забран') else said[#said + 1] = 'подарок=сегодня не предлагался' end local wasdue = num(was.cards) if wasdue > 0 then said[#said + 1] = 'карты=' .. (wasdue - due) .. ' из ' .. wasdue .. (due > 0 and (' (ОТКАЗАНО ' .. due .. ')') or '') else said[#said + 1] = 'карты=нечего забирать' end local mleft = false pcall(function() local MC = DataCenter.MonthCardNewManager mleft = (MC:CheckIfMonthCardActive() == true) and (MC:CheckIfHasGolloesGift() == true) end) if num(was.month) == 1 then said[#said + 1] = 'месячная карта=' .. (mleft and 'ОТКАЗАНО — всё ещё ждёт' or 'забрана') else said[#said + 1] = 'месячная карта=нечего забирать' end local X = DataCenter.__lw_shop_x or {} if num(X.dec) == 1 then local left = 0 pcall(function() local d = DataCenter.CommonShopManager.decorationShopDic[150] left = num(d.freeCount) end) said[#said + 1] = 'облики=' .. (left > 0 and 'ОТКАЗАНО — попытка на месте' or 'покручено') else said[#said + 1] = 'облики=нечего крутить' end if num(X.week) == 1 then local open = 0 pcall(function() local R = DataCenter.RechargeManager for k = 0, 8 do if R:GetIsCanReceiveFreeReward(k) == true then open = open + 1 end end end) said[#said + 1] = 'страница пополнения=' .. (open > 0 and 'ОТКАЗАНО — всё ещё предлагается' or 'забрано') else said[#said + 1] = 'страница пополнения=нечего забирать' end if num(X.gol) == 1 then local still = false pcall(function() still = (DataCenter.GolloesCampManager:CheckIfCanClaimFreeGolloes() == true) end) said[#said + 1] = 'лагерь Golloes=' .. (still and 'ОТКАЗАНО — всё ещё ждёт' or 'забран') else said[#said + 1] = 'лагерь Golloes=нечего забирать' end local B = DataCenter.__lw_shop_bp or {} local wasbp = num(B.due) if wasbp > 0 then local left = 0 local P = DataCenter.ActBattlePassData pcall(function() for id, _ in pairs((P or {}).list or {}) do left = left + num(P:GetActRed(id)) end end) said[#said + 1] = 'боевой пропуск=' .. (wasbp - left) .. ' из ' .. wasbp .. (left > 0 and (' (ОТКАЗАНО ' .. left .. ')') or '') else said[#said + 1] = 'боевой пропуск=' .. (num(B.acts) == 0 and 'не идёт' or 'нечего забирать') end return table.concat(said, ' ') end)() INTO taken

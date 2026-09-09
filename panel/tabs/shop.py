@@ -40,10 +40,10 @@ the reading is drawn beside it.
 
 THE PRIORITIES ARE THE ERRAND'S OWN ARGUMENT. «Автопокупка» is one scenario over one
 ordered list, and that list lives in the errand row (`autobuy_shop_goods`, argument
-`plan`) exactly as the seven permissions above live in theirs — so the gear on «Таймеры»,
+`plan`) exactly as the eight permissions above live in theirs — so the gear on «Таймеры»,
 this page and the schedule all edit ONE value.
 
-THE SEVEN KNOBS are what the routine is allowed to take, and they live in ONE place — the
+THE EIGHT KNOBS are what the routine is allowed to take, and they live in ONE place — the
 errand's own row on «Таймеры» (`panel/runtime/errand_args.py`). This page is a second
 DRAWING of them rather than a second copy: a box ticked here is written through
 `Schedule.set_timer_arg`, so the schedule fires with what the page shows and the gear
@@ -68,7 +68,7 @@ ERRAND = COLLECT_ACTION
 #: The two permissions, and what they mean when the row says nothing — the scenario's own
 #: `ARGS` defaults, so a profile that has never touched them behaves as the recipe does.
 KNOBS = ("free_gift", "card_daily", "month_card", "battle_pass",
-         "decoration_free", "recharge_free", "golloes_free")
+         "decoration_free", "recharge_free", "golloes_free", "arena_praise")
 
 #: The readings, in the order the page draws them: the scenario's variable and the locale
 #: key that names it. `free_due` is drawn through its own formatter.
@@ -274,7 +274,7 @@ class ShopTab(PanelTab):
             self.set_knob(key, var.get())
 
     def args(self) -> dict:
-        """The seven permissions as the scenario's `ARGS`. Nothing else is passed."""
+        """The eight permissions as the scenario's `ARGS`. Nothing else is passed."""
         return {key: 1 if self.knob(key) else 0 for key in KNOBS}
 
     # -- playing the two scenarios ---------------------------------------------

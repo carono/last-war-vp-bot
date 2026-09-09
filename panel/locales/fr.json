@@ -3056,5 +3056,9 @@
   "timers.stat.arena.3v3": "Arène 3 contre 3 · score {score}, rang {rank} · victoires {done} sur {need} · tentatives restantes {left}",
   "timers.stat.market.coins": "pièces : {coins} · articles en vente : {n}",
   "health.no_session": "pas de session Windows — personne n'est connecté en tant que {user}",
-  "log.game.no_session": "Personne n'est connecté en tant que {user} : ce profil n'a aucune session Windows où lancer le client — je ne réessaie plus tant que quelqu'un ne se connecte pas ou que vous n'appuyez pas sur « Démarrer ». Ouvrir la session : tools\\rdp_instance.py --bring-up --user {user}"
+  "log.game.no_session": "Personne n'est connecté en tant que {user} : ce profil n'a aucune session Windows où lancer le client — je ne réessaie plus tant que quelqu'un ne se connecte pas ou que vous n'appuyez pas sur « Démarrer ». Ouvrir la session : tools\\rdp_instance.py --bring-up --user {user}",
+  "shop.arena_praise": "Donner les mentions « j'aime » gratuites des arènes",
+  "shop.arena_praise.hint": "Aime le premier du classement des deux arènes — trois fois dans l'Arène de la Tempête et trois fois dans l'arène 3 contre 3. Le jeu paie des diamants pour cela, un « j'aime » ne coûte rien, et s'il n'en reste plus rien n'est envoyé.",
+  "timers.stat.shop.likes": "« j'aime » restants · Tempête {storm} · 3c3 {three}",
+  "timers.stat.shop.likes_done": "« j'aime » donnés — les diamants du jour sont pris"
 }

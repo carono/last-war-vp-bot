@@ -49,6 +49,13 @@ BLOB = "arena_live"
 ACTION = "read_arena"
 VARIABLE = "arena"
 
+#: THE ONE THING ON THE WIRE THIS READING CAN HEAR (#2689). The arena announces nothing
+#: by itself — no push moves the score — but a LIKE is answered, and the answer carries
+#: the count the card draws. Both arenas' replies match this: `new.arena.praise` and
+#: `score.arena.praise`. It is an EVENT and never a clock, which is the whole difference
+#: between this and a poll (`CLAUDE.md`, «Read once, then LISTEN»).
+PRAISE = "arena.praise"
+
 #: The shortest gap between two readings, in seconds. Two signals arriving together —
 #: the game coming up and an alarm falling due — must cost ONE reading.
 DEBOUNCE_SEC = 20.0
@@ -158,6 +165,10 @@ class ArenaWatch:
             self._offs.append(self._rt.bus.subscribe(bus.GAME_READY, self._on_ready))
         except Exception:                # noqa: BLE001 — the panel still works
             self._rt.dbg("arena").error("could not listen for the game", exc_info=True)
+        try:
+            self._offs.append(self._rt.wire.subscribe(PRAISE, self._on_praise))
+        except Exception:                # noqa: BLE001 — the reply is a bonus, not the door
+            self._rt.dbg("arena").error("could not listen for the likes", exc_info=True)
         self._arm_first()
 
     def stop(self) -> None:
@@ -204,6 +215,10 @@ class ArenaWatch:
 
     def _on_ready(self, _payload=None) -> None:
         self.refresh("game")
+
+    def _on_praise(self, _command=None) -> None:
+        """A like was answered — the day's count of them has moved (#2689)."""
+        self.refresh("praise")
 
     # -- the alarm ------------------------------------------------------------
     def _book_next(self, fields: dict) -> None:

@@ -196,6 +196,11 @@ SPEC: dict = {
               hint_key="shop.recharge_free.hint", default=1),
         _flag("golloes_free", "shop.golloes_free",
               hint_key="shop.golloes_free.hint", default=1),
+        # …and the likes the two arenas pay diamonds for (#2689). The person put them on
+        # this card themselves; they spend nothing but the day's own count of likes, so
+        # they default to on like the seven above.
+        _flag("arena_praise", "shop.arena_praise",
+              hint_key="shop.arena_praise.hint", default=1),
     ),
     # THE GLITTERING MARKET, the free half (#2636). Three claims and a ceiling, and not
     # one of them can spend anything: the daily free reward (100 diamonds on the day the

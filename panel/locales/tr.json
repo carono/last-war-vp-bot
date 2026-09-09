@@ -3056,5 +3056,9 @@
   "timers.stat.arena.3v3": "3'e 3 Arena · puan {score}, sıra {rank} · galibiyet {done} / {need} · kalan hak {left}",
   "timers.stat.market.coins": "para: {coins} · satıştaki mal: {n}",
   "health.no_session": "Windows oturumu yok — {user} olarak oturum açan yok",
-  "log.game.no_session": "{user} olarak oturum açan yok, bu yüzden bu profilin istemciyi başlatacağı bir Windows oturumu yok — biri oturum açana ya da «Başlat»a basana kadar yeniden denemiyorum. Oturumu açın: tools\\rdp_instance.py --bring-up --user {user}"
+  "log.game.no_session": "{user} olarak oturum açan yok, bu yüzden bu profilin istemciyi başlatacağı bir Windows oturumu yok — biri oturum açana ya da «Başlat»a basana kadar yeniden denemiyorum. Oturumu açın: tools\\rdp_instance.py --bring-up --user {user}",
+  "shop.arena_praise": "Arenaların ücretsiz beğenilerini ver",
+  "shop.arena_praise.hint": "Her iki arenanın sıralamasında birinci olanı beğenir — Fırtına Arenası'nda üç, 3'e 3 arenasında üç kez. Oyun bunun için elmas verir, beğeni hiçbir şeye mal olmaz ve hiç beğeni kalmadıysa hiçbir şey gönderilmez.",
+  "timers.stat.shop.likes": "kalan beğeni · Fırtına {storm} · 3'e 3 {three}",
+  "timers.stat.shop.likes_done": "beğeniler verildi — bugünün elmasları alındı"
 }

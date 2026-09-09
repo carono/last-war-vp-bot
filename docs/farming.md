@@ -5,7 +5,7 @@
 <!-- progress:start -->
 🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 81 of 207
 
-🟩 81 done · 🟨 96 partly · 🟥 30 not automated
+🟩 81 done · 🟨 97 partly · 🟥 29 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -303,8 +303,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Apex arena
 - 🟡 3-on-3 battle — presses «Challenge», fights the matched opponent with the three squads standing in the arena line-up, and keeps going until the day's five WINS are in or its thirty challenges run out; a lost battle costs a challenge and is not a win, so it fights again. How many wins the day has is the game's own count, not a tally of presses, so battles the person fought by hand cost nothing and battles other players started against them do not count as wins. The line-up itself is still the person's to arrange
 - 🟡 Storm arena — the event that takes the arena's place when the 3-on-3 one ends. The game offers five opponents; it takes the weakest of them that is not in our own alliance and fights it with the arena's own line-up, five times a day. Whether a battle is won or lost does not matter here — the day's chest is paid for the number of battles — and once the five are in it takes every chest the count has earned. It spends nothing but the day's own attempts: no diamonds, and the list of opponents is only re-rolled while re-rolls are free. Battles the person fought by hand count towards the same five, so it only ever does what is still owed. The line-up itself is still the person's to arrange, and while the event is in its other phase it does nothing and says so
-- ❌ Storm arena: the likes, the promotion and choosing the line-up
-- ❌ Free diamonds
+- ❌ Storm arena: the promotion and choosing the line-up
+- 🟡 The free diamonds both arenas pay for a LIKE — three likes a day on the Storm Arena and three on the 3-on-3 one, given to whoever stands first in each ladder. A like costs nothing at all and the day's supply comes back every game day, so a day it is not given is a day of free diamonds thrown away. It goes with everything else the shop hands over for nothing, on the same card and the same six-hourly errand, with its own tick beside the others; a day whose likes are already given — by the bot this morning or by the person themselves — sends nothing at all and says so. The card says how many likes are left on each arena and how old that reading is, and the reading moves by itself when a like is answered rather than on a clock. Not yet seen sending a like in a live session: the day it was written the account's likes were already spent
 
 ### Heroes
 
@@ -404,7 +404,7 @@ The routine as it is actually played, against what the bot covers.
 | Alliance gifts | ✅ · on a schedule 🟡 |
 | Golden eggs and lucky gifts in chat | 🟡 a share of somebody else's Lucky Gift is taken the moment the chat announces it — and the giver is thanked with a like and the window shut behind it; unproven on a live one · ❌ the golden eggs |
 | Supplies, secret training, quests | ✅ the day's finished quests, claimed and read back · 🟡 the progress-bar chests · ❌ supplies and secret training |
-| Arena | 🟡 the 3-on-3 battles up to the day's five wins · 🟡 the storm arena's five battles and its chest · ❌ apex arena, free diamonds |
+| Arena | 🟡 the 3-on-3 battles up to the day's five wins · 🟡 the storm arena's five battles and its chest · 🟡 the day's free likes on both, for the diamonds they pay · ❌ apex arena |
 | Help alliancemates who ask | ✅ |
 | Fire the profession skills that came off cooldown | 🟡 the no-target ones · ✅ Win-Win · ❌ the rest of the targeted ones |
 | General's challenge, free heroes in the tavern | ❌ |
