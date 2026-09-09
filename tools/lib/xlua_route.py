@@ -149,13 +149,38 @@ class X:
                 said = waited
                 print(f"[{label}] still waiting for the client's park — {waited:.0f}s")
 
+    #: How many C strings are kept alive in the client's address space at once (#2660).
+    #: Every distinct text is a `VirtualAllocEx` of its own and nothing ever freed one, so
+    #: a long session leaked a page per distinct name — chunk names are built per run, so
+    #: they never repeat. Bounded and oldest-out: 4 KB granularity, so this is ~1 MB of
+    #: the game's address space at worst, and the strings that DO repeat (the exports and
+    #: the class names) are the ones that stay.
+    CSTR_KEEP = 256
+
     def cstr(self, t):
-        if t not in self._s:
-            b = t.encode("utf-8") + b"\x00"
-            a = int(P.VirtualAllocEx(self.h, None, len(b), 0x3000, 4))
-            P.WriteProcessMemory(self.h, C.c_void_p(a), b, len(b), C.byref(C.c_size_t(0)))
-            self._s[t] = a
-        return self._s[t]
+        """A NUL-terminated copy of `t` in the client, cached and bounded.
+
+        Freeing an evicted buffer is safe because every call that uses one is synchronous
+        under this route's own lock: by the time anything is evicted, the call that was
+        handed the pointer has returned. Nothing here may raise — this is the hijack path,
+        and a failed free is a leaked page, not a failed call.
+        """
+        a = self._s.pop(t, None)
+        if a is not None:
+            self._s[t] = a               # touched: move to the young end
+            return a
+        b = t.encode("utf-8") + b"\x00"
+        a = int(P.VirtualAllocEx(self.h, None, len(b), 0x3000, 4))
+        P.WriteProcessMemory(self.h, C.c_void_p(a), b, len(b), C.byref(C.c_size_t(0)))
+        self._s[t] = a
+        while len(self._s) > self.CSTR_KEEP:
+            _old_text, old_addr = next(iter(self._s.items()))
+            del self._s[_old_text]
+            try:
+                P.VirtualFreeEx(self.h, C.c_void_p(old_addr), 0, 0x8000)  # MEM_RELEASE
+            except Exception:            # noqa: BLE001 — a leaked page, never a failure
+                pass
+        return a
 
     def clsname(self, obj):
         if not (0x10000 < obj < 0x7FFFFFFFFFFF) or (obj & 7):

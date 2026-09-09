@@ -868,7 +868,7 @@ class SharedMissionsPane(_Pane):
         ev = self.evaluator()
         chunk = ('CS.UnityEngine.Debug.LogError("ACT left="..tostring(%s))'
                  % lua_actions.secret_task_steals_left())
-        for line in ev.run(chunk, marker=MARKER, settle=0.9) or ():
+        for line in ev.run(chunk, marker=MARKER, settle=0.9, early=True) or ():
             if "left=" in line:
                 return _int(line.split("left=", 1)[1].split()[0])
         return 0
@@ -1157,10 +1157,10 @@ class TreasuresPane(_Pane):
         time.sleep(2.5)
         num, daily = self._read_state(ev)
         home = _int(tool_config.default_server())
-        ev.run(lua_actions.park_treasures(home), marker=MARKER, settle=1.5)
+        ev.run(lua_actions.park_treasures(home), marker=MARKER, settle=1.5, early=True)
         targets = []
         for line in ev.run(lua_actions.treasure_queue_dump(),
-                           marker=MARKER, settle=1.2) or ():
+                           marker=MARKER, settle=1.2, early=True) or ():
             if " TQ " not in line:
                 continue
             fields = _fields(line, " TQ ")
@@ -1189,7 +1189,7 @@ class TreasuresPane(_Pane):
         import lua_actions
         for line in ev.run('CS.UnityEngine.Debug.LogError("ACT LAP " .. (%s))'
                            % lua_actions.treasure_scan_counts(),
-                           marker=MARKER, settle=0.5) or ():
+                           marker=MARKER, settle=0.5, early=True) or ():
             if " LAP " in line:
                 return _fields(line, " LAP ")
         return {}
@@ -1207,7 +1207,7 @@ class TreasuresPane(_Pane):
         import lua_actions
         for line in ev.run('CS.UnityEngine.Debug.LogError("ACT WATCH " .. (%s))'
                            % lua_actions.treasure_reaper_state(),
-                           marker=MARKER, settle=0.4) or ():
+                           marker=MARKER, settle=0.4, early=True) or ():
             if " WATCH " in line:
                 return _fields(line, " WATCH ")
         return {}
@@ -1244,8 +1244,10 @@ class TreasuresPane(_Pane):
         """`(treasures_num, {activityId: taken_today})` off the treasure manager."""
         import lua_actions
         num, daily = 0, {}
-        for line in ev.run(lua_actions.treasure_state(),
-                           marker=MARKER, settle=1.5) or ():
+        # `early`: a read whose chunk PRINTS its marker is finished the moment the line
+        # lands — waiting out the settle after it is a second and a half of nothing (#2660).
+        for line in ev.run(lua_actions.treasure_state(), marker=MARKER, settle=1.5,
+                           early=True) or ():
             if "treasures_num=" in line:
                 num = _int(line.split("treasures_num=", 1)[1].split()[0])
             elif "treasure_daily " in line:
