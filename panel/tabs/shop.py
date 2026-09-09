@@ -576,7 +576,7 @@ class ShopTab(PanelTab):
                 return money
         return ""
 
-    def autobuy_now(self) -> bool:
+    def autobuy_now(self, pick: str = "") -> bool:
         """Play the autobuy once by hand — over THIS SHELF'S order and no other.
 
         THE BUTTON BELONGS TO THE SHELF IT IS DRAWN ON (#2670, the person's report: «почему
@@ -591,7 +591,7 @@ class ShopTab(PanelTab):
         what a nightly errand is for, and each row carries its own shelf, quota and purse.
         """
         sched = getattr(self.rt, "schedule", None)
-        chosen = self._pick or ""
+        chosen = pick or self._pick or ""
         kind, _sep, shop = chosen.partition(":")
         mine = [e for e in self.plan()
                 if not chosen or (e["kind"], e["shop"]) == (kind, shop)]
@@ -715,7 +715,13 @@ class ShopTab(PanelTab):
                  "options_title": "shop.caps.title",
                  "fields": [{"key": "pick", "label": "shop.pick", "kind": "chips",
                              "value": chosen, "options": choices}],
-                 "actions": [{"id": "autobuy", "label": "shop.autobuy.now"}],
+                 # THE PRESS CARRIES THE SHELF THE SCREEN IS SHOWING (#2670). Which
+                 # shelf is open is the TAB's state, shared by every viewer — so a
+                 # second phone, or a tool poking the panel, moves it under the first
+                 # one, and the button then spends where somebody else was looking.
+                 # The screen sends what it drew; the tab's own pick is the fallback.
+                 "actions": [{"id": "autobuy", "label": "shop.autobuy.now",
+                              "args": {"pick": chosen}}],
                  "items": queue + rest}]
 
     def queue_items(self, kind: str, shop: str, rows) -> list:
@@ -884,7 +890,7 @@ class ShopTab(PanelTab):
             return {"ok": self.buy_one(kind, shop, ident,
                                        self.count_of(kind, shop, ident))}
         if action == "autobuy":
-            return {"ok": self.autobuy_now()}
+            return {"ok": self.autobuy_now(str(args.get("pick") or ""))}
         if action == "set":
             key = str(args.get("key") or "")
             if key in KNOBS:
