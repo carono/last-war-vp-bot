@@ -917,6 +917,14 @@ come round on and are answered in seconds or not at all; a rally banner held bac
 twenty seconds is a rally missed, which is a behaviour change and the one thing this
 may not cost.
 
+**And the gate opening is the same burst by another door.** Everything fired while the
+client was down waits behind the gate, and it opens the instant the link goes green —
+which is the instant the client can least take it: measured live, a panel restarted at
+11:16:17 released six parked fires at 11:17:04 and the client crashed at 11:17:08. So a
+parked fire comes off the gate one at a time on the same gap. It is already minutes late;
+another twenty seconds costs it nothing, and `GATE_KEEP_SEC` leaves room for thirty of
+them to drain.
+
 Whatever grows a new automatic start joins the spread rather than opening a second door
 around it. `tests/test_panel_timers.py` fails on a tick that queues two scheduled
 errands, on a spread that drops one, and on a trigger or a press being made to wait.

@@ -2189,6 +2189,10 @@ class TimerScheduler:
         # clock `enqueue_due` is given. Zero means «nothing yet», so the first errand
         # after a start goes at once and only its neighbours wait.
         self._spread_at = 0.0
+        # …and the same for a fire coming off the GATE, on the monotonic clock `_gated`
+        # is kept in. Its own stamp, because the two happen for different reasons and a
+        # tick may legitimately do one of each.
+        self._gate_at = 0.0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._gate_said: str | None = None
@@ -2514,10 +2518,21 @@ class TimerScheduler:
                     if name in self._gated:
                         self._gated[name] = (errand, scheduled, by, since, now, reason)
                 continue
+            # …AND THEY COME OFF THE HOOK ONE AT A TIME (#2667). The gate opening is the
+            # boot's real burst: everything parked while the client was down is released
+            # in the same instant the link goes green, which is the instant the client is
+            # least able to take it — the panel restarted at 11:16:17 on 2026-09-09,
+            # released six parked fires at 11:17:04 and the client died at 11:17:08. A
+            # parked fire is already minutes late, so another gap costs it nothing, and
+            # `GATE_KEEP_SEC` (600 s) leaves room for thirty of them to drain at this
+            # spacing. The rest stay parked and are offered again by the next tick.
+            if self._spread > 0 and self._gate_at and now - self._gate_at < self._spread:
+                continue
             with self._queue_lock:
                 self._gated.pop(name, None)
             if self._enqueue(name, scheduled, by):
                 out.append(name)
+                self._gate_at = now
         for name, scheduled, by in dropped:
             with self._queue_lock:
                 self._gated.pop(name, None)
