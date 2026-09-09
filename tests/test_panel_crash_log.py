@@ -211,6 +211,29 @@ def test_the_windows_evidence_is_throttled():
         "a client dying five times in ten minutes would spawn five PowerShells"
 
 
+def test_the_panel_is_actually_WIRED_to_it():
+    """A module nobody calls explains nothing.
+
+    Read off the two files that make the notes, because the hooks are what a later
+    refactor drops silently: the module keeps passing its own tests and the next crash
+    is a blank block.
+    """
+    status = (_REPO / "panel" / "runtime" / "status.py").read_text(encoding="utf-8")
+    assert "from . import crash_log" in status
+    assert "rec.died(rt)" in status, "nothing writes the block on the death edge"
+    assert "rec.saw_pid(" in status, "the block cannot say how long the client lived"
+    assert 'crash_log.note(rt, "relaunch"' in status, \
+        "the watchdog putting the client back is not in the run-up"
+
+    link = (_REPO / "panel" / "runtime" / "lua_service.py").read_text(encoding="utf-8")
+    assert "self._crash.chunk(who, marker)" in link, \
+        "the last chunk is not recorded, which is the whole of «what were we doing»"
+    assert 'self._crash.note("attach"' in link and 'self._crash.note("refused"' in link, \
+        "an attach or a refusal no longer reaches the run-up"
+    assert "crash_log.of(crash_log.LINK)" in link, \
+        "the shared link records into a PROFILE, which is the isolation bug of #1306"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
