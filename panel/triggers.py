@@ -470,6 +470,36 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.rally_auto_join",
     ),
     Trigger(
+        name="arms_drone_relay",
+        # «ЧАС ДРОНА РАБОТАЕТ СОБЫТИЯМИ, НЕ ТАЙМЕРОМ» (#2661) — the person's decision, in
+        # their words: «Какой нахуй повтор через 10 минут, у тебя есть пуши, отправили
+        # стяг, ждем пока закончим и вернемся на базу, и сразу снова отправляем тех, кто
+        # пришел на базу».
+        #
+        # A march ending is announced on the wire, ours included: `push.world.march.del`
+        # carries `{ownerUid, uuid, isBattleFail}`. The panel's ear is narrowed to this
+        # profile's client but not to this ACCOUNT's marches — the world stream carries
+        # every march in view — so the fire is deliberately cheap on the far side: the
+        # first thing `arms_race_drone` does is ONE Lua read of which arms-race phase is
+        # running, and everything that is not the drone hour stops on it, before the
+        # calendar get inside `read_arms_race` is ever sent. That is the whole cost of a
+        # foreign march ending, and it is what #2574 declined to pay when it took the
+        # same event off the client's own clock instead.
+        #
+        # The recipe raises a banner with whichever of the allowed squads is FREE, so a
+        # squad still in the air is skipped rather than failing the hour — which is the
+        # other half of «поотрядно». The errand `perform_arms_race` keeps its turn on the
+        # phase border as the safety net for a profile whose ear is down.
+        kind=KIND_WIRE,
+        event_pattern="push.world.march.del",
+        scenario=("arms_race_drone",),
+        # «Сразу, без очереди», for the reason `rally_auto_join` measured: the squad is
+        # standing at the base from the moment this push lands, and every second it waits
+        # for a queue boundary is a second of a four-hour event spent doing nothing.
+        immediate=True,
+        label_key="triggers.item.arms_drone_relay",
+    ),
+    Trigger(
         name="resource_tracker",
         # The game pushes «your balance changed» on every resource move
         # (push.resource.item.update). On each one the panel reads the current balance

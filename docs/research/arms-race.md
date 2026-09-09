@@ -169,14 +169,16 @@ banner in its first minute and slept for four hours.
 What changed:
 
 * the run no longer stops when the squad is out. It says WHICH gate refused — the gate
-  answers a word now, not a boolean — and leaves in `next_run_in` the seconds to the
-  **nearest march this account has out** (`WorldMarchDataManager:GetOwnerMarches()`,
-  each march's own `endTime`) plus 30 s. That is the «отряд вернулся» event, read off
-  the clock the server already handed over rather than watched for with a poll;
-* the booking is capped at the phase border, which the caller hands down as
-  `phase_left`. A return that lands after the phase is over books nothing;
-* `next_run_in` is 0 — the border stands — when there is nothing left to gain: every
-  chest scored, the day's allowance spent, the stamina ceiling reached, the phase gone;
+  answers a word now, not a boolean. It USED to leave in `next_run_in` the seconds to the
+  nearest march this account had out (`WorldMarchDataManager:GetOwnerMarches()`, each
+  march's own `endTime`) plus 30 s; **#2661 removed that booking entirely** — the return
+  is an event the wire announces, and one clock read per run only ever books the first of
+  them;
+* **and the hour is worked PER SQUAD since #2661.** The gate used to be asked about one
+  squad named in the order, so the next fire found it in the air and failed the whole run
+  — «the squad screen would not take squad 4», measured on 2026-09-09 with three squads
+  standing idle at the base. `ARGS squads` is the set the order may spend and the gate
+  hands back the lowest FREE one; a busy squad is skipped, never a refusal;
 * the **stamina ceiling became the PHASE's** rather than one run's. A per-run 300 over
   however many runs a phase now has is not a ceiling; the purse is parked in the VM
   against the phase's own `stage_end_time`, so a new phase resets it and a second run
@@ -187,10 +189,24 @@ What changed:
   «Стягов за окно» draws. They are NOT written into the join book: that book counts
   joins, and a raise is not a join (#2574).
 
-No wire trigger was added. `push.world.march.del` is the push that would carry «a march
-ended», and it is not only ours — the world stream carries other players' marches in
-view, and a wire trigger has no cooldown — so the same event is taken from the clock the
-client already holds instead.
+**That clock is gone since #2661, and the wire trigger it declined is what replaced it.**
+The person's decision, in their words: «Какой нахуй повтор через 10 минут, у тебя есть
+пуши, отправили стяг, ждем пока закончим и вернемся на базу, и сразу снова отправляем
+тех, кто пришел на базу». The objection above was right about the COST and wrong about
+the outcome: a clock read once per run books ONE return, so a phase whose squads come
+home four times hears about the first and sleeps through the rest — measured, one or two
+banners per four-hour hour.
+
+So `arms_drone_relay` (`panel/triggers.py`) subscribes to `push.world.march.del` and
+plays `arms_race_drone` on every one, `immediate=True`. The «not only ours» problem is
+paid for on the far side rather than avoided: the recipe's FIRST statement is one Lua read
+of which arms-race phase is running, and anything that is not the drone hour stops on it,
+before the calendar get inside `read_arms_race` is sent. One VM round trip (~0.15 s) is
+the whole price of a foreign march ending, and only during a drone hour does a fire go any
+further.
+
+The errand keeps its turn on the phase border, and that is now the SAFETY NET: a profile
+whose wire ear is down still works the hour, only slowly.
 
 ## The rules arrive for the current phase only — so judge by the score MOVING
 

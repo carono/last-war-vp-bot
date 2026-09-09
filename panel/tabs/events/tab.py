@@ -357,6 +357,13 @@ class EventsTab(PanelTab):
         # between them. Nothing else is done with the number: raising a banner is not
         # joining one, and the day's join caps are none of this phase's business.
         schedule.register_report(modelmod.ARMS_ERRAND, self.arms_report)
+        # …AND THE PUSH-DRIVEN HALF OF THE SAME ORDER (#2661). «arms_drone_relay» plays
+        # `arms_race_drone` whenever a march of ours ends, so it needs the same switches
+        # the errand reads — chiefly «поднимать стяги» and the stamina ceiling, which a
+        # person moves on this card and must take effect on the very next push rather
+        # than on the next four-hourly turn.
+        schedule.register_args(modelmod.ARMS_RELAY, self.arms_relay_args)
+        schedule.register_report(modelmod.ARMS_RELAY, self.arms_report)
         self._arms_args_registered = True
 
     def _register_golden_args(self) -> None:
@@ -401,6 +408,22 @@ class EventsTab(PanelTab):
                 "free_minutes": self.arms_free_minutes(),
                 "stamina": self.arms_stamina(),
                 "squad": self.arms_squad()}
+
+    def arms_relay_args(self) -> dict:
+        """The ARGS the push-driven «arms_drone_relay» runs with (#2661).
+
+        A subset of :meth:`arms_args` — the drone recipe is the only thing the relay
+        plays, so the other phases' switches would be noise — plus `squads`, which is
+        what «поотрядно» needs: the relay raises a banner with whichever of these is
+        standing at the base, and skips the ones still in the air instead of failing.
+
+        All four by default. A squad the person wants kept for something else is a knob
+        that does not exist yet; when it does, it belongs here and nowhere else, so that
+        the card and the push-driven order cannot disagree.
+        """
+        return {"drone": 1 if self.arms_drone() else 0,
+                "stamina": self.arms_stamina(),
+                "squads": modelmod.ARMS_RELAY_SQUADS}
 
     def arms_report(self, ctx) -> None:
         """Remember how many banners the finished arms run raised this phase.

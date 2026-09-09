@@ -263,6 +263,18 @@ ARMS_DAY_VARIABLE = "arms_day"
 #: The press: do what the phase running now pays for, then book the border.
 ARMS_ERRAND = "perform_arms_race"
 
+#: …and the PUSH-DRIVEN half of the drone hour (#2661). A march of ours ending is
+#: `push.world.march.del`, and this trigger answers it by playing `arms_race_drone`
+#: again — «отряд вернулся — сразу отправляем его снова». The errand above keeps its turn
+#: on the phase border as the safety net for a profile whose wire ear is down.
+ARMS_RELAY = "arms_drone_relay"
+
+#: Which squads that order may spend. All four, and deliberately not the single squad the
+#: card names: a squad still in the air is skipped rather than failing the hour, which is
+#: what «работать поотрядно» means. One string, in the form the recipe's `ARGS squads`
+#: reads, so the card and the standing order cannot hold two answers.
+ARMS_RELAY_SQUADS = "1,2,3,4"
+
 #: …and the one phase that has a recipe, played on its own by the button beside it.
 ARMS_HERO_ACTION = "arms_race_hero"
 
