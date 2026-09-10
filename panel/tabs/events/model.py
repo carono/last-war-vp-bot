@@ -641,11 +641,13 @@ class CrystalState:
     """
 
     __slots__ = ("state", "attacks", "need", "left", "health", "targets", "seconds",
-                 "bonus", "bonus_taken", "bonus_total", "weekly_taken")
+                 "bonus", "bonus_taken", "bonus_total", "weekly_taken",
+                 "daily", "daily_taken", "daily_made", "daily_need")
 
     def __init__(self, state: str, attacks=None, need=None, left=None, health=None,
                  targets=None, seconds=None, bonus=None, bonus_taken=None,
-                 bonus_total=None, weekly_taken=None) -> None:
+                 bonus_total=None, weekly_taken=None, daily=None, daily_taken=None,
+                 daily_made=None, daily_need=None) -> None:
         self.state = state
         self.attacks = attacks
         self.need = need
@@ -668,6 +670,19 @@ class CrystalState:
         self.bonus_taken = bonus_taken
         self.bonus_total = bonus_total
         self.weekly_taken = weekly_taken
+        #: …and the THIRD chest (#2702), which is a different shape from the two lists:
+        #: one a DAY, whose whole gate is «the day's attacks are made».
+        #:
+        #: ``daily`` is the client's own verdict on whether it can be claimed right now
+        #: and ``daily_taken`` whether it has already been taken today. They are not
+        #: opposites — a day whose attacks are not in yet is neither — which is why both
+        #: are held rather than one being derived from the other. ``daily_made`` /
+        #: ``daily_need`` are the attacks toward it, as the CHEST'S own data counts them.
+        #: ``None`` anywhere is «the game would not say», never a zero.
+        self.daily = daily
+        self.daily_taken = daily_taken
+        self.daily_made = daily_made
+        self.daily_need = daily_need
 
     @property
     def open(self) -> bool:
@@ -701,8 +716,13 @@ class CrystalState:
         itself and refuses in one line. A claim over a list the game has never described
         would press nothing at all, so the button appears when a chest has been COUNTED —
         and `None`, «nobody knows», is not a count.
+
+        Since #2702 it also covers the DAY'S chest, which the same recipe claims: three
+        chests with three separate gates, and the button is offered when ANY of them has
+        been said to be waiting. A press over the other two being empty is not a wasted
+        one — the recipe reads each gate for itself and says so in one line.
         """
-        return bool(self.bonus)
+        return bool(self.bonus) or bool(self.daily)
 
     def __repr__(self) -> str:
         return (f"<crystal {self.state} {self.attacks}/{self.need} hp={self.health} "
@@ -728,6 +748,10 @@ def crystal_state(reading) -> "CrystalState":
         bonus_taken=reading.get("achdone"),
         bonus_total=reading.get("achall"),
         weekly_taken=reading.get("wdone"),
+        daily=reading.get("daily"),
+        daily_taken=reading.get("dtaken"),
+        daily_made=reading.get("dmade"),
+        daily_need=reading.get("dneed"),
     )
 
 
@@ -751,6 +775,23 @@ def crystal_achievements(state) -> str:
 def crystal_weekly_taken(state) -> str:
     """`108` — damage segments of this week whose chest has already been claimed."""
     return "—" if state.weekly_taken is None else str(state.weekly_taken)
+
+
+def crystal_daily(state, t) -> str:
+    """What the DAY'S chest is doing, in the words a person uses about it (#2702).
+
+    Four answers and they are not a scale: «есть, забирай» when the game says it can be
+    claimed, «забран» when it has been taken today, «3 / 3» — the attacks toward it —
+    while it is neither, and «—» when the game would not say. `t` is the tab's own
+    translator, because three of the four are words rather than numbers.
+    """
+    if state.daily:
+        return t("events.crystal.daily.chest.ready")
+    if state.daily_taken:
+        return t("events.crystal.daily.chest.taken")
+    if state.daily_made is None or state.daily_need is None:
+        return "—"
+    return "%d / %d" % (state.daily_made, state.daily_need)
 
 
 def health(state) -> str:

@@ -2235,6 +2235,12 @@ class EventsTab(PanelTab):
              "value": modelmod.crystal_weekly_taken(cr)},
             {"label": "events.crystal.bonus.achievements",
              "value": modelmod.crystal_achievements(cr)},
+            # …and the THIRD chest (#2702), the one the day's attacks earn: «есть,
+            # забирай» / «забран» / how far the day has got toward it. It reads as words
+            # rather than a count because there is exactly one of it, and the only thing
+            # anybody does about it is press the button below.
+            {"label": "events.crystal.daily.chest",
+             "value": modelmod.crystal_daily(cr, self.t)},
         ]
         if cr.state == modelmod.OPEN:
             crows.append({"label": "events.crystal.until",

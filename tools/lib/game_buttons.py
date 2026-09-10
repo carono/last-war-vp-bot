@@ -1349,6 +1349,13 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.crystal_claim_all(),
         wait=1.5, label="claim every crystal-boss chest the event says is claimable",
     ),
+    "crystal_claim_daily": Button(
+        # …and the THIRD chest (#2702), which is neither of the two lists: one a day,
+        # earned by making the day's attacks and left in the window until it is taken.
+        # One call, no window, and `claimed` moves when the reply lands.
+        lua=_lua_actions.crystal_claim_daily(),
+        wait=1.5, label="claim the crystal boss's chest for the day's attacks",
+    ),
     # --- base decorations: the handbook's upgrade press -----------------------
     # One press upgrades the first decoration that is ready: the button finds the
     # group itself, so nothing has to be picked or parked beforehand. Headless — no
