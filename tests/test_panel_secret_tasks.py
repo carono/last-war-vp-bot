@@ -4705,7 +4705,7 @@ def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None)
     i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
     tab = object.__new__(st.SecretTasksTab)
     tab.t = i18n.t
-    tab._zoom_level = lua_actions.DEFAULT_ZOOM_LEVEL
+    tab._zoom_level = lua_actions.SWEEP_ZOOM_DEFAULT
     tab._zoom_combo = None
     tab._zoom_label_var = _Var("")
     said = []
@@ -4717,18 +4717,24 @@ def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None)
     tab._sweep_pace = 10
     tab._sync_zoom_combo = lambda: None
     tab.pieces = None
-    # The close view is the default, and it is the height the jump always used.
-    assert lua_actions.zoom_level(tab._zoom_level)[0] == lua_actions.JUMP_ZOOM
-    # …and the phone PICKS one behind the gear now (#2705) — no press that cycles
-    # through three words, and the field it writes is the window's own.
+    # The default is division 7 — the 600 every lap has walked at since there were laps.
+    assert lua_actions.sweep_zoom(tab._zoom_level)[0] == lua_actions.SWEEP_ZOOM_MAX
+    # …and the phone TURNS IT behind the gear (#2705, #2737) — no press that cycles
+    # through words, and the field it writes is the window's own.
     assert tab.web_press("zoom", {}) == {"error": "unknown"}
-    assert tab.web_press("set", {"key": "sweep_zoom", "value": "tasks"}) == {"ok": True}
-    assert tab._zoom_level == "tasks"
-    # A height nobody offers is REFUSED rather than quietly kept: the value comes off a
-    # form on a phone.
+    assert tab.web_press("set", {"key": "sweep_zoom", "value": 4}) == {"ok": True}
+    assert tab._zoom_level == 4
+    # A DIVISION OFF THE SCALE IS REFUSED rather than pulled onto it (#2737) — the same
+    # rule the pace has: the field says its bounds, and the value comes off a form.
+    assert tab.web_press("set", {"key": "sweep_zoom", "value": 0}) == {"ok": False}
+    assert tab.web_press("set", {"key": "sweep_zoom", "value": 11}) == {"ok": False}
     assert tab.web_press("set", {"key": "sweep_zoom",
-                                 "value": "tile"}) == {"ok": False}
-    assert tab._zoom_level == "tasks"
+                                 "value": "as high as it goes"}) == {"ok": False}
+    assert tab._zoom_level == 4
+    # A WORD THE PANEL ITSELF WROTE is still understood, because an old profile holds one.
+    assert tab.web_press("set", {"key": "sweep_zoom", "value": "bases"}) == {"ok": True}
+    assert tab._zoom_level == lua_actions.SWEEP_ZOOM_MAX_DIV
+    tab.set_sweep_zoom(4)
     # …and the second knob the person asked for, which is a DIVISION of a scale of
     # twenty since #2705 — «делай 20 делений, можно цифрами».
     assert tab.web_press("set", {"key": "sweep_pace", "value": 3}) == {"ok": True}
@@ -4740,14 +4746,18 @@ def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None)
     assert tab.web_press("set", {"key": "sweep_pace",
                                  "value": "whenever"}) == {"ok": False}
     assert tab._sweep_pace == 3
-    assert lua_actions.zoom_level("tasks")[0] == lua_actions.SWEEP_ZOOM_MAX
-    assert lua_actions.zoom_level("bases")[0] == lua_actions.BASE_ZOOM_MAX
-    # A level nobody has heard of (an old profile) answers with the close view rather
-    # than refusing to draw the tab.
-    assert lua_actions.zoom_level("from-an-older-panel") == \
-        lua_actions.ZOOM_LEVELS[lua_actions.DEFAULT_ZOOM_LEVEL]
-    # Every level has a step that belongs to it: a step is meaningless without its height.
-    assert all(step > 0 for _height, step in lua_actions.ZOOM_LEVELS.values())
+    # THE TWO OLD WORDS LAND ON THE DIVISIONS THAT WALK AT THEIR HEIGHTS (#2737), so no
+    # profile's lap changed height because the control changed shape.
+    assert lua_actions.sweep_zoom("tasks")[0] == lua_actions.SWEEP_ZOOM_MAX
+    assert lua_actions.sweep_zoom("bases")[0] == lua_actions.BASE_ZOOM_MAX
+    assert lua_actions.sweep_zoom("tasks")[1] == lua_actions.FAST_STEP
+    # A value nobody has heard of (an older profile, a typo) answers with the default
+    # rather than refusing to draw the tab — the same rule `sweep_pace` has.
+    assert lua_actions.sweep_zoom("from-an-older-panel") == \
+        lua_actions.sweep_zoom(lua_actions.SWEEP_ZOOM_DEFAULT)
+    # Every division has a step that belongs to its height: a step alone is meaningless.
+    assert all(step > 0 for _h, step in
+               (lua_actions.sweep_zoom(n) for n in range(1, 11)))
 
 
 def test_the_pace_is_twenty_divisions_and_the_three_anchors_are_the_persons():
@@ -4803,7 +4813,14 @@ def test_the_lap_carries_its_two_knobs_behind_one_gear():
 
     keys = [field["key"] for field in card["options"]]
     assert keys == ["sweep_zoom", "sweep_pace"], keys
-    assert card["options"][0]["kind"] == "choice"
+    zoom = card["options"][0]
+    assert zoom["kind"] == "number", "the height is a number of divisions since #2737"
+    assert (zoom["min"], zoom["max"]) == (lua_actions.SWEEP_ZOOM_MIN,
+                                          lua_actions.SWEEP_ZOOM_MAX_DIV)
+    assert zoom["hint"] == "coord.zoom.hint", "the field lost the reason for it"
+    # …and the card SAYS what the division means, height and harvest both (#2737).
+    words = card["rows"][0]["value"]
+    assert "600" in words and "7" in words, words
     pace = card["options"][1]
     assert pace["kind"] == "number", "the pace is a number of divisions since #2705"
     assert (pace["min"], pace["max"]) == (lua_actions.SWEEP_PACE_MIN,
@@ -4868,7 +4885,7 @@ def test_the_measurement_is_a_recipe_and_its_answer_is_only_a_recommendation():
     tab.rt.play_async = play
     tab._bench_once()
     assert calls["name"] == "benchmark_map_sweep"
-    assert calls["args"]["zoom"] == lua_actions.zoom_level("tasks")[0]
+    assert calls["args"]["zoom"] == lua_actions.SWEEP_ZOOM_MAX
     # …and it names no warzone, like the lap: its own chunk reads the one the client is
     # holding tiles for, and both of its jumps therefore stay there (#2727).
     assert "server" not in calls["args"], calls["args"]
@@ -4909,7 +4926,9 @@ def _sweep_tab(rows=None):
     i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
     tab = object.__new__(st.SecretTasksTab)
     tab.t = i18n.t
-    tab._zoom_level = "tasks"
+    # A DIVISION of the scale (#2737); 7 is the 600 every lap has walked at, which is
+    # what the old word «tasks» meant.
+    tab._zoom_level = 7
     tab._sweep_pace = 10
     tab._sweeping, tab._sweep_btn = False, None
     # THE SPEED MEASUREMENT (#2705) — nothing measured, and the day's history already
@@ -5025,13 +5044,57 @@ def test_a_second_press_stops_the_lap_instead_of_starting_another():
 
 def test_the_lap_heights_no_longer_offer_the_tile_view():
     """A lap at the tile view is 88 seconds against 6 and finds nothing extra — it was
-    only ever on the list because this box also decided how high a JUMP landed (#1272)."""
+    only ever on the list because this box also decided how high a JUMP landed (#1272).
+
+    The scale of #2737 keeps that out by where it STARTS: its bottom is 150, not the 105
+    of the tile view, and even that bottom is the slow end a person chooses on purpose.
+    """
     import lua_actions
-    assert "tile" not in lua_actions.SWEEP_LEVELS
-    assert lua_actions.SWEEP_LEVELS == ("tasks", "bases")
+    assert lua_actions.SWEEP_ZOOM_MIN_HEIGHT > lua_actions.JUMP_ZOOM
+    assert lua_actions.sweep_zoom(lua_actions.SWEEP_ZOOM_MIN)[0] == \
+        lua_actions.SWEEP_ZOOM_MIN_HEIGHT
     slow = lua_actions.fast_sweep_seconds(lua_actions.ZOOM_LEVELS["tile"][1])
-    quick = lua_actions.fast_sweep_seconds(lua_actions.ZOOM_LEVELS["tasks"][1])
+    quick = lua_actions.fast_sweep_seconds(lua_actions.sweep_zoom(
+        lua_actions.SWEEP_ZOOM_DEFAULT)[1])
     assert slow > 10 * quick, (slow, quick)
+
+
+def test_the_height_is_ten_divisions_that_double_every_three():
+    """«Добавь большую градацию зума при обходе карты» (#2737).
+
+    Two words could be thorough (600) or wide (1199) and nothing in between, while the
+    height decides BOTH what the client asks for and how much ground one view covers. The
+    law is one sentence — the height doubles every three divisions from 150 — and it is
+    chosen so that the two old words are divisions of the new scale exactly.
+
+    The half that is not arithmetic: above division 7 the client stops asking for
+    secret-task tiles while bases, mines and strongholds keep arriving, and the scale stops
+    at the last height where ANYTHING arrives. So a person can walk a bases-only lap, and
+    cannot do it by accident — the card says which of the two every division is.
+    """
+    import lua_actions as la
+    heights = [la.sweep_zoom(n)[0] for n in range(la.SWEEP_ZOOM_MIN,
+                                                  la.SWEEP_ZOOM_MAX_DIV + 1)]
+    assert heights == [150, 189, 238, 300, 378, 476, 600, 756, 952, 1199], heights
+    # the law: three notches up is twice as high (the ends are the measured constants)
+    for n in range(la.SWEEP_ZOOM_MIN, la.SWEEP_ZOOM_MAX_DIV - 3):
+        assert abs(heights[n + 2] / float(heights[n - 1]) - 2.0) < 0.02, (n, heights)
+    # the anchors, and therefore the old profiles
+    assert heights[la.SWEEP_ZOOM_DEFAULT - 1] == la.SWEEP_ZOOM_MAX
+    assert heights[-1] == la.BASE_ZOOM_MAX
+    # NOTHING ON THE SCALE COLLECTS NOTHING: 1200 is the LOD where no tiles arrive at all.
+    assert max(heights) < 1200
+    # …and what each division catches is said out loud rather than left to be discovered
+    assert all(la.sweep_zoom_catches_tasks(n)
+               for n in range(1, la.SWEEP_ZOOM_TASK_TOP + 1))
+    assert not any(la.sweep_zoom_catches_tasks(n)
+                   for n in range(la.SWEEP_ZOOM_TASK_TOP + 1, la.SWEEP_ZOOM_MAX_DIV + 1))
+    # the step belongs to the height: the two measured points are kept exactly
+    assert la.sweep_zoom(la.SWEEP_ZOOM_DEFAULT)[1] == la.FAST_STEP
+    assert la.sweep_zoom(la.SWEEP_ZOOM_MAX_DIV)[1] == 100
+    # …and a lower division is a SLOWER lap, every step of the way — the card shows it
+    spans = [la.fast_sweep_seconds(la.sweep_zoom(n)[1]) for n in range(1, 11)]
+    assert spans == sorted(spans, reverse=True), spans
 
 
 def test_every_coordinate_jump_lands_at_the_tile_view():

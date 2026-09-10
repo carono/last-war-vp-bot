@@ -572,3 +572,46 @@ is a panel whose settings cannot be trusted. The three numbers are filed in the 
 history (`sweep_bench_ms`, `sweep_bench_tiles`, `sweep_bench_division` in `all_day_stats`,
 `docs/panel-storage.md`), so a restart does not lose them and «стала ли машина медленнее»
 is a `SELECT`.
+
+## 12. Ten divisions instead of two words (#2737)
+
+The height was a choice of two — «секретки» (600) and «только базы» (1199) — and the
+person asked for the same shape the pace got in #2705: «Добавь большую градацию зума при
+обходе карты». A lap could be thorough or wide and nothing in between, while the height
+decides BOTH what the client asks for and how much ground one view covers.
+
+**The law is one sentence: the height doubles every three divisions, from 150 at division
+1.** So the scale is
+
+| division | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| height | 150 | 189 | 238 | 300 | 378 | 476 | **600** | 756 | 952 | **1199** |
+| secret tasks | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+
+a constant ratio of 2^(1/3) ≈ 1.26 a step. It starts at 150 precisely so that the two old
+words are divisions of the new scale EXACTLY: division 7 is `SWEEP_ZOOM_MAX` (600, §1) and
+division 10 is `BASE_ZOOM_MAX` (1199, §8). Nobody's lap changed height because the control
+changed shape, and an old profile's word is carried onto the scale by
+`lua_actions.sweep_zoom_division` (`tasks` → 7, `bases` → 10, `tile` → 1).
+
+**The ends are the measured constants, not what the curve computes.** 600 × 2 is 1200,
+which is one LOD too high and fetches nothing at all (§8), so division 10 is pinned to
+1199 rather than left to the arithmetic. The bottom is pinned to 150 for the opposite
+reason: below it a lap is all clock and no extra tiles, and the tile view (105) was dropped
+from this control in #1272 because its lap is 88 seconds against 6 and finds nothing extra.
+
+**The step follows the height, and above 600 it is measured rather than reasoned.** Below
+the task ceiling the step is proportional (`height × 90 / 600`, so 600 → 90, the number
+every lap has used); above it it is carried from 90 at 600 to the measured 100 at 1199
+(§«The step that goes with 1199»).
+
+**Three divisions collect bases only, and they say so.** Above division 7 the client stops
+asking for `f2=17` tiles while bases, mines, alliance cities and strongholds keep arriving,
+so `sweep_zoom_catches_tasks` labels each division and both front-ends draw it beside the
+number: «7 — высота 600 · секретки и всё остальное». A person may walk a bases-only lap;
+they cannot do it by accident.
+
+**Off the scale is refused, not clamped** — the same rule the pace has since #2705: the
+field says its bounds (1…10), and a phone that sends 40 has been typed into wrongly. A
+value the panel itself WROTE (an old word) is still understood, because that is a value a
+profile legitimately holds.
