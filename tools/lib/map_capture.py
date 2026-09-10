@@ -944,11 +944,18 @@ def deaf_watch(index: MapIndex, stop: threading.Event,
     last, seen_at = None, time.time()
     while not stop.wait(poll):
         now = time.time()
-        heard = (index.delivered, index.packets)
+        # ASKED, NOT ASSUMED (#2741). `start_capture` arms this watch for whatever index
+        # it was handed, and only `MapIndex` counts what npcap delivered — a plain
+        # `LiveDecoder` scanner (`tools/wire_event_monitor.py`) has neither counter, so
+        # this thread died on its first tick with `AttributeError: 'EventMonitor' object
+        # has no attribute 'delivered'` and the deafness watch it was added for was not
+        # running at all. Live in the panel's own log on 2026-09-10, every five minutes.
+        heard = (getattr(index, "delivered", 0), getattr(index, "packets", 0))
         if heard != last:
             last, seen_at = heard, now
             continue
-        ports = index.own_ports() if index.own_ports is not None else None
+        own_ports = getattr(index, "own_ports", None)
+        ports = own_ports() if own_ports is not None else None
         if ports is not None and not ports:
             seen_at = now             # no client of ours: silence is the truth
             continue

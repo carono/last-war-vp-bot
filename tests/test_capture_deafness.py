@@ -186,6 +186,39 @@ def test_the_progress_line_names_what_arrived_from_the_wire():
             f"{name}: the wire must enter the signature as a state, never as a count"
 
 
+def test_the_watch_survives_an_index_that_counts_neither():
+    """A `LiveDecoder` scanner has no `delivered` — the watch must not die on it (#2741).
+
+    `start_capture` arms this thread for whatever index it was handed, and only
+    `MapIndex` counts what npcap delivered. Live in the panel's own log on 2026-09-10,
+    every five minutes: `AttributeError: 'EventMonitor' object has no attribute
+    'delivered'` — so the deafness watch that #2740 added was, for those scanners, not
+    running at all.
+    """
+    import threading
+    import time
+    import types
+
+    mc = map_capture
+    plain = types.SimpleNamespace()            # neither counter, no `own_ports`
+    stop = threading.Event()
+    done = threading.Event()
+
+    def run():
+        try:
+            mc.deaf_watch(plain, stop, seconds=9999, poll=0.01, exit_code=0)
+        finally:
+            done.set()
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    time.sleep(0.1)
+    assert worker.is_alive(), "the watch died on an index that counts neither"
+    stop.set()
+    done.wait(2)
+
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
