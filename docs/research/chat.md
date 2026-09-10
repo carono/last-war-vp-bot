@@ -241,3 +241,36 @@ hook back on the next round, and then reads the gap back out of the rooms the cl
 still holding — the same client-side copy `READ_CHAT` uses, which asks the server
 nothing. Nothing here is a new clock: the check rides the existing drain, and the gap
 read happens on a loss and at a start, never on a timer.
+
+## Auto-translation skips anything shorter than five characters (#2705)
+
+**The person's words: «Условие для автоперевода, не переводить (отображать оригинал в
+панели) сообщения короче 5 символов».**
+
+`panel/tabs/chat.py::ChatTab.TR_MIN_CHARS = 5`, read by one gate — `_tr_short`, asked in
+`_tr_take` before the message reaches the queue. So a short message is never asked for,
+never counted in the tally the switch reports (`autotr_done`), and never reported: the
+original simply stands, exactly as it would with the switch off.
+
+**The length is what a READER sees**, not what the wire carries (`_tr_length`):
+
+| message | counted | why |
+|---|---|---|
+| `ок` | 2 | |
+| `  ок  ` | 2 | the spaces round it are not characters |
+| `)))` | 3 | punctuation is characters |
+| `[e:E006]` | **1** | an emoji is one thing on screen, not eight of markup |
+| `[photo:3]` | **1** | so is a photograph |
+| `<color=#fff>ок</color>` | 2 | a rich tag is not a character at all |
+| `[e:E006]`×5 | 5 | five emoji are five characters — long enough |
+
+The split is `chat_assets.segments`, the same one both front-ends draw the message with,
+and a token counts as one whether or not this machine has unpacked the sprite: `segments`
+answers `image` for a token it can resolve and `token` for one it cannot, and «is this
+worth translating» may not depend on which.
+
+**THE HAND-DRIVEN TAP IS UNTOUCHED.** The rule is about the AUTOMATIC translator.
+Somebody who deliberately taps «⇄A» on a two-word message is asking a question, and the
+answer is given (`_translate`). A row with no translation draws its original with that
+tap still offered, so a skipped message looks like an untranslated one — which is what it
+is — rather than like a failure.

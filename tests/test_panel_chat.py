@@ -1179,6 +1179,58 @@ def test_the_offer_to_translate_is_the_game_s_own_answer():
     assert can({}) is True
 
 
+def test_a_message_shorter_than_five_characters_is_never_auto_translated():
+    """#2705: «не переводить (отображать оригинал в панели) сообщения короче 5 символов».
+
+    «ок», «+1», «)))» and a single sticker come back from the game's translator as
+    themselves or as something worse, and a row that says «translated» over an unchanged
+    «ок» tells a reader that a translation happened. So they are dropped BEFORE the
+    queue: never asked for, never counted, never reported — the original simply stands.
+
+    THE LENGTH IS WHAT A READER SEES, not what the wire carries. An emoji is written
+    `[e:E006]` — eight characters of markup for one thing on screen — and a photograph is
+    `[photo:3]`; each counts as ONE, and colour tags count as none. Otherwise a message
+    that is a single smiley would be «eight characters long» and translated, which is the
+    exact row the person named.
+    """
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_a_message_shorter_than_five...: {exc}")
+        return
+
+    long_enough = pm.ChatTab.TR_MIN_CHARS
+    assert long_enough == 5, "the person said five"
+    size = pm.ChatTab._tr_length
+    short = pm.ChatTab._tr_short
+
+    # The rows this exists for.
+    assert size({"msg": "ок"}) == 2
+    assert size({"msg": "+1"}) == 2
+    assert size({"msg": ")))"}) == 3
+    assert size({"msg": "  ок  "}) == 2, "the spaces round it are not characters"
+    assert size({"msg": "[e:E006]"}) == 1, "an emoji is one thing on screen"
+    assert size({"msg": "[photo:3]"}) == 1, "a photograph is one thing on screen"
+    assert size({"msg": "<color=#fff>ок</color>"}) == 2, "a colour tag is not a character"
+    for text in ("ок", "+1", ")))", "[e:E006]", "[photo:3]", "", "   "):
+        assert short({"msg": text}) is True, text
+
+    # …and the ones it must leave alone.
+    assert size({"msg": "hello"}) == 5
+    assert short({"msg": "hello"}) is False, "five characters is long enough"
+    assert short({"msg": "привет всем"}) is False
+    assert short({"msg": "[e:E006][e:E006][e:E006][e:E006][e:E006]"}) is False, \
+        "five emoji are five characters"
+
+    # A SKIPPED MESSAGE IS NOT A TRANSLATED ONE. The gate is upstream of the queue, so
+    # nothing about it can reach the tally the switch reports.
+    src = (_REPO / "panel" / "tabs" / "chat.py").read_text(encoding="utf-8")
+    batch = src.split("def _tr_batch")[1].split("\n    def ")[0]
+    assert "_tr_short" not in batch, "the count is being made where the gate is not"
+    assert batch.count("self._tr_done += 1") == 1, \
+        "the tally counts something other than a translation that came back"
+
+
 def test_the_chat_screen_carries_no_message_cards():
     """#2418: the phone was handed 30 messages x 5 channels it throws away.
 
@@ -1219,6 +1271,8 @@ def test_auto_translation_is_off_by_default_and_never_asks_on_a_clock():
     assert 'record.get("is_mine")' in take, "auto-translation would translate my own"
     assert "self._translated" in take, "a message already translated is asked about again"
     assert "self._can_translate(record)" in take, "it asks for what the game refuses"
+    # …and never a message too short to be worth it (#2705).
+    assert "self._tr_short(record)" in take, "short messages are queued again"
     pump = src.split("def _pump_chat")[1].split("def _load_backlog")[0]
     assert "if not backlog:\n                    # THE ARRIVAL IS THE SIGNAL" in pump, \
         "the queue is fed by something other than an arrival, or by a backlog read"
