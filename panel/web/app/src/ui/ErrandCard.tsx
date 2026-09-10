@@ -1,5 +1,5 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
-import { span, t } from '../i18n'
+import { span, t, when } from '../i18n'
 import { Modal } from './Modal'
 import type { ArmsNow, ArmsPhase, ErrandRes, ErrandStat } from '../types'
 
@@ -148,10 +148,23 @@ export function ErrandSwitch({ title, on, onToggle }: {
  * without is a number that might be from yesterday and looks like now. A source with no
  * clock of its own — a day's tally — sends `age: null` and says nothing, because
  * «сегодня» is already the whole truth about when it is from. */
-export function Stat({ stat }: { stat?: ErrandStat | null }) {
+export function Stat({ stat, next, now }: {
+  stat?: ErrandStat | null
+  /* WHEN THIS ERRAND RUNS NEXT (#2744), for the one card that counts down to it instead
+     of saying how old its reading is. It is the row's own `next` and the page's own
+     clock — the tick costs nothing and asks the game nothing. */
+  next?: number | null
+  now?: number
+}) {
   if (!stat || !stat.key) return null
   const age = stat.age
-  const old = typeof age === 'number' && age >= 0 ? t('timers.stat.age', { span: span(age) }) : ''
+  const due = stat.countdown && next && typeof now === 'number' ? when(next, now) : ''
+  /* THE COUNTDOWN WINS WHERE THERE IS ONE, and the age is what is left otherwise: an
+     errand somebody switched off has no next run, and «прочитано 4 мин назад» is then
+     still the honest thing to say about the number beside it. */
+  const old = due
+    ? due
+    : typeof age === 'number' && age >= 0 ? t('timers.stat.age', { span: span(age) }) : ''
   return (
     <p className="stat small">
       <b>{t(stat.key, stat.fmt)}</b>
@@ -259,7 +272,12 @@ function ArmsHour({ arms }: { arms: ArmsNow }) {
   )
 }
 
-function Reading({ stat, queued }: { stat?: ErrandStat | null; queued?: boolean }) {
+function Reading({ stat, queued, next, now }: {
+  stat?: ErrandStat | null
+  queued?: boolean
+  next?: number | null
+  now?: number
+}) {
   if (queued) {
     return (
       <p className="stat small queued">
@@ -267,7 +285,7 @@ function Reading({ stat, queued }: { stat?: ErrandStat | null; queued?: boolean 
       </p>
     )
   }
-  return <Stat stat={stat} />
+  return <Stat stat={stat} next={next} now={now} />
 }
 
 /* WHAT THE BASE PAID TODAY, IN THE GAME'S OWN PICTURES (#2743).
@@ -330,6 +348,8 @@ export function ErrandCard({
   pill,
   state,
   stat,
+  next,
+  now,
   res,
   phases,
   arms,
@@ -363,6 +383,11 @@ export function ErrandCard({
   /** What this row is DOING, already in the panel's words — data, never a key (#2068). */
   state?: string
   stat?: ErrandStat | null
+  /** WHEN THE ERRAND RUNS NEXT, and what the time is now (#2744) — the two numbers the
+   *  countdown on the stat line is made of. Sent by the errands page for every row; a
+   *  card only counts down when its own stat says to. */
+  next?: number | null
+  now?: number
   /** WHAT THE BASE PAID TODAY (#2743), drawn as pictures with short numbers under them.
    *  Sent by the two errands about the base's own pile; every other card leaves it out
    *  and looks exactly as it did. */
@@ -454,14 +479,14 @@ export function ErrandCard({
             card and every empty line is picture that could have been seen. The signs keep
             their own width (`flex: 0 0 auto`), so a long reading is cut rather than
             pushed under «▶». */}
-        {cover ? null : <Reading stat={stat} queued={queued} />}
+        {cover ? null : <Reading stat={stat} queued={queued} next={next} now={now} />}
         {/* AND THE FOOT IS DRAWN ON EVERY CARD OF THIS SHAPE (#2407), even an empty
             one: it is what holds the reading and the signs on the floor of the card, so
             a listener with no knobs and no «▶» must still have the same floor as the
             timer beside it. Empty, it costs no height. */}
         {row.length || cover ? (
           <div className="errand-acts">
-            {cover ? <Reading stat={stat} queued={queued} /> : null}
+            {cover ? <Reading stat={stat} queued={queued} next={next} now={now} /> : null}
             {row}
           </div>
         ) : null}

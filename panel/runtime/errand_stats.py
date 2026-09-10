@@ -203,7 +203,12 @@ def _pending_resources(rt) -> "dict | None":
     total = sum(_int(row.get("pending")) for row in rows)
     if total <= 0:
         return None
-    return {"key": "timers.stat.pending", "fmt": {"n": _number(total)}, "age": age}
+    # SHORT, LIKE THE DAY'S TAKE BESIDE IT (#2744): «524.42K», not «524 419». The person
+    # asked for one format on this card — «Кол ресурсов что ждет сбора тоже в шорт
+    # формат» — and a pile written out in full next to a row of «12.34M» chips reads as
+    # two different numbers about two different things.
+    return {"key": "timers.stat.pending",
+            "fmt": {"n": short_amount(total)}, "age": age}
 
 
 def _collect_ready(rt) -> "dict | None":
@@ -311,6 +316,15 @@ def _item_labels(rt) -> dict:
     except Exception:                    # noqa: BLE001 — a label, never the page
         return {}
     return kept if isinstance(kept, dict) else {}
+
+
+#: The errands whose card counts DOWN to its next run instead of saying how old its
+#: reading is (#2744). The person's words: «Текст "прочитано" можно убрать, вместо него
+#: обратный отсчет до таймера». It is not a retreat from «старое видно старым» — this one
+#: card has a clock of its own, so «через 12 мин» answers the same question better, and a
+#: card whose errand is switched off has no next run and still says how old its reading
+#: is. One errand, because one errand was asked for.
+COUNTDOWN_ROWS = frozenset({"collect_base_resources"})
 
 
 #: The errands whose card draws the day's take in pictures instead of a count of runs
@@ -1070,6 +1084,11 @@ def of(rt, errand: str) -> "dict | None":
         except Exception:                # noqa: BLE001 — one line, never the page
             stat = None
         if stat is not None:
+            # …and, for the one card that has a clock of its own, say so: the front-end
+            # then draws the countdown to the next run where every other card draws the
+            # age of its reading (#2744).
+            if errand in COUNTDOWN_ROWS:
+                return dict(stat, countdown=True)
             return stat
     runs = _runs_today(rt, errand)
     if runs is not None:
