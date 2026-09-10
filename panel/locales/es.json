@@ -2428,6 +2428,7 @@
   "flow.state.starving": "● la fuente habla ({heard}) y aquí no ha llegado nada · {why}",
   "log.secret.area_gone": "el mapa respondió sobre sus casillas sin ellas: {n} desaparecida(s)",
   "log.secret.wire_kind": "por el cable llegan casillas de tipo {kind}: {n} hasta ahora",
+  "log.secret.wire_kind_shape": "aquí nadie lee {kind}; sus campos: {shape}",
   "secrettasks.wire_kinds": "llegado por el cable",
   "log.secret.verify_start": "verificando {rows} fila(s) lista(s) — {servers} zona(s), {points} parada(s) de cámara",
   "log.secret.verify_unwatched": "el monitor ★ está apagado — un recorrido no decodifica nada, no se verificaría nada",

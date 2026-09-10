@@ -87,6 +87,41 @@ def test_the_recipe_walks_before_it_counts_and_refuses_an_unnamed_warzone():
     assert "FAIL" in text and "server == 0" in text
 
 
+def test_an_unknown_kind_names_its_SHAPE_and_never_a_value():
+    """«f2=61: 23» says a kind is leaking past and nothing about what it is (#2740).
+
+    The field names are where decoding starts, and they are shape rather than identity —
+    which is exactly why the VALUES may not come with them: this line lands in
+    `panel.log`, a file people send each other when something goes wrong.
+    """
+    import sys as _sys
+    import types
+
+    _sys.path.insert(0, str(_REPO / "tools" / "lib"))
+    import map_capture
+
+    index = object.__new__(map_capture.MapIndex)
+    index.tile_shapes = {}
+    blocks = [{"points": [
+        {"_protobuf": {"f1": 700200, "f2": 61, "f100": 1000000000000000001,
+                       "f102": 8128,
+                       "f61": {"f1": "1000000000000001", "f4": 7, "f9": "AL1"}}},
+        {"_protobuf": {"f1": 700201, "f2": 7, "f6": {"f1": 3}}},
+    ]}]
+    map_capture.MapIndex._note_shapes(index, blocks, {61: 1, 7: 1})
+    assert set(index.tile_shapes) == {61}, (
+        "a kind with a reader needs no shape, and an unknown one does: "
+        f"{index.tile_shapes}")
+    shape = index.tile_shapes[61]
+    assert "f61{f1,f4,f9}" in shape, shape
+    for value in ("1000000000000001", "AL1", "8128", "700200"):
+        assert value not in shape, f"the shape carries a VALUE: {shape}"
+    # …and it is recorded once: a second block of the same kind must not walk it again.
+    index.tile_shapes[61] = "sentinel"
+    map_capture.MapIndex._note_shapes(index, blocks, {61: 1})
+    assert index.tile_shapes[61] == "sentinel"
+
+
 def test_the_capture_says_the_census_every_tick_rather_than_when_it_exits():
     """The whole point: a capture the panel started never exits, so a census printed only
     in the summary is a census nobody has ever read."""

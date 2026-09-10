@@ -2428,6 +2428,7 @@
   "flow.state.starving": "● источник говорит ({heard}), а сюда ничего не дошло · {why}",
   "log.secret.area_gone": "карта ответила про их клетки и их там нет: пропало {n}",
   "log.secret.wire_kind": "с провода идут тайлы вида {kind}: пока {n}",
+  "log.secret.wire_kind_shape": "вид {kind} у нас никто не разбирает; его поля: {shape}",
   "secrettasks.wire_kinds": "пришло с провода",
   "log.secret.verify_start": "сверяю {rows} готовых строк — зон {servers}, остановок камеры {points}",
   "log.secret.verify_unwatched": "мониторинг ★ выключен — обход ничего не расшифрует, сверять будет нечем",

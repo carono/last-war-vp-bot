@@ -497,7 +497,12 @@ def main() -> int:
                 last_census = census
                 print(KINDS_MARKER + "\t" + json.dumps(
                     {"tiles": index.tiles_seen, "blocks": index.blocks_seen,
-                     "kinds": {str(k): v for k, v in census.items()}},
+                     "kinds": {str(k): v for k, v in census.items()},
+                     # …AND WHAT A KIND WE HAVE NO READER FOR LOOKS LIKE (#2740). Field
+                     # NAMES, never a value: shape is what the next reader starts from,
+                     # and it is the half that may be printed into a log people send
+                     # each other.
+                     "shapes": {str(k): v for k, v in index.tile_shapes.items()}},
                     ensure_ascii=False), flush=True)
             for area in index.take_areas():
                 print(AREA_MARKER + "\t" + json.dumps({

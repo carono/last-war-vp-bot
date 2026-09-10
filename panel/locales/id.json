@@ -2428,6 +2428,7 @@
   "flow.state.starving": "● sumber berbicara ({heard}) tetapi tidak ada yang sampai ke sini · {why}",
   "log.secret.area_gone": "peta menjawab tentang kotak mereka tanpa mereka: {n} hilang",
   "log.secret.wire_kind": "kabel membawa ubin jenis {kind}: {n} sejauh ini",
+  "log.secret.wire_kind_shape": "tidak ada yang membaca {kind} di sini; bidangnya: {shape}",
   "secrettasks.wire_kinds": "dari kabel",
   "log.secret.verify_start": "memeriksa {rows} baris siap — {servers} zona, {points} perhentian kamera",
   "log.secret.verify_unwatched": "monitor ★ mati — putaran tidak menguraikan apa pun, tidak ada yang diperiksa",

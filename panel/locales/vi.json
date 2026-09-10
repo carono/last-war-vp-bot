@@ -2428,6 +2428,7 @@
   "flow.state.starving": "● nguồn đang nói ({heard}) nhưng không có gì đến đây · {why}",
   "log.secret.area_gone": "bản đồ đã trả lời về ô của chúng mà không có chúng: mất {n}",
   "log.secret.wire_kind": "đường truyền đang mang ô loại {kind}: {n} cho đến giờ",
+  "log.secret.wire_kind_shape": "ở đây không ai đọc {kind}; các trường của nó: {shape}",
   "secrettasks.wire_kinds": "từ đường truyền",
   "log.secret.verify_start": "đang đối chiếu {rows} dòng sẵn sàng — {servers} vùng chiến, {points} điểm dừng máy quay",
   "log.secret.verify_unwatched": "màn theo dõi ★ đang tắt — một vòng đi không giải mã gì, sẽ không đối chiếu được gì",

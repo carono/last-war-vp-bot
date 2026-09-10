@@ -2428,6 +2428,7 @@
   "flow.state.starving": "● źródło mówi ({heard}), a tutaj nic nie dotarło · {why}",
   "log.secret.area_gone": "mapa odpowiedziała o ich polach i nie ma ich tam: zniknęło {n}",
   "log.secret.wire_kind": "po kablu idą pola rodzaju {kind}: jak dotąd {n}",
+  "log.secret.wire_kind_shape": "nikt tu nie czyta {kind}; jego pola: {shape}",
   "secrettasks.wire_kinds": "przyszło po kablu",
   "log.secret.verify_start": "sprawdzam {rows} gotowych wierszy — stref: {servers}, postojów kamery: {points}",
   "log.secret.verify_unwatched": "monitor ★ jest wyłączony — obchód niczego nie odczyta, nie byłoby czego sprawdzić",
