@@ -2428,6 +2428,7 @@
   "flow.state.starving": "● la sorgente parla ({heard}) e qui non è arrivato nulla · {why}",
   "log.secret.area_gone": "la mappa ha risposto sulle loro caselle senza di esse: {n} sparita/e",
   "log.secret.wire_kind": "sul filo arrivano caselle di tipo {kind}: {n} finora",
+  "secrettasks.wire_kinds": "arrivato dal filo",
   "log.secret.verify_start": "verifico {rows} riga/e pronta/e — {servers} zona/e, {points} sosta/e della camera",
   "log.secret.verify_unwatched": "il monitor ★ è spento — un giro non decodifica nulla, non si verificherebbe niente",
   "log.round.report": "il giro ★ ha percorso {n} zona/e ({servers}): {added} riga/he nuova/e, {rows} nell'elenco, {ready} pronte da rubare; rubate oggi {done}, ne restano {left}",
