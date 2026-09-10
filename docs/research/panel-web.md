@@ -727,3 +727,38 @@ prevent; six months on there is no way to tell such a thing from an accident.
 
 `tests/test_panel_web.py` pins both ends of it: the front-end defines exactly one modal
 component, and every file that draws a gear renders into that one.
+
+## 8. The traffic light is in the header (#2705)
+
+**The person's words: «В хеадер перенеси светофор состояния игры и панели».** It was the
+head of the first card on «Состояние» — so the one reading that answers «работает ли
+вообще что-нибудь» could only be seen by walking to that page. Somebody reading the
+errands, the map or the chat had no way of telling from any of them that the client had
+been dead for an hour.
+
+It is `panel/web/app/src/ui/LinkLight.tsx`, drawn in `.head-row` between the strip of
+readings and «Ещё»: **two dots in a thumb-sized target**, and a tap opens the one modal
+this front-end has.
+
+* **The GAME dot** is the panel's own verdict (`tools/lib/profile_health.py`) off
+  `state.game.colour` — never worked out in the browser. The two tables of words that
+  used to live in `views/StateView.tsx` moved here with it and that page imports them
+  back, so a reason added to the panel is worded in exactly one place.
+* **The PANEL dot** is about the panel itself, worst first: **red** when this page did
+  not reach it at all (then every other colour on the screen is as old as the last
+  answer, which is why an unreachable panel also greys the game dot to red), **amber**
+  when it is answering and deliberately doing nothing — the profile's switch is off, or
+  the gate is holding everything until the game comes back — and **green** otherwise.
+  Every one of those is a field `/api/state` already carries.
+* **The sheet says what the colours mean.** The light is now the first thing a person
+  away from the machine looks at, so «жёлтый» has to say what to do about it.
+
+**A MOVE, NOT A COPY.** The pill is gone from «Состояние» in the same commit. That card
+keeps its FACTS — the pid, the port, the Windows session, the age of the server's answer,
+the presses of the client's life — and the colour that stood over them is drawn once, in
+the header, over every screen.
+
+**NOTHING NEW IS POLLED.** Both halves ride the `/api/state` the app already asks for on
+its own clock (`POLL_MS`), which is what `CLAUDE.md`'s «читаем один раз, дальше слушаем»
+requires of a strip drawn on every page: the same rule that cost the status header its
+10-second refresh in #2016.

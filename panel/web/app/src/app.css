@@ -236,6 +236,26 @@ header {
 }
 .head-row .status { flex: 1 1 auto; padding-top: 4px; }
 
+/* THE TRAFFIC LIGHT (#2705) — two dots, one over the other, in a thumb-sized target
+   beside «Ещё». Stacked rather than side by side because the header is 37 px tall on an
+   iPhone 13 mini and a row of two dots plus a gap is wider than the column it has; a
+   column of two is 9 px across and costs the strip nothing. The whole button opens the
+   sheet that says what the colours mean, so the dots themselves stay dots. */
+.head-light {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 24px;
+  height: var(--tap);
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+}
+
 /* «Ещё», moved here from the footer (#2621) — a plain icon button, thumb-sized like
    every other header control, pinned to the row's right edge. */
 .head-more {

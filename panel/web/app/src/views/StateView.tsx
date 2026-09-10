@@ -1,62 +1,19 @@
 import { useState } from 'react'
 import { post } from '../api'
 import { span, t, when } from '../i18n'
+import { LINK_SHORT, LINK_WORDS } from '../ui/LinkLight'
 import { Pill } from '../ui/Pill'
 import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
 import type { Control, PressAnswer, Recovery, State } from '../types'
 
-/* THE THREE STATUSES (#1911), in the phone's two vocabularies: the word on the pill and
- * the colour it is worn in. The reasons are `tools/lib/profile_health.py`'s own ids, so
- * a reason added there cannot end up wordless here — the lookup falls back to the
- * colour. Red is «нет клиента», amber is «есть клиент, трафика нет» with WHICH half
- * failed in the word, green is «сервер отвечает». */
-const LINK_WORDS: Record<string, string> = {
-  traffic: 'health.traffic',
-  no_client: 'health.no_client',
-  client_hung: 'health.client_hung',
-  no_connection: 'health.no_connection',
-  no_traffic: 'health.no_traffic',
-  /* …and the closed door (#1982): amber, but «wait» rather than «find the fault».
-   * Recognised from the game's OWN maintenance message, so it says what is actually
-   * happening instead of «трафика нет», which invites somebody to restart things that
-   * are not broken. */
-  maintenance: 'health.maintenance',
-  /* …and the account taken by another device (#2061): amber, above green, and the one
-   * state whose cure is neither «restart it» nor «fix us» — somebody else is playing. */
-  kicked: 'health.kicked',
-  not_in_game: 'health.not_in_game',
-}
-
-/* THE SAME STATES IN TWO OR THREE WORDS — what goes ON the pill (#2061).
- *
- * A pill is a READING, and a reading is short. The sentences above were being drawn
- * inside it, and the longest of them is 121 characters (`health.not_in_game` in German):
- * on a 360 px phone that is a lozenge some seven hundred pixels wide, and the page grew a
- * horizontal scrollbar — the person's report, «желтое сообщение ломает мобильную вёрстку,
- * появляется прокрутка». It was never only the yellow one: every state here can be long,
- * and #2060, #1982 and #2061 each added another.
- *
- * So the pill wears the short word and the SENTENCE goes under the row, in the paragraph
- * that already carries the client's own words — where it wraps, because a paragraph
- * wraps. Nothing is lost: the diagnosis is still on the page, and it is now readable
- * rather than clipped by a scroll nobody discovers on a phone.
- *
- * SPELLED OUT rather than built as `LINK_WORDS[reason] + '.short'`, because a key nobody
- * can grep for is a key that quietly stops being translated — the same reason `WHERE` in
- * `App.tsx` is a table (`tests/test_panel_web.py` checks exactly this).
+/* THE LIGHT ITSELF IS IN THE HEADER SINCE #2705 — the person's words, «В хеадер
+ * перенеси светофор состояния игры и панели». What stood here was the pill and the two
+ * tables of words behind it; the tables moved to `ui/LinkLight.tsx` with the light and
+ * are imported back for the one thing this page still says about a fault — the sentence
+ * under the card, which is a paragraph and not a reading. Nothing is drawn twice: the
+ * colour, the word and the legend are the header's now.
  */
-const LINK_SHORT: Record<string, string> = {
-  traffic: 'health.traffic.short',
-  no_client: 'health.no_client.short',
-  client_hung: 'health.client_hung.short',
-  no_connection: 'health.no_connection.short',
-  no_traffic: 'health.no_traffic.short',
-  maintenance: 'health.maintenance.short',
-  kicked: 'health.kicked.short',
-  not_in_game: 'health.not_in_game.short',
-}
-
 /* …and WHY nothing is running, which is a different question from what the light says
  * (`panel/runtime/gate.py`). «Нет связи с игрой» during maintenance is false — the link
  * is perfect and the server is shut — and the two send a person in opposite directions. */
@@ -220,14 +177,9 @@ export function StateView({
   const toast = useToast()
   const colour = state.game.colour || (state.game.running ? 'warn' : 'bad')
   const reason = state.game.reason || ''
-  // The pill's word and the sentence behind it — see `LINK_SHORT`. A state with no
-  // short form falls back to its sentence, which is what every reason added before this
-  // existed did, and the CSS keeps even that from overflowing.
-  const word = t(LINK_SHORT[reason] || LINK_WORDS[reason] || 'web.ui.off')
-  // …and it is only drawn when something is WRONG. On a green light the sentence says
-  // «сервер игры отвечает — всё работает» beside a pill that already says «сервер
-  // отвечает»: one line of the page spent on an echo, and the common case is the one
-  // that must stay short.
+  // WHY, and only when something is WRONG. On a green light the sentence says «сервер
+  // игры отвечает — всё работает», which is an echo of a light that is now drawn over
+  // every page anyway (#2705).
   const why = colour !== 'ok' && LINK_SHORT[reason] ? t(LINK_WORDS[reason]) : ''
   const rec = recoveryLine(state.game.recovery || {})
   const powerOn = state.power?.on !== false
@@ -252,9 +204,14 @@ export function StateView({
           order somebody reads them — what it is, where it is, what is wrong, what to
           press. */}
       <div className="card">
+        {/* THE PILL IS GONE FROM HERE (#2705). The light moved into the header, where
+            it is drawn over every screen — this row was the OLD place, and a card head
+            repeating the colour a person can already see at the top of the page is the
+            second version of the truth `CLAUDE.md` forbids. The head keeps the name of
+            what the card is about; everything under it is the FACTS the header's sheet
+            does not carry. */}
         <div className="row">
           <span>{t('web.ui.gamelink')}</span>
-          <Pill tone={colour}>{word}</Pill>
         </div>
         {/* HOW OLD THE ANSWER IS (#2061) — the person's word for it was «показывай».
             Green means «the server replied», and that reply has a five-minute shelf
