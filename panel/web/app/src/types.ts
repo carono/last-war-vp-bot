@@ -159,6 +159,12 @@ export interface ErrandRes {
   value: string
   exact?: string
   icon?: string
+  /* THE GAME'S OWN WORD FOR IT (#2744) — sent for the ITEMS the base's production lines
+     pay in (drone parts, gears, the pet's training papers), which have no locale key and
+     never will: the game already names them in the player's own language, and a second
+     name written in the panel would be the panel naming something it did not make. When
+     it is there it is used as-is; when it is not, `key` is a locale key as before. */
+  label?: string
 }
 
 /* ONE PHASE OF «Гонка вооружений», for the sheet behind the card's «i» (#2579).

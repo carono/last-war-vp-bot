@@ -116,6 +116,14 @@ READ_LOST_SEC = 90.0
 RECORD_SEP = " #|# "
 FIELD_SEP = ";;"
 
+#: …and its two SECTIONS (#2744): the resources the game counts on a balance, and the
+#: ITEMS the base's own production lines pay in — drone parts, gears, the pet's training
+#: papers, hero experience. They are a different store in the client (a resource item or
+#: a bag stack, never `LuaEntry.Resource`), so they are reported apart rather than
+#: pretending to be a resource type; one reading carries both, because a second round
+#: trip for the same press would cost the exclusive link twice.
+SECTION_SEP = " #||# "
+
 #: Resource type -> the sprite the GAME names for it, read off the client's own config
 #: and kept in `tools/data/resource_icons.json` the way `errand_icons.json` is. Loaded
 #: once: it is a table of the game's, identical on every machine and for every profile.
@@ -151,6 +159,61 @@ def icon_for(type_id: int) -> str:
         return stem if item_icons.raw_named(stem) else ""
     except Exception:                    # noqa: BLE001 — nothing extracted, no picture
         return ""
+
+
+def item_icon(stem: str) -> str:
+    """The sprite for one of the base's item payments, or ``""`` when there is none.
+
+    The same rule as :func:`icon_for` and for the same reason: the game names a picture,
+    and this machine either extracted it or did not. Nothing stands in for a missing one.
+    """
+    stem = str(stem or "")
+    if not stem:
+        return ""
+    try:
+        import item_icons
+        return stem if item_icons.raw_named(stem) else ""
+    except Exception:                    # noqa: BLE001 — nothing extracted, no picture
+        return ""
+
+
+def split_sections(answer: str) -> tuple:
+    """The reading's two halves — the resource records and the item ones (#2744).
+
+    A client answering the pre-#2744 shape has no separator at all, and then everything
+    it said is resources and there are no items: an older answer is not a broken one.
+    """
+    raw = str(answer or "")
+    if SECTION_SEP in raw:
+        head, _, tail = raw.partition(SECTION_SEP)
+        return head, tail
+    return raw, ""
+
+
+def parse_items(answer: str) -> list:
+    """The ITEMS the base's production lines pay, as rows (#2744).
+
+    Five fields — `id;;count;;pending;;icon;;name` — with the name last for the same
+    reason it is last in a resource record: it is the only field that can hold anything.
+    A record that is not five fields wide is skipped rather than guessed at.
+    """
+    rows = []
+    for record in str(answer or "").split(RECORD_SEP):
+        record = record.strip()
+        if not record:
+            continue
+        parts = record.split(FIELD_SEP)
+        if len(parts) < 5:
+            continue
+        try:
+            item_id, count, pending = int(parts[0]), int(parts[1]), int(parts[2])
+        except (TypeError, ValueError):
+            continue
+        rows.append({"id": item_id, "count": count, "pending": pending,
+                     "icon": item_icon(parts[3]),
+                     "name": FIELD_SEP.join(parts[4:]).strip()})
+    rows.sort(key=lambda row: (-row["count"], row["id"]))
+    return rows
 
 
 def parse(answer: str) -> list:
@@ -208,6 +271,8 @@ class BaseResources:
         # sleeping, and nothing here has a clock of its own to disagree with the route's.
         self._clock = clock
         self._rows: list = []
+        #: The ITEMS the base's lines pay (#2744) — the same reading, the other store.
+        self._items: list = []
         self._at = 0.0                   # when the rows were read, 0 = never
         self._reading = False            # a play is in flight
         #: When it went in, so a play whose answer never arrives cannot wedge the card
@@ -243,6 +308,7 @@ class BaseResources:
         self._listen()
         self._maybe_refresh(now)
         return {"rows": [dict(row) for row in self._rows],
+                "items": [dict(row) for row in self._items],
                 # Whether the card is being kept up to date BY THE WIRE rather than by
                 # the safety net. A page that says «прочитано 4 минуты назад» beside a
                 # live ear is telling the truth twice: nothing has moved, and we would
@@ -270,6 +336,7 @@ class BaseResources:
         """
         now = self._clock() if now is None else now
         return {"rows": [dict(row) for row in self._rows],
+                "items": [dict(row) for row in self._items],
                 "age": round(now - self._at, 1) if self._at else -1}
 
     # -- the ear -------------------------------------------------------------
@@ -436,7 +503,9 @@ class BaseResources:
         """
         self._reading = False
         got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
-        rows = parse(got.get("resources", ""))
+        head, tail = split_sections(got.get("resources", ""))
+        rows = parse(head)
+        items = parse_items(tail)
         if not rows:
             # A CLIENT THAT ANSWERED NOTHING IS NOT A BASE WITH NOTHING ON IT. The old
             # rows stay on screen with their age climbing, which is the honest picture:
@@ -447,6 +516,7 @@ class BaseResources:
         self._failed = False
         self._refusals = 0               # it got through; the backoff starts over
         self._rows = rows
+        self._items = items
         self._at = self._clock()
         # …AND SAY SO (#2743). The day's tally is built by DIFFING balances, so it can
         # only price a gain against a reading taken after the harvest — and this is the

@@ -38,6 +38,38 @@ TRACKER_KEY = {
 }
 
 
+#: How an ITEM the base's lines pay is spelled in the tally (#2744). The four resources
+#: above have a key of their own because the panel has always had one; an item is named
+#: by the GAME's own id, because there is no panel word for «Запчасти дрона» and there
+#: must not be one (`CLAUDE.md`, «Not one word of the panel is written in the panel»).
+ITEM_PREFIX = "item:"
+
+
+def item_key(item_id) -> str:
+    """The tally's key for one of the base's item payments."""
+    return ITEM_PREFIX + str(item_id)
+
+
+def item_labels(rt) -> dict:
+    """`{key: {"name", "icon"}}` for the items the last reading saw — the GAME's words.
+
+    A LOOK at what is already in memory, never a read: the names and the pictures come
+    off the same reading that carries the counts, so nothing here asks the game anything.
+    """
+    out: dict = {}
+    try:
+        rows = (rt.resources.cached() or {}).get("items") or []
+    except Exception:                    # noqa: BLE001 — no reading, no labels
+        return {}
+    for row in rows:
+        try:
+            out[item_key(row.get("id"))] = {"name": str(row.get("name") or ""),
+                                            "icon": str(row.get("icon") or "")}
+        except Exception:                # noqa: BLE001 — a label, never the tally
+            continue
+    return out
+
+
 def resource_balance(rt, cached: bool = False) -> dict:
     """The current balance in the tracker's own keys, off the profile's cached reading.
 
@@ -59,9 +91,12 @@ def resource_balance(rt, cached: bool = False) -> dict:
     """
     try:
         source = rt.resources.cached if cached else rt.resources.state
-        rows = (source() or {}).get("rows") or []
+        # ONE CALL, both halves: `state` is a door that books a refresh, so asking it
+        # twice for one diff would be one press paying for two.
+        data = source() or {}
     except Exception:                    # noqa: BLE001 — a bad read is not a gain
         return {}
+    rows = data.get("rows") or []
     out: dict = {}
     for row in rows:
         key = TRACKER_KEY.get(row.get("type"))
@@ -70,4 +105,14 @@ def resource_balance(rt, cached: bool = False) -> dict:
                 out[key] = int(row.get("count") or 0)
             except (TypeError, ValueError):
                 pass
+    # …AND THE ITEMS THE BASE'S LINES PAY (#2744). The person's words: «Ещё с базы мы
+    # собираем компоненты дрона, шестерёнки и медали для обезьяны». They are not resource
+    # types — a drone part is a resource ITEM and a chest is a bag stack — so the reading
+    # carries them apart and they are counted here exactly as the four are: a balance to
+    # be diffed, and never a number the panel works out for itself.
+    for row in (data.get("items") or []):
+        try:
+            out[item_key(int(row.get("id")))] = int(row.get("count") or 0)
+        except (TypeError, ValueError):
+            continue
     return out

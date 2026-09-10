@@ -77,6 +77,32 @@
 # is not. Nothing is renamed and nothing is merged: the row that survives is the one the
 # game itself is counting.
 #
+# …AND WHAT THE BASE'S LINES PAY IN BESIDES RESOURCES (#2744). The person's words: «Ещё
+# с базы мы собираем компоненты дрона, шестерёнки и медали для обезьяны». None of those
+# is a resource type: a drone part and a screw are resource ITEMS
+# (`ResourceItemDataManager.itemList`), a chest is a bag stack (`ItemData.ItemInfos`), and
+# `LuaEntry.Resource` knows nothing about either. So they are read from their own stores
+# and reported in a SECOND SECTION of the same answer, after « #||# », five fields each:
+#
+#     7038;;415;;12;;icon_feijilingjian;;Запчасти дрона
+#
+#   * id       — the game's item id.
+#   * count    — how much is held, summed over the stacks where a bag item has several.
+#   * pending  — how much is standing uncollected in the lines that pay it, the same
+#                `GetBuildingCurrStorage` the resources' `pending` is summed from.
+#   * icon     — the sprite the game's own config names for it, no path and no suffix.
+#   * name     — the item's name in the player's language, from the game's table.
+#
+# WHICH ITEMS. Not «everything in the bag» — the ones the base's own production lines
+# pay: `GetProductResItem(uuid)` and `GetProductGoods(uuid)` over `GetAllBuildUuids`. On
+# a live base that is seven, and every one of them is something a press of «Сбор
+# ресурсов» brings in. Anything else in the bag came from somewhere else and is not this
+# reading's business.
+#
+# ONE ROUND TRIP, TWO STORES: the section rides on the reading that was already being
+# taken. A second play for the same press would spend the exclusive link twice for one
+# question.
+#
 # A CLIENT THAT HAS NOT LOGGED IN IS REFUSED BEFORE ANYTHING IS READ. The first thing the
 # chunk does is ask the game what time it is: a client sitting at the login screen has no
 # server clock and hands out its own uptime instead, and it answers every OTHER question
@@ -88,5 +114,5 @@
 # Every read is wrapped, so a type whose row is missing costs one blank and not the whole
 # reading.
 
-READ_LUA (function() local nowms=0 pcall(function() nowms=UITimeManager.Instance:GetServerTime() end) nowms=math.floor(tonumber(nowms) or 0) if nowms < 1600000000000 then return '' end local R=LuaEntry and LuaEntry.Resource local RM=DataCenter.ResourceManager local RT=DataCenter.ResourceTemplateManager if R==nil or RM==nil or RT==nil then return '' end local pend={} local P=DataCenter.ProductLineManager if P~=nil then pcall(function() for _,u in pairs(P:GetAllBuildUuids() or {}) do local r=P:GetProductRes(u) if type(r)=='table' then local s=0 pcall(function() s=math.floor((P:GetBuildingCurrStorage(u) or 0)+0) end) for k,_ in pairs(r) do local n=tonumber(k) if n~=nil then pend[n]=(pend[n] or 0)+s end end end end end) end local ids={} for k,_ in pairs(RT.resourceTemplateDic or {}) do local n=tonumber(k) if n~=nil then ids[#ids+1]=n end end table.sort(ids) local out={} for _,t in ipairs(ids) do local cnt,mx,ph,base,nm,pd=0,0,0,0,'',(pend[t] or 0) pcall(function() cnt=math.floor((R:GetCntByResType(t) or 0)+0) end) pcall(function() mx=math.floor((R:GetMaxStorageByResType(t) or 0)+0) end) if mx>0 and mx<cnt then mx=0 end pcall(function() ph=math.floor((LWResourceLackUtil.GetResourceSpeedCountPerHour(t) or 0)+0) end) pcall(function() local b=RM:GetResourceOutBuildings(t) if type(b)=='table' then for _ in pairs(b) do base=1 break end end end) pcall(function() nm=tostring(RM:GetResourceNameByType(t) or ''):gsub('%s+',' ') end) if cnt>0 or base==1 or pd>0 then out[#out+1]={t,cnt,mx,ph,base,pd,nm} end end local held={} for _,r in ipairs(out) do if r[2]>0 then held[r[7]]=true end end local rows={} for _,r in ipairs(out) do if r[2]>0 or not held[r[7]] then rows[#rows+1]=r[1]..';;'..r[2]..';;'..r[3]..';;'..r[4]..';;'..r[5]..';;'..r[6]..';;'..r[7] end end return table.concat(rows,' #|# ') end)() INTO resources
+READ_LUA (function() local nowms=0 pcall(function() nowms=UITimeManager.Instance:GetServerTime() end) nowms=math.floor(tonumber(nowms) or 0) if nowms < 1600000000000 then return '' end local R=LuaEntry and LuaEntry.Resource local RM=DataCenter.ResourceManager local RT=DataCenter.ResourceTemplateManager if R==nil or RM==nil or RT==nil then return '' end local pend={} local P=DataCenter.ProductLineManager if P~=nil then pcall(function() for _,u in pairs(P:GetAllBuildUuids() or {}) do local r=P:GetProductRes(u) if type(r)=='table' then local s=0 pcall(function() s=math.floor((P:GetBuildingCurrStorage(u) or 0)+0) end) for k,_ in pairs(r) do local n=tonumber(k) if n~=nil then pend[n]=(pend[n] or 0)+s end end end end end) end local ids={} for k,_ in pairs(RT.resourceTemplateDic or {}) do local n=tonumber(k) if n~=nil then ids[#ids+1]=n end end table.sort(ids) local out={} for _,t in ipairs(ids) do local cnt,mx,ph,base,nm,pd=0,0,0,0,'',(pend[t] or 0) pcall(function() cnt=math.floor((R:GetCntByResType(t) or 0)+0) end) pcall(function() mx=math.floor((R:GetMaxStorageByResType(t) or 0)+0) end) if mx>0 and mx<cnt then mx=0 end pcall(function() ph=math.floor((LWResourceLackUtil.GetResourceSpeedCountPerHour(t) or 0)+0) end) pcall(function() local b=RM:GetResourceOutBuildings(t) if type(b)=='table' then for _ in pairs(b) do base=1 break end end end) pcall(function() nm=tostring(RM:GetResourceNameByType(t) or ''):gsub('%s+',' ') end) if cnt>0 or base==1 or pd>0 then out[#out+1]={t,cnt,mx,ph,base,pd,nm} end end local held={} for _,r in ipairs(out) do if r[2]>0 then held[r[7]]=true end end local rows={} for _,r in ipairs(out) do if r[2]>0 or not held[r[7]] then rows[#rows+1]=r[1]..';;'..r[2]..';;'..r[3]..';;'..r[4]..';;'..r[5]..';;'..r[6]..';;'..r[7] end end local IT={} local PL=DataCenter.ProductLineManager local RI=DataCenter.ResourceItemDataManager local TM=DataCenter.ItemTemplateManager local BAG=DataCenter.ItemData if PL~=nil then pcall(function() for _,u in pairs(PL:GetAllBuildUuids() or {}) do local st=0 pcall(function() st=math.floor((PL:GetBuildingCurrStorage(u) or 0)+0) end) pcall(function() local q=PL:GetProductResItem(u) if type(q)=='table' then for k,_ in pairs(q) do local n=tonumber(k) if n~=nil then local e=IT[n] or {kind='res',pend=0} e.pend=e.pend+st IT[n]=e end end end end) pcall(function() local q=PL:GetProductGoods(u) if type(q)=='table' then for k,_ in pairs(q) do local n=tonumber(k) if n~=nil then local e=IT[n] or {kind='bag',pend=0} e.pend=e.pend+st IT[n]=e end end end end) end end) end local iids={} for k,_ in pairs(IT) do iids[#iids+1]=k end table.sort(iids) local irows={} for _,id in ipairs(iids) do local e=IT[id] local cnt=0 if e.kind=='res' then if RI~=nil then pcall(function() for _,v in pairs(RI.itemList or {}) do if type(v)=='table' and (tonumber(v.itemId) or -1)==id then cnt=cnt+math.floor((v.number or 0)+0) end end end) end else if BAG~=nil then pcall(function() for _,st in pairs(BAG.ItemInfos or {}) do if type(st)=='table' and (tonumber(st.itemId) or -1)==id then cnt=cnt+math.floor((st.count or st.num or 0)+0) end end end) end end local nm,ic='','' if TM~=nil then pcall(function() nm=tostring(TM:GetName(id) or ''):gsub('%s+',' ') end) pcall(function() local t=TM:GetItemTemplate(id) if type(t)=='table' then ic=tostring(t.pic or t.icon or '') end end) end if nm=='' and RI~=nil then pcall(function() nm=tostring(RI:GetName(id) or ''):gsub('%s+',' ') end) end if ic=='' and RI~=nil then pcall(function() ic=tostring(RI:GetIconPath(id) or ''):match('([^/]+)$') or '' end) end irows[#irows+1]=id..';;'..cnt..';;'..math.floor(e.pend)..';;'..ic..';;'..nm end return table.concat(rows,' #|# ')..' #||# '..table.concat(irows,' #|# ') end)() INTO resources
 LOG "resources: {resources}"
