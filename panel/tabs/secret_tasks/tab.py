@@ -1264,6 +1264,21 @@ class SecretTasksTab(PanelTab):
         self.coord_y_var.set(str(raw.get("coord_y", "")))
         self.coord_srv_var.set(str(raw.get("coord_server", "")))
         self._set_jump_history(raw.get("coord_history"))
+        # THE IMPORT IS LOCAL, like every other `lua_actions` in this file (#2711). It
+        # is not a style choice: `panel/tabs/` is imported before `tools/lib` is on the
+        # path, so a module-level import would break the tab outright — and leaving it
+        # out broke `apply_config` HALF WAY, which is worse than either. Everything
+        # below this line was skipped for every profile of every restart between
+        # b85ee016 and here: the piece page's own block, the zoom combo and the rule
+        # hints, all silently, with one caught `NameError` in the log to show for it.
+        #
+        # AND IT GOES ABOVE THE FIRST USE, NOT MERELY SOMEWHERE IN THE METHOD (#2740).
+        # A local `import` binds the name for the WHOLE function, so the height line
+        # below — added after the import went in — read it before it was assigned and
+        # raised `UnboundLocalError` instead of the `NameError` the fix had cured. Same
+        # half-applied config, same silence, one line further down the log.
+        import lua_actions
+
         # …and the HEIGHT the same way (#2737): «tasks» / «bases» were the knob until the
         # scale, and each is carried to the division that walks at the height it walked
         # at, here rather than at every reader.
@@ -1274,16 +1289,6 @@ class SecretTasksTab(PanelTab):
         # «calm» — and it is carried to the division that walks at the same pace it did,
         # here rather than at every reader. Nobody's lap changes speed because the
         # control changed shape.
-        #
-        # THE IMPORT IS LOCAL, like every other `lua_actions` in this file (#2711). It
-        # is not a style choice: `panel/tabs/` is imported before `tools/lib` is on the
-        # path, so a module-level import would break the tab outright — and leaving it
-        # out broke `apply_config` HALF WAY, which is worse than either. Everything
-        # below this line was skipped for every profile of every restart between
-        # b85ee016 and here: the piece page's own block, the zoom combo and the rule
-        # hints, all silently, with one caught `NameError` in the log to show for it.
-        import lua_actions
-
         self._sweep_pace = lua_actions.sweep_division(
             raw.get("coord_sweep_pace") if raw.get("coord_sweep_pace") is not None
             else self._sweep_pace)
@@ -4582,6 +4587,13 @@ class SecretTasksTab(PanelTab):
                 # while the task itself ripened two days back. Judged by `completed_at`
                 # alone, a brand-new find would be hidden as «старьё» on arrival.
                 "first_seen": now_ms,
+                # …AND WHEN THE MAP LAST CARRIED IT, on this machine's own clock (#2740).
+                # Without it a brand-new row reads as `seen_at = 0`, so the guard in
+                # `_areas_land` — «the answer must be NEWER than the row's own last
+                # sighting» — protects it from nothing: the first region answer to arrive
+                # after it lands takes it straight off again. The row is here BECAUSE the
+                # map has just carried it, so the honest stamp is now.
+                "seen_at": time.time(),
                 "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
         # EVERY DOOR, WITH A NUMBER ON IT (#1476). «Не появляется» was answered three

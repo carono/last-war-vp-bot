@@ -764,6 +764,16 @@ def block_areas(payload: dict):
     `uuids` are the dispatch tasks (`f2 = 17`) the block did carry, as strings, so a
     caller can subtract its own rows from them without decoding the points twice.
 
+    THEY ARE THE TILE's OWN `f100`, AND NOTHING ELSE (#2740). This read `f10.f1` first —
+    which is the OWNER's account id (`secret_tasks` decodes it as `owner_uid`) and is a
+    different number from the tile uuid every reader keys on. So the set could never
+    contain a row's key, «this block carried your tile» was never true, and every row
+    inside a rectangle the map had just answered ABOUT — carrying that very tile — was
+    struck off as gone and booked as dismissed. Live on 2026-09-10 that was «пропало 1»
+    every couple of seconds with «снято ранее» climbing to 29 of the 93 tiles the capture
+    was holding at the time, which is «стою прямо на секретке, а в грид ничего не
+    попадает».
+
     Both corners are packed the response's way — `y * maxAreaSize + x`, server-local —
     which is NOT how the request packs them (protocol.md §7). That difference is what
     once produced x values above 1000 on a 1000×1000 server.
@@ -780,7 +790,7 @@ def block_areas(payload: dict):
             tile = point.get("_protobuf") or {}
             if tile.get("f2") != 17:
                 continue
-            uuid = (tile.get("f10") or {}).get("f1") or tile.get("f100")
+            uuid = tile.get("f100")
             if uuid:
                 uuids.append(str(uuid))
         yield {"server": int(block.get("serverId") or 0),

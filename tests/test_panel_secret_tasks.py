@@ -2359,6 +2359,46 @@ def test_a_region_the_map_answered_about_takes_the_rows_it_did_not_carry():
     assert "1" in tab._dismissed, "the removal was not booked"
 
 
+def test_a_region_names_the_TILES_it_carried_and_never_their_owners():
+    """The uuid set a block answers with is the TILE's own, not the account behind it.
+
+    THE BUG THAT EMPTIED THE GRID (#2740). `block_areas` read `f10.f1` first — which is
+    the OWNER's id, decoded as `owner_uid` two functions away and a different number from
+    the tile uuid every row is keyed on. So «this block carried your tile» could never be
+    true, and the answer that carried a tile struck its own row off as gone.
+    """
+    import lastwar_proto as proto
+
+    payload = {"serverPointArr": [{
+        "serverId": 945, "maxAreaSize": 1000, "viewLvl": 0,
+        "leftBottom": 0, "rightTop": 100 * 1000 + 100,
+        "points": [{"_protobuf": {
+            "f2": 17, "f1": 60 * 1000 + 50, "f100": 1000000000000000001,
+            "f102": 945,
+            "f10": {"f1": "1000000000000001", "f2": 60000701, "f3": 1, "f8": 2},
+        }}],
+    }]}
+    area, = list(proto.block_areas(payload))
+    assert area["uuids"] == ["1000000000000000001"], area["uuids"]
+    task, = list(proto.secret_tasks(payload))
+    assert str(task.uuid) in area["uuids"], "the block's own tile was not in its answer"
+
+
+def test_a_freshly_merged_row_is_stamped_with_when_the_map_carried_it():
+    """A new row with no `seen_at` is a row the next region answer deletes (#2740).
+
+    `_areas_land` keeps a row whose last sighting is NEWER than the answer arguing with
+    it; a row that never got a stamp reads as `0` and loses that argument every time.
+    """
+    tab = _make_tab({})
+    tab.rt = _fake_rt(_state_path())
+    before = _time_module.time()
+
+    tab._merge([_StubTask(7)])
+
+    assert float(tab._rows["7"]["seen_at"]) >= before, tab._rows["7"].get("seen_at")
+
+
 def test_a_region_older_than_the_row_takes_nothing():
     """A reply that crossed with a fresh sighting of the same tile must not delete what
     had just been found — the answer has to be NEWER than what it argues with."""
