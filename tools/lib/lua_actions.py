@@ -9945,6 +9945,87 @@ def crystal_claim_all() -> str:
             % {"m": _CRYSTAL_MGR})
 
 
+# -- the DAILY chest, which the three attacks earn and nobody hands over (#2702) ---
+# The event grew a third reward beside the two of #2638, and it is a different shape
+# from both: one chest a DAY, whose whole gate is «the day's attacks are made». The
+# manager holds it as `dailyRewardData` and answers for it with a family of its own —
+# `CanClaimDailyReward()`, `ClaimDailyReward()`, `GetDailyRewardData()`,
+# `GetDailyRewardRed()` — none of which the two-list claim touches.
+#
+# Read live on a client whose three attacks were in:
+#
+#     can=true red=true dataType=table
+#     d.attackCount=3 d.target=3 d.claimed=false d.claimPending=false
+#     d.rewardId=212110106
+#
+# So `target` is what the day asks for, `attackCount` is what the day has done, and
+# `claimed` is whether the chest has been taken. `CanClaimDailyReward()` is the client's
+# own verdict over those, and it is what the press is gated on — the panel does not
+# re-derive «attackCount >= target and not claimed» for itself, because a count that
+# said one thing to a board and another to the button would be worse than no count.
+#
+# It arrives with the same `RequestPanelData()` as the other two lists, so nothing extra
+# has to be asked for it.
+
+
+def crystal_daily_ready() -> str:
+    """Lua *expression* -> 1 while the day's chest can be claimed, 0 when not, nil else.
+
+    The client's OWN verdict (`CanClaimDailyReward()`), never a rule rebuilt here out of
+    `attackCount` and `claimed`. ``nil`` is «the manager would not say» — a manager
+    nobody has asked answers exactly as one with nothing to give, and «nobody knows»
+    must not be drawn as a zero.
+    """
+    return ("(function() local ok, v = pcall(function() "
+            "return %s:CanClaimDailyReward() end) "
+            "if not ok or v == nil then return nil end "
+            "return (v and 1 or 0) end)()" % _CRYSTAL_MGR)
+
+
+def crystal_daily_taken() -> str:
+    """Lua *expression* -> 1 when the day's chest is already taken, 0 when not, nil else.
+
+    `claimed` on the daily reward data. It is the other half of the answer from
+    :func:`crystal_daily_ready`, and the two are not opposites: a day whose attacks are
+    not in yet is neither claimable nor claimed.
+    """
+    return ("(function() local ok, d = pcall(function() "
+            "return %s:GetDailyRewardData() end) "
+            "if not ok or type(d) ~= 'table' then return nil end "
+            "local v = d.claimed if v == nil then return nil end "
+            "return (v and 1 or 0) end)()" % _CRYSTAL_MGR)
+
+
+def crystal_daily_progress(target: bool) -> str:
+    """Lua *expression* -> the day's attacks toward the chest, or what it asks for.
+
+    `attackCount` against `target`, both the game's own, so «3 / 3» is its arithmetic
+    rather than a tally the panel keeps. It is deliberately read off the CHEST's data
+    rather than off the attack counter beside it: the two agreed on the client this was
+    written on, and if they ever stop agreeing the chest's own number is the one that
+    decides whether the chest opens.
+    """
+    field = "target" if target else "attackCount"
+    return ("(function() local ok, d = pcall(function() "
+            "return %s:GetDailyRewardData() end) "
+            "if not ok or type(d) ~= 'table' then return nil end "
+            "local v = d.%s if v == nil then return nil end "
+            "return math.floor(v + 0) end)()" % (_CRYSTAL_MGR, field))
+
+
+def crystal_claim_daily() -> str:
+    """Take the day's chest — the event window's own daily reward press.
+
+    ONE call, and unlike the two-list claim there is no trap behind it: `ClaimDailyReward()`
+    is the method the window's button is made of. It is a send like the others, so it
+    returns at once and `claimed` moves when the reply lands — which is why the recipe
+    waits for the SERVER's own flag rather than believing the press.
+    """
+    return ('pcall(function() %s:ClaimDailyReward() end) '
+            'CS.UnityEngine.Debug.LogError("ACT crystal_claim_daily sent")'
+            % _CRYSTAL_MGR)
+
+
 def crystal_claiming() -> str:
     """Lua *expression* -> 1 while a claim of either list is still in flight, else 0.
 

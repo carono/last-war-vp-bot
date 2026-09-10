@@ -330,14 +330,24 @@ class _Skip(Exception):
 #: owed, a day already spent (the reading taken live after one errand run), and a day
 #: with no boss at all.
 CRYSTAL_OPEN = ("open=1 left=3 need=3 made=0 can=1 hp=100 targets=1 until=67975 "
-                "bonus=0 wdone=108 achdone=5 achall=7")
+                "bonus=0 wdone=108 achdone=5 achall=7 "
+                "daily=0 dtaken=0 dmade=0 dneed=3")
 CRYSTAL_SPENT = ("open=1 left=0 need=3 made=3 can=0 hp=100 targets=1 until=67975 "
-                 "bonus=0 wdone=163 achdone=5 achall=7")
+                 "bonus=0 wdone=163 achdone=5 achall=7 "
+                 "daily=0 dtaken=1 dmade=3 dneed=3")
 CRYSTAL_SHUT = ("open=0 left=- need=- made=- can=- hp=- targets=- until=- "
-                "bonus=- wdone=- achdone=- achall=-")
+                "bonus=- wdone=- achdone=- achall=- "
+                "daily=- dtaken=- dmade=- dneed=-")
 #: …and a day whose fight has earned chests nobody has taken yet (#2638).
 CRYSTAL_CHESTS = ("open=1 left=0 need=3 made=3 can=0 hp=100 targets=1 until=67975 "
-                  "bonus=55 wdone=108 achdone=5 achall=7")
+                  "bonus=55 wdone=108 achdone=5 achall=7 "
+                  "daily=0 dtaken=1 dmade=3 dneed=3")
+#: …and the day whose THREE attacks are in and whose DAY'S chest is still in the window
+#: (#2702) — the state the two lists cannot see, and the one that used to be walked
+#: past every single day.
+CRYSTAL_DAY_CHEST = ("open=1 left=0 need=3 made=3 can=0 hp=100 targets=1 until=67975 "
+                     "bonus=0 wdone=163 achdone=5 achall=7 "
+                     "daily=1 dtaken=0 dmade=3 dneed=3")
 
 #: A golden-zombie reading with energy to spend, and one without.
 GOLDEN_OPEN = "energy=55 cost=10 attacks=5 seen=135 atk=765 col=1930 ratio=252"
@@ -1228,7 +1238,8 @@ def test_the_crystal_reading_asks_the_server_before_it_believes_the_answer():
 def test_the_crystal_reading_answers_every_field_the_card_draws():
     reading = modelmod.parse(CRYSTAL_OPEN, at=1.0)
     for field in ("open", "left", "need", "made", "hp", "targets", "until",
-                  "bonus", "wdone", "achdone", "achall"):
+                  "bonus", "wdone", "achdone", "achall",
+                  "daily", "dtaken", "dmade", "dneed"):
         assert reading.get(field) is not None, field
 
 
@@ -1288,6 +1299,80 @@ def test_the_chests_are_a_scenario_and_the_day_takes_them_after_its_attacks():
     day = CRYSTAL_DAILY_FILE.read_text(encoding="utf-8")
     assert "CALL collect_crystal_boss_rewards" in day, \
         "the day's three attacks earn chests nobody takes"
+
+
+def test_the_days_chest_is_a_third_gate_and_not_a_third_number(monkeypatch=None):
+    """«есть, забирай» / «забран» / «3 / 3» — and never a dash drawn as a zero (#2702)."""
+    waiting = modelmod.crystal_state(modelmod.parse(CRYSTAL_DAY_CHEST, at=1.0))
+    assert waiting.daily == 1 and waiting.daily_taken == 0
+    assert waiting.daily_made == 3 and waiting.daily_need == 3
+    # …and THIS is the state the two lists cannot see: nothing in either of them, and a
+    # chest still owed. The button has to be offered over it.
+    assert waiting.bonus == 0 and waiting.can_collect, \
+        "a day whose chest is waiting was drawn as «nothing to claim»"
+
+    taken = modelmod.crystal_state(modelmod.parse(CRYSTAL_SPENT, at=1.0))
+    assert taken.daily == 0 and taken.daily_taken == 1
+    assert not taken.can_collect
+
+    early = modelmod.crystal_state(modelmod.parse(CRYSTAL_OPEN, at=1.0))
+    assert early.daily == 0 and early.daily_taken == 0, \
+        "claimable and claimed are not opposites — a day not yet fought is neither"
+
+    unknown = modelmod.crystal_state(modelmod.parse(CRYSTAL_SHUT, at=1.0))
+    assert unknown.daily is None and unknown.daily_taken is None
+    assert not unknown.can_collect, "«nobody knows» was pressed as a waiting chest"
+
+
+def test_the_phone_says_what_the_days_chest_is_doing():
+    words = {"events.crystal.daily.chest.ready": "waiting",
+             "events.crystal.daily.chest.taken": "claimed"}
+    say = lambda k, **kw: words.get(k, k)  # noqa: E731
+    assert modelmod.crystal_daily(
+        modelmod.crystal_state(modelmod.parse(CRYSTAL_DAY_CHEST)), say) == "waiting"
+    assert modelmod.crystal_daily(
+        modelmod.crystal_state(modelmod.parse(CRYSTAL_SPENT)), say) == "claimed"
+    assert modelmod.crystal_daily(
+        modelmod.crystal_state(modelmod.parse(CRYSTAL_OPEN)), say) == "0 / 3"
+    assert modelmod.crystal_daily(
+        modelmod.crystal_state(modelmod.parse(CRYSTAL_SHUT)), say) == "—"
+
+    tab = _tab(crystal=CRYSTAL_DAY_CHEST)
+    card = _card(tab, "events.group.crystal")
+    rows = {r["label"]: r["value"] for r in card["rows"]}
+    assert "events.crystal.daily.chest" in rows, "the phone never heard of the chest"
+    assert "collect_crystal" in {a["id"] for a in card["actions"]}
+    assert tab.web_press("collect_crystal", {}) == {"ok": True}
+
+
+def test_the_days_chest_is_claimed_even_when_both_lists_are_empty():
+    """The recipe may not return early over `bonus == 0` any more (#2702).
+
+    The three chests have three separate gates: the day's one can be the only thing
+    owed, and the version that stopped the moment the two lists were empty walked past
+    it every single day.
+    """
+    text = CRYSTAL_COLLECT_FILE.read_text(encoding="utf-8")
+    assert "TAP crystal_claim_daily" in text
+    body = [ln.strip() for ln in text.splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")]
+    claim = next(i for i, ln in enumerate(body) if "TAP crystal_claim_daily" in ln)
+    stop = next(i for i, ln in enumerate(body) if ln.startswith("STOP"))
+    assert claim < stop, "the early «nothing to claim» runs before the day's chest"
+    # …and the claim is believed only when the SERVER'S own flag moves.
+    assert "WHILE cr_dtaken == 0 LIMIT" in text
+    import game_buttons
+    assert game_buttons.get("crystal_claim_daily") is not None
+
+
+def test_the_days_chest_press_is_the_clients_own_verdict_and_one_call():
+    """No rule rebuilt out of «attacks made» and «not claimed» (#2702)."""
+    import lua_actions
+    assert "CanClaimDailyReward" in lua_actions.crystal_daily_ready()
+    assert "ClaimDailyReward" in lua_actions.crystal_claim_daily()
+    assert "ClaimAllProgress" not in lua_actions.crystal_claim_daily()
+    assert "attackCount" in lua_actions.crystal_daily_progress(False)
+    assert "target" in lua_actions.crystal_daily_progress(True)
 
 
 def test_the_claim_is_the_pair_that_worked_and_not_the_method_that_looked_right():

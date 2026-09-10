@@ -201,6 +201,58 @@ So the press is those two calls, and the proof is the SERVER's own count going t
 never the send returning. `GetWeeklySegments()` answers an empty list throughout, before
 and after: it is built by the event's own screen, and nothing here needs it.
 
+## The DAY'S chest — the third one, and the one the two-list claim cannot see (#2702)
+
+The event grew a third reward beside the two above, and the person reported it in one
+sentence: «в событии кристалического босса появился новый сундук». It is a different
+shape from both lists — **one chest a DAY, whose whole gate is «the day's attacks are
+made»** — and the manager answers for it with a family of its own that nothing in #2638
+touches:
+
+| what | how | what it means |
+|---|---|---|
+| may it be claimed now | `CanClaimDailyReward()` | the CLIENT'S own verdict. This is what the press is gated on |
+| the claim | `ClaimDailyReward()` | one call, and unlike «Получить всё» there is no trap behind it |
+| the chest's own data | `GetDailyRewardData()` | `attackCount`, `target`, `claimed`, `claimPending`, `rewardId` |
+| the red dot | `GetDailyRewardRed()` | the client's own opinion |
+
+Read live on a client whose three attacks were in and whose chest was still in the
+window:
+
+```
+can=true red=true claiming=false dataType=table
+d.attackCount=3 d.target=3 d.claimed=false d.claimPending=false d.rewardId=<a reward id>
+```
+
+`target` is what the day asks for, `attackCount` is what the day has done and `claimed`
+is whether the chest has been taken. **The panel does not rebuild «attackCount >= target
+and not claimed» for itself** — `CanClaimDailyReward()` is asked instead, for the same
+reason the attack counter is the server's: a count that said one thing to a board and
+another to the button would be worse than no count.
+
+**Claimable and claimed are not opposites, and both are drawn.** A day whose attacks are
+not in yet is neither, and a card that inferred one from the other would call it
+«забран» on a morning when nothing had been fought.
+
+### Why the collect recipe had to be restructured, and not merely extended
+
+The chest arrives with the SAME `RequestPanelData()` as the two lists, so nothing extra
+has to be asked for it — but the recipe of #2638 **stopped the moment the two lists were
+empty**:
+
+```
+IF cr_bonus < 1
+    STOP "no chest is waiting"
+```
+
+That is exactly the state the day's chest lives in on an ordinary day: the week's
+segments were claimed by the last run, the achievements are all taken, `bonus` is 0 —
+and the day's chest is sitting in the window. The early return would have walked past it
+every single day. So the claim now runs THREE gates in order, the day's chest first, and
+the early «nothing to claim» is what is left over after all three have been offered.
+`tests/test_panel_events.py` pins the ordering rather than merely the presence of the
+press, because «the line is in the file» would have passed on the broken version too.
+
 ## Where it lives
 
 | | |
@@ -208,7 +260,7 @@ and after: it is built by the event's own screen, and nothing here needs it.
 | the reading | `src/lastwar_bot/actions/read_crystal_boss.md` — one round trip, one line of `key=value` |
 | the attack | `src/lastwar_bot/actions/attack_crystal_boss.md` — one attack, one squad |
 | the day's worth | `src/lastwar_bot/actions/attack_crystal_boss_daily.md` — as many as the day still owes, then the chests |
-| the chests | `src/lastwar_bot/actions/collect_crystal_boss_rewards.md` — both lists, claimed when the game says one is claimable |
+| the chests | `src/lastwar_bot/actions/collect_crystal_boss_rewards.md` — all THREE, each on its own gate, claimed when the game says so (#2702) |
 | the clock | `panel/timers.py`, the errand `attack_crystal_boss_daily` — a day, retried in 15 min, off until somebody turns it on |
 | the presses | `tools/lib/game_buttons.py`, `crystal_*` |
 | the Lua | `tools/lib/lua_actions.py`, `crystal_*` |
