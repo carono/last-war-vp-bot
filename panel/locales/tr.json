@@ -2126,7 +2126,7 @@
   "world.monsters.follow": "Haritayı izle",
   "world.monsters.follow.off": "İzlemeyi bırak",
   "world.monsters.follow.on": "Haritayı izle",
-  "world.monsters.follow_secs": "sorgular arası sn",
+  "world.monsters.follow_secs": "sorgular arası en az sn",
   "world.monsters.hide_plain": "Sıradan canavarları gizle",
   "world.monsters.plain.hide": "Sıradan canavarları gizle",
   "world.monsters.plain.show": "Sıradan canavarları göster",

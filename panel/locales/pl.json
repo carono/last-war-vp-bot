@@ -2126,7 +2126,7 @@
   "world.monsters.follow": "Śledź mapę",
   "world.monsters.follow.off": "Przestań śledzić",
   "world.monsters.follow.on": "Śledź mapę",
-  "world.monsters.follow_secs": "s między zapytaniami",
+  "world.monsters.follow_secs": "s min. między zapytaniami",
   "world.monsters.hide_plain": "Ukryj zwykłe potwory",
   "world.monsters.plain.hide": "Ukryj zwykłe potwory",
   "world.monsters.plain.show": "Pokaż zwykłe potwory",

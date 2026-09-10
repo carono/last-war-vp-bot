@@ -2126,7 +2126,7 @@
   "world.monsters.follow": "Sorveglia la mappa",
   "world.monsters.follow.off": "Smetti di sorvegliare",
   "world.monsters.follow.on": "Sorveglia la mappa",
-  "world.monsters.follow_secs": "s tra le richieste",
+  "world.monsters.follow_secs": "s min tra le richieste",
   "world.monsters.hide_plain": "Nascondi i mostri comuni",
   "world.monsters.plain.hide": "Nascondi i mostri comuni",
   "world.monsters.plain.show": "Mostra i mostri comuni",

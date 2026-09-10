@@ -2126,7 +2126,7 @@
   "world.monsters.follow": "Karte beobachten",
   "world.monsters.follow.off": "Beobachtung beenden",
   "world.monsters.follow.on": "Karte beobachten",
-  "world.monsters.follow_secs": "s zwischen Abfragen",
+  "world.monsters.follow_secs": "s Mindestabstand",
   "world.monsters.hide_plain": "Einfache Monster ausblenden",
   "world.monsters.plain.hide": "Einfache Monster ausblenden",
   "world.monsters.plain.show": "Einfache Monster anzeigen",

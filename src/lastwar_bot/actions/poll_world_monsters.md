@@ -20,6 +20,13 @@
 #
 # So this asks and nothing else. The person's own walking is the lap.
 #
+# **AND NOTHING RUNS IT ON A CLOCK ANY MORE (#2711).** The name is the one it was born
+# with; the panel fires it when the client LOADS GROUND (`world.get.block` on the wire)
+# and when the client first gets into the game, and at no other time — «Read once, then
+# LISTEN». A map nobody is walking asks nothing. The reason this could be done at all is
+# the measurement at the top: the register is fed by loading, and loading is the one part
+# of it that IS on the wire.
+#
 # **AND IT NEVER PUTS THE MAP UP.** `list_world_monsters.md` opens with `GAME WORLD`,
 # which is right for a press — somebody who asked for monsters wants the map — and wrong
 # for a poll, which would drag a person out of their base every twenty seconds. Here the

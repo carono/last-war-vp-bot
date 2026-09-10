@@ -2126,7 +2126,7 @@
   "world.monsters.follow": "Watch the map",
   "world.monsters.follow.off": "Stop watching",
   "world.monsters.follow.on": "Watch the map",
-  "world.monsters.follow_secs": "s between asks",
+  "world.monsters.follow_secs": "s min between asks",
   "world.monsters.hide_plain": "Hide plain monsters",
   "world.monsters.plain.hide": "Hide plain monsters",
   "world.monsters.plain.show": "Show plain monsters",
