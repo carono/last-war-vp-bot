@@ -68,8 +68,37 @@ def test_audit_map_parses_with_and_without_a_box():
 
     one = se.parse_text("AUDIT_MAP INTO client")[0]
     assert type(one).__name__ == "AuditMapStmt" and one.box == 40 and one.var == "client"
+    assert one.at is None, "no centre named is «wherever the camera is»"
     two = se.parse_text("AUDIT_MAP BOX 12 INTO seen")[0]
     assert two.box == 12 and two.var == "seen"
+    three = se.parse_text("AUDIT_MAP BOX 40 AT 620,120 INTO c")[0]
+    assert three.at == (620, 120) and three.box == 40 and three.var == "c"
+    assert se.parse_text("AUDIT_MAP AT 5, 6 INTO d")[0].at == (5, 6)
+
+
+def test_the_box_is_the_ground_that_was_asked_for_and_the_camera_is_reported():
+    """A walk and a read are two calls (#2740).
+
+    A neighbour taking the game link between them moves the camera, and a box centred on
+    «wherever we are now» then counts ground nobody asked about — which is exactly what
+    the first control run did: it walked to 620,120 and answered `cam=342,862`. Naming
+    the centre fixes the ground; the camera is reported beside it so the mismatch is
+    visible rather than silent.
+    """
+    import lua_actions
+
+    chunk = lua_actions.map_intake_census(3, (620, 120))
+    assert "local cx, cy = 620, 120" in chunk
+    assert '" at=" .. tostring(cx)' in chunk, "the answer does not say what it counted"
+    assert '" cam=" .. tostring(cam_x)' in chunk, "the answer does not say where the camera is"
+    # …and with no centre it still falls back to the camera, as it always did.
+    assert "local cx, cy = -1, -1" in lua_actions.map_intake_census(3)
+    assert "if cx < 0 or cy < 0 then cx, cy = cam_x, cam_y end" in chunk
+
+    text = (_REPO / "src" / "lastwar_bot" / "actions"
+            / "audit_map_intake.md").read_text(encoding="utf-8")
+    assert "AUDIT_MAP BOX {box} AT {x},{y} INTO client" in text, (
+        "the recipe counts wherever the camera drifted to")
 
 
 def test_the_recipe_walks_before_it_counts_and_refuses_an_unnamed_warzone():

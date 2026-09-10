@@ -6088,7 +6088,7 @@ CS.UnityEngine.Debug.LogError("ACT treasure_scan n="..n.." zoom="..height.." ste
 TREASURE_LOOK_BOX = 60
 
 
-def map_intake_census(box: int = 40) -> str:
+def map_intake_census(box: int = 40, at: "tuple | None" = None) -> str:
     """Lua *expression* -> what the CLIENT holds around the camera, counted by kind.
 
     THE REFERENCE HALF OF «ничего не утекает мимо нас» (#2740). Everything the panel
@@ -6110,7 +6110,16 @@ def map_intake_census(box: int = 40) -> str:
     default, about a fifth of a second — so it is played by a person's press and never
     by a clock, exactly like every other lap on this map.
 
-    Answers a STRING — `known=<n> of=<n> cam=<x>,<y> <Kind>:<n> …`, or
+    `at` is the CENTRE to count around, and naming one is what makes the reading
+    repeatable (#2740). Left out, the box is centred on the camera — which is a race the
+    first control run lost: `VISIT_MAP` walked to the waypoint, a neighbour took the game
+    link, the camera was somewhere else by the time this ran, and the count came back
+    about ground nobody had asked about. It said so — `cam=342,862` against a walk to
+    620,120 — and only because the camera is on the line. Now the GROUND is named and the
+    camera is reported beside it, so a reader can see both what was counted and whether
+    the client was still looking at it.
+
+    Answers a STRING — `known=<n> of=<n> at=<x>,<y> cam=<x>,<y> <Kind>:<n> …`, or
     `why=<no-point-manager|no-camera-tile>` when the client cannot be asked. An
     expression rather than a `Debug.LogError`, so a recipe can `READ_LUA … INTO` it and
     say it in its own words.
@@ -6121,8 +6130,10 @@ local pm = scene and scene.PointManager
 if pm == nil then return "why=no-point-manager" end
 local size = 1000
 pcall(function() size = math.floor(scene.TileCount.x) end)
-local cx, cy = -1, -1
-pcall(function() cx, cy = math.floor(scene.CurTilePos.x), math.floor(scene.CurTilePos.y) end)
+local cam_x, cam_y = -1, -1
+pcall(function() cam_x, cam_y = math.floor(scene.CurTilePos.x), math.floor(scene.CurTilePos.y) end)
+local cx, cy = %s, %s
+if cx < 0 or cy < 0 then cx, cy = cam_x, cam_y end
 if cx < 0 or cy < 0 then return "why=no-camera-tile" end
 local box = %d
 local kinds, known, of = {}, 0, 0
@@ -6143,8 +6154,10 @@ local out = {}
 for k, v in pairs(kinds) do out[#out + 1] = tostring(k) .. ":" .. tostring(v) end
 table.sort(out)
 return "known=" .. tostring(known) .. " of=" .. tostring(of) ..
-  " cam=" .. tostring(cx) .. "," .. tostring(cy) .. " " .. table.concat(out, " ")
-end)()""" % int(box))
+  " at=" .. tostring(cx) .. "," .. tostring(cy) ..
+  " cam=" .. tostring(cam_x) .. "," .. tostring(cam_y) ..
+  " " .. table.concat(out, " ")
+end)()""" % (int(at[0]) if at else -1, int(at[1]) if at else -1, int(box)))
 
 
 def treasure_look_around() -> str:

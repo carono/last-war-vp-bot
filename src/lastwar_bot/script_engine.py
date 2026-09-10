@@ -349,7 +349,8 @@ _SCAN_MONSTERS_RE = re.compile(
 # own tally is compared against (#2740). Its own statement for the same reason
 # SCAN_MONSTERS is one: the chunk is long, and a copy of it in a recipe drifts.
 _AUDIT_MAP_RE = re.compile(
-    r"^AUDIT_MAP(?:\s+BOX\s+(\d+))?\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
+    r"^AUDIT_MAP(?:\s+BOX\s+(\d+))?(?:\s+AT\s+(\d+)\s*,\s*(\d+))?"
+    r"\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
 )
 # CHAT_SEND [ROOM <var>] [TO <var>] [TEXT <var>] [STICKER <var>] [COORDS <var>]
 #           [SERVER <var>] [LABEL <var>]
@@ -602,6 +603,12 @@ class AuditMapStmt(_Stmt):
     """
     var: str
     box: int = 40
+    #: The tile to centre the box on, or `None` for «wherever the camera is» (#2740).
+    #: Naming one is what makes the reading repeatable: a walk and a read are two calls,
+    #: and a neighbour taking the game link between them moves the camera — the first
+    #: control run counted ground nobody had asked about, and only the camera on the
+    #: answer line gave it away.
+    at: "tuple | None" = None
 
 
 @dataclass(slots=True)
@@ -1236,8 +1243,10 @@ def _parse_one(lines, i, indent):
 
     m = _AUDIT_MAP_RE.match(text)
     if m:
-        return AuditMapStmt(text=text, line_no=ln, var=m.group(2),
-                            box=int(m.group(1) or 40)), i + 1
+        at = ((int(m.group(2)), int(m.group(3)))
+              if m.group(2) is not None else None)
+        return AuditMapStmt(text=text, line_no=ln, var=m.group(4),
+                            box=int(m.group(1) or 40), at=at), i + 1
 
     m = _READ_CHAT_RE.match(text)
     if m:
@@ -3275,7 +3284,7 @@ class Interpreter:
         chunk = (
             'local ok,v=pcall(function() return %s end) '
             'CS.UnityEngine.Debug.LogError("RLUA "..(ok and tostring(v) or ("ERR:"..tostring(v))))'
-            % lua_actions.map_intake_census(stmt.box)
+            % lua_actions.map_intake_census(stmt.box, stmt.at)
         )
         value: Any = None
         for ln in self._run_lua(chunk, marker="RLUA"):
