@@ -5386,6 +5386,9 @@ class SecretTasksTab(PanelTab):
                            "options_title": "autoassist.frame",
                            "options": self._order_fields("secret_autoassist")},
                           {"title": "secrettasks.alliance",
+                           # …AND ITS OWN LEVEL RANGE (#2740): the pair that hid a
+                           # whole table from a front-end that could not reach it.
+                           "fields": self._grid_level_fields(self.alliance),
                            # Drawn whole, like the ★ list beside it (#2740).
                            "whole": True,
                            "items": self.alliance.web_items(),
@@ -5414,6 +5417,9 @@ class SecretTasksTab(PanelTab):
                           # does the phone, or the two front-ends would disagree about
                           # which list is narrowed.
                           {"title": "secrettasks.ghost",
+                           # …AND ITS OWN LEVEL RANGE (#2740): the pair that hid a
+                           # whole table from a front-end that could not reach it.
+                           "fields": self._grid_level_fields(self.ghost),
                            # Drawn whole, like the ★ list beside it (#2740).
                            "whole": True,
                            "rows": self.ghost.web_rows() + self._count_rows(self.ghost),
@@ -5424,6 +5430,9 @@ class SecretTasksTab(PanelTab):
                                        self._star_action("ghost"),
                                        self._clear_action("ghost")]},
                           {"title": "secrettasks.ghost.allies",
+                           # …AND ITS OWN LEVEL RANGE (#2740): the pair that hid a
+                           # whole table from a front-end that could not reach it.
+                           "fields": self._grid_level_fields(self.ghost_allies),
                            # Drawn whole, like the ★ list beside it (#2740).
                            "whole": True,
                            "items": self.ghost_allies.web_items(),
@@ -5472,7 +5481,10 @@ class SecretTasksTab(PanelTab):
                                        "kind": opt_value.TEXT,
                                        "value": (str(self.ghost_map.level_min())
                                                  if self.ghost_map.level_min() is not None
-                                                 else "")}],
+                                                 else "")}]
+                                     # …and this page's own level range beside them
+                                     # (#2740), like every other table's.
+                                     + self._grid_level_fields(self.ghost_map),
                            "actions": [self._ghost_monitor_action(),
                                        {"id": "ghost_rob",
                                         "label": "ghost.steal_all"},
@@ -5491,6 +5503,9 @@ class SecretTasksTab(PanelTab):
                           # repository has yet — so there is nothing here to press but
                           # the one display rule the window also has.
                           {"title": "world.mines",
+                           # …AND ITS OWN LEVEL RANGE (#2740): the pair that hid a
+                           # whole table from a front-end that could not reach it.
+                           "fields": self._grid_level_fields(self.mines),
                            "items": self.mines.web_items(),
                            "sorts": self.mines.web_sorts(),
                            "rows": self._count_rows(self.mines),
@@ -5534,6 +5549,8 @@ class SecretTasksTab(PanelTab):
                                         "value": str(self.monsters.own_hidden())}]
                                       if self.monsters.own_hidden() else []),
                            "empty": "world.monsters.empty",
+                           # …and its own level range (#2740), like every other table's.
+                           "fields": self._grid_level_fields(self.monsters),
                            # The one card whose feed is a game read rather than the
                            # sniffer, so it says so and offers the read itself — and the
                            # LAP beside it, which is the same ability the window's button
@@ -5572,12 +5589,18 @@ class SecretTasksTab(PanelTab):
                                                   else "world.monsters.own.hide")},
                                        self._clear_action("monsters")]},
                           {"title": "world.trains",
+                           # …AND ITS OWN LEVEL RANGE (#2740): the pair that hid a
+                           # whole table from a front-end that could not reach it.
+                           "fields": self._grid_level_fields(self.trains),
                            "items": self.trains.web_items(),
                            "sorts": self.trains.web_sorts(),
                            "rows": self._count_rows(self.trains),
                            "empty": "world.trains.empty",
                            "actions": [self._clear_action("trains")]},
                           {"title": "world.trucks",
+                           # …AND ITS OWN LEVEL RANGE (#2740): the pair that hid a
+                           # whole table from a front-end that could not reach it.
+                           "fields": self._grid_level_fields(self.trucks),
                            "items": self.trucks.web_items(),
                            "sorts": self.trucks.web_sorts(),
                            "rows": self._count_rows(self.trucks),
@@ -5736,6 +5759,54 @@ class SecretTasksTab(PanelTab):
             if count:
                 chips.append({"id": key, "label": label, "count": count})
         return chips
+
+    def _grid_level_fields(self, page) -> list:
+        """One grid page's LEVEL RANGE, as fields on its own card (#2740).
+
+        THE KNOB THAT HID EVERYTHING AND THAT NOBODY COULD REACH. Measured live on
+        2026-09-10: «Шахты» held 381 mines and drew 0, because that page's own «уровень
+        от» was 10 and a seasonal warzone's mines are all below it. The window has the
+        two boxes; the card had neither, so from the phone — which is the front-end now —
+        the page read as «ничего не нашли» with no way to find out otherwise and no way
+        to clear it. That is the shape #2010 and #2024 already named twice: a knob only
+        Tk can move is a knob nobody can move.
+
+        Every table but the ★ one has such a pair (the ★ page's are the tab's own
+        variables and are already on its card), so they are drawn from one place rather
+        than eight — a page added tomorrow gets them by being in `_grid_pages`.
+
+        Empty is «no bound» at either end, so they travel as text: a `0` here is not «no
+        bound», it is every row on the map.
+        """
+        return [{"key": "%s_from" % page.CONFIG_KEY,
+                 "label": "secret.filter_level_from",
+                 "kind": opt_value.TEXT,
+                 "value": str(page.level_from.get())},
+                {"key": "%s_to" % page.CONFIG_KEY,
+                 "label": "secret.level_to",
+                 "kind": opt_value.TEXT,
+                 "value": str(page.level_to.get())}]
+
+    def _grid_level_write(self, key: str, value) -> "dict | None":
+        """`<page>_from` / `<page>_to` from either front-end, into the page's own box.
+
+        The window's own traced variable is what is written, so the two front-ends hold
+        ONE value and the profile is saved by the same trace that typing at the machine
+        fires — the same shape `filter_from` / `filter_to` already use for the ★ page.
+        `None` when the key belongs to no page, so the caller falls through.
+        """
+        for page in self._grid_pages():
+            for suffix, var in (("_from", getattr(page, "level_from", None)),
+                                ("_to", getattr(page, "level_to", None))):
+                if var is None or key != "%s%s" % (page.CONFIG_KEY, suffix):
+                    continue
+                raw = str(value if value is not None else "").strip()
+                if raw and not raw.isdigit():
+                    return {"ok": False, "reason": "web.ui.not_a_number"}
+                self.post(lambda v=var, r=raw: v.set(r))
+                self.rt.settings.changed()
+                return {"ok": True}
+        return None
 
     def _wire_rows(self) -> list:
         """What the WIRE carried, by tile kind — the other half of the flow strip (#2740).
@@ -6121,6 +6192,11 @@ class SecretTasksTab(PanelTab):
                 move = (self.set_sweep_zoom if key == "sweep_zoom"
                         else self.set_sweep_pace)
                 return {"ok": bool(move(args.get("value")))}
+            # …AND EVERY OTHER PAGE'S LEVEL RANGE (#2740), which was reachable from the
+            # window alone — and one of them was hiding a whole table.
+            moved = self._grid_level_write(key, args.get("value"))
+            if moved is not None:
+                return moved
             if key == "autoloot_level_min":
                 self.set_autoloot_level(args.get("value"))
                 return {"ok": True}
