@@ -38,7 +38,7 @@ TRACKER_KEY = {
 }
 
 
-def resource_balance(rt) -> dict:
+def resource_balance(rt, cached: bool = False) -> dict:
     """The current balance in the tracker's own keys, off the profile's cached reading.
 
     ``rt`` is the :class:`~panel.runtime.host.PanelRuntime`. Returns ``{}`` when nothing
@@ -52,9 +52,14 @@ def resource_balance(rt) -> dict:
     every push instead — which a busy account emits several times a minute — would spend
     a fifth of a second of the exclusive game link each time, for a number the tally does
     not need that promptly.
+
+    ``cached=True`` is a LOOK at what the last reading left and books nothing — for a
+    caller that has just been TOLD a fresh reading landed (#2743,
+    `panel/runtime/resource_book.py`) and would otherwise ask the door for what it has.
     """
     try:
-        rows = (rt.resources.state() or {}).get("rows") or []
+        source = rt.resources.cached if cached else rt.resources.state
+        rows = (source() or {}).get("rows") or []
     except Exception:                    # noqa: BLE001 — a bad read is not a gain
         return {}
     out: dict = {}

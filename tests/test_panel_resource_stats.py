@@ -243,6 +243,25 @@ def test_a_gain_with_no_harvest_behind_it_is_not_the_bases():
         "the burst window closes and nothing else is credited to that harvest"
 
 
+
+def test_the_gain_is_priced_when_the_READING_lands_and_not_when_the_push_does():
+    """#2743, measured live: the push and the amount are two different moments.
+
+    `BaseResources` answers out of its cache and refreshes behind the answer, so the
+    balance the tracker diffs on the push is the one from BEFORE the harvest. The run
+    ended at 22:38:24, the tracker read the stale numbers the same second, and the fresh
+    reading landed some fifteen seconds later with no push left to price it — an empty
+    book over a base that had just been collected.
+    """
+    root = Path(__file__).resolve().parent.parent
+    res = (root / "panel" / "runtime" / "resources.py").read_text(encoding="utf-8")
+    assert "bus.RESOURCES_READ" in res, "a fresh reading tells nobody"
+    book = (root / "panel" / "runtime" / "resource_book.py").read_text(encoding="utf-8")
+    assert "busmod.RESOURCES_READ" in book, "the tally does not listen for the reading"
+    assert "cached=True" in book, \
+        "a book that has just been told a reading landed must LOOK, not read again"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

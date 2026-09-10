@@ -32,6 +32,7 @@ from __future__ import annotations
 import time
 
 from .. import resource_stats as statsmod
+from . import bus as busmod
 from . import intake as intakemod
 from . import reads
 
@@ -80,6 +81,7 @@ class ResourceBook:
         # first gain after it was priced, which opens the burst window.
         self._collect_at = 0.0
         self._claim_from = 0.0
+        self._off = None
 
     # -- the two books -------------------------------------------------------
     def _path(self) -> "str | None":
@@ -171,37 +173,38 @@ class ResourceBook:
             return True
         return False
 
-    # -- the trigger's handler ------------------------------------------------
-    def track(self) -> None:
-        """One balance-changed push: read the balance and tally what went up.
+    # -- the fresh reading -----------------------------------------------------
+    def listen(self) -> None:
+        """Price the tally when a FRESH balance reading lands (#2743).
 
-        The gain is `current - last` per resource (positive only): the push says a
-        balance moved, not by how much, so the tracker diffs. The first read of a session
-        is a baseline.
+        The push is not the moment: `BaseResources` answers out of its cache and refreshes
+        behind the answer, so the reading the tracker diffs against is the one from BEFORE
+        the harvest. Measured live — the run ended 22:38:24, the tracker read at 22:38:24
+        and saw the old numbers, and the fresh ones landed some fifteen seconds later with
+        no push left to price them. So the tally listens for the reading itself.
+
+        Idempotent: called from :meth:`track`, which the trigger fires on every push.
         """
-        take = intakemod.of(self.rt).at(INTAKE_GAINS)
-        take.seen()
-        # ARMED ON EVERY PUSH, before anything can return (#2743). A push whose reading
-        # was stale prices no gain and is exactly the one that arrives while the harvest
-        # is running: arming it here is what lets the gain that lands fifteen seconds
-        # later still be credited to the base.
-        self.note_running()
-        current = reads.resource_balance(self.rt)
-        if not current:
-            # A PUSH THAT COULD NOT BE PRICED IS A LOSS, not an empty answer (#1523).
-            # The push says a balance MOVED; the amount only exists in the reading taken
-            # right after it, so a read that failed takes the gain with it and no later
-            # read can recover it.
-            take.lost(1, reason="no_reading")
+        if self._off is not None:
             return
+        try:
+            self._off = self.rt.bus.subscribe(busmod.RESOURCES_READ,
+                                              lambda _p=None: self.on_reading())
+        except Exception:                # noqa: BLE001 — a subscription, never the gain
+            self._off = None
+
+    def on_reading(self) -> None:
+        """A fresh reading has landed: price whatever it moved. A LOOK, never a read."""
+        self._record(reads.resource_balance(self.rt, cached=True))
+
+    def _record(self, current: dict) -> "dict | None":
+        """Diff `current` against the last balance and write the gains down."""
+        if not current:
+            return None
         gains = statsmod.positive_deltas(current, self._last)
         self._last = current
         if not gains:
-            # The baseline read of a session, or a push about something that did not go
-            # up. Both are answers rather than faults — declined, with the reason.
-            take.dropped(1, reason="no_gain")
-            return
-        take.kept()
+            return None
         day = self.day()
         self._stats = self.stats.add(gains, day)
         statsmod.save_stats_to_store(self.rt.store, self._stats)
@@ -222,6 +225,48 @@ class ResourceBook:
             self.rt.bus.publish(GAINED, dict(gains))
         except Exception:                # noqa: BLE001 — a repaint, never the gain
             pass
+        return gains
+
+    def shutdown(self) -> None:
+        """Let the reading go when the profile closes."""
+        if self._off is not None:
+            try:
+                self._off()
+            except Exception:            # noqa: BLE001
+                pass
+            self._off = None
+
+    # -- the trigger's handler ------------------------------------------------
+    def track(self) -> None:
+        """One balance-changed push: book a fresh reading and price what it shows.
+
+        The push says a balance MOVED, not by how much, so this asks the reading door
+        (which answers out of the cache and refreshes behind the answer) and prices
+        whatever is there. The amount usually arrives with the reading that follows —
+        :meth:`on_reading` — and that is what actually fills the tally.
+        """
+        take = intakemod.of(self.rt).at(INTAKE_GAINS)
+        take.seen()
+        # ARMED ON EVERY PUSH, before anything can return (#2743). A push whose reading
+        # was stale prices no gain and is exactly the one that arrives while the harvest
+        # is running: arming it here is what lets the gain that lands later still be
+        # credited to the base.
+        self.note_running()
+        # …and the tally listens for the reading itself from now on.
+        self.listen()
+        current = reads.resource_balance(self.rt)
+        if not current:
+            # A PUSH THAT COULD NOT BE PRICED IS A LOSS, not an empty answer (#1523):
+            # the amount only exists in the reading taken around it.
+            take.lost(1, reason="no_reading")
+            return
+        if self._record(current) is None:
+            # The baseline read of a session, a push about something that did not go up,
+            # or — the ordinary case — a reading that has not caught up yet, which
+            # :meth:`on_reading` prices the moment it does.
+            take.dropped(1, reason="no_gain")
+            return
+        take.kept()
 
 
 def register(schedule) -> None:
