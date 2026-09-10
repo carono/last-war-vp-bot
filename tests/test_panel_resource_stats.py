@@ -185,9 +185,21 @@ class _Runs:
         return [_R(n) for n in self.names]
 
 
+class _Schedule:
+    """The panel's own record of when it last ran an errand (`panel/timers.py`)."""
+
+    def __init__(self) -> None:
+        self.runs: dict = {}
+        self.store = self
+
+    def last_run(self, name: str) -> float:
+        return float(self.runs.get(name, 0.0))
+
+
 class _Rt:
     def __init__(self) -> None:
         self.interrupts = _Runs()
+        self.schedule = _Schedule()
 
 
 def _book():
@@ -260,6 +272,22 @@ def test_the_gain_is_priced_when_the_READING_lands_and_not_when_the_push_does():
     assert "busmod.RESOURCES_READ" in book, "the tally does not listen for the reading"
     assert "cached=True" in book, \
         "a book that has just been told a reading landed must LOOK, not read again"
+
+
+
+def test_a_run_that_has_just_ENDED_still_arms_the_claim():
+    """#2743, measured live: the reading lands a second after the run leaves the
+    register, so «is it running» alone sees nothing. The panel's own record of the last
+    run says the same thing a second later, and that is what arms the claim."""
+    from panel.runtime import resource_book as rb
+
+    book = _book()
+    book.rt.schedule.runs["collect_base_resources"] = 1000.0
+    assert book.from_base(now=1001.0) is True
+
+    old = _book()
+    old.rt.schedule.runs["collect_base_resources"] = 1000.0
+    assert old.from_base(now=1000.0 + rb.COLLECT_CLAIM_SEC + 1) is False
 
 
 def _run_standalone() -> int:
