@@ -454,27 +454,50 @@ the wire delivering that warzone's tiles, the client's own Lua answered:
 `CrossServerUtil.OnCrossServer(id)` — the client's own «enter cross-server» call —
 flips `GetIsCrossServer()` to true and writes none of those fields either.
 
-### So the answer is not in the client at all: it is on the WIRE
+### Not the client's fields, and not the wire either: the TILES IT IS HOLDING (#2727)
 
-The first attempt at this had the MOVER write the warzone down (`view_park`), on the
-grounds that only the mover knows. It fixed nothing, and the way it failed is the point:
-it knows about a jump THE PANEL made, and the person does not jump that way — «мы сами в
-игре встаем на нужный сервер». Worse, a background errand that visits warzones parked
-ITS last one, so the person's lap inherited a number belonging to something else. Caught
-live from their own screen, with the note in place: the capture saw the client walk
-`1011 → 935` at 14:51:20, the lap was pressed at 14:51:49, and it walked **8128** — the
-warzone the errand had last parked, which was home.
+The first attempt had the MOVER write the warzone down (`view_park`), on the grounds that
+only the mover knows. It fixed nothing, and the way it failed is the point: it knows about
+a jump THE PANEL made, and the person does not jump that way — «мы сами в игре встаем на
+нужный сервер». Worse, a background errand that visits warzones parked ITS last one, so
+the person's lap inherited a number belonging to something else. Caught live: the capture
+saw the client walk `1011 -> 935` at 14:51:20, the lap was pressed at 14:51:49, and it
+walked **8128** — the warzone the errand had last parked, which was home.
 
-What does know is the map traffic. Every `world.get.block` response names the warzone it
-is about; the ★ capture already decodes that, prints `server 1011 → 935` and publishes
-`game.server`, which `panel/runtime/header.py` holds — and which the person could see was
-right all along («в хедере был корректный»). So:
+The second attempt took the WIRE's last word instead: every `world.get.block` response
+names the warzone it is about, the ★ capture decodes it and publishes `game.server`, and
+`panel/runtime/header.py` held it — the number the person could see was right («в хедере
+был корректный»). It is right when it is heard, and **nothing tells it the camera came
+back**. Measured on 2026-09-10, which is the whole case against a cache:
 
-* `StatusHeader.server_now()` — the wire's last word, no reading booked;
-* the press hands it in: `scan_map.md` and `benchmark_map_sweep.md` take `ARGS server`;
-* 0 means «nobody has heard one», and the chunk then falls back to `curServerId`, which
-  is right for a player who never left home and is the best the game itself can answer;
-* the log line names the number that was walked, so a wrong one is visible.
+| time | what | reading |
+|---|---|---|
+| 15:08:02 | «Обойти карту» pressed, header said 1011 | the lap walked `server 1011` — and MOVED the client there |
+| 15:09:39 | every loaded tile around the camera | `8128x42` — home, so the header's 1011 was stale |
+| 15:16:09 | the same reading in the CITY | `no-point-manager` |
+| 15:16:14 | after a jump to warzone 1011 | `1011x15`, all of them |
+| 15:16:39 | 25 s later, untouched | `1011x15` still |
+
+So the lap was doing exactly what was complained about *because* it trusted a reading with
+no event behind its expiry. A reading like that is a cache whatever it was read from.
+
+What IS true at the instant it is asked is **which world's tiles the client is holding**:
+`WorldScene.PointManager` answers only about the world it is displaying, and a lap is
+about to ask that same world for more of them. `lua_actions.viewed_server_expr()` reads it
+— a ±30 box at a stride of 3 around `CurTilePos`, stopping at the first dozen tiles that
+answer, and the COMMONEST `serverId` wins because one tile can be a migrant's base
+carrying its old warzone. With nothing loaded (the city, a world still coming up) it falls
+back to `curServerId`, which is right for a player who never left home.
+
+* it is a Lua EXPRESSION, so it costs no round trip: it is resolved inside the chunk that
+  is about to move the camera, at the moment it moves;
+* `scan_map.md`, `scan_map_monsters.md` and `benchmark_map_sweep.md` take **no `server`
+  argument at all** — there is nothing for a panel to get wrong;
+* `read_player_place.md` reads the same way, so the strip draws the truth too;
+* `StatusHeader.server_now()` is **gone**: the header's number is for DRAWING, and nothing
+  that moves the client may read it;
+* a caller with a warzone of its own still names one — the ★ round walks five to ten on
+  purpose (`sweep_one_star_server.md`) — and the log line names the number walked.
 
 ### The pace is twenty divisions, and the reason is the PC rather than the camera
 

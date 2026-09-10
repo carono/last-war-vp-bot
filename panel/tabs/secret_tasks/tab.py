@@ -2317,20 +2317,6 @@ class SecretTasksTab(PanelTab):
                  updated=tally["updated"], gone=tally["gone"],
                  unconfirmed=tally["unconfirmed"])
 
-    def _live_server(self) -> int:
-        """The warzone the client is looking at, as the WIRE last said — 0 if unheard.
-
-        ONE SOURCE, and it is not this tab's «Сервер» box (#2727). The box is a saved
-        setting; the client's own `curServerId` names home even while foreign tiles are
-        arriving; and an empty warzone slot loads the home world. What is true is the map
-        traffic, which the ★ capture publishes as `game.server` and the header holds.
-        """
-        header = getattr(self.rt, "header", None)
-        try:
-            return int(header.server_now()) if header is not None else 0
-        except Exception:                      # noqa: BLE001 — a reading, never a press
-            return 0
-
     def _sweep_once(self) -> None:
         """«Обойти карту» — and «Остановить» while one is walking (#1272).
 
@@ -2368,12 +2354,15 @@ class SecretTasksTab(PanelTab):
         screen: they had walked to another warzone in the game, pressed this, and the wire
         went from that warzone to home in the same second.
 
-        So the press hands the recipe ONE live reading — `rt.header.server_now()`, the
-        warzone the wire last reported (`game.server`) and the number the header itself
-        draws. It is not the «Сервер» box and not a saved anything: nobody types it, and
-        it moves when the map traffic moves. The client's own Lua cannot answer this —
-        with the camera on a foreign warzone `curServerId` still names home — which is
-        why asking the game was never going to work, however the question was phrased.
+        The wire's last word was tried next and was a cache too: it is true until the
+        camera comes back and nothing tells it that happened. Measured on 2026-09-10 —
+        the header said 1011 while every tile the client held said 8128, and the press
+        moved the client to 1011, which is the complaint.
+
+        SO THE PRESS NAMES NO WARZONE AT ALL and the recipe reads its own, at the moment
+        it starts, off the tiles the client is holding around the camera
+        (`lua_actions.viewed_server_expr`). The panel hands it the two knobs and nothing
+        else.
 
         THE HEIGHT AND THE PACE ARE THE GEAR'S (#2705) — the two knobs behind «Обход
         карты» on the phone, and `ARGS` of the recipe. Nothing else about the lap is the
@@ -2392,8 +2381,7 @@ class SecretTasksTab(PanelTab):
                  level=self.t(f"coord.zoom.{self._zoom_level}"),
                  pace=self._pace_words(), secs=int(seconds))
         started = self.rt.play_async(
-            "scan_map", {"zoom": height, "step": step, "every": every,
-                         "server": self._live_server()}, tag="coord",
+            "scan_map", {"zoom": height, "step": step, "every": every}, tag="coord",
             human=True,
             on_start=lambda: self.post(self._sweep_began),
             on_done=self._sweep_ended)
@@ -2443,8 +2431,7 @@ class SecretTasksTab(PanelTab):
             self.post(self._bench_idle)
 
         started = self.rt.play_async(
-            "benchmark_map_sweep", {"x": x, "y": y, "zoom": height,
-                                    "server": self._live_server()},
+            "benchmark_map_sweep", {"x": x, "y": y, "zoom": height},
             tag="coord", human=True, on_result=landed, on_done=done)
         if not started:
             self._bench_busy = False
@@ -3660,8 +3647,9 @@ class SecretTasksTab(PanelTab):
             return
         self._monster_busy = True
         pace, stages = self.monsters.pace(), self.monsters.stages()
-        # The warzone the wire last named, never the box beside it (#2727).
-        server = self._live_server()
+        # THE LAP READS ITS OWN WARZONE (#2727) — see `scan_map_monsters.md`. Nothing here
+        # names one: every number the panel could have handed it was out of date the
+        # moment the person walked the camera somewhere else.
         self.say("coord", "log.monsters.sweeping", stages=len(stages),
                  pace=pace, secs=int(self._monster_lap_seconds(pace, stages)))
 
@@ -3676,8 +3664,7 @@ class SecretTasksTab(PanelTab):
                         break
                     outcome = self.rt.actions.play(
                         "scan_map_monsters",
-                        {"zoom": height, "step": step, "every": pace,
-                         "server": server},
+                        {"zoom": height, "step": step, "every": pace},
                         on_event=lambda _m: None)
                     ctx = getattr(outcome, "ctx", None)
                     raw = (getattr(ctx, "vars", {}) or {}).get("monsters")
@@ -3715,8 +3702,9 @@ class SecretTasksTab(PanelTab):
             self.take(INTAKE_MONSTERS).dropped(reason="already_reading")
             return
         self._monster_busy = True
-        srv = self.coord_srv_var.get().strip()
-        server = int(srv) if srv.isdigit() else 0
+        # THE WARZONE IS NOT TAKEN FROM THE «Сервер» BOX (#2727). It walks the map to load
+        # it, so a number typed into a box months ago would MOVE the client; the recipe
+        # reads the warzone it is standing on instead, like every other lap.
         self.say("coord", "log.monsters.asking")
 
         def work() -> None:
@@ -3728,7 +3716,7 @@ class SecretTasksTab(PanelTab):
                     why = "no_game"
                 else:
                     outcome = self.rt.actions.play(
-                        "list_world_monsters", {"server": server},
+                        "list_world_monsters", {},
                         on_event=lambda _m: None)
                     ctx = getattr(outcome, "ctx", None)
                     raw = (getattr(ctx, "vars", {}) or {}).get("monsters")
