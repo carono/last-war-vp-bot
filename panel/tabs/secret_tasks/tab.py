@@ -5083,6 +5083,10 @@ class SecretTasksTab(PanelTab):
         # between the two the same way the window's was (#1227).
         now = game_clock.now_ms() / 1000.0
         items = []
+        #: How many rows each filter chip would keep (#2740). Counted while the items are
+        #: built rather than walked a second time afterwards — the card is the one place
+        #: that knows what a row IS, and a second pass is a second rule to keep in step.
+        tally: dict = {}
         # The same rows the window draws, under the same rule — the level range AND the
         # looted-out tiles «Показывать исчерпанные» governs (#1227). A phone showing a
         # spent tile the window has taken off the list is the divergence CLAUDE.md
@@ -5130,9 +5134,17 @@ class SecretTasksTab(PanelTab):
                 text = "%s %s" % (grid.ROBBED_GLYPH, text)
             if row.get("shared"):
                 text = "%s %s" % (grid.SHARED_GLYPH, text)
+            # WHICH CHIP KEEPS THIS TILE (#2740) — one word per row, the same shape the
+            # warzone chart's tiles carry. It is what the row IS, in the order the pill
+            # already decides: robbed outranks spent outranks ready, and everything with
+            # a clock still running is «ещё идёт».
+            tag = ("robbed" if robbed else "spent" if spent
+                   else "ready" if row.get("ready") else "waiting")
+            tally[tag] = tally.get(tag, 0) + 1
             items.append({
                 "text": text,
                 "facts": facts,
+                "tags": [tag],
                 # Ready: how long is left to take it. Not ready: when it becomes one.
                 "until": ((exp if row.get("ready") else done) or 0) / 1000.0 or None,
                 # Robbed outranks both other pills: «готово» on a tile we have taken is
@@ -5192,6 +5204,21 @@ class SecretTasksTab(PanelTab):
                           # stopped having one strip on top: a press has to say which
                           # list it is about.
                           {"title": "secrettasks.page.stars", "items": items,
+                           # WHAT NARROWS THE LIST, as chips over it (#2740) — the person
+                           # asked for «фильтр-кнопки: готовые», and the chip that carries
+                           # its own count is the shape «Куда идти сегодня» already uses,
+                           # so a thumb learns one gesture. A state with nothing in it is
+                           # left out rather than offered as a chip that empties the card;
+                           # «все» is always there, because a filter with no way back is a
+                           # filter nobody presses.
+                           "filters": self._star_filters(tally, len(items)),
+                           # DRAWN WHOLE (#2740): «убрать пагинацию на секретках». A lap
+                           # brings tiles in wherever the sort puts them, and cut to
+                           # thirty the new ones landed under the cut — which is exactly
+                           # «при обходе карты секретки не появляются во вкладке». The
+                           # list is what the page is FOR; a «Показать ещё» over it is a
+                           # press between a person and the thing they opened.
+                           "whole": True,
                            # How many are on the card, and how many the boxes are
                            # holding back (#1272) — with the home-server rule named
                            # separately, because it is the one most easily forgotten.
@@ -5336,6 +5363,8 @@ class SecretTasksTab(PanelTab):
                            "options_title": "autoassist.frame",
                            "options": self._order_fields("secret_autoassist")},
                           {"title": "secrettasks.alliance",
+                           # Drawn whole, like the ★ list beside it (#2740).
+                           "whole": True,
                            "items": self.alliance.web_items(),
                            "sorts": self.alliance.web_sorts(),
                            "rows": self._count_rows(self.alliance),
@@ -5362,6 +5391,8 @@ class SecretTasksTab(PanelTab):
                           # does the phone, or the two front-ends would disagree about
                           # which list is narrowed.
                           {"title": "secrettasks.ghost",
+                           # Drawn whole, like the ★ list beside it (#2740).
+                           "whole": True,
                            "rows": self.ghost.web_rows() + self._count_rows(self.ghost),
                            "items": self.ghost.web_items(),
                            "sorts": self.ghost.web_sorts(),
@@ -5370,6 +5401,8 @@ class SecretTasksTab(PanelTab):
                                        self._star_action("ghost"),
                                        self._clear_action("ghost")]},
                           {"title": "secrettasks.ghost.allies",
+                           # Drawn whole, like the ★ list beside it (#2740).
+                           "whole": True,
                            "items": self.ghost_allies.web_items(),
                            "sorts": self.ghost_allies.web_sorts(),
                            "rows": self._count_rows(self.ghost_allies),
@@ -5384,6 +5417,8 @@ class SecretTasksTab(PanelTab):
                           # front-end. It is a knob here and a knob in the window, the
                           # same pair the ★ card carries.
                           {"title": "secrettasks.ghost.map",
+                           # Drawn whole, like the ★ list beside it (#2740).
+                           "whole": True,
                            "items": self.ghost_map.web_items(),
                            "sorts": self.ghost_map.web_sorts(),
                            # THE ORDER'S OWN BUDGET, ON THE CARD THAT CARRIES THE ORDER
@@ -5652,6 +5687,32 @@ class SecretTasksTab(PanelTab):
             # the same way and no translator should have to carry.
             value = "%d / %d" % (left, cap)
         return {"label": label, "value": value}
+
+    #: The chips over the ★ list, in the order somebody looks for them (#2740).
+    #:
+    #: «Готовые» is the one the person asked for by name, and it is first after «все»
+    #: because it is the only one that is a decision: a ripe tile is a robbery that can be
+    #: made now. The rest say what the other rows are, so a short list explains itself
+    #: instead of looking broken.
+    STAR_FILTERS = (("ready", "secrettasks.ready"),
+                    ("waiting", "secrettasks.filter.waiting"),
+                    ("robbed", "secrettasks.robbed_mark"),
+                    ("spent", "secrettasks.spent"))
+
+    def _star_filters(self, tally: dict, total: int) -> list:
+        """The ★ card's chips — «все» always, and each state that HAS something.
+
+        A chip whose count is zero empties the card and says nothing, so it is left out;
+        «все» is drawn whatever happens, because a filter with no way back is a filter
+        nobody presses. The counts are the card's own tally of every row it holds, not of
+        what is drawn — the same rule the warzone chart's chips obey.
+        """
+        chips = [{"id": "", "label": "web.ui.filter.all", "count": total}]
+        for key, label in self.STAR_FILTERS:
+            count = int(tally.get(key) or 0)
+            if count:
+                chips.append({"id": key, "label": label, "count": count})
+        return chips
 
     def _wire_rows(self) -> list:
         """What the WIRE carried, by tile kind — the other half of the flow strip (#2740).

@@ -1351,6 +1351,7 @@
   "secrettasks.show_spent": "Tükenenleri göster",
   "secrettasks.hide_spent": "Tükenenleri gizle",
   "secrettasks.spent": "tükendi",
+  "secrettasks.filter.waiting": "hâlâ sürüyor",
   "secrettasks.share_alliance": "İttifak",
   "secrettasks.share_world": "Dünya",
   "secrettasks.collect_ok": "toplama gönderildi",

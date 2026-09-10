@@ -1351,6 +1351,7 @@
   "secrettasks.show_spent": "Mostra esaurite",
   "secrettasks.hide_spent": "Nascondi esaurite",
   "secrettasks.spent": "esaurita",
+  "secrettasks.filter.waiting": "in corso",
   "secrettasks.share_alliance": "Alleanza",
   "secrettasks.share_world": "Mondo",
   "secrettasks.collect_ok": "raccolta inviata",

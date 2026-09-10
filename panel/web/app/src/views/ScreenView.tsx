@@ -885,6 +885,15 @@ interface PagedAnswer {
   size: number
 }
 
+/* WHICH CHIP EACH CARD WAS LEFT ON (#2740), keyed by `screen + '/' + card`.
+ *
+ * Module-level on purpose: a card is unmounted when the screen changes, so anything held
+ * inside it is forgotten the moment somebody looks at another page — «при смене вкладки
+ * фильтры должны сохраняться» is exactly that complaint. One map, one value per card, and
+ * nothing is sent to the panel: which chip a thumb pressed is about this session's screen
+ * rather than about the account, so it lives as long as the page does and no longer. */
+const chipHeld = new Map<string, string>()
+
 const PAGE_ITEMS = 20
 
 /* …and how many a card of TILES draws, which is more because a tile is smaller: twenty
@@ -976,9 +985,27 @@ function Card({
      is not narrowed a second time here, or the search box would search the page it was
      given instead of the register it asked about. */
   /* WHICH FILTER CHIP IS DOWN (#2737) — screen state, held here and nowhere else: the
-     panel is not told, nothing is stored, and the chip is back at «все» when the card is
-     reopened. An id of `""` is «все», which is also what a card with no filters has. */
-  const [only, setOnly] = useState('')
+     panel is not told and nothing is written to it. An id of `""` is «все», which is also
+     what a card with no filters has.
+     …AND IT SURVIVES LEAVING THE PAGE (#2740), which is what the person asked for: «при
+     смене вкладки фильтры должны сохраняться». A card is unmounted when the screen
+     changes, so `useState` alone forgot the choice the moment somebody looked at
+     anything else and came back to find the whole list again. The value lives in ONE
+     place — `chipHeld`, keyed by screen and card — and the state below only draws it, so
+     there is no second copy to disagree with. It is deliberately not stored in the panel:
+     which chip a thumb pressed is about this session's screen, not about the account. */
+  const chipKey = screen + '/' + (card.title || card.head || '')
+  const [only, setOnlyState] = useState(() => chipHeld.get(chipKey) || '')
+  const setOnly = useCallback(
+    (id: string) => {
+      chipHeld.set(chipKey, id)
+      setOnlyState(id)
+    },
+    [chipKey],
+  )
+  /* A card redrawn under a different key — the screen changed while this component was
+     reused — takes that key's own chip rather than keeping the last one's. */
+  useEffect(() => setOnlyState(chipHeld.get(chipKey) || ''), [chipKey])
   const filters = card.filters || []
   const items = (
     paged
