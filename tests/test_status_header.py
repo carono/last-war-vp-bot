@@ -390,19 +390,22 @@ def _run() -> int:
     return 1 if failed else 0
 
 
-def test_server_now_is_the_wire_s_last_word_and_books_nothing():
-    """The one thing in the panel that knows which warzone the camera is on (#2727).
+def test_the_wire_fills_the_strip_and_nothing_reads_it_to_decide_a_jump():
+    """What the wire says is DRAWN here, and no longer handed to anything that moves (#2727).
 
-    The client's own Lua does not: on a foreign warzone `curServerId` still names home.
-    The map traffic does, and it arrives here as `game.server` → `confirm_server`. A
-    press asks this, so it must never turn into a play of `read_player_place`.
+    `confirm_server` is still the door a completed jump and the map traffic come through,
+    because the strip has to say which warzone is on screen. What is gone is
+    `server_now()`: a press that moves the camera took this number as «where the client
+    is», and it is only true until the camera comes back — measured live, 1011 here while
+    every tile the client held said 8128. A press reads the warzone live instead, inside
+    the chunk that is about to move (`lua_actions.viewed_server_expr`).
     """
     rt = _Runtime()
     head = headermod.StatusHeader(rt, clock=lambda: 1000.0)
-    assert head.server_now() == 0
     head.confirm_server(935)
-    assert head.server_now() == 935
-    assert rt.played == [], rt.played
+    assert head.state(1000.0)["server"] == 935
+    assert [row[0] for row in rt.played] == ["read_player_profile"], rt.played
+    assert not hasattr(head, "server_now")
 
 
 if __name__ == "__main__":

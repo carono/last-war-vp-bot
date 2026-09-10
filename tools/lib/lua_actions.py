@@ -57,10 +57,87 @@ def current_server_expr() -> str:
             % (HOME_SERVER, HOME_SERVER))
 
 
+#: How far around the camera the warzone reading looks, and how finely (#2727). A tile is
+#: one `GetPointInfo` call, so the box is a price: ±30 at a stride of 3 is 441 calls, and
+#: the loop stops as soon as :data:`VIEWED_SERVER_ENOUGH` tiles have answered.
+VIEWED_SERVER_BOX = 30
+VIEWED_SERVER_STEP = 3
+
+#: How many tiles have to have answered before the reading is trusted. Small on purpose:
+#: the loaded tiles around one camera all belong to the world being displayed, so a dozen
+#: is already a vote rather than a guess — and the COMMONEST id is taken rather than the
+#: first, because one tile can be a migrant's base carrying its old warzone.
+VIEWED_SERVER_ENOUGH = 12
+
+
+def viewed_server_expr() -> str:
+    """Lua EXPRESSION for the warzone the camera is REALLY looking at, read live (#2727).
+
+    **The one source, and it is neither a cache nor a setting.** Every other answer the
+    panel had was wrong in a way that MOVED the client:
+
+    * `WorldFavoDataManager.curServerId` / `WarFlagDataManager.curServerId` /
+      `LuaEntry.Player.serverId` — the HOME warzone, even with a foreign warzone's tiles
+      arriving (:func:`current_server_expr`, and the note above :data:`JUMP_ZOOM`);
+    * `CrossServerUtil.IsInOtherServer()` — measured `true` with the camera standing at
+      home and every loaded tile naming home, so it says «has been away», not «is away»;
+    * the wire's last word (`game.server` -> `panel/runtime/header.py`) — true when it
+      was heard, and nothing tells it the camera came back. Measured live on 2026-09-10:
+      the header said 1011 at 15:09 while every tile around the camera said 8128, the lap
+      took the header's number, and that press moved the client to 1011 — the very
+      complaint. A reading with no event behind its expiry is a cache.
+
+    What IS true at the instant it is asked is which world's tiles the client is holding:
+    `WorldScene.PointManager` answers only about the world it is displaying. Measured the
+    same day — in the city it answers nothing at all; after a jump to warzone 1011 all 15
+    loaded tiles around the camera read 1011, and still did 25 s later; standing at home
+    they read 8128.
+
+    With no tiles to count — the city, a world still loading — it falls back to
+    :func:`current_server_expr`, which is right for a player who has not left home and is
+    the best the client itself can answer for one who has.
+    """
+    return ('(function() local WS=DataCenter.__lw_ws '
+            'local __ok, __cur = pcall(function() return WS and WS.CurTilePos end) '
+            'if not __ok or __cur == nil then '
+            'local arr=CS.UnityEngine.Object.FindObjectsOfType('
+            'typeof(CS.UnityEngine.MonoBehaviour)) '
+            'for i=0,arr.Length-1 do if arr[i] and arr[i]:GetType().Name=="WorldScene" '
+            'then WS=arr[i] break end end DataCenter.__lw_ws=WS end '
+            'local pm=nil pcall(function() pm=WS.PointManager end) '
+            'local size=0 pcall(function() size=math.floor(WS.TileCount.x) end) '
+            'local cx,cy=-1,-1 pcall(function() '
+            'cx,cy=math.floor(WS.CurTilePos.x),math.floor(WS.CurTilePos.y) end) '
+            'if pm~=nil and size>0 and cx>=0 and cy>=0 then '
+            'local hist,seen={},0 '
+            'for ty=cy-%d,cy+%d,%d do '
+            'for tx=cx-%d,cx+%d,%d do '
+            'if tx>=0 and ty>=0 and tx<size and ty<size then '
+            'local ok,info=pcall(function() return pm:GetPointInfo(ty*size+1+tx) end) '
+            'if ok and info~=nil then local s=0 '
+            'pcall(function() s=math.floor((tonumber(tostring(info.serverId)) or 0)+0) end) '
+            'if s>0 then hist[s]=(hist[s] or 0)+1 seen=seen+1 end end end end '
+            'if seen>=%d then break end end '
+            'local best,bn=0,0 '
+            'for s,c in pairs(hist) do if c>bn then best,bn=s,c end end '
+            'if best>0 then return best end end '
+            'return %s end)()'
+            % (VIEWED_SERVER_BOX, VIEWED_SERVER_BOX, VIEWED_SERVER_STEP,
+               VIEWED_SERVER_BOX, VIEWED_SERVER_BOX, VIEWED_SERVER_STEP,
+               VIEWED_SERVER_ENOUGH, current_server_expr()))
+
+
 def current_server() -> str:
-    """Log `ACT curserver=<id>` — the viewed world server (falls back to HOME_SERVER)."""
+    """Log `ACT curserver=<id>` — the warzone on screen, read LIVE (#2727).
+
+    It asked the client's own field until #2727, which answers HOME whenever the camera is
+    standing on somebody else's warzone — so «↻ сервер» filled the box with the wrong
+    number and a capture tagged foreign tiles as home's. It asks
+    :func:`viewed_server_expr` now: the same one reading every lap uses, and the fallback
+    inside it is the old field for a client with no world loaded.
+    """
     return ('CS.UnityEngine.Debug.LogError("ACT curserver="..tostring(%s))'
-            % current_server_expr())
+            % viewed_server_expr())
 
 
 #: WHY THE WARZONE SLOT IS NEVER LEFT EMPTY (#2727), whatever the caller wants.
@@ -322,7 +399,7 @@ def jump_to_coord(x: int, y: int, server: "int | None" = None,
     A sweep is unaffected because every waypoint uses the same number, but a measurement
     that changes it per jump is measuring the tween (#1265).
     """
-    sid = str(int(server)) if server is not None else current_server_expr()
+    sid = str(int(server)) if server is not None else viewed_server_expr()
     height = int(JUMP_ZOOM if zoom is None else zoom)
     return ('local srv=%s pcall(function() GoToUtil.GotoWorldPos('
             'CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),%d,nil,nil,srv) end) '
@@ -622,7 +699,7 @@ def fast_map_sweep(zoom: "int | None" = None, step: "int | None" = None,
     # `server` is what the caller HEARD on the wire; with none the chunk falls back to
     # the client's own field, which is right for a player who has not left home and is
     # the best the game itself can answer for one who has.
-    where = str(int(server)) if server else current_server_expr()
+    where = str(int(server)) if server else viewed_server_expr()
     move = ('pcall(function() GoToUtil.GotoWorldPos(V3(x*2+1, 0, y*2+1), %d, 0, '
             'nil, srv) end)' % height)
     # THE SAMPLER IS INSTALLED IN FRONT OF THE WAYPOINTS, never inside one (#1523): it is
@@ -726,7 +803,7 @@ def fast_map_visit(points, zoom: "int | None" = None,
     """
     height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
     gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
-    where = str(int(server)) if server else current_server_expr()
+    where = str(int(server)) if server else viewed_server_expr()
     items = ",".join("{%d,%d}" % (int(x), int(y)) for x, y in points)
     return (VISIT_CHUNK % (where, items, height, gap, height, gap))
 
@@ -5757,7 +5834,7 @@ def treasure_scan_sweep(zoom: "int | None" = None, step: "int | None" = None,
     height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
     stride = max(1, int(FAST_STEP if step is None else step))
     gap = max(0.0, float(TREASURE_SCAN_STEP_SEC if interval is None else interval))
-    where = str(int(server)) if server else current_server_expr()
+    where = str(int(server)) if server else viewed_server_expr()
     return (FIND_WORLD_SCENE + '''
 local DC = DataCenter.ActDispatchTaskDataManager
 local S = {found = {}, n = 0, done = 0, tiles = 0, known = 0, chests = 0,

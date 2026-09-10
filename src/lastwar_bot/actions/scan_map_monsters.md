@@ -39,8 +39,12 @@
 # What it leaves behind is the game's own table, keyed by tile, which
 # `read_world_monsters.md` drains. Nothing here writes to the panel: this lap FILLS, that
 # read COLLECTS, and either may be run without the other.
+#
+# NO WARZONE IS PASSED IN (#2727). Like `scan_map.md`, the lap reads the warzone it
+# is standing on itself — the tiles the client holds around the camera — because every
+# cached answer the panel had for that question went out of date by walking the camera
+# somewhere else.
 
-ARGS server = 0
 ARGS zoom = 600
 ARGS step = 90
 # Seconds the camera stands at each stop. Below ~0.3 the client draws nothing new and the
@@ -52,7 +56,7 @@ IF scene != world
     GAME WORLD
     WAIT scene == world WITHIN 30s
 
-SWEEP_MAP ZOOM {zoom} STEP {step} EVERY {every} SERVER {server} HARVEST
+SWEEP_MAP ZOOM {zoom} STEP {step} EVERY {every} HARVEST
 
 # What the lap picked up, in the SAME record shape `read_world_monsters.md` answers with,
 # so the panel has one parser and not two. Drained rather than copied: the table is the

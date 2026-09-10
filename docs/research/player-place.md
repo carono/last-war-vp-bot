@@ -82,7 +82,7 @@ LuaEntry.Player.serverId                      -- the warzone this account belong
 ```
 
 The first is the same field every coordinate jump already reads
-(`lua_actions.current_server_expr`). Live on an account at home: `cur=935 home=935`. They
+(`lua_actions.viewed_server_expr` since #2727 — the tiles the client is holding; `current_server_expr` is only its fallback for a client with no world loaded, because on a foreign warzone `curServerId` still names home). Live on an account at home: `cur=935 home=935`. They
 differ exactly while the client is standing in somebody else's warzone — a cross-server
 jump — which is the one case where «текущий сервер» has two honest answers, so both
 travel and the strip marks the camera's when it is not the account's.

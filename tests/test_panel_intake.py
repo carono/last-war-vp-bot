@@ -413,9 +413,12 @@ def test_the_monster_lap_is_a_scenario_with_the_pace_as_an_argument():
     text = (_REPO / "src" / "lastwar_bot" / "actions"
             / "scan_map_monsters.md").read_text("utf-8")
     defaults, rest = se.extract_defaults(text)
-    # The four the panel passes, and `every` among them: the pace is the whole quantity
-    # and it may not be a constant in the recipe either.
-    assert {"server", "zoom", "step", "every"} <= set(defaults), defaults
+    # The three the panel passes, and `every` among them: the pace is the whole quantity
+    # and it may not be a constant in the recipe either. NO `server` (#2727): the lap
+    # reads the warzone it is standing on, because every number the panel could hand it
+    # was a cache that moved the client.
+    assert {"zoom", "step", "every"} <= set(defaults), defaults
+    assert "server" not in defaults, defaults
     program = se.parse_text(se.substitute(rest, defaults))
     sweeps = [st for st in program if type(st).__name__ == "SweepMapStmt"]
     assert len(sweeps) == 1 and sweeps[0].harvest, sweeps

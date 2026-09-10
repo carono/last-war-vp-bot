@@ -251,25 +251,14 @@ class StatusHeader:
         self._where_want = False
         self._where_hold = 0.0
 
-    def server_now(self) -> int:
-        """The warzone the client is looking at, as the WIRE last said — 0 if unheard.
-
-        The same number :meth:`state` draws, without booking a reading: this is asked at
-        the moment somebody presses something, and a press must never turn into a play of
-        `read_player_place` on the way.
-
-        **IT IS THE ONLY THING IN THE PANEL THAT KNOWS (#2727).** The client's own Lua
-        does not: with the camera standing on a foreign warzone and that warzone's tiles
-        arriving, `curServerId` still names home (`tools/lib/lua_actions.py`, the note
-        above `JUMP_ZOOM`). What does know is the map traffic itself, which the ★ capture
-        decodes and publishes as `game.server` — and a completed jump, through
-        :meth:`confirm_server`. Hence «в хедере был корректный»: the header was right and
-        the thing that moved the camera was asking the client instead of asking here.
-        """
-        try:
-            return int(self._where.get("server") or 0)
-        except (TypeError, ValueError):
-            return 0
+    # THERE IS NO `server_now()` ANY MORE, AND THAT IS THE FIX (#2727). It handed out the
+    # wire's last word as «where the client is», and a press that moves the camera then
+    # took it: true when it was heard, and nothing tells it the camera came back.
+    # Measured live on 2026-09-10 — this held 1011 while every tile the client was holding
+    # said 8128, and the lap pressed on the phone moved the client to 1011. Whoever needs
+    # the warzone in order to ACT reads it live, inside the chunk that is about to act
+    # (`lua_actions.viewed_server_expr`); what is kept here is only what the strip DRAWS,
+    # with its age beside it.
 
     def mark_stale(self, place: bool = True, who: bool = False) -> None:
         """Somebody knows the reading is out of date — take it again on the next look.
