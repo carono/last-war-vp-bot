@@ -332,3 +332,64 @@ cannot be mistaken for an account.
 Pinned by `tests/test_panel_storage.py`, which fails if any module starts building its
 own state path again, if the language leaves the settings file, or if the migration
 overwrites something.
+
+
+## Daily statistics — a row per day, never one number overwritten (#2705)
+
+**The person's decision, in their words:** «Когда мы собираем какую либо статистику по
+дню, например сколько раз отправили грузовиков, сколько секреток собрали и все остальное,
+то это все должно храниться в базе и исторически сохраняться, чтобы при желании строить
+графики». The rule itself is in `CLAUDE.md`, «A DAY'S STATISTIC IS A HISTORY»; this is the
+audit behind it — what already keeps yesterday and what throws it away.
+
+The shape everything below is moving TO:
+
+```sql
+CREATE TABLE all_day_stats (
+    profile TEXT NOT NULL,   -- whose day it is
+    day     TEXT NOT NULL,   -- the GAME's day (`panel/runtime/day_reset.py`), YYYY-MM-DD
+    name    TEXT NOT NULL,   -- `trucks_sent`, `secret_tasks_taken`, `rally_joined`…
+    value   REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (profile, day, name)
+)
+```
+
+An upsert on that key is «add to today» and cannot reach yesterday; the write goes through
+`store.submit`, never off the Tk thread; the day turns over by ADDING a row, so «сегодня»
+stays a `SELECT` and the history is the by-product.
+
+### Already keeps a per-day history
+
+| tally | where | shape | note |
+|---|---|---|---|
+| resources gained | `blobs` `resource_stats` (`panel/resource_stats.py:151`) | `{date: {food, metal, oil, gold}}`, a new key a day | day key is the **PC** date (`:52`), not the game's |
+| golden-zombie hunt | `blobs` `golden_zombie_runs` (`panel/golden_zombies.py:30`) | `{date: {attacks, spent, found, runs}}` | day key is the **PC** date (`:34`) |
+| firework boxes taken | `blobs` `firework_state.days` (`panel/runtime/firework_wire.py:66`) | `{game_day: taken}`, trimmed to 30 days | only `taken`; the other four counters in that blob lose yesterday |
+| reward popups | table `all_reward_popups` (`panel/runtime/store.py:651`) | a row per popup, kept 90 days | a stamped log rather than a day tally, but yesterday is recoverable |
+| secret-task day observations | table `all_secret_days` (`panel/runtime/store.py:411`) | a row per `(server, day, source)` | about the WARZONE, not about what the bot did |
+
+**The two PC-dated ones are a bug of their own**: a counter zeroed at the warzone's reset
+and filed under the computer's midnight files part of one game day under each of two
+dates. When they are moved, the day key becomes the game's.
+
+### Loses yesterday — the list to move, one at a time
+
+| tally | where | what happens at the boundary |
+|---|---|---|
+| rally joins per type | `blobs` `rally_counts` (`panel/rally_limits.py:427`) | `RallyCounts.rolled` hands back an EMPTY count past `day_end_ms` (`:344`), applied on load (`:417`, `:451`) |
+| errand runs today | file `timers_last_run.json` (`panel/timers.py:1964`) | `runs_today` reads 0 on a new day (`:2028`) and is written back zeroed (`:2080`) |
+| alliance gifts taken | `blobs` `alliance_gifts_day` (`panel/runtime/gift_book.py:27`) | a different day reads as `{took: 0, runs: 0}` (`:58`); the next `note()` overwrites it (`:79`) |
+| arms-race chests | `blobs` `arms_chests_day` (`panel/runtime/arms_book.py:38`) | a new day reads empty (`:68`) and `record()` writes over the old (`:99`) |
+| fireworks heard / named / refused | `blobs` `firework_state` (`panel/runtime/firework_wire.py:359`) | four scalars zeroed on the day change |
+| survivor tickets spent | `blobs` `SURVIVOR_TICKETS` (`panel/tabs/vs.py:744`) | `spent` set to 0 on a new day (`:787`) |
+| star-round warzones walked | `blobs` `star_round_state` (`tools/lib/star_round.py:46`) | `{walked: [], laps: 0}` on a new day (`:166`, `:188`) |
+| arena battles and wins | `blobs` `arena_live` (`panel/runtime/arena_live.py:46`) | every `record()` replaces the whole row (`:88`); yesterday's final score is gone |
+| shop purchases | `blobs` `shops_live` (`panel/runtime/shops_live.py:39`) | a snapshot of the GAME's `bought`/`limit`, overwritten on every read (`:82`); the panel keeps no tally of its own at all |
+| market / invasion lines | `blobs` `market_live`, `invasion_live` | one `{raw, at}` snapshot, overwritten (`market_live.py:85`, `invasion_live.py:94`) |
+| secret-task robberies, ghost steals, trucks sent, treasure digs, and the rest of the daily checklist | **memory only** — `DailyReads._values` (`panel/runtime/errand_reads.py:66`) | overwritten by every read and lost entirely on a restart; consumers in `panel/runtime/errand_stats.py` |
+
+**Nothing here is moved in one sweep.** Each is its own commit: add the day's row, write
+to it where the counter is already written, and carry what is already counted into the day
+it stands for — `<name>.imported` beside the database, like every other import here. A
+counter the SERVER keeps (the five robberies, the arena's attempts) stays the game's to
+answer; what this table holds is the history of those readings, so a graph can be drawn.

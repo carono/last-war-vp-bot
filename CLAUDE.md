@@ -1128,6 +1128,59 @@ gets to decide it does not need one — a checkpoint, a log stays exactly what
 it is. The rule is about where GAME DATA that is meant to survive a restart and be read
 back whole may live, not a demand that every file in `profiles/<name>/` become SQL.
 
+### A DAY'S STATISTIC IS A HISTORY, never one number that is overwritten
+
+**Binding, and it is the person's decision (#2705)**, in their words: «Когда мы собираем
+какую либо статистику по дню, например сколько раз отправили грузовиков, сколько секреток
+собрали и все остальное, то это все должно храниться в базе и исторически сохраняться,
+чтобы при желании строить графики».
+
+A counter that answers «сколько сегодня» and is zeroed when the game day turns over
+answers that one question and destroys every other one anybody will ever ask of it. There
+is no way back: yesterday's number is not somewhere else, it is GONE, and «стало хуже или
+лучше» cannot be asked at all. Keeping the day beside the number costs one column.
+
+So **every per-day tally is a ROW PER DAY**, and the day it belongs to is part of its key:
+
+```sql
+CREATE TABLE all_day_stats (
+    profile TEXT NOT NULL,      -- whose day it is: a tally is an ACCOUNT's, never a
+                                -- machine's («A profile is a whole panel of its own»)
+    day     TEXT NOT NULL,      -- the GAME's day, `YYYY-MM-DD`, off the warzone's own
+                                -- reset (`panel/runtime/day_reset.py`) and never the
+                                -- PC's calendar — the boundary that zeroes the counter
+                                -- is the one that has to name the row
+    name    TEXT NOT NULL,      -- `trucks_sent`, `secret_tasks_taken`, `rally_joined`…
+    value   REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (profile, day, name)
+)
+```
+
+Four things follow, and none of them is optional:
+
+* **The primary key holds the profile AND the day.** An upsert on it is «add to today»
+  and can never touch yesterday, and no write can land in every account at once — the
+  same guard every other table in this database has.
+* **The write goes through the writer thread** — `store.submit`, never straight from Tk.
+  A tally moves on a push, and a push arrives on whatever thread heard it.
+* **The day rolls over by ADDING A ROW, not by zeroing one.** «Сегодня» is a `SELECT` of
+  today's row, so the counter on screen behaves exactly as it did and the history is the
+  by-product.
+* **Nothing already counted is thrown away.** A counter that exists is carried across
+  once, into the day it was standing for, and the file or blob it came from is kept
+  beside the database as `<name>.imported` — the same rule every other import here obeys.
+
+**A tally the game itself keeps is still not ours to invent.** Where the SERVER counts
+something — the day's five robberies, the arena's attempts — the authority stays the
+game's and the panel asks it (`CLAUDE.md`, «Незалогиненный клиент врёт правдоподобно»).
+What goes in this table is the history OF those readings, so a graph can be drawn; it is
+never a second opinion the panel consults instead of asking.
+
+The audit of which tallies already keep their history and which lose yesterday is in
+[`docs/panel-storage.md`](docs/panel-storage.md), «Daily statistics». **They are moved one
+at a time, not in one sweep** — each move is its own commit with its own import of what
+was already counted.
+
 The audit that found #1465's gap, what moved and what did not (and why), is
 [`docs/panel-storage.md`](docs/panel-storage.md) — read it, and its Russian mirror
 [`docs/panel-storage.ru.md`](docs/panel-storage.ru.md), before deciding where a new
