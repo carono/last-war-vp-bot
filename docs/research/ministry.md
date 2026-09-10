@@ -317,3 +317,51 @@ log, until the account is free to take a new one.
   never exercised.
 * **Applying during the alliance duel** (the legacy script's third ministry item) — the
   duel gate was not investigated.
+
+## Withdrawing an application, and the queue it actually sits in (#2709)
+
+An account may hold **one** standing application. Asked for a second post while the first
+still stands, the server answers — captured by wrapping the reply handler:
+
+```
+kingdom.position.apply  ->  errorCode = E000000   errorMsg = "uid exist in Appointment"
+```
+
+and the client raises its own toast. That is why an errand asking for the Interior every
+half hour silently blocks every other post the panel might want.
+
+**An application is a row in the APPOINTMENT list, not in the apply list.** The apply
+queues (`GetApplyList`) read empty on a server that seats people automatically; what
+holds the standing request is
+
+```lua
+OfficialApplyManager:SendKingdomPositionAppointmentList('<id>', true)   -- ask first
+OfficialApplyManager:GetAppointmentInfo('<id>')                         -- OUR own row
+    -> {uid = '<our uid>', name = '<our name>', appointTime = <epoch ms>, state = 1, …}
+```
+
+`appointTime` is the moment the seat becomes ours — read live, a fresh application landed
+17 minutes out with four ahead of it.
+
+**The withdraw is a message with a TABLE, and the controller cannot send it.**
+`UIOfficialApplyCtrl:SendKingdomPositionAppointmentDelete(positionId, data, isCtrl)` put
+**nothing** on the wire from a recipe (measured with `SFSNetwork.SendMessage` wrapped) —
+it belongs to an open window. The message class is the way in:
+
+```lua
+SFSNetwork.SendMessage(MsgDefines.KingdomPositionAppointmentDelete,
+                       {positionId = '10004', uid = '<our uid>'})
+```
+
+Both fields go out as `PutUtfString`; leaving `uid` out throws inside the client's own
+serialiser (`attempt to get length of a nil value`), which is the usual tell for an
+unfilled string field. Proven live: the standing application disappeared from the list
+and the next `kingdom.position.apply` was accepted.
+
+The person has seen the game raise a confirm box on a withdraw made by hand. Through the
+message class none appeared; `actions/apply_ministry_defence.md` answers one anyway —
+`UIManager.Instance:IsWindowOpen(UIWindowNames.CommonTipConfirm)`, press whatever the
+window calls its «yes», then `Ctrl:CloseSelf()`. Never `DestroyAllWindow`.
+
+`GetOwnApplyCD('<id>')` is in **milliseconds** (≈1 800 000 after an application), not
+seconds.

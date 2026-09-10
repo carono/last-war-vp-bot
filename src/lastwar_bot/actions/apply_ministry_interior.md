@@ -45,6 +45,20 @@
 # ministry_can_apply) and the quoting cannot drift. Engine side: docs/research/ministry.md.
 
 SHARE
+# STAND ASIDE WHILE THE ARMS RACE WANTS THE DEFENCE SEAT (#2709). An account may hold ONE
+# standing application: asked for a second post, the server answers «uid exist in
+# Appointment» and the client raises a toast. This errand runs every half hour, so an
+# application it puts on the Interior is an application the unit phase then has to
+# withdraw — and the two would take turns undoing each other all through the hour.
+#
+# So the unit phase parks the moment its hour ends in the game's own VM, and this errand
+# steps around it until then. It is a STOP rather than a FAIL: nothing failed, the post
+# is simply not ours to ask for right now, and the clock may keep its place.
+READ_LUA (function() local t = math.floor(tonumber(DataCenter.__lw_ministry_hold) or 0) local now = 0 pcall(function() now = math.floor((UITimeManager:GetInstance():GetServerSeconds() or 0) + 0) end) if now <= 0 or t <= now then return 0 end return t - now end)() INTO arms_hold
+
+IF arms_hold > 0
+    STOP "the arms race is holding the queue for the Minister of Defence — standing aside"
+
 READ_LUA (function() local ok, p = pcall(function() return DataCenter.OfficialApplyManager:GetOwnPositionId() end) if not ok or p == nil then p = DataCenter.GovernmentManager.self_positionId end return tonumber(p) or 0 end)() INTO post
 
 IF post == 10007

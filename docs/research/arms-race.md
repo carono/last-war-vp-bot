@@ -186,6 +186,47 @@ inside one phase, `0/75 000` points and nothing sent. The bag held ≈9 700 minu
 SOLDIER speed-ups and ≈18 000 universal. The person's ceiling for this account is **3 000
 minutes a run**.
 
+## The unit phase spends the LEAST it can, and asks for the seat first (#2709)
+
+The person's rule, in their words: «мы смотрим, сколько нужно очков для сбора всех
+сундуков, если сейчас солдаты тренируются, а для получения последнего сундука осталось
+меньше, чем мы получим от ускорения юнитов, то ускоряем ровно на столько, чтобы получить
+потолок очков», and «наша цель — максимально эффективно тренировать юнитов с минимальной
+затратой ускорений».
+
+**The price of a point is read off the phase, never assumed.** `scores` names the `score`
+rows in force, and two of them decide everything: `type = 51` is the minute of speed-up
+(its `points` is what one minute pays) and `type = 4` with `value` equal to
+`SoldierDataManager:GetSoldierIdByLevel(level)` is the soldier. Read live for a unit
+phase: 10 a minute, 28 a level-9 soldier — and the run of 2026-09-10 confirmed both,
+1 935 minutes plus 1 500 soldiers moving the score by 61 310.
+
+So the run works to a NEED rather than to a fuse:
+
+    need = top chest − score − (what the barracks already free will pay when trained)
+
+and then, barracks by barracks, shortest queue first:
+
+* if the need costs **fewer minutes than freeing this barracks whole**, it pours exactly
+  `ceil(need / rate)` minutes into it and stops. The barracks stays busy on purpose —
+  what was wanted was the chest, not the queue;
+* otherwise it frees the barracks whole (the plan of #2709's first half), counts both
+  the minutes and the batch that barracks will take, and moves on;
+* and a need already covered pours **nothing at all** — which is what makes the card safe
+  to press twice, since `score` is the server's own count and is re-read every run.
+
+**The seat comes before the training.** The Minister of Defence post speeds training up,
+so the phase asks for it (`actions/apply_ministry_defence.md`) and holds the training back
+until it is ours — but never the FREEING, which no post affects. A post already held is
+waited out rather than resigned; an application standing on another post is withdrawn
+(docs/research/ministry.md); and while the hour runs, the panel's own «Министр внутренних
+дел» errand stands aside on a marker parked in the VM, because one account may hold one
+application and the two would otherwise undo each other every half hour.
+
+A run that defers training books its own return for the moment the seat arrives, the way
+the drone hour books the march coming home — a deferral that then slept to the phase
+border would score nothing.
+
 ## The game keeps NO history of a phase, and that is why the panel books one (#2579)
 
 Asked of the live client, so it is measured rather than assumed. `dataDict` carries:
