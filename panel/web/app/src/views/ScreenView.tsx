@@ -803,6 +803,13 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
   //: The place this tile IS, or `null` — see the note above. Only the NAME counts: a
   //: coordinate buried in a fact is not what the tile is about.
   const place = item.label ? null : firstPlace(item.text_parts)
+  /* …OR THE PRESS THIS TILE IS, when the panel said so and there is no place to go
+     (#2737). A warzone number is not a coordinate, so `firstPlace` can never make the
+     tile a button — and «Перейти» as a separate 70 px button under a two-digit tile is
+     the shape the person asked to be rid of. The press is the item's FIRST action,
+     played through the one `PressButton` there is, and it is then not drawn a second
+     time in the `acts` row below. */
+  const tap = !place && item.tap ? (item.actions || [])[0] || null : null
   //: Inside a tile that is a button, a mark is drawn as text rather than as a second
   //: button — `mark` is that decision, made once and used for every piece of prose.
   const mark = (text?: string | null, parts?: ViewItem['text_parts']) =>
@@ -851,7 +858,7 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
       {bits.length ? <div className="bits">{bits}</div> : null}
       {item.pill ? <span className="pill">{t(item.pill)}</span> : null}
       {gear.sheet}
-      {(item.actions || []).length ? (
+      {!tap && (item.actions || []).length ? (
         /* A BUTTON ON A TILE THAT IS ITSELF A BUTTON. The press is about the button —
            «Ограбить» must never also walk the camera — so the click stops here. */
         <div className="acts" onClick={(e) => e.stopPropagation()}>
@@ -862,6 +869,12 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
       ) : null}
     </>
   )
+  if (tap)
+    return (
+      <PressButton action={tap} screen={screen} after={after} className="mini act">
+        {inside}
+      </PressButton>
+    )
   if (!place) return <div className="mini">{inside}</div>
   return (
     <button className="mini act" onClick={() => void jump(place)}>
@@ -975,13 +988,20 @@ function Card({
   /* A card sends its items or it is `paged` — never both. What the panel narrowed in SQL
      is not narrowed a second time here, or the search box would search the page it was
      given instead of the register it asked about. */
-  const items = paged
-    ? paging?.items || []
-    : (card.items || []).filter((item) => {
-        if (!needle) return true
-        const hay = ((item.text || '') + ' ' + (item.detail || '') + ' ' + (item.note || '')).toLowerCase()
-        return hay.includes(needle)
-      })
+  /* WHICH FILTER CHIP IS DOWN (#2737) — screen state, held here and nowhere else: the
+     panel is not told, nothing is stored, and the chip is back at «все» when the card is
+     reopened. An id of `""` is «все», which is also what a card with no filters has. */
+  const [only, setOnly] = useState('')
+  const filters = card.filters || []
+  const items = (
+    paged
+      ? paging?.items || []
+      : (card.items || []).filter((item) => {
+          if (!needle) return true
+          const hay = ((item.text || '') + ' ' + (item.detail || '') + ' ' + (item.note || '')).toLowerCase()
+          return hay.includes(needle)
+        })
+  ).filter((item) => !only || (item.tags || []).includes(only))
   // A card of PLACES draws them as small buttons (#1999); a card of THINGS WITH A FACE
   // draws them as the card an errand is (#2119). `layout` is the tab's own word for it,
   // so nothing here guesses from a title or a count.
@@ -1011,8 +1031,13 @@ function Card({
    * So `shown` only applies to a card that sent its items itself, where it is what keeps
    * the map's six hundred rows from being drawn under every other card. A page cut by
    * the panel is drawn as the panel cut it. */
-  const rest = paged ? 0 : Math.max(0, items.length - shown)
-  const drawing = paged ? items : items.slice(0, shown)
+  /* …AND A CARD THE PANEL ASKED TO BE DRAWN WHOLE (#2737) keeps no cut either. «Куда
+     идти сегодня» is four hundred two-digit tiles — a chart read at a glance — and
+     «Показать ещё 30» over it is thirteen presses to see one screenful of information.
+     The flag is the TAB's (`ViewCard.whole`), so nothing here guesses from a count. */
+  const uncut = paged || !!card.whole
+  const rest = uncut ? 0 : Math.max(0, items.length - shown)
+  const drawing = uncut ? items : items.slice(0, shown)
   const rows = card.rows || []
   /* WHAT NARROWS THIS GRID, behind the gear beside its heading (#2308). */
   const gear = useCardGear(card, screen, after)
@@ -1071,6 +1096,24 @@ function Card({
           <span className="k">
             {t('web.ui.page', { page: paging.page + 1, pages: paging.pages, total: paging.total })}
           </span>
+        </div>
+      ) : null}
+      {/* WHAT NARROWS THIS CARD, as chips over its items (#2737) — the same chip the
+          screen's own strip is made of, so a thumb learns one shape. A press is SCREEN
+          STATE: nothing is sent, nothing is stored, and the count beside each word is
+          the panel's own tally of the whole card rather than of what is drawn. */}
+      {filters.length ? (
+        <div className="chips">
+          {filters.map((f) => (
+            <button
+              key={f.id}
+              className={'chip' + (only === f.id ? ' on' : '')}
+              onClick={() => setOnly(f.id)}
+            >
+              {t(f.label)}
+              {f.count ? <span className="count">{f.count}</span> : null}
+            </button>
+          ))}
         </div>
       ) : null}
       {/* THE SORT, DIRECTLY OVER THE ROWS IT ORDERS (#2308) — small buttons, one per

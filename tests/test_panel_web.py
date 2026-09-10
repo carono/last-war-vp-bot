@@ -2814,9 +2814,14 @@ def test_a_paged_card_is_drawn_whole_and_not_cut_a_second_time():
     every other card — and a paged card is drawn exactly as the panel cut it.
     """
     script = _front_end_source()
-    assert "const rest = paged ? 0 : Math.max(0, items.length - shown)" in script, \
+    # …AND A CARD THE TAB ASKED TO BE DRAWN WHOLE JOINS IT (#2737, `ViewCard.whole`): the
+    # cut is now one word, `uncut`, and both halves read it — so neither a fetched page
+    # nor a four-hundred-tile chart can be cut a second time here.
+    assert "const uncut = paged || !!card.whole" in script, \
+        "the cut is decided somewhere other than in one place"
+    assert "const rest = uncut ? 0 : Math.max(0, items.length - shown)" in script, \
         "a paged card offers «показать ещё» again — the page is not the page"
-    assert "const drawing = paged ? items : items.slice(0, shown)" in script, \
+    assert "const drawing = uncut ? items : items.slice(0, shown)" in script, \
         "a paged card is sliced in the browser again"
     assert "items.slice(0, shown).map" not in script, \
         "a list is still cut by the browser somewhere the paged card can reach"
@@ -2828,6 +2833,35 @@ def test_a_paged_card_is_drawn_whole_and_not_cut_a_second_time():
         "a page of a thousand cards lays every one of them out"
     assert card and "contain-intrinsic-size" in card.group(0), \
         "the skipped cards have no assumed height — the scrollbar will jump"
+
+
+def test_the_warzone_chart_is_whole_tappable_and_filtered_by_chips():
+    """«Убирай пагинацию, а на сервере кнопку перейти… кнопки-фильтры» (#2737).
+
+    Three things about «Куда идти сегодня», and each of them had a way of quietly coming
+    undone:
+
+    * the card is drawn WHOLE — four hundred two-digit tiles are a chart read at a
+      glance, and «Показать ещё 30» under them is thirteen presses to see it;
+    * the tile IS the jump. A warzone number is not a coordinate, so the tile could never
+      make itself a press the way every coordinate tile on this screen does — and a
+      «Перейти» button under a two-digit name is the shape the person asked to be rid of.
+      The press is still the item's own action, played through the ONE `PressButton` this
+      front-end has, and it must not also be drawn as a button;
+    * the filters are SCREEN STATE. A chip writes nothing and sends nothing: the panel
+      keeps no copy of what is being looked at, so there is no second version of it.
+    """
+    script = _front_end_source()
+    assert "const tap = !place && item.tap ? (item.actions || [])[0] || null : null" in script, \
+        "the tile is not the press the panel said it is"
+    assert "{!tap && (item.actions || []).length ? (" in script, \
+        "the same press stands on the tile twice"
+    assert "const [only, setOnly] = useState('')" in script, \
+        "the chosen filter is not the screen's own state"
+    assert "post<PressAnswer>('/api/screen/press'" in script and \
+        "setOnly(f.id)" in script, "a filter chip must move nothing but the screen"
+    assert "'/api/screen/press', {\n            id: screen,\n            action: 'set'" not in script, \
+        "a filter chip writes a setting somewhere"
 
 
 def test_a_card_says_whether_it_is_on_by_its_colour_and_switches_in_the_corner():
