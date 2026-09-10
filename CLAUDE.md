@@ -1145,9 +1145,10 @@ before starting anything else, and before reporting the task done:
 
 1. **`docs/farming.md` (EN) first.** It is the canonical copy. Put the item under
    the section it belongs to, mark it ✅ (proven live) or 🟡 (one step of the flow
-   works, or it works but has not been proven in a real session), and say in one
-   line what runs by itself and what is still left to the person. Update the
-   daily-routine tables at the bottom if the ability appears there too.
+   works, or it works but has not been proven in a real session), and say in ONE
+   LINE what runs by itself and what is still left to the person — one line and no
+   more, see «AS SHORT AS IT WILL GO» below. Update the daily-routine tables at the
+   bottom if the ability appears there too.
 2. **`docs/farming.ru.md` (RU) second.** Mirror the same edit — same section, same
    position, same mark, same meaning. The two files are read side by side, so
    they must stay in step; never change one and leave the other.
@@ -1159,12 +1160,37 @@ before starting anything else, and before reporting the task done:
    that disagrees with the list below it — without `--write` the script only
    reports, and exits non-zero when a file is out of date.
 
+### AS SHORT AS IT WILL GO — one line, no explaining
+
+**Binding, and it is the person's decision**, in their words: «когда пишем доку
+фарминга, то пишем очень кратко, никаких объяснений, максимально лаконичный
+документ».
+
+An entry in the feature list is **ONE LINE**: what the bot does, and — where it
+matters — what is still left to the person. Nothing else. No paragraphs, no
+reasoning, no «why it is done this way», no measurement, no history, no «proven
+live: …» narrative, no worked example. If a sentence explains rather than states,
+it is not shortened, it is DELETED.
+
+Everything the deleted sentences were carrying has a home already:
+`docs/research/` for how it works and what was measured, the commit message for
+why the change was made, `CLAUDE.md` for a rule. The farming list is the one
+document that is read straight through by somebody who wants to know what the bot
+can do, and a paragraph per ability makes it unreadable at exactly that job.
+
+> ❌ Crystal Boss — the day's three attacks, made by the panel on its own once a
+> day. It is the same shape as Codename with one difference that decides
+> everything: here the attacks ARE rationed — three a day, counted by the game — so
+> the bot asks how many the day still owes and sends exactly those. A day you have
+> already played by hand costs it nothing… Proven live: three marches in one run of
+> a little over a minute
+> ✅ Crystal Boss — makes the day's three attacks and takes the chests they earn
+
 ### What a feature description may say
 
 Both farming files are a feature list for the person playing the game, not a
 technical reference. Describe only **what the bot does** in the game: what it
-collects, what it sends, what it presses, what appears on screen afterwards, and
-what the person still has to do.
+collects, what it sends, what it presses, and what the person still has to do.
 
 Never put implementation detail in them — no protocol or message names, no Lua or
 C# function names, no class or manager names, no wire field names, no file or
