@@ -2284,6 +2284,39 @@ class Interpreter:
             where += f" zoom {stmt.zoom}"
         self._log(f"JUMP -> {where}")
 
+    def _sweep_wait(self, seconds: float) -> None:
+        """Sit out a lap the game is walking — and STOP THE CAMERA if the run is ended.
+
+        The waypoints belong to the game's own timer rather than to this thread, so a run
+        that merely unwinds leaves the rest of the list walking: «прервал обход, а экран
+        продолжает двигаться» (#2739). The panel could not stop it from outside either —
+        the lap holds the game claim for its whole span, so «Остановить» played as a
+        scenario of its own is refused with «занято» and the run token is never bumped.
+
+        So the interruption is answered where the token is known. The nap is sliced and
+        interruptible exactly as before; when the OPERATOR ends the run, one more Lua call
+        bumps the token and every waypoint still pending disowns itself. A step-aside is
+        re-raised untouched: nobody ended the lap, the client was merely lent to somebody
+        more urgent.
+        """
+        try:
+            self._nap(seconds)
+        except _HaltSignal:
+            if self.ctx.cancelled:
+                self._stop_sweep_now()
+            raise
+
+    def _stop_sweep_now(self) -> None:
+        """Bump the run token, so the waypoints still pending move no camera (#2739)."""
+        self._tools_lib_on_path()
+        import lua_actions
+        try:
+            self._run_lua(lua_actions.fast_map_sweep_stop())
+            self._log("the lap was interrupted — the camera is stopped")
+        except Exception as exc:               # noqa: BLE001 — the run is ending anyway
+            self._log(f"!! the lap was interrupted and the camera could not be "
+                      f"stopped: {exc}")
+
     def _do_sweep_map(self, stmt: SweepMapStmt) -> None:
         """One lap of the whole map, and then WAIT it out.
 
@@ -2318,7 +2351,7 @@ class Interpreter:
         # …plus a breath for the last waypoint's answer to arrive: the map data lands a
         # beat after the camera stops, and a scan reading it must not be cut off mid-reply.
         # Sliced, so a lap of the whole map is not several seconds of a Stop being ignored.
-        self._nap(span + 2.0)
+        self._sweep_wait(span + 2.0)
 
     def _do_visit_map(self, stmt: VisitMapStmt) -> None:
         """Re-hear a named set of tiles, and then WAIT the walk out.
@@ -2348,7 +2381,7 @@ class Interpreter:
         # …plus the same breath for the last waypoint's answer to arrive: the map data
         # lands a beat after the camera stops, and a capture reading it must not be cut
         # off mid-reply.
-        self._nap(span + 2.0)
+        self._sweep_wait(span + 2.0)
 
     def _do_tap(self, stmt: TapStmt) -> None:
         """Press a named button from the catalogue: a fixed count, or `xall`.

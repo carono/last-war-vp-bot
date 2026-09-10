@@ -2967,7 +2967,11 @@ def test_a_warzone_tile_carries_both_presses_and_names_the_warzone():
     tab._sweeping, tab._sweep_srv = True, 1002
     card = st.SecretTasksTab._picker_card(tab)
     laps = [{a["id"]: a for a in item["actions"]}["sweep_server"] for item in card["items"]]
-    assert all(lap["disabled"] for lap in laps), laps
+    assert laps[0]["disabled"], laps[0]
+    # …AND THE WALKING TILE IS ALIVE, because pressing it is how the phone stops the lap
+    # (#2739). A tile that says «Обходим…» and takes no press is a lap nobody away from
+    # the machine can end.
+    assert not laps[1]["disabled"], laps[1]
     assert laps[0]["label"] == "secrettasks.picker.sweep"
     assert laps[1]["label"] == "secrettasks.picker.sweeping", laps[1]
 
@@ -5031,15 +5035,75 @@ def test_a_second_press_stops_the_lap_instead_of_starting_another():
     tab._sweeping = True                     # what `on_start` sets on the Tk thread
     tab._sweep_once()
 
-    assert len(tab.rt.played) == 1, "the second press started a second lap"
+    assert len(tab.rt.played) == 2, "the second press started a second lap"
+    assert tab.rt.played[1][0] == "stop_map_sweep", tab.rt.played
     assert "log.coord.sweep_stopped" in tab.said
-    import time as _time
-    for _ in range(200):
-        if stopped:
-            break
-        _time.sleep(0.01)
-    assert stopped and "__lw_sweep_run" in stopped[0], stopped
     assert tab._sweeping is False
+
+
+def test_the_stop_ends_the_run_rather_than_asking_the_busy_game():
+    """«Прервать обход не прерывает — экран продолжает двигаться» (#2739).
+
+    A lap sits out its own span holding the game claim at HUMAN, so a second HUMAN press
+    outranks nobody: `stop_map_sweep` played while the lap walks is answered «занято»,
+    the run token is never bumped and the game's own timer walks the rest of the
+    waypoints. So the press ends the RUN — which needs no claim — and the interpreter
+    bumps the token on its way out, holding the claim it already has.
+    """
+    import types
+    tab = _sweep_tab()
+    asked = []
+    run = types.SimpleNamespace(name="scan_map",
+                                state=lambda: {"name": "scan_map", "tag": "coord",
+                                               "step": "SWEEP_MAP (line 64)",
+                                               "asked": False, "secs": 3},
+                                stop=lambda: asked.append("scan_map"))
+    tab.rt.interrupts = types.SimpleNamespace(running=lambda: [run])
+    tab.rt.log = types.SimpleNamespace(say=lambda *a, **kw: None)
+
+    tab._sweeping = True
+    tab._sweep_once()
+
+    assert asked == ["scan_map"], "the lap that is walking was not ended"
+    assert not any(name == "stop_map_sweep" for name, _args in tab.rt.played), \
+        "the recipe was played at the game while the lap was holding it"
+    assert tab._sweeping is False
+
+
+def test_the_lap_bumps_the_run_token_when_the_operator_ends_it():
+    """The camera really stops: the interrupted SWEEP_MAP bumps the token itself (#2739).
+
+    The waypoints belong to the game's own timer, so unwinding the run stops nothing on
+    its own. This is the line that makes «Прервать» mean what it says.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    from lastwar_bot import script_engine as se
+
+    chunks = []
+    interp = object.__new__(se.Interpreter)
+    interp.ctx = types.SimpleNamespace(cancelled=True)
+    interp._log = lambda msg: None
+    interp._tools_lib_on_path = lambda: None
+    interp._run_lua = lambda chunk, *a, **kw: chunks.append(chunk) or []
+    interp._nap = lambda secs: (_ for _ in ()).throw(se._HaltSignal())
+
+    try:
+        interp._sweep_wait(9.0)
+    except se._HaltSignal:
+        pass
+    else:                                        # pragma: no cover — the run must unwind
+        raise AssertionError("the interrupted lap did not unwind")
+    assert chunks and "__lw_sweep_run" in chunks[0], chunks
+
+    # …and a STEP-ASIDE is not an interruption: nobody ended the lap, the client was lent.
+    chunks.clear()
+    interp.ctx = types.SimpleNamespace(cancelled=False)
+    try:
+        interp._sweep_wait(9.0)
+    except se._HaltSignal:
+        pass
+    assert not chunks, "a step-aside stopped the camera"
 
 
 def test_the_lap_heights_no_longer_offer_the_tile_view():
