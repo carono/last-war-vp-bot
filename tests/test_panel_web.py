@@ -2843,19 +2843,12 @@ def test_the_warzone_chart_is_whole_tappable_and_filtered_by_chips():
 
     * the card is drawn WHOLE — four hundred two-digit tiles are a chart read at a
       glance, and «Показать ещё 30» under them is thirteen presses to see it;
-    * the tile IS the jump. A warzone number is not a coordinate, so the tile could never
-      make itself a press the way every coordinate tile on this screen does — and a
-      «Перейти» button under a two-digit name is the shape the person asked to be rid of.
-      The press is still the item's own action, played through the ONE `PressButton` this
-      front-end has, and it must not also be drawn as a button;
+    * the tile carries TWO buttons — «перейти на сервер и обойти карту» — and both name
+      the warzone in their own `args`, so neither depends on where the camera is;
     * the filters are SCREEN STATE. A chip writes nothing and sends nothing: the panel
       keeps no copy of what is being looked at, so there is no second version of it.
     """
     script = _front_end_source()
-    assert "const tap = !place && item.tap ? (item.actions || [])[0] || null : null" in script, \
-        "the tile is not the press the panel said it is"
-    assert "{!tap && (item.actions || []).length ? (" in script, \
-        "the same press stands on the tile twice"
     assert "const [only, setOnly] = useState('')" in script, \
         "the chosen filter is not the screen's own state"
     assert "post<PressAnswer>('/api/screen/press'" in script and \

@@ -1013,15 +1013,11 @@ warzone number, a player — is left a plain tile with whatever buttons it came 
 Nothing is guessed here: the panel marks the coordinates it sends
 (`panel/web/coordlinks.py`), and a tile is a button exactly when there is a mark to press.
 
-**…and a tile whose name is NOT a place may still be the press, when the tab says
-`"tap": true`** (#2737). Then the whole tile is the FIRST of its `actions` — the same
-`PressButton` a shop tile is, so the `confirm`, the busy lock, `disabled` and the toast
-are unchanged — and that action is not also drawn as a button under the name. It is for a
-tile whose name is a thing the panel knows how to reach without a coordinate: «Куда идти
-сегодня» is four hundred warzone numbers, and the person's words about the button that
-used to sit under each of them were «на сервере кнопку перейти». The words of the action
-become the tile's tooltip rather than its face, so they name the thing — «Перейти на 942»
-and not four hundred tiles all saying «Перейти».
+**A tile may carry SEVERAL buttons, and on «Куда идти сегодня» it carries two** (#2737) —
+the person's words: «на карточки сервера сделай 2 кнопки, перейти на сервер и обойти
+карту». They are the two things one does with a warzone off a chart: stand on it, or walk
+it to see what is there. Both are the tile's own `actions` with the warzone in their
+`args`, so neither depends on where the camera happens to be.
 
 **A card may be NARROWED BY CHIPS over its items** (#2737). `filters` is a list of
 `{"id": …, "label": …, "count": …}`, drawn as the same chip the screen's own strip is made

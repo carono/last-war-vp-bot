@@ -2931,6 +2931,67 @@ def _empty_world_pages(tab) -> None:
             page.web_flow = lambda: None
 
 
+def test_a_warzone_tile_carries_both_presses_and_names_the_warzone():
+    """«На карточки сервера сделай 2 кнопки, перейти на сервер и обойти карту» (#2737).
+
+    Two presses per tile, and the point of the test is the `args`: both NAME the warzone
+    the tile is. A lap that named nothing would walk wherever the camera happens to be —
+    and handed an empty slot the game's own jump loads the home world, which is the exact
+    accident #2727 was about.
+
+    The walking tile says so and every other one goes dead while it walks: a lap is
+    scheduled on the game's single timer, so there is one at a time.
+    """
+    tab = object.__new__(st.SecretTasksTab)
+    tab.t = lambda key, **fmt: key
+    tab._jump_busy, tab._jump_note = 0, ""
+    tab._sweeping, tab._sweep_srv = False, 0
+    tab.picker_view = lambda: {
+        "slice": "…",
+        "rows": [{"server": 1001, "state": "day",
+                  "state_key": "servers.secret.state.day",
+                  "source_key": "servers.secret.src.calendar",
+                  "until": "2026-01-02"},
+                 {"server": 1002, "state": "plain",
+                  "state_key": "servers.secret.state.plain",
+                  "source_key": "servers.secret.src.calendar",
+                  "until": "2026-01-02"}]}
+    card = st.SecretTasksTab._picker_card(tab)
+    first = card["items"][0]
+    presses = {a["id"]: a for a in first["actions"]}
+    assert set(presses) == {"jump_server", "sweep_server"}, presses
+    for press in presses.values():
+        assert press["args"] == {"server": 1001}, press
+        assert not press["disabled"]
+    # …and the lap is one at a time, with the walking tile saying which it is.
+    tab._sweeping, tab._sweep_srv = True, 1002
+    card = st.SecretTasksTab._picker_card(tab)
+    laps = [{a["id"]: a for a in item["actions"]}["sweep_server"] for item in card["items"]]
+    assert all(lap["disabled"] for lap in laps), laps
+    assert laps[0]["label"] == "secrettasks.picker.sweep"
+    assert laps[1]["label"] == "secrettasks.picker.sweeping", laps[1]
+
+
+def test_the_lap_of_a_named_warzone_is_a_recipe_that_takes_the_number():
+    """The press plays `actions/sweep_server.md` and the recipe NAMES the warzone (#2737).
+
+    `scan_map.md` must never be handed one (#2705, #2727) — it reads the warzone off the
+    tiles the client holds, because every cached answer the panel passed it moved the
+    client. This is the other case: the warzone is chosen off a chart, so it travels as an
+    argument and the jump is the point. Both laps are the same primitive underneath.
+    """
+    recipe = (Path(__file__).resolve().parents[1] / "src" / "lastwar_bot" / "actions"
+              / "sweep_server.md").read_text(encoding="utf-8")
+    assert "ARGS server = 0" in recipe, "the lap does not take a warzone"
+    assert "SWEEP_MAP ZOOM {zoom} STEP {step} EVERY {every} SERVER {server}" in recipe, \
+        "the warzone does not reach the lap, or the knobs do not"
+    assert "IF server == 0" in recipe, "a lap named nothing walks wherever the camera is"
+    lap = (Path(__file__).resolve().parents[1] / "src" / "lastwar_bot" / "actions"
+           / "scan_map.md").read_text(encoding="utf-8")
+    assert "SERVER" not in lap.split("ARGS zoom")[1], \
+        "scan_map has been handed a warzone again — see #2727"
+
+
 def test_the_phone_is_shown_every_page_the_window_has():
     """CLAUDE.md: what the window grew, the web grows in the same commit.
 
