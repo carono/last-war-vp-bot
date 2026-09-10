@@ -727,7 +727,11 @@ class SecretTasksTab(PanelTab):
         import lua_actions
         # The LAP's height (#1272) — «тайл» is not one of them any more, and the default
         # is the one that actually collects secret tasks. A jump takes no height at all.
-        self._zoom_level = lua_actions.SWEEP_LEVELS[0]
+        # A DIVISION OF A SCALE OF TEN since #2737, where 7 is the 600 every lap has
+        # walked at and 10 the 1199 that collects bases only — the person's words:
+        # «Добавь большую градацию зума при обходе карты». Two choices could be thorough
+        # or wide and nothing in between.
+        self._zoom_level = lua_actions.SWEEP_ZOOM_DEFAULT
         self._zoom_label_var = tk_stringvar(master)
         self._zoom_combo = None
         # …and how hard the lap leans on the client (#2705): a DIVISION of a scale of
@@ -1260,7 +1264,12 @@ class SecretTasksTab(PanelTab):
         self.coord_y_var.set(str(raw.get("coord_y", "")))
         self.coord_srv_var.set(str(raw.get("coord_server", "")))
         self._set_jump_history(raw.get("coord_history"))
-        self._zoom_level = str(raw.get("coord_zoom") or self._zoom_level)
+        # …and the HEIGHT the same way (#2737): «tasks» / «bases» were the knob until the
+        # scale, and each is carried to the division that walks at the height it walked
+        # at, here rather than at every reader.
+        self._zoom_level = lua_actions.sweep_zoom_division(
+            raw.get("coord_zoom") if raw.get("coord_zoom") not in (None, "")
+            else self._zoom_level)
         # A PROFILE WRITTEN BEFORE THE SCALE HOLDS A WORD (#2705) — «fast», «normal»,
         # «calm» — and it is carried to the division that walks at the same pace it did,
         # here rather than at every reader. Nobody's lap changes speed because the
@@ -1361,13 +1370,13 @@ class SecretTasksTab(PanelTab):
         # same grid as items on this tab's own screen.
         self.tr(ttk.Button(box, width=3, command=self._open_server_picker),
                 "secrettasks.picker.open").pack(side="left")
-        # HOW FAR BACK THE CAMERA SITS, on the bar that moves it (#1265). It governs
-        # every jump this tab makes and the lap beside it, and the three choices are
-        # named by what they are FOR: one tile to read, the height secret tasks still
-        # arrive at, and the height that collects bases and nothing else.
+        # HOW FAR BACK THE CAMERA SITS ON THE LAP (#1265, #2737). Ten divisions now
+        # rather than two words: the height doubles every three of them, and each says
+        # what it is in camera height AND what it catches, because above division 7 the
+        # secret tasks stop arriving while everything else keeps coming.
         self.tr(ttk.Label(box), "coord.zoom").pack(side="left", padx=(12, 2))
         self._zoom_combo = ttk.Combobox(box, textvariable=self._zoom_label_var,
-                                        state="readonly", width=16,
+                                        state="readonly", width=34,
                                         values=self._zoom_choices())
         self._zoom_combo.pack(side="left")
         self._zoom_combo.bind("<<ComboboxSelected>>", self._on_zoom_choice)
@@ -1934,30 +1943,44 @@ class SecretTasksTab(PanelTab):
 
     # -- jumping ---------------------------------------------------------------
     # -- how far back the camera sits (#1265) ----------------------------------
-    def _zoom_choices(self) -> list:
-        """The lap's heights as words, in the order the camera pulls back."""
-        import lua_actions
-        return [self.t(f"coord.zoom.{name}") for name in lua_actions.SWEEP_LEVELS]
-
-    def _zoom_names(self) -> list:
-        """What the box may hold — the LAP's heights, and «тайл» is not one (#1272).
+    def _zoom_divisions(self) -> list:
+        """The scale, 1…10 (#2737). «Тайл» is not on it and must not come back (#1272).
 
         A lap at the tile view needs a 24-tile step: **88 seconds of camera against 6**,
-        and it finds nothing the 600 lap does not. It was on the list only because this
-        one box also decided how high a JUMP landed, so anybody who wanted to land
-        somewhere readable signed up for the 88-second sweep without knowing it. Jumps
-        take no height any more, so the box is the lap's alone. A profile still holding
-        «тайл» is moved to the first of these by `_sync_zoom_combo`.
+        and it finds nothing the 600 lap does not. The bottom of the scale is 150, which
+        is already a ~100 s lap — slow on purpose and chosen on purpose, which is the
+        difference. A profile still holding an old word is carried onto the scale by
+        `lua_actions.sweep_zoom_division`.
         """
         import lua_actions
-        return list(lua_actions.SWEEP_LEVELS)
+        return list(range(lua_actions.SWEEP_ZOOM_MIN, lua_actions.SWEEP_ZOOM_MAX_DIV + 1))
+
+    def _zoom_words(self, division=None) -> str:
+        """«7 — высота 600 · секретки и всё остальное» (#2737).
+
+        The number, what it is in camera height, and WHAT IT CATCHES — the person asked
+        for the same pairing the pace has: a division with nothing beside it says nothing
+        about what it does. The third part is the one that matters: above division 7 the
+        client stops asking for secret-task tiles while everything else keeps arriving, so
+        a lap up there is not «a wider lap», it is a different harvest.
+        """
+        import lua_actions
+        n = lua_actions.sweep_zoom_division(self._zoom_level if division is None
+                                            else division)
+        height, _step = lua_actions.sweep_zoom(n)
+        catch = ("coord.zoom.catch.tasks" if lua_actions.sweep_zoom_catches_tasks(n)
+                 else "coord.zoom.catch.bases")
+        return self.t("coord.zoom.value", n=n, height=height, catch=self.t(catch))
+
+    def _zoom_choices(self) -> list:
+        """The ten divisions as words, in the order the camera pulls back."""
+        return [self._zoom_words(n) for n in self._zoom_divisions()]
 
     def _sync_zoom_combo(self) -> None:
-        """Put the current level's word in the box — after a load, or a language change."""
-        names = self._zoom_names()
-        if self._zoom_level not in names:
-            self._zoom_level = names[0]
-        self._zoom_label_var.set(self.t(f"coord.zoom.{self._zoom_level}"))
+        """Put the current division in the box — after a load, or a language change."""
+        import lua_actions
+        self._zoom_level = lua_actions.sweep_zoom_division(self._zoom_level)
+        self._zoom_label_var.set(self._zoom_words())
         if self._zoom_combo is not None:
             try:
                 self._zoom_combo.configure(values=self._zoom_choices())
@@ -1965,16 +1988,16 @@ class SecretTasksTab(PanelTab):
                 pass
 
     def _on_zoom_choice(self, _event=None) -> None:
-        """A level was picked: remember it, and say what it means in one line."""
+        """A division was picked: remember it, and say what it means in one line."""
         import lua_actions
         chosen = self._zoom_label_var.get()
-        for name in self._zoom_names():
-            if self.t(f"coord.zoom.{name}") == chosen:
-                self._zoom_level = name
+        for n in self._zoom_divisions():
+            if self._zoom_words(n) == chosen:
+                self._zoom_level = n
                 break
-        height, step = lua_actions.zoom_level(self._zoom_level)
+        height, step = lua_actions.sweep_zoom(self._zoom_level)
         self.rt.settings.changed()
-        self.say("coord", "log.coord.zoom", level=self.t(f"coord.zoom.{self._zoom_level}"),
+        self.say("coord", "log.coord.zoom", level=self._zoom_words(),
                  height=height, step=step)
 
     # -- how hard the lap leans on the client (#2705) --------------------------
@@ -2002,11 +2025,20 @@ class SecretTasksTab(PanelTab):
     def set_sweep_zoom(self, name) -> bool:
         """Move the lap's height — the gear's knob, and the window's box is the same one.
 
-        Answered rather than raised on, and refused for a word that names no height: a
-        knob written from the phone is a string off a form.
+        A DIVISION OF THE SCALE since #2737, and one OUTSIDE it is refused rather than
+        pulled onto it — the same rule the pace has had since #2705: the field says its
+        bounds, and a phone that sends 40 has been typed into wrongly. A word from an
+        older profile is still understood, because that is a value the panel WROTE.
         """
-        chosen = str(name or "")
-        if chosen not in self._zoom_names():
+        import lua_actions
+        chosen = name
+        if isinstance(chosen, str) and chosen.strip() in lua_actions.SWEEP_ZOOM_WORDS:
+            chosen = lua_actions.SWEEP_ZOOM_WORDS[chosen.strip()]
+        try:
+            chosen = int(str(chosen).strip())
+        except (TypeError, ValueError):
+            return False
+        if not lua_actions.SWEEP_ZOOM_MIN <= chosen <= lua_actions.SWEEP_ZOOM_MAX_DIV:
             return False
         self._zoom_level = chosen
         self._sync_zoom_combo()
@@ -2375,13 +2407,13 @@ class SecretTasksTab(PanelTab):
             self._sweep_stop()
             return
         import lua_actions
-        height, step = lua_actions.zoom_level(self._zoom_level)
+        height, step = lua_actions.sweep_zoom(self._zoom_level)
         every = lua_actions.sweep_pace(self._sweep_pace)
         if not (self.capture.running or self.ghost_capture.running):
             self.say("coord", "log.coord.sweep_unwatched")
         seconds = lua_actions.fast_sweep_seconds(step, every) + 2
         self.say("coord", "log.coord.sweeping",
-                 level=self.t(f"coord.zoom.{self._zoom_level}"),
+                 level=self._zoom_words(),
                  pace=self._pace_words(), secs=int(seconds))
         started = self.rt.play_async(
             "scan_map", {"zoom": height, "step": step, "every": every}, tag="coord",
@@ -2423,13 +2455,13 @@ class SecretTasksTab(PanelTab):
             self.say("coord", "log.coord.sweep_no_server")
             return
         import lua_actions
-        height, step = lua_actions.zoom_level(self._zoom_level)
+        height, step = lua_actions.sweep_zoom(self._zoom_level)
         every = lua_actions.sweep_pace(self._sweep_pace)
         if not (self.capture.running or self.ghost_capture.running):
             self.say("coord", "log.coord.sweep_unwatched")
         seconds = lua_actions.fast_sweep_seconds(step, every) + 2
         self.say("coord", "log.coord.sweeping_server", srv=server,
-                 level=self.t(f"coord.zoom.{self._zoom_level}"),
+                 level=self._zoom_words(),
                  pace=self._pace_words(), secs=int(seconds))
         self._sweep_srv = server
         started = self.rt.play_async(
@@ -2469,7 +2501,7 @@ class SecretTasksTab(PanelTab):
         if self._bench_busy:
             return
         x, y = self.monsters.a_tile()
-        height, _step = lua_actions.zoom_level(self._zoom_level)
+        height, _step = lua_actions.sweep_zoom(self._zoom_level)
         self._bench_busy = True
         self.say("coord", "log.coord.bench_started", x=x or 0, y=y or 0)
 
@@ -5566,13 +5598,17 @@ class SecretTasksTab(PanelTab):
         «Перейти» and decides nothing here any more.
         """
         import lua_actions
-        height, step = lua_actions.zoom_level(self._zoom_level)
+        height, step = lua_actions.sweep_zoom(self._zoom_level)
         every = lua_actions.sweep_pace(self._sweep_pace)
         secs = int(lua_actions.fast_sweep_seconds(step, every) + 2)
         return {"title": "coord.sweep.frame",
                 "note": "coord.sweep.note",
                 "rows": [{"label": "coord.zoom",
-                          "value": self.t(f"coord.zoom.{self._zoom_level}")},
+                          # THE DIVISION, ITS HEIGHT AND WHAT IT CATCHES (#2737) — the
+                          # third part is why this is not merely a number: above division
+                          # 7 the secret tasks stop arriving and everything else does not,
+                          # so a lap up there must not look like «the same lap, wider».
+                          "value": self._zoom_words()},
                          # THE DIVISION AND WHAT IT COMES TO, side by side (#2705): a
                          # number on its own does not say how long the camera will wait.
                          {"label": "coord.sweep.pace",
@@ -5586,11 +5622,16 @@ class SecretTasksTab(PanelTab):
                          # of the day's history on the first draw.
                          {"label": "coord.bench",
                           "value": self._bench_words()}],
-                "options": [{"key": "sweep_zoom", "label": "coord.zoom",
-                             "kind": opt_value.CHOICE, "value": self._zoom_level,
-                             "options": [{"value": name,
-                                          "text": self.t(f"coord.zoom.{name}")}
-                                         for name in self._zoom_names()]},
+                "options": [# A NUMBER, NOT TWO WORDS (#2737) — the same shape the pace
+                            # got in #2705, and for the person's own reason: «добавь
+                            # большую градацию зума при обходе карты». The scale is 1…10,
+                            # the height doubles every three divisions, and the hint says
+                            # which way is which and where the secret tasks stop.
+                            {"key": "sweep_zoom", "label": "coord.zoom",
+                             "kind": opt_value.NUMBER, "value": self._zoom_level,
+                             "min": lua_actions.SWEEP_ZOOM_MIN,
+                             "max": lua_actions.SWEEP_ZOOM_MAX_DIV,
+                             "hint": "coord.zoom.hint"},
                             # A NUMBER, NOT THREE WORDS (#2705). The scale is 1…20 and
                             # the field says so; the hint under it says which way is
                             # which and WHY somebody would turn it down, because the

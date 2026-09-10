@@ -362,6 +362,125 @@ def sweep_division(value) -> int:
     return max(SWEEP_PACE_MIN, min(SWEEP_PACE_MAX, step))
 
 
+#: HOW FAR BACK THE CAMERA SITS ON A LAP, as a division of a scale of TEN (#2737).
+#:
+#: TWO WORDS WERE NOT ENOUGH, and the person asked for the same thing they had asked for
+#: about the pace a month earlier: «Добавь большую градацию зума при обходе карты». The
+#: knob offered «секретки» (600) and «только базы» (1199) and nothing in between, so a
+#: lap could be thorough or wide and never anything else — while the height decides BOTH
+#: what the client asks for and how much ground one view covers, which is the whole
+#: bargain of a lap.
+#:
+#: THE LAW IS ONE LINE: the height DOUBLES every three divisions, from 150 at division 1.
+#: So the scale is 150 · 189 · 238 · 300 · 378 · 476 · 600 · 756 · 952 · 1199, a constant
+#: ratio of 2^(1/3) ≈ 1.26 a step — a knob that moves smoothly wherever it is turned, and
+#: a law somebody can hold in their head: three notches up is twice as high.
+#:
+#: IT HITS BOTH OLD WORDS EXACTLY, which is why it starts at 150: division 7 is
+#: :data:`SWEEP_ZOOM_MAX` (600) and division 10 is :data:`BASE_ZOOM_MAX` (1199, where the
+#: arithmetic says 1200 and the client's LOD ladder says that is one too many — see that
+#: constant). Nobody's lap changes height because the control changed shape.
+#:
+#: AND THE SCALE CANNOT REACH A HEIGHT THAT COLLECTS NOTHING. Division 10 is the last one
+#: at which the map arrives at all; above it `world.get.block` answers with no tiles
+#: whatever. Between 8 and 10 the map still arrives but SECRET-TASK tiles do not, so those
+#: three divisions are labelled as what they are rather than merely allowed
+#: (:func:`sweep_zoom_catches_tasks`, «только базы») — a person may choose them, but not
+#: by accident.
+SWEEP_ZOOM_MIN = 1
+SWEEP_ZOOM_MAX_DIV = 10
+
+#: The bottom of the scale. Lower than this a lap is all clock and no extra tiles: the
+#: step shrinks with the height, so 150 is already 22 tiles a stop and a ~100 s lap, and
+#: the tile view (105) was dropped from this control in #1272 for exactly that reason.
+SWEEP_ZOOM_MIN_HEIGHT = 150
+
+#: Which division the old «секретки» is, and what a lap walks at when nobody has said.
+SWEEP_ZOOM_DEFAULT = 7
+
+#: The last division at which the client still asks for secret-task tiles — the division
+#: whose height is :data:`SWEEP_ZOOM_MAX`. Above it bases, mines, alliance cities and
+#: strongholds keep arriving and tasks do not.
+SWEEP_ZOOM_TASK_TOP = 7
+
+#: WHAT AN OLD PROFILE'S WORD BECOMES — each to the division that walks at the height it
+#: walked at. «tile» was not offerable for a lap since #1272 and is carried to the bottom
+#: of the scale rather than refused, so a profile saved before that still opens.
+SWEEP_ZOOM_WORDS: dict = {"tasks": SWEEP_ZOOM_DEFAULT, "bases": SWEEP_ZOOM_MAX_DIV,
+                          "tile": SWEEP_ZOOM_MIN}
+
+
+def sweep_zoom_height(division) -> int:
+    """The camera height at a division of the scale — never raised on.
+
+    Same rule as :func:`sweep_pace`: the value comes out of a saved profile or off a web
+    form, so a word from before #2737 is carried across (:data:`SWEEP_ZOOM_WORDS`),
+    anything unreadable is the default, and a number off the scale is pulled onto it. The
+    two ENDS are the measured constants themselves rather than what the curve computes, so
+    the ceiling is exact: 2^(1/3) cubed is 2 and 600 × 2 is 1200, which is one LOD too
+    high and fetches nothing at all.
+    """
+    step = sweep_zoom_division(division)
+    if step >= SWEEP_ZOOM_MAX_DIV:
+        return BASE_ZOOM_MAX
+    if step <= SWEEP_ZOOM_MIN:
+        return SWEEP_ZOOM_MIN_HEIGHT
+    if step == SWEEP_ZOOM_TASK_TOP:
+        return SWEEP_ZOOM_MAX
+    return int(round(SWEEP_ZOOM_MIN_HEIGHT * 2.0 ** ((step - SWEEP_ZOOM_MIN) / 3.0)))
+
+
+def sweep_zoom_division(value) -> int:
+    """The division a saved value means — a number, or a word from before #2737."""
+    if isinstance(value, str):
+        raw = value.strip()
+        if raw in SWEEP_ZOOM_WORDS:
+            return SWEEP_ZOOM_WORDS[raw]
+        try:
+            value = int(float(raw))
+        except (TypeError, ValueError):
+            return SWEEP_ZOOM_DEFAULT
+    try:
+        step = int(value)
+    except (TypeError, ValueError):
+        return SWEEP_ZOOM_DEFAULT
+    return max(SWEEP_ZOOM_MIN, min(SWEEP_ZOOM_MAX_DIV, step))
+
+
+def sweep_zoom_step(height: int) -> int:
+    """How far apart two waypoints are at that height, in tiles.
+
+    TWO MEASURED POINTS AND THE LINE BETWEEN THEM, not geometry: a view at 1199 covers
+    four times the ground of one at 600, and yet the step that pays there is 100 rather
+    than 360, because the tiles are far denser and the count kept climbing as the step
+    came down (4 502 bases at 150, 4 818 at 100, 4 945 at 70 — #1272). So:
+    below the task ceiling the step is proportional to the height, which is what makes
+    600 → 90 (:data:`FAST_STEP`) the number every lap has used; above it the step is
+    carried from 90 at 600 to the measured 100 at 1199.
+    """
+    if height <= SWEEP_ZOOM_MAX:
+        return max(8, int(round(height * FAST_STEP / float(SWEEP_ZOOM_MAX))))
+    share = (height - SWEEP_ZOOM_MAX) / float(BASE_ZOOM_MAX - SWEEP_ZOOM_MAX)
+    return int(round(FAST_STEP + (100 - FAST_STEP) * share))
+
+
+def sweep_zoom(division) -> tuple:
+    """``(height, step)`` of a division — what a lap is actually walked with."""
+    height = sweep_zoom_height(division)
+    return height, sweep_zoom_step(height)
+
+
+def sweep_zoom_catches_tasks(division) -> bool:
+    """Whether secret-task tiles still arrive at that division (#2737).
+
+    The honest half of the scale: above :data:`SWEEP_ZOOM_TASK_TOP` the client stops
+    asking for `f2=17` tiles altogether while everything else keeps coming, and a person
+    who walks there expecting secret tasks comes home with an empty list and no word said
+    about it. The card says which of the two it is beside the number.
+    """
+    return sweep_zoom_height(division) <= SWEEP_ZOOM_MAX
+
+
 def jump_to_coord(x: int, y: int, server: "int | None" = None,
                   zoom: "int | None" = None) -> str:
     """Jump to tile (x, y) on `server` — the game's OWN coordinate navigation.
