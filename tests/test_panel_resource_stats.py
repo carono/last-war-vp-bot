@@ -149,6 +149,8 @@ def test_only_a_harvest_the_panel_made_is_credited_to_the_base():
     import re
     window = float(re.search(r"COLLECT_WINDOW_SEC = ([0-9.]+)", src).group(1))
     assert 10.0 <= window <= 90.0, "the window is a burst, not a minute of trading"
+    claim = float(re.search(r"COLLECT_CLAIM_SEC = ([0-9.]+)", src).group(1))
+    assert window < claim <= 600.0, "a stale reading needs longer than a burst"
 
 
 
@@ -169,6 +171,76 @@ def test_the_tracker_belongs_to_no_tab():
     assert 'schedule.bind("resource_tracker"' in book
     host = (root / "panel" / "runtime" / "host.py").read_text(encoding="utf-8")
     assert "ResourceBook(self)" in host, "no profile has a book"
+
+
+
+class _Runs:
+    def __init__(self) -> None:
+        self.names: list = []
+
+    def running(self) -> list:
+        class _R:
+            def __init__(self, name):
+                self.name = name
+        return [_R(n) for n in self.names]
+
+
+class _Rt:
+    def __init__(self) -> None:
+        self.interrupts = _Runs()
+
+
+def _book():
+    from panel.runtime.resource_book import ResourceBook
+    return ResourceBook(_Rt())
+
+
+def test_a_harvest_is_claimed_by_the_first_gain_priced_after_it():
+    """#2743, measured live: the reading a gain is diffed from is served STALE.
+
+    The run finished at 22:32:47, the tracker read at 22:32:53 and still saw the
+    pre-harvest numbers, and the fresh reading landed some fifteen seconds later. So the
+    run ARMS a claim and the first gain priced within `COLLECT_CLAIM_SEC` spends it —
+    a window measured from the run itself threw the harvest away.
+    """
+    from panel.runtime import resource_book as rb
+
+    book = _book()
+    book.rt.interrupts.names = ["collect_base_resources"]
+    assert book.from_base(now=1000.0) is True          # priced while it runs
+
+    late = _book()
+    late.rt.interrupts.names = ["collect_base_resources"]
+    late.note_running(now=1000.0)        # a push arrives while it runs and prices nothing
+    late.rt.interrupts.names = []
+    assert late.from_base(now=1000.0 + 100.0) is True, \
+        "a gain priced a minute and a half later is still that harvest's"
+
+    # …and the rest of the burst rides the window the claim opened.
+    assert late.from_base(now=1000.0 + 100.0 + rb.COLLECT_WINDOW_SEC - 1) is True
+
+
+def test_a_gain_with_no_harvest_behind_it_is_not_the_bases():
+    """A truck, a gift, a chest: the whole-day tally has them and the base's book does
+    not. And a claim expires — three minutes after the run, nothing is credited."""
+    from panel.runtime import resource_book as rb
+
+    book = _book()
+    assert book.from_base(now=1000.0) is False
+
+    stale = _book()
+    stale.rt.interrupts.names = ["collect_base_resources"]
+    stale.note_running(now=1000.0)
+    stale.rt.interrupts.names = []
+    assert stale.from_base(now=1000.0 + rb.COLLECT_CLAIM_SEC + 1) is False
+
+    spent = _book()
+    spent.rt.interrupts.names = ["collect_base_resources"]
+    spent.note_running(now=1000.0)
+    spent.rt.interrupts.names = []
+    spent.from_base(now=1010.0)                         # the claim is spent here
+    assert spent.from_base(now=1010.0 + rb.COLLECT_WINDOW_SEC + 1) is False, \
+        "the burst window closes and nothing else is credited to that harvest"
 
 
 def _run_standalone() -> int:
