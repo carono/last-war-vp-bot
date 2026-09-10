@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, NoSuchProfile, ping, post, setProfile, Unauthorised } from './api'
 import { useRoute, type Route, type ViewName } from './route'
 import { loadWords, span, t, type Words } from './i18n'
+import { LinkLight } from './ui/LinkLight'
 import { Modal } from './ui/Modal'
 import { ToastHost } from './ui/Toast'
 import { applyTheme, isTheme, type Theme } from './ui/theme'
@@ -519,6 +520,12 @@ function Panel() {
             <span className="head-nick">{me.nick || me.name}</span>
           </button>
           <StatusStrip header={state?.header} />
+          {/* THE TRAFFIC LIGHT, ON EVERY SCREEN (#2705) — the person's words: «В хеадер
+              перенеси светофор состояния игры и панели». It was the head of the first
+              card on «Состояние», so «работает ли вообще что-нибудь» could only be asked
+              by going to that page. Two dots and a sheet that says what they mean; the
+              readings are the poll's own, and nothing here is asked of the panel. */}
+          <LinkLight state={state || undefined} offline={offline} />
           {/* «Ещё» MOVED HERE FROM THE FOOTER (#2621) — the person's own words: «в
               футере кнопку еще переносим в хеадер». It is the one footer entry with no
               `screen` of its own, so it does not compete with the destinations that do:
