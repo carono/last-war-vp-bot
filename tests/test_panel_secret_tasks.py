@@ -217,7 +217,7 @@ def _make_tab(rows, lo="", hi="", autoloot=False, rob_min=None):
     # How far back the camera sits when this tab moves it (#1265) — the close view a
     # fresh profile has, which is what every jump did before the setting existed.
     tab._zoom_level = "tile"
-    tab._sweep_pace = "normal"
+    tab._sweep_pace = 10
     return tab
 
 
@@ -1755,7 +1755,7 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
     tab.hide_own_var = _Var(False)
     tab.autoassist_var = _Var(False)
     tab._zoom_level = "tile"
-    tab._sweep_pace = "normal"
+    tab._sweep_pace = 10
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
@@ -1835,7 +1835,7 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.autoassist_var = _Var(False)
     tab._visible_rows = lambda: list(rows.values())
     tab._zoom_level = "tile"
-    tab._sweep_pace = "normal"
+    tab._sweep_pace = 10
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
@@ -1987,7 +1987,7 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.autoassist_var = _Var(False)
     tab._visible_rows = lambda: list(rows.values())
     tab._zoom_level = "tile"
-    tab._sweep_pace = "normal"
+    tab._sweep_pace = 10
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
@@ -2957,7 +2957,7 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab._visible_rows = lambda: []
     tab._sort = gr.DEFAULT_SORT         # the order the ★ table stands in (#2592)
     tab._zoom_level = "tile"            # the camera height the bar is set to (#1265)
-    tab._sweep_pace = "normal"
+    tab._sweep_pace = 10
     # The card carries the RULE beside the state now (#1256), so the stand-in
     # answers both questions the phone asks of the standing order.
     tab.autoloot = types.SimpleNamespace(
@@ -3581,7 +3581,7 @@ def _config_stub():
     stub._jump_hist = []
     stub._zoom_level = "tile"
     # …and the order the ★ table stands in (#2592), which `config()` saves too.
-    stub._sweep_pace = "normal"
+    stub._sweep_pace = 10
     stub._sort = gr.DEFAULT_SORT
     # Every page keeps its own settings block now (#1251), so `config()` asks each of
     # them for one. A stand-in that answers is all this fixture needs.
@@ -4650,7 +4650,7 @@ def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None)
     posted = []
     tab.post = lambda fn: posted.append(fn)
 
-    tab._sweep_pace = lua_actions.DEFAULT_SWEEP_PACE
+    tab._sweep_pace = 10
     tab._sync_zoom_combo = lambda: None
     tab.pieces = None
     # The close view is the default, and it is the height the jump always used.
@@ -4665,14 +4665,17 @@ def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None)
     assert tab.web_press("set", {"key": "sweep_zoom",
                                  "value": "tile"}) == {"ok": False}
     assert tab._zoom_level == "tasks"
-    # …and the second knob the person asked for, on the same terms.
-    assert tab.web_press("set", {"key": "sweep_pace", "value": "calm"}) == {"ok": True}
-    assert tab._sweep_pace == "calm"
+    # …and the second knob the person asked for, which is a DIVISION of a scale of
+    # twenty since #2705 — «делай 20 делений, можно цифрами».
+    assert tab.web_press("set", {"key": "sweep_pace", "value": 3}) == {"ok": True}
+    assert tab._sweep_pace == 3
+    # Off the scale is refused rather than clamped: the field says its bounds, and
+    # answering «ok» to 40 while storing 20 is the panel deciding what somebody meant.
+    assert tab.web_press("set", {"key": "sweep_pace", "value": 40}) == {"ok": False}
+    assert tab.web_press("set", {"key": "sweep_pace", "value": 0}) == {"ok": False}
     assert tab.web_press("set", {"key": "sweep_pace",
                                  "value": "whenever"}) == {"ok": False}
-    assert lua_actions.sweep_pace("calm") == lua_actions.SWEEP_PACES["calm"]
-    assert lua_actions.sweep_pace("from-an-older-panel") == \
-        lua_actions.SWEEP_PACES[lua_actions.DEFAULT_SWEEP_PACE]
+    assert tab._sweep_pace == 3
     assert lua_actions.zoom_level("tasks")[0] == lua_actions.SWEEP_ZOOM_MAX
     assert lua_actions.zoom_level("bases")[0] == lua_actions.BASE_ZOOM_MAX
     # A level nobody has heard of (an old profile) answers with the close view rather
@@ -4681,6 +4684,45 @@ def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None)
         lua_actions.ZOOM_LEVELS[lua_actions.DEFAULT_ZOOM_LEVEL]
     # Every level has a step that belongs to it: a step is meaningless without its height.
     assert all(step > 0 for _height, step in lua_actions.ZOOM_LEVELS.values())
+
+
+def test_the_pace_is_twenty_divisions_and_the_three_anchors_are_the_persons():
+    """#2705: «делай 20 делений … 1 это медленно, 10 это нормально 20 это как сейчас».
+
+    The three words became a scale because the reason for the knob is a MACHINE and not
+    a taste — «не на всех ПК поток будет успевать»: a lap fires one map request per
+    waypoint with no debounce, so what the number really sets is how fast the answers
+    arrive at a computer that has to decode them. Three words cannot say «a bit slower».
+
+    Everything the person named is pinned here: the ends, the middle, and that the scale
+    only ever goes one way.
+    """
+    import lua_actions
+    assert (lua_actions.SWEEP_PACE_MIN, lua_actions.SWEEP_PACE_MAX) == (1, 20)
+    assert lua_actions.SWEEP_PACE_DEFAULT == 10, "«нормально» is what a lap walks at"
+    # The three anchors, exactly — 20 is the old «быстро», 10 the old «обычно», and 1
+    # four times slower than the middle.
+    assert lua_actions.sweep_pace(20) == 0.02
+    assert lua_actions.sweep_pace(10) == 0.05
+    assert lua_actions.sweep_pace(1) == 0.2
+    # MONOTONE, with no step that is a jump: a bigger division is always quicker, and no
+    # single step of the knob changes the pace by more than a fifth.
+    gaps = [lua_actions.sweep_pace(n) for n in range(1, 21)]
+    assert gaps == sorted(gaps, reverse=True), gaps
+    assert all(a > b for a, b in zip(gaps, gaps[1:])), "two divisions walk at one pace"
+    assert all(b / a > 0.8 for a, b in zip(gaps, gaps[1:])), "a step is a jump"
+    # Off the scale is pulled onto it rather than raised on — the value comes out of a
+    # saved profile, and a panel that will not draw is worse than one walking at 20.
+    assert lua_actions.sweep_pace(99) == lua_actions.sweep_pace(20)
+    assert lua_actions.sweep_pace(-4) == lua_actions.sweep_pace(1)
+    assert lua_actions.sweep_pace("from-an-older-panel") == lua_actions.sweep_pace(10)
+    # A PROFILE FROM BEFORE THE SCALE HOLDS A WORD, and it keeps the pace it had.
+    assert lua_actions.sweep_pace("fast") == lua_actions.sweep_pace(20)
+    assert lua_actions.sweep_pace("normal") == lua_actions.sweep_pace(10)
+    assert 0.13 < lua_actions.sweep_pace("calm") < 0.17, "«спокойно» was 0.15"
+    assert lua_actions.sweep_division("calm") == 3
+    assert lua_actions.sweep_division("7") == 7
+    assert lua_actions.sweep_division(None) == 10
 
 
 def test_the_lap_carries_its_two_knobs_behind_one_gear():
@@ -4697,16 +4739,19 @@ def test_the_lap_carries_its_two_knobs_behind_one_gear():
 
     keys = [field["key"] for field in card["options"]]
     assert keys == ["sweep_zoom", "sweep_pace"], keys
-    assert all(field["kind"] == "choice" for field in card["options"])
-    assert [choice["value"] for choice in card["options"][1]["options"]] == \
-        list(lua_actions.SWEEP_PACE_NAMES)
+    assert card["options"][0]["kind"] == "choice"
+    pace = card["options"][1]
+    assert pace["kind"] == "number", "the pace is a number of divisions since #2705"
+    assert (pace["min"], pace["max"]) == (lua_actions.SWEEP_PACE_MIN,
+                                          lua_actions.SWEEP_PACE_MAX)
+    assert pace["hint"] == "coord.sweep.pace.hint", "the field lost the reason for it"
     assert [row["label"] for row in card["rows"]] == \
         ["coord.zoom", "coord.sweep.pace", "coord.sweep.span"]
     assert [action["id"] for action in card["actions"]] == ["sweep_now"]
     # …and the pace the gear picks is the pace the recipe is played with.
-    tab.set_sweep_pace("calm")
+    tab.set_sweep_pace(3)
     tab._sweep_once()
-    assert tab.rt.played[-1][1]["every"] == lua_actions.SWEEP_PACES["calm"]
+    assert tab.rt.played[-1][1]["every"] == lua_actions.sweep_pace(3)
 
 
 def test_the_lap_is_a_scenario_and_the_panel_only_plays_it():
@@ -4723,7 +4768,8 @@ def test_the_lap_is_a_scenario_and_the_panel_only_plays_it():
                                     # …and the pace the gear picked (#2705). No warzone
                                     # travels with it: the lap walks the one the client
                                     # is on.
-                                    "every": lua_actions.SWEEP_PACES["normal"]})]
+                                    "every": lua_actions.sweep_pace(
+                                        lua_actions.SWEEP_PACE_DEFAULT)})]
     # Nothing was said about an unwatched lap: the ★ monitor is on.
     assert "log.coord.sweep_unwatched" not in tab.said
 
@@ -4742,8 +4788,7 @@ def _sweep_tab(rows=None):
     tab = object.__new__(st.SecretTasksTab)
     tab.t = i18n.t
     tab._zoom_level = "tasks"
-    tab._sweep_pace = "normal"
-    tab._sweep_pace = "normal"
+    tab._sweep_pace = 10
     tab._sweeping, tab._sweep_btn = False, None
     # THE BOX IS HERE TO BE IGNORED (#2705). It used to aim the lap (#1280); the lap
     # names no warzone at all now, so a box holding somebody else's number is exactly

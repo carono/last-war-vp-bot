@@ -727,10 +727,12 @@ class SecretTasksTab(PanelTab):
         self._zoom_level = lua_actions.SWEEP_LEVELS[0]
         self._zoom_label_var = tk_stringvar(master)
         self._zoom_combo = None
-        # …and how hard the lap leans on the client (#2705). The second half of «нужна
-        # настройка для обхода, зум и скорость»: a word rather than a number of seconds,
-        # and the ordinary one is what every lap has always walked at.
-        self._sweep_pace = lua_actions.DEFAULT_SWEEP_PACE
+        # …and how hard the lap leans on the client (#2705): a DIVISION of a scale of
+        # twenty, 1 slowest and 20 fastest, 10 the pace every lap has always walked at.
+        # It began as three words and the person asked for the scale a day later —
+        # «не на всех ПК поток будет успевать» — because the knob is really about the
+        # machine decoding the answers, and three words cannot say «a bit slower».
+        self._sweep_pace = lua_actions.SWEEP_PACE_DEFAULT
 
         self.alliance = AllianceGrid(self)
         # The third and fourth pages (#1251): the weekly event's squads — mine, and my
@@ -1228,7 +1230,13 @@ class SecretTasksTab(PanelTab):
         self.coord_srv_var.set(str(raw.get("coord_server", "")))
         self._set_jump_history(raw.get("coord_history"))
         self._zoom_level = str(raw.get("coord_zoom") or self._zoom_level)
-        self._sweep_pace = str(raw.get("coord_sweep_pace") or self._sweep_pace)
+        # A PROFILE WRITTEN BEFORE THE SCALE HOLDS A WORD (#2705) — «fast», «normal»,
+        # «calm» — and it is carried to the division that walks at the same pace it did,
+        # here rather than at every reader. Nobody's lap changes speed because the
+        # control changed shape.
+        self._sweep_pace = lua_actions.sweep_division(
+            raw.get("coord_sweep_pace") if raw.get("coord_sweep_pace") is not None
+            else self._sweep_pace)
         self._sync_zoom_combo()
         self.pieces.apply_config(raw.get("pieces"))
         self._refresh_rule_hints()
@@ -1929,10 +1937,15 @@ class SecretTasksTab(PanelTab):
                  height=height, step=step)
 
     # -- how hard the lap leans on the client (#2705) --------------------------
-    def _pace_names(self) -> list:
-        """The paces a lap may be walked at, quickest first."""
+    def _pace_words(self) -> str:
+        """«10 — пауза 0,05 с» — the division, and what it actually comes to.
+
+        A number on its own says nothing about what it does, and the person asked for
+        both: «Отображать делением цифрой; рядом показывать, во что это выливается».
+        """
         import lua_actions
-        return list(lua_actions.SWEEP_PACE_NAMES)
+        return self.t("coord.pace.value", n=self._sweep_pace,
+                      secs=lua_actions.sweep_pace(self._sweep_pace))
 
     def set_sweep_zoom(self, name) -> bool:
         """Move the lap's height — the gear's knob, and the window's box is the same one.
@@ -1948,12 +1961,22 @@ class SecretTasksTab(PanelTab):
         self.rt.settings.changed()
         return True
 
-    def set_sweep_pace(self, name) -> bool:
-        """…and the lap's pace, on the same terms."""
-        chosen = str(name or "")
-        if chosen not in self._pace_names():
+    def set_sweep_pace(self, value) -> bool:
+        """…and the lap's pace, as a division of the scale (#2705).
+
+        A division OUTSIDE the scale is refused rather than clamped: the field says its
+        bounds, and a phone that sends 40 has been typed into wrongly — answering «ok»
+        to it and quietly storing 20 is the panel deciding somebody meant something else.
+        A value that is not a number at all is refused for the same reason.
+        """
+        import lua_actions
+        try:
+            step = int(str(value).strip())
+        except (TypeError, ValueError):
             return False
-        self._sweep_pace = chosen
+        if not lua_actions.SWEEP_PACE_MIN <= step <= lua_actions.SWEEP_PACE_MAX:
+            return False
+        self._sweep_pace = step
         self.rt.settings.changed()
         return True
 
@@ -2294,7 +2317,7 @@ class SecretTasksTab(PanelTab):
         seconds = lua_actions.fast_sweep_seconds(step, every) + 2
         self.say("coord", "log.coord.sweeping",
                  level=self.t(f"coord.zoom.{self._zoom_level}"),
-                 pace=self.t(f"coord.pace.{self._sweep_pace}"), secs=int(seconds))
+                 pace=self._pace_words(), secs=int(seconds))
         started = self.rt.play_async(
             "scan_map", {"zoom": height, "step": step, "every": every}, tag="coord",
             human=True,
@@ -5218,8 +5241,10 @@ class SecretTasksTab(PanelTab):
                 "note": "coord.sweep.note",
                 "rows": [{"label": "coord.zoom",
                           "value": self.t(f"coord.zoom.{self._zoom_level}")},
+                         # THE DIVISION AND WHAT IT COMES TO, side by side (#2705): a
+                         # number on its own does not say how long the camera will wait.
                          {"label": "coord.sweep.pace",
-                          "value": self.t(f"coord.pace.{self._sweep_pace}")},
+                          "value": self._pace_words()},
                          {"label": "coord.sweep.span",
                           "value": self.t("coord.sweep.span.value", secs=secs)}],
                 "options": [{"key": "sweep_zoom", "label": "coord.zoom",
@@ -5227,11 +5252,16 @@ class SecretTasksTab(PanelTab):
                              "options": [{"value": name,
                                           "text": self.t(f"coord.zoom.{name}")}
                                          for name in self._zoom_names()]},
+                            # A NUMBER, NOT THREE WORDS (#2705). The scale is 1…20 and
+                            # the field says so; the hint under it says which way is
+                            # which and WHY somebody would turn it down, because the
+                            # reason is a machine that cannot keep up rather than a
+                            # preference about camera speed.
                             {"key": "sweep_pace", "label": "coord.sweep.pace",
-                             "kind": opt_value.CHOICE, "value": self._sweep_pace,
-                             "options": [{"value": name,
-                                          "text": self.t(f"coord.pace.{name}")}
-                                         for name in self._pace_names()]}],
+                             "kind": opt_value.NUMBER, "value": self._sweep_pace,
+                             "min": lua_actions.SWEEP_PACE_MIN,
+                             "max": lua_actions.SWEEP_PACE_MAX,
+                             "hint": "coord.sweep.pace.hint"}],
                 # ONE BUTTON, TWO WORDS — the window's own (`_retitle_sweep`): a lap that
                 # is walking is stopped by the same press that started it.
                 "actions": [{"id": "sweep_now",
