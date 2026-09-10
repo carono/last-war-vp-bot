@@ -1354,6 +1354,9 @@ nav .nav.on::after {
    reads as one thing; `align-self` keeps it the width of its words. */
 .item.errand.cover .facts,
 .item.errand.cover .stat,
+/* …AND THE DAY'S TAKE (#2743): the same plate as its neighbours, a shade more opaque,
+   because what stands on it is digits rather than a sentence. */
+.item.errand.cover .res-row,
 .item.errand.cover .errand-body > .muted {
   align-self: flex-start;
   max-width: 100%;
@@ -1362,6 +1365,13 @@ nav .nav.on::after {
   background: color-mix(in srgb, var(--card) 82%, transparent);
   backdrop-filter: blur(3px);
   text-shadow: none;
+}
+/* …with the take's own two pixels back, and its own opacity: an 18 px picture in a 2 px
+   pill touches both edges, and digits over a photograph need more of the card behind
+   them than a sentence does. */
+.item.errand.cover .res-row {
+  padding: 3px 10px;
+  background: color-mix(in srgb, var(--card) 90%, transparent);
 }
 /* «i не красивая икона, а здоровенная кнопка» — and it was, because every control on this
    front-end is a thumb tall by rule (`--tap`), which is right for a button and wrong for a
@@ -2232,8 +2242,34 @@ body.chatting .head-row .status { padding-top: 0; }
    and how old the reading is — the same `stat` line every other card's reading uses, so
    the two cannot drift apart by a font size. */
 /* WHAT THE BASE PAID TODAY (#2743) — «ровно»: one row, wrapped, every picture the same
-   size, the numbers on the baseline beside them. */
-.res-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 3px 0 0; }
+   size, the numbers on the baseline beside them.
+
+   AND IT STANDS ON A PLATE, because the card is a PHOTOGRAPH — «не видно на фоне». The
+   line shipped without one while every neighbour on a cover card has had one since #2340
+   (`.facts`, `.stat`, the muted line): four small numbers over whatever the sprite happens
+   to be is the one thing on the card that has to be READ rather than glanced at. It is
+   the SAME plate as those neighbours — the card's own colour at nine tenths, so it is
+   opaque enough for digits and still belongs to the card — which is why it is written
+   into their rule below rather than as a second look of its own. Both palettes come free:
+   the colour is `var(--card)`, which is what the theme moves.
+
+   `align-self` keeps the plate the width of its contents, `max-width` keeps it inside a
+   280 px card, and the row still wraps — on a narrow phone the plate grows a second line
+   instead of the page growing a scrollbar. */
+.res-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 3px 0 0;
+  align-self: flex-start;
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 90%, transparent);
+  color: var(--ink);
+}
 .res-row .res { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
 .res-row .res img { width: 18px; height: 18px; object-fit: contain; display: block; flex: 0 0 auto; }
 .res-row .res b { font-variant-numeric: tabular-nums; }
