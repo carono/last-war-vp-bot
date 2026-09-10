@@ -5146,7 +5146,15 @@ class SecretTasksTab(PanelTab):
                                     # the only one that hides rows nobody switched on by
                                     # hand, so a list that looks short has to say so.
                                     + ([{"label": "secrettasks.filter.stale",
-                                         "value": str(stale)}] if stale else [])),
+                                         "value": str(stale)}] if stale else [])
+                                    # …AND WHAT THE WIRE ACTUALLY CARRIED (#2740). The
+                                    # strip above says what this panel TOOK; without the
+                                    # other half «ничего не утекает мимо нас» is an
+                                    # opinion. One row, per tile kind, and a kind nothing
+                                    # here decodes appears by its NUMBER — which is
+                                    # precisely how `f2=11` was found within a minute of
+                                    # the census first being said out loud.
+                                    + self._wire_rows()),
                            # …AND THE RULE ITSELF, as a field (#1999). «Секретки старше
                            # 12 часов скрываем» is a THRESHOLD, not a switch, and a
                            # threshold nobody can move from the phone is a number that
@@ -5579,6 +5587,26 @@ class SecretTasksTab(PanelTab):
             # the same way and no translator should have to carry.
             value = "%d / %d" % (left, cap)
         return {"label": label, "value": value}
+
+    def _wire_rows(self) -> list:
+        """What the WIRE carried, by tile kind — the other half of the flow strip (#2740).
+
+        Nothing at all until the capture has said something, because a row of zeroes over
+        a sniffer nobody switched on reads as «the map is empty», which is the confusion
+        this whole census exists to end. The tally is the capture child's own and is
+        cumulative for ITS run, so it restarts when the sniffer does — said in the label
+        rather than left for somebody to work out.
+        """
+        import lastwar_proto as proto
+
+        census = self.wire_kinds()
+        if not census:
+            return []
+        # A kind nothing here decodes is named by its number, biggest first: it is the
+        # row somebody has to act on, and burying it under `base: 40000` would hide it.
+        parts = ["%s %d" % (proto.tile_kind_name(kind), count)
+                 for kind, count in sorted(census.items(), key=lambda kv: -kv[1])]
+        return [{"label": "secrettasks.wire_kinds", "value": " · ".join(parts)}]
 
     def _count_rows(self, page=None) -> list:
         """One card's «Показано / Скрыто» pair, for the phone (#1272).
