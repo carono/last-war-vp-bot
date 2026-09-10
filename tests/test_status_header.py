@@ -390,5 +390,20 @@ def _run() -> int:
     return 1 if failed else 0
 
 
+def test_server_now_is_the_wire_s_last_word_and_books_nothing():
+    """The one thing in the panel that knows which warzone the camera is on (#2727).
+
+    The client's own Lua does not: on a foreign warzone `curServerId` still names home.
+    The map traffic does, and it arrives here as `game.server` → `confirm_server`. A
+    press asks this, so it must never turn into a play of `read_player_place`.
+    """
+    rt = _Runtime()
+    head = headermod.StatusHeader(rt, clock=lambda: 1000.0)
+    assert head.server_now() == 0
+    head.confirm_server(935)
+    assert head.server_now() == 935
+    assert rt.played == [], rt.played
+
+
 if __name__ == "__main__":
     raise SystemExit(_run())

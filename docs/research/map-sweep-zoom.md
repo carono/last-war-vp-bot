@@ -451,12 +451,30 @@ the wire delivering that warzone's tiles, the client's own Lua answered:
   than the world's — a base of a migrant reads as their old one — so a tile is a hint and
   not an answer.
 
-The mover is therefore the only one who knows, which is what `lua_actions.view_park`
-records and `lua_actions.live_server_expr` reads back: the client's own field, overridden
-by this panel's last camera move while `IsInOtherServer()` is true AND that field has not
-moved since the note was written. A player who walks into another warzone in the game
-moves the field, so their walk always wins over a note — which is the failure mode #2727
-was asked to rule out.
+`CrossServerUtil.OnCrossServer(id)` — the client's own «enter cross-server» call —
+flips `GetIsCrossServer()` to true and writes none of those fields either.
+
+### So the answer is not in the client at all: it is on the WIRE
+
+The first attempt at this had the MOVER write the warzone down (`view_park`), on the
+grounds that only the mover knows. It fixed nothing, and the way it failed is the point:
+it knows about a jump THE PANEL made, and the person does not jump that way — «мы сами в
+игре встаем на нужный сервер». Worse, a background errand that visits warzones parked
+ITS last one, so the person's lap inherited a number belonging to something else. Caught
+live from their own screen, with the note in place: the capture saw the client walk
+`1011 → 935` at 14:51:20, the lap was pressed at 14:51:49, and it walked **8128** — the
+warzone the errand had last parked, which was home.
+
+What does know is the map traffic. Every `world.get.block` response names the warzone it
+is about; the ★ capture already decodes that, prints `server 1011 → 935` and publishes
+`game.server`, which `panel/runtime/header.py` holds — and which the person could see was
+right all along («в хедере был корректный»). So:
+
+* `StatusHeader.server_now()` — the wire's last word, no reading booked;
+* the press hands it in: `scan_map.md` and `benchmark_map_sweep.md` take `ARGS server`;
+* 0 means «nobody has heard one», and the chunk then falls back to `curServerId`, which
+  is right for a player who never left home and is the best the game itself can answer;
+* the log line names the number that was walked, so a wrong one is visible.
 
 ### The pace is twenty divisions, and the reason is the PC rather than the camera
 
