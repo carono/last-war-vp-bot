@@ -852,6 +852,13 @@ class WebApi:
                 # game's own, fetched off `/api/itemicon`, and a resource this machine
                 # has no sprite for travels with an empty `icon` and draws its name.
                 "res": statsmod.resources_of(rt, timer.name),
+                # …AND WHETHER THAT ROW NEEDS A TALLER CARD (#2744) — the person's
+                # words: «Если все ресурсы не влезут, то можно увеличить карточку в
+                # полтора раза по высоте, это будет новый тип высоких карточек». The
+                # panel decides and the phone draws: one card component, told which
+                # shape it is in, never a second component and never a guess made from
+                # the chips in the browser.
+                "tall": statsmod.tall_card(rt, timer.name),
                 # …AND THE DAY BROKEN UP BY PHASE, for the ONE row that has such a thing
                 # (#2579). The person asked for it behind the «i»: «выводим иконками
                 # каждый час события за сегодня и сколько там собрано сундуков в каждом
@@ -1244,6 +1251,10 @@ class WebApi:
                 "stat": statsmod.of(rt, trig.name),
                 # …and the base's take on the listener that watches the same pile (#2743).
                 "res": statsmod.resources_of(rt, trig.name),
+                # …and the same TALL shape when that row is long (#2744): the listener
+                # that watches the base's pile draws the same chips as the harvest, so
+                # it grows the same way rather than clipping them.
+                "tall": statsmod.tall_card(rt, trig.name),
                 # A LISTENER GETS A COVER TOO, on the same terms as a timer (#2370),
                 # and since #2407 that is the ONLY picture a card of this page draws:
                 # no cover, no sprite under a wash — a placeholder.

@@ -828,6 +828,16 @@ def test_the_days_take_line_counts_resources_and_never_hero_experience():
     assert stat["key"] == "timers.stat.collected" and stat["fmt"]["n"] == "100"
 
 
+def test_a_long_row_of_chips_asks_for_the_TALL_card_and_a_short_one_does_not():
+    """#2744: «можно увеличить карточку в полтора раза по высоте» — the PANEL decides."""
+    short = _base_rt(row={"metal": 1, "food": 2, "oil": 3, "gold": 4})
+    assert statsmod.tall_card(short, "collect_base_resources") is False
+    tall = _base_rt(row={"metal": 1, "food": 2, "oil": 3, "gold": 4, "item:7038": 5})
+    assert statsmod.tall_card(tall, "collect_base_resources") is True
+    # An errand that draws no chips at all is never tall.
+    assert statsmod.tall_card(tall, "join_rally") is False
+
+
 def test_the_base_row_is_never_the_whole_tally():
     """The card must not count a truck, a gift or a robbery — a separate book (#2743)."""
     from panel import resource_stats as store

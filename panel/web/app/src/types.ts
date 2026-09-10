@@ -250,6 +250,11 @@ export interface TimerRow {
   /* WHAT THE BASE PAID TODAY (#2743) — sent by the two rows about the base's own pile
      and empty for every other errand, which therefore draws exactly what it did. */
   res?: ErrandRes[]
+  /* THE CARD IS THE TALL TYPE (#2744) — half again as high as an ordinary one, so a row
+     of chips too long for one line has somewhere to go. The PANEL decides and says so;
+     the phone draws the one card component in the shape it is told. It is not a property
+     of the errand: the same row is ordinary on a day the base paid four things. */
+  tall?: boolean
   /* THE DAY, PHASE BY PHASE (#2579) — sent for «Гонка вооружений» alone, and only once
      the day's book has something in it. Every other errand sends nothing and the sheet
      grows no section. */
@@ -279,6 +284,8 @@ export interface TriggerRow {
   stat?: ErrandStat | null
   /* WHAT THE BASE PAID TODAY (#2743) — the listener that watches the same pile. */
   res?: ErrandRes[]
+  /* …and the TALL card when that row is long (#2744), on the same terms as a timer's. */
+  tall?: boolean
 }
 
 /* A STANDING ORDER THAT IS IN NO CATALOGUE (#2017): «Автолут ★», «Автопомощь»,

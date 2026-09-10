@@ -1101,6 +1101,29 @@ and from the route. **Never draw a card of this page any other way, and never st
 ability's icon in for a picture that was not drawn**; `tests/test_panel_web_cards.py` fails
 on both.
 
+**A CARD MAY BE THE TALL TYPE** — `"tall": true` on the row — and then it is half again
+the height of an ordinary one (#2744): 144 → 216 px with no cover, 168 → 252 px with one.
+The person's words: «Если все ресурсы не влезут, то можно увеличить карточку в полтора
+раза по высоте, это будет новый тип высоких карточек».
+
+Three things about it, and they are what make it a TYPE rather than a fix to one card:
+
+* **The panel decides, the phone draws.** The flag is data on the row
+  (`panel/runtime/errand_stats.py::tall_card`, sent by `/api/timers` and `/api/triggers`),
+  so nothing is measured in the browser and the same card is ordinary on a day it has
+  little to show. Reach for it when a card's own contents outgrow one line — today, the
+  row of chips under «Сбор ресурсов» once the base has paid more than `TALL_CHIPS` kinds.
+* **It is the same component.** `ui/ErrandCard.tsx` takes `tall` and puts `.tall` on the
+  card; there is no second card and there must not be one, exactly as with the modal and
+  the squad picker (`CLAUDE.md`, «A control that exists twice is written once»).
+* **It is a FLOOR, not a ceiling.** A card whose contents need more still grows past it;
+  what the type buys is that the row of cards it stands in keeps one height, and the
+  picture behind it stays a picture instead of being cropped to a band.
+
+**Do not invent a second height.** If one step is not enough for what you are drawing,
+say so and agree a rule — a height per card is how a page of thirty becomes rubble, which
+is the same argument the 144 px floor is there for.
+
 A card of a SCREEN is the same component and does not take `cover`: a player with no face
 is a card with no picture, and that is not the omission this rule is about — a register is
 read by its names, where a page of thirty errands is read by its pictures.

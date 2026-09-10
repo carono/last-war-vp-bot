@@ -350,6 +350,7 @@ export function ErrandCard({
   stat,
   next,
   now,
+  tall,
   res,
   phases,
   arms,
@@ -388,6 +389,16 @@ export function ErrandCard({
    *  card only counts down when its own stat says to. */
   next?: number | null
   now?: number
+  /** THE TALL TYPE OF CARD (#2744) — half again the height of an ordinary one, for a row
+   *  of chips that will not fit on one line. The person's words: «Если все ресурсы не
+   *  влезут, то можно увеличить карточку в полтора раза по высоте, это будет новый тип
+   *  высоких карточек».
+   *
+   *  IT IS A TYPE, NOT A FIX TO ONE CARD, and it is DECLARED BY THE PANEL: the card is
+   *  the same component drawn in the shape it is told (`.tall` in the stylesheet), so
+   *  the next thing that outgrows a card asks for this flag instead of inventing its own
+   *  card. Nothing here measures anything in the browser. */
+  tall?: boolean
   /** WHAT THE BASE PAID TODAY (#2743), drawn as pictures with short numbers under them.
    *  Sent by the two errands about the base's own pile; every other card leaves it out
    *  and looks exactly as it did. */
@@ -432,7 +443,7 @@ export function ErrandCard({
     <div
       className={'item errand' + (icon || blank ? ' art' : '') +
                  (cover ? ' cover' : '') + (blank ? ' blank' : '') +
-                 (on ? '' : ' off')}
+                 (tall ? ' tall' : '') + (on ? '' : ' off')}
       style={artStyle(icon, focus)}
     >
       {/* ONE BUBBLE, NOT FOUR (#2061). The picture is at full brightness behind it, so
