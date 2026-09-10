@@ -2154,16 +2154,83 @@ class ChatTab(PanelTab):
     #: three batches a minute — about 12 s of every 60, whatever the chat is doing.
     TR_GAP = 20.0
 
+    #: THE SHORTEST MESSAGE WORTH A TRANSLATION, in characters (#2705). The person's
+    #: words: «Условие для автоперевода, не переводить (отображать оригинал в панели)
+    #: сообщения короче 5 символов».
+    #:
+    #: It is a cure for a kind of noise rather than a saving: «ок», «+1», «)))» and a
+    #: single sticker come back from the game's translator as themselves or as something
+    #: worse, and a row that says «translated» over an unchanged «ок» is a reader being
+    #: told a translation happened. A batch is twenty messages and one four-second hold
+    #: of the game link either way, so what this actually buys is a chat with fewer
+    #: pointless rows in it — and, on a busy alliance evening, fewer batches.
+    #:
+    #: ONE PLACE. Nothing else in this file may spell a length out: the gate is
+    #: :meth:`_tr_short` and this is the number it reads.
+    TR_MIN_CHARS = 5
+
+    @staticmethod
+    def _tr_length(record: dict) -> int:
+        """How long the message is TO A READER — the count :data:`TR_MIN_CHARS` judges.
+
+        Not `len(msg)`, because a message is not its markup. What a person sees is what
+        is counted, so each of these is ONE character however many bytes it is written
+        with: an emoji (`[e:E006]`), a sticker, a photograph (`[photo:3]`). Colour and
+        size tags are not characters at all and come out entirely. What is left is
+        stripped of the whitespace round it and counted in CHARACTERS, which is what the
+        person asked for — punctuation and emoji included, since «)))» and a single
+        smiley are exactly the rows this exists to leave alone.
+
+        The split is `chat_assets.segments`, the very one both front-ends draw the
+        message with (`_web_parts`), so the count cannot disagree with what is on screen.
+
+        A TOKEN COUNTS AS ONE WHETHER OR NOT THIS MACHINE HAS THE PICTURE. `segments`
+        answers `image` for a token it can resolve to a sprite and `token` for one it
+        cannot — a machine that has never extracted the game's assets gets `token` for
+        every emoji there is. Both are ONE thing the sender put in the message, so both
+        count as one; anything else would make «is this worth translating» depend on
+        whether a sprite had been unpacked.
+        """
+        import chat_assets
+
+        text = _RICH_TAG.sub("", str(record.get("msg") or ""))
+        # U+FFFC OBJECT REPLACEMENT CHARACTER — «something is drawn here», one of it.
+        text = _PHOTO_TOK.sub("\ufffc", text)
+        seen = []
+        for kind, value in chat_assets.segments(text):
+            seen.append(str(value) if kind == "text" else "\ufffc")
+        return len("".join(seen).strip())
+
+    @classmethod
+    def _tr_short(cls, record: dict) -> bool:
+        """Is this message too short to be worth translating? (#2705)
+
+        A separate method and not an `if` inside the gate, because the phone asks the
+        same question: a row the auto-translator will never touch must not sit there
+        looking as though its translation failed. A CLASSMETHOD, for the reason
+        `_can_translate` beside it is a `staticmethod`: the question is about a message
+        and a number, never about a particular tab, and it is asked of the class in the
+        test that pins the number.
+        """
+        return cls._tr_length(record) < cls.TR_MIN_CHARS
+
     def _tr_take(self, record: dict) -> None:
         """A message has arrived: queue it for translation if the switch is on.
 
         Never my own — the person said so outright, and the game does not offer to
         translate one either. Never one already translated: the answers are kept
         (`_translated`), so a message that has been through this costs nothing again.
+        AND NEVER A SHORT ONE (#2705): it is dropped here, before the queue, so it is
+        never asked for, never counted and never reported — the original simply stands,
+        which is what the person asked for and what a reader would expect of «ок».
+
+        THE HAND-DRIVEN TAP IS UNTOUCHED. The rule is about the AUTOMATIC translator;
+        somebody who deliberately taps «перевести» on a two-word message is asking, and
+        an ask is answered (`_translate`).
         """
         if not self._tr_auto or record.get("is_mine"):
             return
-        if not self._can_translate(record):
+        if not self._can_translate(record) or self._tr_short(record):
             return
         room = str(record.get("room_id") or "").strip()
         seq = str(record.get("seq_id") or "").strip()
