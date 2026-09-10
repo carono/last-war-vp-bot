@@ -67,6 +67,41 @@ restarted, and the client had kept it.
 tiles can be. It is the warzone's own alliance-city registry answering, not map data, and
 it must be left out of any comparison.
 
+## 2a. The control run, by kind (2026-09-10 19:03, warzone 8128)
+
+Asked for in these words: «по ВСЕМ видам сразу, которые мы реально показываем в гридах».
+The sniffer was restarted first so the census started at zero, the waypoint
+(@[880,60|8128]) was ground the camera had not been on this session, and the box is 41x41
+— comfortably inside one answer's rectangle.
+
+**One map response, 255 tiles.**
+
+| kind | X — off the wire | Y — into the store | Z — on the screen | lost | why |
+|---|---|---|---|---|---|
+| mine | 127 | 1128 held (all-time) | 0 of 381 | **0** | the page's own «уровень от 10» — see below |
+| base / player | 72 | 75 players | its own screen | 0 | — |
+| secret_task | 38 | 3 kept | 82 rows, 22 ready | 0 | 36 `not_starred` — the ★ list is starred-only |
+| treasure | 11 | 11 | its own screen | 0 | — |
+| alliance_city | 6 | names only | — | 0 | nothing farms one |
+| truck / train | 0 | 0 | 0 | 0 | they ride the march stream, not blocks |
+| monster | not on the wire at all | 521 | 500 drawn (page cap) | 0 | 1 `game_busy`, and it came back |
+| `f2=61` | 3 | — | — | — | **ignored on purpose** |
+
+`lost` is zero on every row, which is the number that matters: the ledger's `lost` counts
+an event accepted and then thrown away for a reason that is not about the event.
+
+**The one screen loss, and it was real.** «Шахты» held 381 rows and drew NONE — that page's
+own level range started at 10 and a seasonal warzone's mines are all below it. Nothing was
+lost; what made it a fault is that the card carried neither box, so from the phone the page
+read as «ничего не нашли» with no way to find out otherwise. Every table's level range is a
+field on its own card now (#2740), and clearing it live turned «0 показано, 381 скрыто»
+into 127 rows on screen.
+
+**Monsters are not a wire kind and never were** (`world-monsters.md`): placement is computed
+client-side, so their X is the client's own register rather than anything on the map stream.
+They are in the table because they are a grid the person reads, and the answer for them is
+the same shape: 521 read, 521 kept, 0 lost.
+
 ## 3. The three hypotheses
 
 **«ПРОПУСКАЕМ» — true, and it is KINDS rather than frames.** No map response was missed
@@ -93,6 +128,13 @@ reads as «монстров нет». It is offered again now, at most `MONSTER_
 the same named booking a ground answer re-arms, and fresh ground clears the count. A
 client held all day costs a handful of claim lookups and no round trip at all.
 
+**«ЗАНЯТА ПАНЕЛЬ», live, after the fix.** On the boot of 19:07 a dozen readers were
+queuing for the one link. The follow fired, found a holder, dropped once (`game_busy: 1`)
+— and the register answered at 19:08:28 with no lap running and no further ground asked
+for, which is the retry doing exactly what it was written for. `lost` stayed 0 throughout.
+The bounded shape is pinned by three tests: it re-offers, it stops after
+`MONSTER_BUSY_TRIES`, and fresh ground clears the count.
+
 **«ХУК ВЕШАЕТСЯ» — not found.** `_monster_follow_sync` refuses to subscribe twice
 (`if want == bool(self._monster_offs)`), and the live listener board carried 30 rows with
 no duplicate and exactly one `secret_task_capture.py`. Six capture children were hearing
@@ -109,16 +151,21 @@ one lap.
 
 | where | what | why it is not a bug |
 |---|---|---|
-| `f2=11`, `f2=61` | every tile of them | no reader — the census now says so every time one arrives |
+| `f2=11`, `f2=61` | every tile of them | **decided against**, in the person's words: «объекты, которые мы не собираем в гриды прямо — можно игнорировать». `TILE_KINDS_IGNORED`, with a reason each |
+| `f2=26`, `f2=42` | every tile of them | no reader YET — a lead, and the census names each with the field names of one tile |
 | `not_starred` | most `f2=17` tiles | the ★ list is starred-only by construction |
 | the checkpoint caps | mines past `DEFAULT_MAX_PER_KIND`, players past `max_players` | a whole-server lap finds tens of thousands; the capture says «N dropped to the cap» on every tick |
 | `home_server` | tiles on the account's own warzone | a raid at home is fined by the game (#1188) |
 
 ## 5. What to do next, if this is picked up again
 
-* Decode `f2=11` / `f2=61` if anything is ever to be farmed off them. The shapes above are
-  the starting point; both look like alliance structures, and nothing in the bot collects
-  those today.
+* `f2=11` / `f2=61` are settled: nothing farms an alliance structure, so they are named in
+  `TILE_KINDS_IGNORED` and the census says «намеренно не собираем» rather than «никто не
+  разбирает». **Only that difference keeps the census worth reading** — a kind nobody has
+  looked at is a lead, one somebody decided against is not, and drawing them the same way
+  turns every future lead into noise.
+* `f2=26` (`f12{f1,f2,f3,f4,f5}`) and `f2=42` (`f19{f1..f7}`) turned up later and are still
+  LEADS. Decide them the same way: look, then either write a reader or write down why not.
 * The comparison is a press away and repeatable: restart the sniffer so the census starts
   at zero, play `audit_map_intake` at a waypoint the camera has not visited, read the card's
   «пришло с провода» row against what `AUDIT_MAP` said. Anything other than
