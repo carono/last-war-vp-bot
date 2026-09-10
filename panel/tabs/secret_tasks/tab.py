@@ -1262,6 +1262,16 @@ class SecretTasksTab(PanelTab):
         # «calm» — and it is carried to the division that walks at the same pace it did,
         # here rather than at every reader. Nobody's lap changes speed because the
         # control changed shape.
+        #
+        # THE IMPORT IS LOCAL, like every other `lua_actions` in this file (#2711). It
+        # is not a style choice: `panel/tabs/` is imported before `tools/lib` is on the
+        # path, so a module-level import would break the tab outright — and leaving it
+        # out broke `apply_config` HALF WAY, which is worse than either. Everything
+        # below this line was skipped for every profile of every restart between
+        # b85ee016 and here: the piece page's own block, the zoom combo and the rule
+        # hints, all silently, with one caught `NameError` in the log to show for it.
+        import lua_actions
+
         self._sweep_pace = lua_actions.sweep_division(
             raw.get("coord_sweep_pace") if raw.get("coord_sweep_pace") is not None
             else self._sweep_pace)
