@@ -858,23 +858,109 @@ class MapIndex(LiveDecoder):
             return changes
 
 
+#: How long to wait before re-opening a capture that ended under us (#2740).
+#: Short, because every second of it is map traffic nobody is decoding; not zero,
+#: because an adapter that has just gone away refuses in a tight loop.
+REOPEN_SEC = 5.0
+
+#: How long npcap may deliver NOTHING AT ALL before this capture gives up and exits,
+#: so whoever started it starts a fresh one (#2740).
+#:
+#: A capture that has gone deaf is indistinguishable, from the outside, from a map that
+#: nobody is scrolling — and that is how the panel's own sniffer spent hours reporting
+#: «0 map response(s)» while a second process started by hand on the same machine, in
+#: the same second, with the same narrowing, decoded 228 map responses and 570 tasks.
+#: The process was alive, its ticker was printing, its checkpoint was being rewritten
+#: empty, and nothing anywhere said that its pcap handle had stopped delivering.
+#:
+#: An idle client is NOT silent: measured live, a base doing nothing puts ~3.7 packets a
+#: second on this filter (keepalives). So «not one packet in three minutes» is the
+#: handle, never the game.
+DEAF_SEC = 180.0
+
+#: How often the deafness watch looks. Reading two integers, so the interval is about
+#: how fast a deaf capture is noticed and nothing else.
+DEAF_POLL_SEC = 15.0
+
+
 def sniff_forever(index: MapIndex, iface, bpf: str, stop: threading.Event) -> None:
+    """Sniff until asked to stop — and RE-OPEN if the capture ends by itself (#2740).
+
+    It used to be one `sniff()` call: when it raised, one line went to stderr and the
+    thread ended; when it RETURNED — which is what npcap does when the adapter it was
+    opened on goes away, and the client re-dialling through a different gateway is
+    exactly that — nothing was said at all. Either way the process went on ticking,
+    printing zeros and rewriting an empty checkpoint for as long as it was left running.
+
+    So the loop is the fix: a capture that ends without being asked says so and is
+    opened again. `stop` is the only thing that ends this thread.
+    """
     from scapy.sendrecv import sniff
 
-    try:
-        sniff(
-            filter=bpf,
-            iface=iface,
-            prn=lambda pkt: index.feed_packet(pkt, iface),
-            store=False,
-            # Checked per packet, so a silent interface stays parked here
-            # until traffic arrives; the deadline is enforced by the caller,
-            # which is why this thread is a daemon.
-            stop_filter=lambda _p: stop.is_set(),
-        )
-    except Exception as exc:  # one dead interface must not end the run
-        if not stop.is_set():
+    rounds = 0
+    while not stop.is_set():
+        try:
+            sniff(
+                filter=bpf,
+                iface=iface,
+                prn=lambda pkt: index.feed_packet(pkt, iface),
+                store=False,
+                # Checked per packet, so a silent interface stays parked here
+                # until traffic arrives; the deadline is enforced by the caller,
+                # which is why this thread is a daemon.
+                stop_filter=lambda _p: stop.is_set(),
+            )
+        except Exception as exc:  # one dead interface must not end the run
+            if stop.is_set():
+                return
             print(f"{C_DIM}iface {iface}: {exc}{C_RESET}", file=sys.stderr)
+        if stop.is_set():
+            return
+        rounds += 1
+        print(f"{C_ERR}the capture on {iface or 'the default interface'} ended by "
+              f"itself ({rounds}) — re-opening in {REOPEN_SEC:.0f}s{C_RESET}",
+              file=sys.stderr, flush=True)
+        stop.wait(REOPEN_SEC)
+
+
+def deaf_watch(index: MapIndex, stop: threading.Event,
+               seconds: float = DEAF_SEC, poll: float = DEAF_POLL_SEC,
+               exit_code: int = 3) -> None:
+    """Exit the process when npcap has delivered nothing for `seconds` (#2740).
+
+    The re-open above cures a capture that ENDED. It cannot cure one that is parked
+    inside a live `sniff()` whose handle no longer delivers: there is no packet, so
+    `stop_filter` is never evaluated and nothing in scapy can be asked to let go. The
+    only lever left is the process itself, and the panel already knows how to start
+    another one (`panel/tabs/secret_tasks/capture.py`, the revival path).
+
+    Silence is only counted while this account HAS a client: a capture whose client is
+    down is right to hear nothing, and must not spin on it.
+    """
+    # BOTH counters, as a pair: `delivered` is what npcap handed over, `packets` what
+    # survived parsing. Movement in EITHER means the wire is being heard — a handle
+    # delivering frames this decoder throws away is a different fault with a different
+    # cure, which `diagnose` names and which ending the process would not fix.
+    last, seen_at = None, time.time()
+    while not stop.wait(poll):
+        now = time.time()
+        heard = (index.delivered, index.packets)
+        if heard != last:
+            last, seen_at = heard, now
+            continue
+        ports = index.own_ports() if index.own_ports is not None else None
+        if ports is not None and not ports:
+            seen_at = now             # no client of ours: silence is the truth
+            continue
+        if now - seen_at < seconds:
+            continue
+        print(f"{C_ERR}nothing has arrived from npcap in {int(now - seen_at)}s while "
+              f"this account's client is up — this capture has gone deaf, and a "
+              f"handle that stopped delivering cannot be re-opened from inside it. "
+              f"Ending, so a fresh one is started.{C_RESET}", file=sys.stderr,
+              flush=True)
+        sys.stdout.flush()
+        os._exit(exit_code)
 
 
 def add_capture_arguments(ap: argparse.ArgumentParser,
@@ -1005,6 +1091,8 @@ def start_capture(index: MapIndex, args) -> tuple:
     for iface in ([args.iface] if args.iface else [None]):
         threading.Thread(target=sniff_forever, args=(index, iface, bpf, stop),
                          daemon=True).start()
+    # …and the watch that ends the run when the handle stops delivering (#2740).
+    threading.Thread(target=deaf_watch, args=(index, stop), daemon=True).start()
     return stop, bpf
 
 
