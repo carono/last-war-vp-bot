@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 82 of 207
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 83 of 207
 
-🟩 82 done · 🟨 96 partly · 🟥 29 not automated
+🟩 83 done · 🟨 95 partly · 🟥 29 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what is
@@ -105,7 +105,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - ✅ The building phase and the technology phase — pours speed-up minutes into the queue with the most time left, cheapest kind first
 - ✅ Hiring on the hero phase — the phase whose points come from the tavern. Live: one hire, 400 points.
 - ✅ The drone phase — raises a rally per free squad for the points until the phase ends, waking on the game's own pushes
-- 🟡 The unit phase — takes in every finished barracks and starts the biggest new batch each free one will take, under a ceiling in soldiers
+- ✅ The unit phase — frees the busy barracks with speed-ups up to the minutes allowed, takes in what they finish and starts the biggest new batch each free one will take
 - 🟡 The event on a schedule — one row that does whatever the phase pays for, claims the boxes and sleeps to the phase border. Off until you turn it on
 
 ### Alliance duel (VS)
@@ -322,7 +322,7 @@ The routine as it is actually played, against what the bot covers.
 | | |
 |---|---|
 | Every 20 min — donate to alliance technology | ✅ · on a schedule 🟡 |
-| Every 4 h — Arms Race objectives | 🟡 four phases of five run by themselves; the unit phase is read and left alone |
+| Every 4 h — Arms Race objectives | ✅ all five phases run by themselves, each under its own ceiling |
 | Every 4 h — send the second batch of trucks | 🟡 one press, and it comes back by itself when the nearest truck is home |
 
 ### Every day
