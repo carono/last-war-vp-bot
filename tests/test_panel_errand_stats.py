@@ -67,12 +67,14 @@ class _Profiles:
 class _Resources:
     """The stock cache — and a witness that nothing reached for the reading door."""
 
-    def __init__(self, rows=(), age=1.5) -> None:
+    def __init__(self, rows=(), age=1.5, items=()) -> None:
         self.rows, self.age = list(rows), age
+        self.items = list(items)
         self.state_calls = 0
 
     def cached(self, now=None) -> dict:
-        return {"rows": [dict(r) for r in self.rows], "age": self.age}
+        return {"rows": [dict(r) for r in self.rows],
+                "items": [dict(r) for r in self.items], "age": self.age}
 
     def state(self, now=None) -> dict:
         self.state_calls += 1
@@ -124,11 +126,12 @@ class _Rt:
     """Just enough runtime: a store, a profile's files, and the two caches."""
 
     def __init__(self, root: Path, blobs=None, rows=(), age=1.5, daily=None,
-                 daily_age=8.0, runs=None, timers=None, day="2026-09-10") -> None:
+                 daily_age=8.0, runs=None, timers=None, day="2026-09-10",
+                 items=()) -> None:
         self.day = _Day(day)
         self.store = _Store(blobs)
         self.profiles = _Profiles(root)
-        self.resources = _Resources(rows, age)
+        self.resources = _Resources(rows, age, items)
         self.daily_reads = _Daily(daily, daily_age)
         # …and the schedule, which since #2579 is where «сколько раз сегодня» comes from.
         # `None` is the ordinary case in these tests and it is not an error: a provider
@@ -769,6 +772,48 @@ def test_the_card_says_what_came_in_rather_than_how_many_times_it_ran():
     # A day nobody has collected anything on still falls back on the honest count.
     empty = _base_rt(row={}, runs={"collect_base_resources": 3})
     assert statsmod.of(empty, "collect_base_resources")["key"] == "timers.stat.today"
+
+
+# ---------------------------------------------------------------------------
+# …and the items the base's lines pay in (#2744)
+# ---------------------------------------------------------------------------
+def test_an_item_the_base_paid_in_is_drawn_with_the_games_own_word():
+    """No locale key for «Запчасти дрона»: the game already named it, so it is used."""
+    rt = _base_rt(row={"metal": 500, "item:7038": 4},
+                  items=[{"id": 7038, "count": 415, "pending": 0,
+                          "icon": "icon_drone_parts", "name": "Запчасти дрона"}])
+    rows = statsmod.resources_of(rt, "collect_base_resources")
+    chip = [row for row in rows if row["key"] == "item:7038"][0]
+    assert chip["label"] == "Запчасти дрона"
+    assert chip["icon"].endswith("icon_drone_parts")
+    assert chip["value"] == "4"
+    # the four keep their own locale key, exactly as they had
+    assert [row["key"] for row in rows if row["key"].startswith("stats.")] == \
+        ["stats.res.metal"]
+
+
+def test_an_item_read_by_nobody_this_session_still_has_its_name():
+    """The label is written down, so a card drawn before the first reading says a word."""
+    from panel.runtime import resource_book
+    rt = _base_rt(row={"item:7038": 4},
+                  blobs={resource_book.LABELS_BLOB:
+                         {"item:7038": {"name": "Drone parts", "icon": ""}}})
+    chip = statsmod.resources_of(rt, "collect_base_resources")[0]
+    assert chip["label"] == "Drone parts" and chip["icon"] == ""
+
+
+def test_an_item_nobody_ever_named_falls_back_on_its_id_and_not_on_a_blank():
+    rt = _base_rt(row={"item:7038": 4})
+    chip = statsmod.resources_of(rt, "collect_base_resources")[0]
+    assert chip["label"] == "7038"
+
+
+def test_the_days_take_line_counts_resources_and_never_hero_experience():
+    """A sum of food and experience is a number about nothing (#2744)."""
+    rt = _base_rt(row={"metal": 100, "item:8001": 9_000_000},
+                  runs={"collect_base_resources": 3})
+    stat = statsmod.of(rt, "collect_base_resources")
+    assert stat["key"] == "timers.stat.collected" and stat["fmt"]["n"] == "100"
 
 
 def test_the_base_row_is_never_the_whole_tally():

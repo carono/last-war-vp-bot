@@ -61,6 +61,12 @@ COLLECT_WINDOW_SEC = 45.0
 #: has every gain either way.
 COLLECT_CLAIM_SEC = 180.0
 
+#: WHERE THE GAME'S OWN WORDS FOR THE BASE'S ITEM PAYMENTS ARE KEPT (#2744), so a card
+#: drawn before the first reading of a session still has a name and a picture for
+#: «Запчасти дрона» instead of an item id. It is what the LAST reading said and nothing
+#: else — a label, never a count — and it is refreshed whenever a reading lands.
+LABELS_BLOB = "resource_item_labels"
+
 #: What is said on the bus when a gain has been written down, so a page showing the
 #: tally repaints without asking anything.
 GAINED = "resources.gained"
@@ -82,6 +88,8 @@ class ResourceBook:
         self._collect_at = 0.0
         self._claim_from = 0.0
         self._off = None
+        # The last set of item labels written down, so an unchanged one costs no write.
+        self._labels: dict = {}
 
     # -- the two books -------------------------------------------------------
     def _path(self) -> "str | None":
@@ -117,6 +125,7 @@ class ResourceBook:
         """Another account's numbers are not this one's — and neither is its baseline."""
         self._stats = self._base = None
         self._last = {}
+        self._labels = {}
         self._collect_at = self._claim_from = 0.0
 
     # -- the day, and where a gain came from ---------------------------------
@@ -205,7 +214,26 @@ class ResourceBook:
 
     def on_reading(self) -> None:
         """A fresh reading has landed: price whatever it moved. A LOOK, never a read."""
+        self._remember_labels()
         self._record(reads.resource_balance(self.rt, cached=True))
+
+    def _remember_labels(self) -> None:
+        """Keep the game's own name and picture for each item the base pays in (#2744).
+
+        Written down because a page can be drawn before this session has read anything —
+        after a restart, or on a profile whose client is not up — and an id is not a word
+        anybody reads. Only written when it MOVED: a blob rewritten on every reading
+        would be a write per balance push for a table that changes when the base is
+        rebuilt.
+        """
+        labels = reads.item_labels(self.rt)
+        if not labels or labels == self._labels:
+            return
+        self._labels = labels
+        try:
+            self.rt.store.blob_set(LABELS_BLOB, labels)
+        except Exception:                # noqa: BLE001 — a label, never the gain
+            pass
 
     def _record(self, current: dict) -> "dict | None":
         """Diff `current` against the last balance and write the gains down."""

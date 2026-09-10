@@ -285,16 +285,22 @@ function Reading({ stat, queued }: { stat?: ErrandStat | null; queued?: boolean 
 function ResRow({ rows }: { rows: ErrandRes[] }) {
   return (
     <p className="res-row small">
-      {rows.map((row) => (
-        <span className="res" key={row.key} title={t(row.key) + ': ' + (row.exact || row.value)}>
-          {row.icon ? (
-            <img src={row.icon} alt={t(row.key)} loading="lazy" />
-          ) : (
-            <span className="muted">{t(row.key)}</span>
-          )}
-          <b>{row.value}</b>
-        </span>
-      ))}
+      {rows.map((row) => {
+        /* THE ITEMS THE BASE PAYS IN CARRY THEIR OWN NAME (#2744): the game said it, in
+           the player's language, so it is drawn as it came. Everything else is a locale
+           key, exactly as it was. */
+        const name = row.label || t(row.key)
+        return (
+          <span className="res" key={row.key} title={name + ': ' + (row.exact || row.value)}>
+            {row.icon ? (
+              <img src={row.icon} alt={name} loading="lazy" />
+            ) : (
+              <span className="muted">{name}</span>
+            )}
+            <b>{row.value}</b>
+          </span>
+        )
+      })}
     </p>
   )
 }

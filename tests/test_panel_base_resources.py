@@ -145,6 +145,39 @@ def test_nothing_read_is_no_rows():
     assert res.parse(None) == []
 
 
+# -- the items the base's lines pay in (#2744) --------------------------------
+ITEMS = ("7038;;415;;12;;icon_feijilingjian;;Drone parts"
+         " #|# 8001;;7000;;120;;item230001;;Hero XP"
+         " #|# 630011;;84;;0;;;;Drone component chest")
+
+
+def test_the_two_halves_of_a_reading_are_told_apart():
+    head, tail = res.split_sections(LINE + res.SECTION_SEP + ITEMS)
+    assert res.parse(head)                       # the resources, unchanged
+    rows = res.parse_items(tail)
+    assert [row["id"] for row in rows] == [8001, 7038, 630011]      # biggest first
+    assert rows[1]["name"] == "Drone parts" and rows[1]["pending"] == 12
+
+
+def test_a_reading_with_no_item_half_is_not_a_broken_one():
+    # A client answering the pre-#2744 shape: everything it said is resources.
+    head, tail = res.split_sections(LINE)
+    assert head == LINE and tail == ""
+    assert res.parse_items(tail) == []
+
+
+def test_a_malformed_item_record_is_dropped_not_half_read():
+    assert [row["id"] for row in res.parse_items("7038;;1;;0;;pic;;Name #|# 7038;;2")] \
+        == [7038]
+
+
+def test_an_item_with_no_sprite_on_this_machine_draws_its_name():
+    # `item_icon` answers "" for a picture nobody extracted, and the front-end then
+    # draws the name — another item's art standing in would be worse than none.
+    rows = res.parse_items("630011;;84;;0;;no_such_sprite_here;;Chest")
+    assert rows[0]["icon"] == "" and rows[0]["name"] == "Chest"
+
+
 def test_the_biggest_stock_comes_first():
     order = [row["type"] for row in res.parse(LINE)]
     # 2000 food, 1000 metal, 30 diamonds, 5 water. Not «what the base produces first»:

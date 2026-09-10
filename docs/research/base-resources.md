@@ -203,6 +203,46 @@ reading and the card shows it beside the amount.
 uuid while the client is out on the world map, and it is why the first cut of this
 reading reported nothing.
 
+## 5a. What the base pays in BESIDES resources (#2744)
+
+The person: «Ещё с базы мы собираем компоненты дрона, шестерёнки и медали для обезьяны».
+None of the three is a resource type, which is why the tally never saw them:
+`LuaEntry.Resource` knows nothing about any of them.
+
+They come off the same production lines, through two other methods:
+
+| call | answers |
+|---|---|
+| `ProductLineManager:GetProductResItem(uuid)` | `{[itemId] = per-tick}` — a RESOURCE ITEM, counted in `ResourceItemDataManager.itemList` (`entry.number` per `entry.itemId`) |
+| `ProductLineManager:GetProductGoods(uuid)` | `{[itemId] = per-tick}` — an ordinary BAG item, counted by summing `ItemData.ItemInfos` stacks of that id |
+
+Read live on one account, all seven the base's 44 lines pay (name and picture from the
+game's own tables, `ItemTemplateManager:GetName` / the row's `pic`, with
+`ResourceItemDataManager:GetName` / `GetIconPath` behind them):
+
+| id | store | the game's own name | sprite |
+|---|---|---|---|
+| 7038 | resource item | «Запчасти дрона» | `icon_feijilingjian` |
+| 7001 | resource item | «Винт» | `icon_res_item_7001` |
+| 6001 | resource item | «Руда усиления» | `item200023` |
+| 8001 | resource item | «Опыт героя» | `item230001` |
+| 630011 | bag | «Сундук Компонента Дрона 1 ур.» | `icon_suijicheku` |
+| 800003 | bag | «Руководство по тренировкам» | `zyf_zhuzai_jihuashu_daoju_icon_new` |
+| 521050 | bag | «Фиолетовый кристалл» | not extracted on this machine → the name is drawn |
+
+Two things measured along the way, so nobody re-walks them:
+
+* **The list is not the bag.** Asking «what did the base pay» by looking at everything in
+  `ItemData.ItemInfos` would be 417 stacks of which seven matter; the lines themselves say
+  which seven, and they say it for free on the reading that was already being taken.
+* **A harvest does not necessarily move all seven.** One live press moved food, metal,
+  gold, oil, spore and hero experience only — the drone and pet lines had nothing banked.
+  That is why the panel counts them by DIFFING a balance like everything else rather than
+  by assuming a press pays a fixed basket.
+* `ResourceItemDataManager:GetName(itemId)` answers; `GetName(entry)` does not, and
+  `ItemTemplateManager:GetName` answers for the bag ids. Both were tried the other way
+  round first, and a wrong argument answers an empty string rather than raising.
+
 ## 6. Why there is no «в час», in detail
 
 The client keeps a per-TICK figure per building, `GetBuildProduceNum(uuid)` — `196.35` on

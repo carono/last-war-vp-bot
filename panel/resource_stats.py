@@ -49,6 +49,14 @@ from .profile import _write_json
 # «gold» column meaning the same thing.
 RESOURCES: tuple[str, ...] = ("food", "metal", "oil", "gold")
 
+#: …AND WHATEVER ELSE THE BASE PAYS IN (#2744). The four above are the resources the
+#: panel has always had a word for; the base's production lines also pay ITEMS — drone
+#: parts, gears, the pet's training papers, hero experience — and those are keyed by the
+#: GAME's own item id (`panel/runtime/reads.py`, `item_key`), because there is no panel
+#: word for them and there must not be one. So the tally is no longer a fixed set of
+#: columns: any key that arrives with a gain is written down, and the four keep their
+#: place only in the ORDER things are drawn in.
+
 
 def _today() -> str:
     """The PC's date — the LAST RESORT, and never what a caller should pass.
@@ -72,9 +80,7 @@ def positive_deltas(current: dict, last: dict) -> dict:
     gain. Returns ``{resource: amount_up}`` for the resources that rose.
     """
     out = {}
-    for key in RESOURCES:
-        if key not in current or key not in last:
-            continue
+    for key in set(current) & set(last):
         try:
             delta = int(current[key]) - int(last[key])
         except (TypeError, ValueError):
@@ -110,7 +116,15 @@ class ResourceStats:
     def on(self, date: str) -> dict:
         """The tally for one day — every resource present, zero-filled."""
         row = self._days.get(date, {})
-        return {key: int(row.get(key, 0)) for key in RESOURCES}
+        out = {key: int(row.get(key, 0)) for key in RESOURCES}
+        # …and everything else the day happened to bring in (#2744), after the four.
+        for key, amount in row.items():
+            if key not in out:
+                try:
+                    out[key] = int(amount)
+                except (TypeError, ValueError):
+                    continue
+        return out
 
     def as_dict(self) -> dict:
         return {date: dict(row) for date, row in self._days.items()}
@@ -123,8 +137,7 @@ class ResourceStats:
         ``gains`` (a push that was a spend, or the first read of a session) changes
         nothing and returns ``self`` so a caller can skip the save.
         """
-        gains = {k: int(v) for k, v in (gains or {}).items()
-                 if k in RESOURCES and _pos(v)}
+        gains = {str(k): int(v) for k, v in (gains or {}).items() if _pos(v)}
         if not gains:
             return self
         today = today or _today()

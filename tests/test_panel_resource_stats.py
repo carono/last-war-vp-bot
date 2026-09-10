@@ -67,10 +67,20 @@ def test_empty_gains_change_nothing():
     assert stats.add({"food": 0, "metal": -3}, today=DAY1) is stats
 
 
-def test_unknown_resource_keys_are_dropped():
-    stats = rs.ResourceStats({}).add({"food": 10, "banana": 99}, today=DAY1)
-    assert stats.on(DAY1)["food"] == 10
-    assert "banana" not in stats.as_dict().get(DAY1, {})
+def test_an_item_the_base_pays_in_is_kept_beside_the_four():
+    # #2744: the tally used to be a fixed set of four columns, and everything else was
+    # thrown away. The base also pays in ITEMS — drone parts, gears, the pet's papers —
+    # keyed by the game's own item id, so any key that arrives with a gain is written
+    # down and the four keep their place only in the ORDER `on` hands them back.
+    stats = rs.ResourceStats({}).add({"food": 10, "item:7038": 4}, today=DAY1)
+    row = stats.on(DAY1)
+    assert row["food"] == 10 and row["item:7038"] == 4
+    assert list(row)[:4] == list(rs.RESOURCES)
+
+
+def test_an_items_gain_is_diffed_exactly_as_a_resources_is():
+    assert rs.positive_deltas({"item:7038": 9}, {"item:7038": 5}) == {"item:7038": 4}
+    assert rs.positive_deltas({"item:7038": 3}, {"item:7038": 5}) == {}
 
 
 # -- the file ---------------------------------------------------------------

@@ -290,6 +290,29 @@ def _resource_icon(key: str) -> str:
     return ""
 
 
+def _item_labels(rt) -> dict:
+    """The game's own name and picture for each item the base pays in (#2744).
+
+    The live reading first, and the profile's own written-down copy behind it: a page
+    drawn before this session has read anything still says «Запчасти дрона» rather than
+    an item id, which is not a word anybody reads.
+    """
+    from . import reads, resource_book
+
+    labels = {}
+    try:
+        labels = reads.item_labels(rt) or {}
+    except Exception:                    # noqa: BLE001 — a label, never the page
+        labels = {}
+    if labels:
+        return labels
+    try:
+        kept = rt.store.blob_get(resource_book.LABELS_BLOB)
+    except Exception:                    # noqa: BLE001 — a label, never the page
+        return {}
+    return kept if isinstance(kept, dict) else {}
+
+
 #: The errands whose card draws the day's take in pictures instead of a count of runs
 #: (#2743) — the base harvest and the listener that watches the same pile.
 RESOURCE_ROWS = frozenset({"collect_base_resources", "resource_tracker"})
@@ -309,11 +332,30 @@ def resources_of(rt, errand: str) -> list:
     """
     if errand not in RESOURCE_ROWS:
         return []
+    from urllib.parse import quote
+
+    from . import reads
+
     row = _base_today(rt)
+    labels = _item_labels(rt) if any(
+        key.startswith(reads.ITEM_PREFIX) for key in row) else {}
     out = []
     for key, amount in sorted(row.items(), key=lambda pair: -pair[1]):
-        out.append({"key": "stats.res." + key, "value": short_amount(amount),
-                    "exact": _number(amount), "icon": _resource_icon(key)})
+        entry = {"value": short_amount(amount), "exact": _number(amount)}
+        if key.startswith(reads.ITEM_PREFIX):
+            # AN ITEM THE BASE'S LINES PAY (#2744) — drone parts, gears, the pet's
+            # papers. It has no locale key and never will: the game already has a word
+            # for it in the player's own language, and a second one written here would
+            # be the panel naming something it did not make.
+            label = (labels.get(key) or {})
+            entry["key"] = key
+            entry["label"] = str(label.get("name") or key[len(reads.ITEM_PREFIX):])
+            stem = str(label.get("icon") or "")
+            entry["icon"] = ("/api/itemicon?name=" + quote(stem)) if stem else ""
+        else:
+            entry["key"] = "stats.res." + key
+            entry["icon"] = _resource_icon(key)
+        out.append(entry)
     return out
 
 
@@ -324,10 +366,16 @@ def _collect_base(rt) -> "dict | None":
     number of presses says the panel is alive, and what the person asked the card to say
     is how much came in. The pictures beside it are :func:`resources_of`.
     """
+    from . import reads
+
     ready = _collect_ready(rt)
     if ready is not None:
         return ready
-    total = sum(_base_today(rt).values())
+    # THE FOUR RESOURCES ONLY (#2744). The base also pays in ITEMS now, and adding 136 080
+    # points of hero experience to 95 043 of food would be a number about nothing. Each
+    # item has its own chip beside this line; the line itself stays a pile of resources.
+    total = sum(amount for key, amount in _base_today(rt).items()
+                if not key.startswith(reads.ITEM_PREFIX))
     if total > 0:
         return {"key": "timers.stat.collected",
                 "fmt": {"n": short_amount(total)}, "age": None}
