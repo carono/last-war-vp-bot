@@ -105,6 +105,52 @@ def test_a_row_carries_exactly_one_chip_word():
         assert '"%s"' % word in tag, f"{word} is not one of the chips a row can wear"
 
 
+def test_the_count_beside_the_heading_is_what_can_be_taken():
+    """«Счетчик во вкладке с секретками выводим только готовые» — the panel says which.
+
+    A list of eighty-two tiles of which twelve are ripe is answered by «12»: the number is
+    read as «сколько мне тут есть», and the total is the one figure that does not say it.
+    Nothing is hidden — the whole tally is on the chips beside it.
+    """
+    text = _TAB.read_text(encoding="utf-8")
+    head = text.index('"title": "secrettasks.page.stars"')
+    body = text[head:head + 2600]
+    assert '"count": int(tally.get("ready") or 0)' in body, (
+        "the ★ card counts its rows again instead of what can be taken")
+    screen = _SCREEN.read_text(encoding="utf-8")
+    assert "function cardCount(card: ViewCard): number" in screen, (
+        "the front-end has no way to draw a count the panel chose")
+    assert "if (typeof card.count === 'number') return card.count" in screen
+    # …and a card that sends none is counted by its rows, exactly as before.
+    assert "return (card.items || []).length" in screen
+
+
+def test_a_ready_tile_is_coloured_and_the_colour_lives_in_the_stylesheet():
+    """«Готовые карточки секретки измени цветом» — the panel names the state, the
+    front-end paints it with the palette it already has. No colour in the panel, no
+    second theme, and only «готово» is lifted: a wall in which everything is coloured is
+    a wall in which nothing is."""
+    text = _TAB.read_text(encoding="utf-8")
+    assert '{"tone": "ok"} if tag == "ready"' in text, (
+        "a ready tile carries no tone, or something other than ready does")
+    # …and the panel names a STATE, never a colour: no CSS anywhere in the tab, and the
+    # only tone word it uses is one the stylesheet has a rule for.
+    import re
+
+    for colour in ("rgb(", "var(--", "color-mix("):
+        assert colour not in text, f"a colour has been written into the panel: {colour}"
+    assert not re.search(r"#[0-9a-fA-F]{6}\b", text), "a hex colour is in the panel"
+    used = set(re.findall(r'"tone": "(\w+)"', text))
+    assert used <= {"ok", "warn", "bad"}, used
+    screen = _SCREEN.read_text(encoding="utf-8")
+    assert "' tone-' + item.tone" in screen, "the tile does not wear the tone"
+    css = (_REPO / "panel" / "web" / "app" / "src" / "app.css").read_text(encoding="utf-8")
+    for tone in ("ok", "warn", "bad"):
+        assert ".mini.tone-%s {" % tone in css, f"tone-{tone} has no colour"
+        assert "var(--%s)" % tone in css.split(".mini.tone-%s {" % tone)[1][:200], (
+            f"tone-{tone} does not use the palette this stylesheet already has")
+
+
 def test_the_chip_survives_leaving_the_page_and_is_held_in_ONE_place():
     """«При смене вкладки фильтры должны сохраняться» — and without a second copy."""
     text = _SCREEN.read_text(encoding="utf-8")

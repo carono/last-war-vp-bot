@@ -552,6 +552,31 @@ main {
 .mini.act { cursor: pointer; }
 .mini.act:active { border-color: var(--accent); }
 
+/* A TILE THE PANEL CALLED SOMETHING (#2740) — «готовые карточки секретки измени цветом».
+   The word travels as `ViewItem.tone` and the colour is the one this stylesheet already
+   uses for that word everywhere else: `--ok` on a pill, on a dot, on the link light. No
+   second theme, no colour in the panel, and the three tones read the same in day and
+   night because both palettes define all three. The fill is a wash rather than a block —
+   a wall of tiles at full colour is a wall nobody can read — and the border is what the
+   eye actually catches. */
+.mini.tone-ok {
+  border-color: color-mix(in srgb, var(--ok) 55%, var(--card-edge));
+  background: color-mix(in srgb, var(--ok) 12%, var(--bg-soft));
+}
+.mini.tone-warn {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--card-edge));
+  background: color-mix(in srgb, var(--warn) 12%, var(--bg-soft));
+}
+.mini.tone-bad {
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--card-edge));
+  background: color-mix(in srgb, var(--bad) 12%, var(--bg-soft));
+}
+/* …and its own name takes the colour too, which is what carries across a glance at a
+   grid of thirty: a border alone disappears at arm's length. */
+.mini.tone-ok .name > span { color: var(--ok); }
+.mini.tone-warn .name > span { color: var(--warn); }
+.mini.tone-bad .name > span { color: var(--bad); }
+
 /* The name is the coordinate, and the coordinate is the press that goes there — so it
    is the biggest thing on the tile and it is never wrapped. */
 .mini .name {
