@@ -2427,6 +2427,7 @@
   "flow.state.refused": "● permintaan tidak tembus ({why}) · kedatangan terakhir {since} lalu · masuk {seen} · diambil {kept}",
   "flow.state.starving": "● sumber berbicara ({heard}) tetapi tidak ada yang sampai ke sini · {why}",
   "log.secret.area_gone": "peta menjawab tentang kotak mereka tanpa mereka: {n} hilang",
+  "log.secret.wire_kind": "kabel membawa ubin jenis {kind}: {n} sejauh ini",
   "log.secret.verify_start": "memeriksa {rows} baris siap — {servers} zona, {points} perhentian kamera",
   "log.secret.verify_unwatched": "monitor ★ mati — putaran tidak menguraikan apa pun, tidak ada yang diperiksa",
   "log.round.report": "putaran ★ melewati {n} zona ({servers}): {added} baris baru, {rows} di daftar, {ready} siap dirampok; dirampok hari ini {done}, sisa {left}",

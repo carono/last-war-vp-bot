@@ -1005,6 +1005,51 @@ clones are not in the register. Those need `scan_map_monsters.md`, which is 147 
 no uuid. The two are different questions, and `actions/list_world_monsters.md` is the
 recipe for this one.
 
+### `AUDIT_MAP [BOX <n>] INTO <var>`
+
+Count what the **client** holds around the camera, by kind — the reference our own tally
+is subtracted from (#2740).
+
+Everything the panel knows about the map comes off a passive pcap child, and a child that
+misses frames looks exactly like ground with nothing on it. So there has to be a second
+count of the same ground at the same moment, taken from the client itself:
+`WorldScene.PointManager` keeps every tile the client has been answered about, and
+`GetPointInfo(pid)` returns it.
+
+```
+VISIT_MAP POINTS 500,500 ZOOM 600 EVERY 0.05 SERVER 954
+AUDIT_MAP BOX 40 INTO client
+LOG "The client holds: {client}"
+```
+
+| Modifier | Effect | Default |
+|---|---|---|
+| `BOX n` | half the side of the box, in tiles — `(2n+1)^2` lookups | 40 |
+
+The answer is one string:
+
+```
+known=393 of=6561 cam=342,862 AllyCityPointInfo:49 BuildPointInfo:333 ResPointInfo:11
+```
+
+**The KIND is the class name of what the point store returns**, not a field on it —
+`pointType` reads `nil` through this bridge and reflection over the object's properties
+comes back empty, while `GetType().Name` answers. It draws the same distinction the wire
+does: `ResPointInfo` is a mine (`f2=7`), `BuildPointInfo` a base (`f2=6`),
+`AllyCityPointInfo` an alliance city (`f2=25`).
+
+Three things about it:
+
+- **It presses nothing and sends nothing.** No jump, no zoom change, not one byte to the
+  server. Put a walk in front of it if the ground has to be loaded first.
+- **It costs the lookups and nothing else** — 6 561 at the default, about a fifth of a
+  second. So it is played by a person's press, never by a clock, like every other lap on
+  this map.
+- **A client that cannot be asked says so**: `why=no-point-manager` (no world loaded) or
+  `why=no-camera-tile`, rather than an empty count that reads as empty ground.
+
+`actions/audit_map_intake.md` is the recipe for it.
+
 ### `READ_CHAT [LIMIT <n>] INTO <var>`
 
 Read the chat history **the client is already holding** into `<var>` (#2064). Not a

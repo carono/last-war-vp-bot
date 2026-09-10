@@ -2801,6 +2801,42 @@ def player_remarks(payload: dict):
 ALLIANCE_CITY_TILE_TYPE = 25
 ALLIANCE_FACILITY_TILE_TYPE = 35
 
+#: THE MAP'S OWN VOCABULARY — every `f2` this repository has a reader for (#2740).
+#:
+#: Not decoration and not documentation: it is what makes «a kind nobody is taking» a
+#: SENTENCE the panel can say instead of a silence. A capture already counts every `f2`
+#: it decodes (`map_capture.MapIndex.tile_kinds`), and until #2740 that census was
+#: printed exactly once — in the summary line a capture writes when it EXITS. A capture
+#: the panel started never exits, so nobody had ever read it, and a tile kind the game
+#: added (or renumbered) would go on arriving, be counted, be thrown away and say
+#: nothing at all.
+#:
+#: A name here means «something in this repository decodes this kind», never «the panel
+#: keeps it». `f2 = 6` is a base, and whether the base ends up in a list depends on what
+#: the reader was asked for; the census is about the WIRE.
+TILE_KIND_NAMES = {
+    6: "base",
+    MINE_TILE_TYPE: "mine",
+    17: "secret_task",
+    WORLD_TREASURE_TILE_TYPE: "treasure",
+    ALLIANCE_CITY_TILE_TYPE: "alliance_city",
+    GHOST_RECON_TILE_TYPE: "ghost_recon",
+    ALLIANCE_FACILITY_TILE_TYPE: "alliance_facility",
+}
+
+
+def tile_kind_name(kind) -> str:
+    """`"mine"` for a kind we read, `"f2=<n>"` for one nothing here has a reader for.
+
+    Deliberately not `"unknown"`: the NUMBER is what somebody has to go and look up, and
+    a name that hides it turns a lead into a shrug.
+    """
+    try:
+        kind = int(kind)
+    except (TypeError, ValueError):
+        return "f2=?"
+    return TILE_KIND_NAMES.get(kind) or ("f2=%d" % kind)
+
 
 def alliance_names(payload: dict):
     """Yield `(alliance_id, abbr, name)` for every alliance a response names.

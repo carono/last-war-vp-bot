@@ -2427,6 +2427,7 @@
   "flow.state.refused": "● la requête ne passe pas ({why}) · dernière arrivée il y a {since} · reçus {seen} · pris {kept}",
   "flow.state.starving": "● la source parle ({heard}) et rien n'est arrivé ici · {why}",
   "log.secret.area_gone": "la carte a répondu sur leurs cases sans les contenir : {n} case(s) disparue(s)",
+  "log.secret.wire_kind": "le fil transporte des cases de type {kind} : {n} jusqu'ici",
   "log.secret.verify_start": "vérification de {rows} ligne(s) prête(s) — {servers} zone(s), {points} arrêt(s) caméra",
   "log.secret.verify_unwatched": "le moniteur ★ est éteint — un passage ne décode rien, rien ne serait vérifié",
   "log.round.report": "la tournée ★ a parcouru {n} zone(s) ({servers}) : {added} nouvelle(s) ligne(s), {rows} dans la liste, {ready} prête(s) à voler ; volées aujourd'hui {done}, {left} restantes",

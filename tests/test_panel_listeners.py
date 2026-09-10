@@ -206,6 +206,35 @@ def test_the_tile_line_carries_no_owner():
         assert banned not in fields, f"the tile event carries {banned}: {sorted(fields)}"
 
 
+def test_the_kinds_census_is_one_string_in_two_processes_and_is_printed():
+    """The wire's own tally of tile kinds reaches the panel, or it reaches nobody (#2740).
+
+    `MapIndex` has counted every `f2` it decodes since it was written, and until #2740
+    that Counter was printed in exactly one place: the summary a capture writes when it
+    EXITS. A capture the panel started never exits, so the census had never been read by
+    anybody — a kind the game adds would arrive, be counted, be dropped for want of a
+    reader and say nothing at all.
+    """
+    tool = (_REPO / "tools" / "secret_task_capture.py").read_text(encoding="utf-8")
+    hook = (_REPO / "panel" / "tabs" / "secret_tasks" / "capture.py").read_text(
+        encoding="utf-8")
+    assert 'KINDS_MARKER = "##KINDS##"' in tool, "the capture no longer counts kinds"
+    assert 'KINDS_MARKER = "##KINDS##"' in hook, "the panel no longer listens for them"
+    assert "KINDS_MARKER + " in tool, "the census is defined and never printed"
+    assert "KINDS_MARKER" in hook[hook.index("def on_line"):], (
+        "the panel defines the marker and never dispatches on it")
+
+
+def test_a_tile_kind_nothing_reads_is_named_by_its_number():
+    """«unknown» turns a lead into a shrug; the NUMBER is what somebody looks up (#2740)."""
+    import lastwar_proto as proto
+
+    assert proto.tile_kind_name(7) == "mine"
+    assert proto.tile_kind_name(17) == "secret_task"
+    assert proto.tile_kind_name(99) == "f2=99", proto.tile_kind_name(99)
+    assert proto.tile_kind_name(None) == "f2=?"
+
+
 def test_the_ghost_marker_is_one_string_in_two_processes():
     """The ghost twin of the tile marker (#2010), and it exists for the same reason.
 

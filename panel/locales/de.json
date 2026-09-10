@@ -2427,6 +2427,7 @@
   "flow.state.refused": "● die Abfrage kommt nicht durch ({why}) · letzter Eingang vor {since} · empfangen {seen} · übernommen {kept}",
   "flow.state.starving": "● die Quelle spricht ({heard}), hier ist aber nichts angekommen · {why}",
   "log.secret.area_gone": "die Karte hat über ihre Felder geantwortet, ohne sie: {n} Kachel(n) sind weg",
+  "log.secret.wire_kind": "über die Leitung kommen Kacheln der Art {kind}: bisher {n}",
   "log.secret.verify_start": "prüfe {rows} bereite Zeile(n) — {servers} Kampfzone(n), {points} Kamerastopp(s)",
   "log.secret.verify_unwatched": "der ★-Monitor ist aus — ein Rundgang entschlüsselt nichts, es würde nichts geprüft",
   "log.round.report": "die ★-Runde lief über {n} Kampfzone(n) ({servers}): {added} neue Zeile(n), {rows} in der Liste, {ready} raubbereit; heute geraubt {done}, {left} übrig",

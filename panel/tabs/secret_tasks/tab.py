@@ -560,6 +560,14 @@ class SecretTasksTab(PanelTab):
         # other side of the buffer.
         self._tiles: dict = {}
         self._tiles_lock = threading.Lock()
+        # WHAT THE WIRE CARRIED, BY TILE KIND — the other half of the intake ledger
+        # (#2740). The ledger says what this panel TOOK; without this there was nothing
+        # to compare it against, and «ничего не утекает мимо нас» could only ever be an
+        # opinion. Cumulative for the capture child's run, replaced rather than added to,
+        # and named to the log ONCE per kind — a census that repeats itself every tick is
+        # a census nobody reads.
+        self._wire_kinds: dict = {}
+        self._wire_said: set = set()
         # …AND THE SAME BUFFER FOR THE OTHER SNIFFER (#2010). Ghost-recon squads used to
         # reach this tab only through the checkpoint file, and that file is rewritten
         # every tick out of an index that drops every tile not on the warzone currently
@@ -3323,6 +3331,44 @@ class SecretTasksTab(PanelTab):
             return
         self._ghost_restored = True
         self.ghost_map.restore()
+
+    # -- what the WIRE carried, by kind (#2740) -----------------------------------
+    def wire_census(self, record: dict) -> None:
+        """The capture's own tally of every `f2` it decoded — THE WHOLE HOOK, any thread.
+
+        A dict write, and a line the FIRST time a kind is seen. Nothing else may happen
+        here: this runs on the child's reader thread, the same one `tile_seen` is not
+        allowed to block.
+
+        The line is said once per kind rather than per tick because the census is
+        cumulative — every tick would repeat it — and what is worth a person's attention
+        is a kind that has APPEARED. A kind nothing in this repository decodes is named
+        by its number (`lastwar_proto.tile_kind_name`), which is what somebody has to go
+        and look up; calling it «unknown» would turn a lead into a shrug.
+        """
+        import lastwar_proto as proto
+
+        kinds = record.get("kinds")
+        if not isinstance(kinds, dict):
+            return
+        counted = {}
+        for raw, count in kinds.items():
+            try:
+                counted[int(raw)] = int(count)
+            except (TypeError, ValueError):
+                continue
+        with self._tiles_lock:
+            self._wire_kinds = counted
+            fresh = sorted(set(counted) - self._wire_said)
+            self._wire_said |= set(counted)
+        for kind in fresh:
+            self.say("secret", "log.secret.wire_kind",
+                     kind=proto.tile_kind_name(kind), n=counted.get(kind, 0))
+
+    def wire_kinds(self) -> dict:
+        """The census as it stands — `{f2: tiles}`, for whoever is comparing (Tk safe)."""
+        with self._tiles_lock:
+            return dict(self._wire_kinds)
 
     # -- the ghost tiles, as they are decoded (#2010) ----------------------------
     def ghost_tile_seen(self, record: dict) -> None:
