@@ -1000,3 +1000,41 @@ bypasses the whole `UIFormationSelectListV2`/`OnCreateClick`/`CheckCanBattle` di
 `HV=true` was a leftover/pre-existing march (no baseline was logged) — a false positive, and
 Findings 12–13 chased the resulting phantom `HasStaminaEnoughFormation`/`canMarch` gates. The real
 launch primitive is **`MarchUtil.SendCreateMarchMessage`** invoked on the main thread (this Finding).
+
+---
+
+## Finding 20 — the register is kept true by the WIRE, not by a clock (#2711)
+
+**The complaint:** «poll_world_monsters слишком часто выполняется, и возможно занимает
+панель». It did, and it was a clock.
+
+**What ran, measured on the live panel of 2026-09-10, profile with the box ticked at 5 s:**
+
+| | |
+|---|---|
+| what started it | `rt.tick.arm("secret_monster_follow", …)`, armed at BOOT from `ensure_loaded` |
+| how it kept going | a `finally` re-armed it after every tick, whatever the outcome |
+| interval | the page's own box, floor 5 s — the live profile had 5 |
+| fires | ~720/hour, ~17 000/day, regardless of whether the tab had ever been opened |
+| answers worth a log line | 159 in 3.5 h (only a CHANGED count is written) |
+| fires spent discovering the client was in its base | 43 in one morning (`not_in_world`) |
+| share of the profile's Lua calls | the register chunk is `child:CS.UnityEngine.Object.FindObject` in the link's caller histogram — 63 of 1 167 chunks (5.4 %) in the sampled day |
+
+**Why an event exists at all.** A monster is never on the wire (Finding 1 and the
+protocol survey), which is why this page has no push behind it — and that is exactly what
+the poll was justified by. But the register (`WorldScene:GetMonsterListInArea`) is fed by
+the client **LOADING GROUND**, and the ground *is* on the wire: `world.get.block`. The
+monster is not announced; the reason the client now knows about it is.
+
+**So the follow subscribes** (`panel/tabs/secret_tasks/tab.py::_monster_follow_sync`):
+
+* `bus.GAME_READY` — the one first reading a board is allowed to take;
+* `world.get.block` on the profile's shared ear — «the client just drew somewhere new».
+
+A pan is dozens of blocks a second, so the read is armed by the first answer and re-armed
+by the rest (`MONSTER_SETTLE_MS = 700`); the seconds box became a FLOOR between two reads
+rather than a period. A fire books nothing, so a map nobody walks asks nothing. And the
+read steps aside outright when anything holds the client (`claimed_by()`), dropping with
+`game_busy` on the intake ledger instead of queueing behind a rally join.
+
+Pinned by `tests/test_panel_monster_follow.py`.

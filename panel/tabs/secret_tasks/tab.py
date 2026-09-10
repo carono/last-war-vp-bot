@@ -762,6 +762,14 @@ class SecretTasksTab(PanelTab):
         self.trucks = TruckGrid(self)
         #: Whether the monster read is in flight — one game round trip at a time.
         self._monster_busy = False
+        #: The follow's SUBSCRIPTIONS — what it listens to instead of ticking (#2711).
+        #: Empty means it is not listening at all, which is what «Следить за картой»
+        #: being off has to cost: nothing.
+        self._monster_offs: list = []
+        #: The earliest moment the follow may ask again (`time.monotonic`). The wire
+        #: fires once per block the client loads and a person panning the map loads
+        #: dozens in a second, so the floor is what turns a burst into ONE read.
+        self._monster_next = 0.0
         #: The ★ page's own flow strip (#1549) — see `_refresh_star_flow`.
         self._star_flow_var = tk_stringvar(self.rt.root)
         self._star_flow = None
@@ -866,12 +874,15 @@ class SecretTasksTab(PanelTab):
         # the thing that keeps the list true has to run whether or not anybody does
         # either. It asks the game for nothing; it reads a file (#1484).
         self._harvest_tick()
-        # …AND THE MONSTER FOLLOW, for the same reason and with the same shape (#1549).
-        # The page's own feed is a question nobody was asking: a person walking the map
-        # by hand LOADS the client's register — 176, 177 and 321 monsters at three
-        # moments of one live session — while the page showed 1 row, because a row ages
-        # out after fifteen minutes and only three buttons could ever re-confirm one.
-        self._monster_follow_tick()
+        # …AND THE MONSTER FOLLOW, for the same reason and with the same shape (#1549)
+        # — but as an EAR rather than a clock since #2711. The page's own feed is a
+        # question nobody was asking: a person walking the map by hand LOADS the
+        # client's register — 176, 177 and 321 monsters at three moments of one live
+        # session — while the page showed 1 row, because a row ages out after fifteen
+        # minutes and only three buttons could ever re-confirm one. What asks now is the
+        # loading itself (`_monster_follow_sync`), so a profile with the box off, or a
+        # client sitting in its base, costs the game nothing at all.
+        self._monster_follow_sync()
         # …and the monster list's own move into `panel.db`'s `monsters` table, here for
         # the same reason (#1963). The page's `restore` runs when somebody OPENS the tab,
         # and the profile this was reported on had the clock polling for a page nobody
@@ -1094,6 +1105,15 @@ class SecretTasksTab(PanelTab):
                      "secret_tiles", "secret_monster_follow",
                      "autoloot_push_restart"):
             self.rt.tick.disarm(name)
+        # …and the follow's two SUBSCRIPTIONS, which a `disarm` cannot reach (#2711).
+        # An ear left open outlives the window that opened it and goes on booking reads
+        # against a runtime on its way out.
+        for off in self._monster_offs:
+            try:
+                off()
+            except Exception:                  # noqa: BLE001 — a stop, never the exit
+                pass
+        self._monster_offs = []
         self._ticking = self._polling = self._living = False
         # …and whatever a verification still had to walk (#1484). The chain re-arms
         # itself from `on_show`, so a queue left behind here would come back walking a
@@ -3410,48 +3430,134 @@ class SecretTasksTab(PanelTab):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _monster_follow_tick(self) -> None:
-        """Ask the world's register on a clock while somebody walks the map (#1549).
+    #: How long the follow lets the map settle before it asks, in milliseconds (#2711).
+    #: A pan is not one event: the client asks the server for every block it loads and
+    #: the ear hears every answer, so a second of walking is dozens of fires. The read
+    #: is armed by the FIRST of them and re-armed by the rest, which is what makes a
+    #: burst cost one round trip instead of thirty.
+    MONSTER_SETTLE_MS = 700
 
-        THE ANSWER TO «я хожу по карте, и грид не заполняется», and the measurement is
-        what shaped it. The register (`WorldScene:GetMonsterListInArea`) is fed by the
-        client LOADING ground, which is exactly what a person panning the map does — so
-        the monsters were there all along. What was missing is that nothing asked: the
-        page had three presses and no clock, and `world.SIGHTING_TTL_SEC` takes a row off
-        fifteen minutes after the last confirmation. Live, one afternoon: the register
-        answered 176 / 177 / 321 at three different moments and the page held 1 row.
+    #: The command the client's ground-loading rides, and the whole reason this page can
+    #: be kept true without a clock. A monster is never on the wire — placement is
+    #: computed client-side — but the GROUND is, and the register is fed by loading it
+    #: (`actions/poll_world_monsters.md`). So «the client just drew somewhere new» is a
+    #: fact the ear already hears for other reasons, and asking after it is a reading
+    #: taken because something happened rather than because a timer went off.
+    MONSTER_GROUND = "world.get.block"
 
-        It plays `actions/poll_world_monsters.md` and nothing else — the register asked
-        with NO camera lap in front of it (36 ms) and NO `GAME WORLD` behind it, because
-        a poll that puts the map up drags a person out of their base every twenty
-        seconds. Off the map the recipe leaves `monsters` unset, which is why the page
-        can say «клиент не в мире» instead of showing an empty table.
+    def _monster_follow_sync(self) -> None:
+        """Listen while «Следить за картой» is on — and to NOTHING when it is off (#2711).
 
-        Every outcome is on the ledger, so the strip above the table can name it: the
-        switch off, no daemon, the client in the base, a read that failed. None of them
-        is a LOSS — nothing was handed over — and all of them are the difference between
-        «данных нет» and «мы их не берём», which is what #1549 is about.
+        THIS USED TO BE A CLOCK, and the clock is what #2711 is about. `ensure_loaded`
+        armed `secret_monster_follow` at BOOT, every tick re-armed it in a `finally`, and
+        the interval came off a box whose floor is five seconds — so a profile with the
+        box ticked asked the game **every five seconds, for ever, whether or not anybody
+        had opened the tab**. Measured on the live panel on 2026-09-10, profile
+        `default`, box on at 5 s: the register answered 159 times with a CHANGED number
+        in three and a half hours — and those are only the answers worth a log line. The
+        clock itself fired about 720 times an hour, or some 17 000 times a day, each one
+        a scene check and, on the map, a `GetMonsterListInArea` over every monster
+        config in the game. `CLAUDE.md` has one rule about that shape and it is
+        «Read once, then LISTEN».
+
+        So it listens. Two events and no third:
+
+        * `bus.GAME_READY` — the client got into the game, which is the one moment a
+          board is allowed to take a FIRST reading;
+        * :data:`MONSTER_GROUND` on the wire — the server answered the client's request
+          for a block of ground, which is precisely «somebody moved the map and the
+          client has drawn somewhere new». It is the event the old clock was guessing at.
+
+        Off the map nothing is loaded, so nothing fires and the follow costs the game
+        exactly nothing — where the clock used to spend a round trip every five seconds
+        discovering that the client was in its base (43 of those in one live morning).
+
+        The ear itself is the profile's own shared capture (`panel/runtime/wire.py`): a
+        pattern joins the union every other listener already pays for, and a profile with
+        no listener at all pays for a child only while the box is ticked.
         """
+        want = bool(self.monsters.follow_var.get())
+        if want == bool(self._monster_offs):
+            return
+        if not want:
+            for off in self._monster_offs:
+                try:
+                    off()
+                except Exception:              # noqa: BLE001 — a stop, never the window
+                    pass
+            self._monster_offs = []
+            self.rt.tick.disarm("secret_monster_follow")
+            return
+        from ...runtime import bus
+
+        self._monster_offs = [
+            self.rt.bus.subscribe(bus.GAME_READY, self._monster_ground_moved),
+            self.rt.wire.subscribe(self.MONSTER_GROUND, self._monster_ground_moved),
+        ]
+
+    def _monster_ground_moved(self, *_args) -> None:
+        """The map moved (or the client just got in): book a read, off the Tk thread.
+
+        The wire dispatch runs on the capture child's reader thread and the bus may
+        publish from a worker, so nothing here touches a widget or the ticker — both are
+        the window's, and `post` is how a fact reaches it.
+        """
+        self.post(self._monster_arm)
+
+    def _monster_arm(self) -> None:
+        """Arm the ONE settling shot, on the Tk thread.
+
+        Named, so a burst of ground answers re-arms the same booking instead of making
+        thirty of them, and the read happens once the walking stops. Never sooner than
+        the box's own floor: the interval is no longer a period, it is «not more often
+        than this», which is the only honest meaning it can have on an event stream.
+        """
+        if not self.monsters.follow_var.get():
+            return
+        floor = max(0.0, self._monster_next - time.monotonic())
+        self.rt.tick.arm("secret_monster_follow",
+                         int(max(self.MONSTER_SETTLE_MS / 1000.0, floor) * 1000),
+                         self._monster_follow_fire)
+
+    def _monster_follow_fire(self) -> None:
+        """The settled read: every gate on the ledger, and NOTHING re-armed (#2711).
+
+        The absence of a re-arm is the point. A booking that fires and books nothing is
+        a panel that goes quiet the moment the person stops walking — where the old
+        chain could never stop, because its `finally` re-armed it whatever the answer
+        was and whatever the gate said.
+
+        AND IT STEPS ASIDE. The read is a nicety on a page nobody may be looking at, and
+        the profile has one game link: if anything at all is holding the client — a
+        rally join, an errand, somebody at a button — this drops with the holder named
+        and does not queue, does not retry and does not wait. The next block of ground
+        the client loads brings it back within a second, and the whole of what a person
+        loses by the drop is one reading of a table that ages out over fifteen minutes.
+        """
+        take = self.take(INTAKE_MONSTERS)
+        if not self.monsters.follow_var.get():
+            take.dropped(reason="follow_off")
+            return
+        if self._monster_busy:
+            take.dropped(reason="already_reading")
+            return
+        if not self.rt.game.ready():
+            take.dropped(reason="no_game")
+            return
+        holder = ""
         try:
-            take = self.take(INTAKE_MONSTERS)
-            if not self.monsters.follow_var.get():
-                take.dropped(reason="follow_off")
-                return
-            if self._monster_busy:
-                take.dropped(reason="already_reading")
-                return
-            if not self.rt.game.ready():
-                take.dropped(reason="no_game")
-                return
-            self._monster_busy = True
-            threading.Thread(target=self._monster_follow_work, daemon=True).start()
-        finally:
-            # Named, so the poll is ONE chain however often `ensure_loaded` is reached —
-            # and re-armed from the box every time, so changing the interval takes effect
-            # on the next tick rather than on the next restart.
-            self.rt.tick.arm("secret_monster_follow",
-                             max(5, self.monsters.follow_seconds()) * 1000,
-                             self._monster_follow_tick)
+            holder = str(self.rt.game.claimed_by() or "")
+        except Exception:                      # noqa: BLE001 — a courtesy, never the read
+            holder = ""
+        if holder:
+            # «Уступает тем, кто делает работу»: named on the ledger so the page's own
+            # strip can say WHY nothing arrived, rather than looking broken.
+            take.dropped(reason="game_busy")
+            return
+        self._monster_next = (time.monotonic()
+                              + max(5, self.monsters.follow_seconds()))
+        self._monster_busy = True
+        threading.Thread(target=self._monster_follow_work, daemon=True).start()
 
     def _monster_follow_work(self) -> None:
         """The poll's worker: one recipe, one parse, one merge on the Tk thread."""
@@ -5739,8 +5845,9 @@ class SecretTasksTab(PanelTab):
             return {"ok": True, "on": bool(self.monsters.own_only_var.get())}
         if action == "follow_monsters":
             # The window's own checkbox, flipped from the phone (#1549). It changes a
-            # SETTING and starts nothing: the poll's chain re-reads the box on its next
-            # tick, so turning it on here fills the page within one interval.
+            # SETTING and starts nothing: the box IS the subscription since #2711, so
+            # ticking it here opens the ear (`_monster_follow_sync`, through the var's
+            # own trace) and the page fills the next time the client loads ground.
             self.monsters.follow_var.set(not self.monsters.follow_var.get())
             self.post(self.monsters.refilter)
             return {"ok": True, "on": bool(self.monsters.follow_var.get())}

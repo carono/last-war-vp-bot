@@ -590,12 +590,14 @@ class MonsterGrid(WorldGrid):
         """Where this page's OLD JSON checkpoint used to live, for the one-time import."""
         return self.tab.rt.profiles.world_state_json(self.CONFIG_KEY)
 
-    #: HOW OFTEN THE REGISTER IS ASKED WHILE SOMEBODY WALKS THE MAP, in seconds (#1549).
+    #: HOW OFTEN THE REGISTER MAY BE ASKED WHILE SOMEBODY WALKS THE MAP, in seconds
+    #: (#1549) — and since #2711 it is a FLOOR, not a period. Nothing counts it down:
+    #: the read is fired by the client loading ground (`tab._monster_follow_sync`), and
+    #: this is only how close together two of those may be answered. A map nobody is
+    #: walking asks nothing at all, however small this is set.
+    #:
     #: The ask costs 36 ms and touches neither the camera nor the scene
-    #: (`actions/poll_world_monsters.md`), and a row ages out after fifteen minutes, so
-    #: anything under a minute keeps the page true at a cost that does not show. Twenty
-    #: seconds is a compromise between «the row appeared while I was still looking at the
-    #: monster» and one more claim on the daemon every tick.
+    #: (`actions/poll_world_monsters.md`), and a row ages out after fifteen minutes.
     DEFAULT_FOLLOW = "20"
 
     def __init__(self, tab) -> None:
@@ -619,6 +621,12 @@ class MonsterGrid(WorldGrid):
         #: A profile that already has it saved keeps its own answer — a default is what
         #: a NEW profile starts from, never a decision made again on somebody's behalf.
         self.follow_var = statevar.boolean(tab.rt.root, False)
+        #: …and the switch is the SUBSCRIPTION now, so a flip has to be heard (#2711).
+        #: The box is thrown from three places — the window's checkbox, the phone, and
+        #: `restore` bringing a profile's saved answer back — and each of them has to
+        #: end with the ear open or shut to match. One trace covers all three; the tab
+        #: is asked through `getattr` because this runs while it is still being built.
+        self.follow_var.trace_add("write", lambda *_a: self._follow_changed())
         self.follow_secs_var = tk_stringvar(tab.rt.root)
         self.follow_secs_var.set(self.DEFAULT_FOLLOW)
         #: «Скрывать простых» — ON for a profile that has never been asked. The ordinary
@@ -642,6 +650,13 @@ class MonsterGrid(WorldGrid):
         self.own_only_var = statevar.boolean(tab.rt.root, True)
         #: …and its own count beside it, same reasoning as the one above.
         self.own_count_var = tk_stringvar(tab.rt.root)
+
+    def _follow_changed(self) -> None:
+        """«Следить за картой» was thrown: open or shut the ear to match (#2711)."""
+        sync = getattr(self.tab, "_monster_follow_sync", None)
+        if sync is None or getattr(self.tab, "monsters", None) is not self:
+            return
+        sync()
 
     def extra_filters(self, bar) -> None:
         """The lap's own controls, on the page the lap fills.

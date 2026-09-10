@@ -2126,7 +2126,7 @@
   "world.monsters.follow": "Suivre la carte",
   "world.monsters.follow.off": "Arrêter le suivi",
   "world.monsters.follow.on": "Suivre la carte",
-  "world.monsters.follow_secs": "s entre les requêtes",
+  "world.monsters.follow_secs": "s mini entre requêtes",
   "world.monsters.hide_plain": "Masquer les monstres ordinaires",
   "world.monsters.plain.hide": "Masquer les monstres ordinaires",
   "world.monsters.plain.show": "Afficher les monstres ordinaires",

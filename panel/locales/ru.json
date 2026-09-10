@@ -2126,7 +2126,7 @@
   "world.monsters.follow": "Следить за картой",
   "world.monsters.follow.off": "Не следить",
   "world.monsters.follow.on": "Следить за картой",
-  "world.monsters.follow_secs": "с между опросами",
+  "world.monsters.follow_secs": "с — не чаще",
   "world.monsters.hide_plain": "Скрывать простых монстров",
   "world.monsters.plain.hide": "Скрыть простых монстров",
   "world.monsters.plain.show": "Показать простых монстров",

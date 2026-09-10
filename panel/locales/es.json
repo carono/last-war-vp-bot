@@ -2126,7 +2126,7 @@
   "world.monsters.follow": "Vigilar el mapa",
   "world.monsters.follow.off": "Dejar de vigilar",
   "world.monsters.follow.on": "Vigilar el mapa",
-  "world.monsters.follow_secs": "s entre consultas",
+  "world.monsters.follow_secs": "s mín. entre consultas",
   "world.monsters.hide_plain": "Ocultar monstruos comunes",
   "world.monsters.plain.hide": "Ocultar monstruos comunes",
   "world.monsters.plain.show": "Mostrar monstruos comunes",
