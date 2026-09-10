@@ -350,6 +350,18 @@ export interface ViewItem {
   facts?: Fact[]
   until?: number
   actions?: ViewAction[]
+  /* THE WHOLE TILE IS THIS ITEM'S FIRST PRESS (#2737) — the person's words about the
+     warzone grid: «на сервере кнопку перейти», meaning the server itself, not a 70 px
+     button under it. A tile whose name is a COORDINATE already works that way
+     (`firstPlace`); a tile whose name is a warzone number has no coordinate to read, so
+     the panel says so here instead. The press is still the one in `actions`, played
+     through the one `PressButton` there is — and the separate button is not drawn, or
+     the same press would stand on the tile twice. */
+  tap?: boolean
+  /* WHAT THIS ITEM IS, for the card's own filter chips (#2737) — words of the panel's
+     own choosing, matched against `ViewCard.filters`, never translated. A card with no
+     filters ignores them. */
+  tags?: string[]
   /* THE ONE SWITCH THIS ROW IS ABOUT (#2068). An account has one state — «работает» or
      not — and the switch that moves it belongs ON the row rather than behind its gear.
      Drawn by `ui/FieldRow.tsx`, like every other switch on this front-end, and sent back
@@ -491,6 +503,18 @@ export interface ViewCard {
   options_title?: string
   /* HOW THE GRID IS ORDERED, as small buttons drawn directly over the rows (#2308). */
   sorts?: SortButton[]
+  /* WHAT NARROWS THIS CARD, as chips over its items (#2737) — the person's words: «сделай
+     кнопки-фильтры, только звездные дни секреток». One chip is chosen at a time and an
+     `id` of `""` is «все»; an item is kept when its `tags` hold the chosen id. It is
+     SCREEN STATE and nothing else: the chip lives in this front-end, the panel keeps no
+     copy of it and no press is sent when one is tapped. `count` is drawn beside the word
+     the way the card strip counts its cards. */
+  filters?: { id: string; label: string; count?: number }[]
+  /* THIS CARD'S ITEMS ARE DRAWN WHOLE (#2737) — no «Показать ещё» under them. For a card
+     whose items are SMALL and whose whole point is the wall of them: the four hundred
+     warzones of «Куда идти сегодня» are a chart a person reads at a glance, and cut to
+     thirty they are a list nobody pages through. A card of wide rows keeps the cut. */
+  whole?: boolean
   note?: string
   /* ALREADY DRAWN BY THE PICTURE ABOVE (#2064). A screen that is DRAWN rather than
      listed still sends its cards, so a front-end that does not know that kind shows

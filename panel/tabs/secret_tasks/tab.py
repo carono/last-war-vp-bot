@@ -5603,6 +5603,16 @@ class SecretTasksTab(PanelTab):
                                     {"label": "servers.col.secret_until",
                                      "value": row["until"]}],
                           "pill": row["state_key"],
+                          # WHICH CHIP KEEPS THIS TILE (#2737) — the tile's own state, as
+                          # the card's filters name it. A word of the panel's, never a key.
+                          "tags": [row["state"]],
+                          # THE WHOLE TILE IS «ПЕРЕЙТИ» (#2737), the person's own decision
+                          # about this card: a warzone number is not a coordinate, so the
+                          # tile could not make itself a jump the way every coordinate tile
+                          # on this screen does — it carried a button instead, under a
+                          # two-digit name. The press below is unchanged; what goes is the
+                          # second control over it.
+                          "tap": True,
                           # THE BUTTON IS THE STATE OF THE JUMP (#2593). While one is in
                           # flight every «Перейти» on the card is dead and the one being
                           # walked to says «Переходим…», so a second press cannot be made
@@ -5610,19 +5620,39 @@ class SecretTasksTab(PanelTab):
                           # but a camera sent twice is two cross-server loads and the
                           # second one wins.
                           "actions": [{"id": "jump_server",
+                                       # The words are the tile's TOOLTIP now rather than
+                                       # a button's face (#2737), so they name the warzone:
+                                       # «Перейти» alone is what every one of four hundred
+                                       # tiles would say to somebody reading the page aloud.
                                        "label": ("secrettasks.picker.going"
                                                  if going == row["server"]
-                                                 else "secrettasks.picker.go"),
+                                                 else "secrettasks.picker.go_srv"),
+                                       "label_fmt": {"srv": row["server"]},
                                        "disabled": bool(going),
                                        "args": {"server": row["server"]}}]})
+        # THE THREE TALLIES ARE THE FILTER CHIPS NOW (#2737) — the person asked for
+        # «кнопки-фильтры, только звездные дни секреток», and a chip that carries its own
+        # count says what the three reading rows used to say AND narrows the wall to it.
+        # Drawn in the order a person looks for them: everything, then the star day, then
+        # the day after, then the ordinary ones; a state with nothing in it is left out
+        # rather than offered as a chip that empties the card.
+        states = [("", "web.ui.filter.all", len(cells)),
+                  ("day", "servers.secret.state.day", tally["day"]),
+                  ("post", "servers.secret.state.post", tally["post"]),
+                  ("plain", "servers.secret.state.plain", tally["plain"]),
+                  # …and a word for the ones the book cannot date. The servers table
+                  # draws that state as a dash, which is right in a column and useless
+                  # on a chip, so the chip has a key of its own.
+                  ("unknown", "secrettasks.picker.filter.unknown", tally["unknown"])]
         return {"title": "secrettasks.picker.title",
                 "rows": rows + [{"label": "secrettasks.picker.slice.label",
-                          "value": view["slice"]},
-                         {"label": "servers.secret.state.day", "value": str(tally["day"])},
-                         {"label": "servers.secret.state.post",
-                          "value": str(tally["post"])},
-                         {"label": "servers.secret.state.plain",
-                          "value": str(tally["plain"])}],
+                                 "value": view["slice"]}],
+                "filters": [{"id": key, "label": label, "count": count}
+                            for key, label, count in states if count or not key],
+                # DRAWN WHOLE (#2737): «убирай пагинацию». Four hundred two-digit tiles
+                # are a chart read at a glance, and cut to thirty they were a list nobody
+                # pages through.
+                "whole": True,
                 "items": items,
                 "empty": "secrettasks.picker.empty"}
 

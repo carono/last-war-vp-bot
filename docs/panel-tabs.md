@@ -1013,6 +1013,31 @@ warzone number, a player — is left a plain tile with whatever buttons it came 
 Nothing is guessed here: the panel marks the coordinates it sends
 (`panel/web/coordlinks.py`), and a tile is a button exactly when there is a mark to press.
 
+**…and a tile whose name is NOT a place may still be the press, when the tab says
+`"tap": true`** (#2737). Then the whole tile is the FIRST of its `actions` — the same
+`PressButton` a shop tile is, so the `confirm`, the busy lock, `disabled` and the toast
+are unchanged — and that action is not also drawn as a button under the name. It is for a
+tile whose name is a thing the panel knows how to reach without a coordinate: «Куда идти
+сегодня» is four hundred warzone numbers, and the person's words about the button that
+used to sit under each of them were «на сервере кнопку перейти». The words of the action
+become the tile's tooltip rather than its face, so they name the thing — «Перейти на 942»
+and not four hundred tiles all saying «Перейти».
+
+**A card may be NARROWED BY CHIPS over its items** (#2737). `filters` is a list of
+`{"id": …, "label": …, "count": …}`, drawn as the same chip the screen's own strip is made
+of; an `id` of `""` is «все». An item is kept when its `tags` hold the chosen id — `tags`
+are words of the panel's own choosing, never translated. The chosen chip is SCREEN STATE
+and nothing else: no press is sent, nothing is stored, and reopening the card starts at
+«все». A chip's `count` is the panel's tally of the WHOLE card, which is why «Куда идти
+сегодня» stopped drawing the three tallies as reading rows — the chip both says the number
+and narrows the wall to it.
+
+**A card may ask to be drawn WHOLE** — `"whole": true` — and then the front-end's own cut
+and its «Показать ещё» are off (#2737). It is for a card of SMALL items whose point is the
+wall of them: four hundred two-digit warzone tiles are a chart read at a glance, and cut
+to thirty they are a list nobody pages through. A card of wide rows keeps the cut; so does
+a `paged` card, which is one page already.
+
 **A card of things with a FACE is drawn as the card an errand is** (#2119). A card may
 say `"layout": "cards"`, and then its `items` are laid out on the same grid the errands
 are and each one drawn by `panel/web/app/src/ui/ErrandCard.tsx`: the picture at full
