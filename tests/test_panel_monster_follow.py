@@ -133,6 +133,7 @@ class _Follow:
         self._monster_offs: list = []
         self._monster_next = 0.0
         self._monster_busy = False
+        self._monster_busy_tries = 0
         self.ledger = _Ledger()
         self.posted: list = []
         self.started = 0
@@ -155,6 +156,8 @@ class _Follow:
     _monster_follow_fire = fire = SecretTasksTab._monster_follow_fire
     MONSTER_SETTLE_MS = SecretTasksTab.MONSTER_SETTLE_MS
     MONSTER_GROUND = SecretTasksTab.MONSTER_GROUND
+    MONSTER_BUSY_RETRY_MS = SecretTasksTab.MONSTER_BUSY_RETRY_MS
+    MONSTER_BUSY_TRIES = SecretTasksTab.MONSTER_BUSY_TRIES
 
 
 # ---------------------------------------------------------------------------
@@ -256,14 +259,43 @@ def test_a_move_with_the_box_off_books_nothing():
 # ---------------------------------------------------------------------------
 def test_the_read_yields_to_anybody_holding_the_client():
     """«Сделай этот сценарий прозрачным»: a nicety on a page nobody may be looking at
-    does not queue behind a rally join. It drops, says why, and the next block of ground
-    brings it back."""
+    does not queue behind a rally join. It drops, says why — and offers itself again a
+    bounded number of times rather than waiting for ground that may never come (#2740)."""
     tab = _Follow(on=True, holder="default/join_rally")
     tab.sync()
     tab.fire()
     assert tab.started == 0
     assert tab.ledger.reasons == ["game_busy"]
-    assert tab.tick.armed == {}, "the refused read queued itself behind the holder"
+    assert "secret_monster_follow" in tab.tick.armed, (
+        "a reading stepped aside for a busy client was dropped for ever — "
+        "«занята панель» then reads as «монстров нет»")
+
+
+def test_a_busy_client_is_not_asked_for_ever():
+    """The retry is BOUNDED: a client held all day costs a handful of claim lookups and
+    no round trip at all, rather than a clock nobody asked for (#2740)."""
+    tab = _Follow(on=True, holder="default/join_rally")
+    tab.sync()
+    for _ in range(tab.MONSTER_BUSY_TRIES + 3):
+        tab.tick.armed.pop("secret_monster_follow", None)
+        tab.fire()
+    assert tab.started == 0
+    assert tab.tick.armed == {}, "the bounded retry never stopped"
+
+
+def test_fresh_ground_starts_the_count_again():
+    """A walk is a new question, not the old one asked louder — so it clears the count
+    and the reading gets its full allowance again (#2740)."""
+    tab = _Follow(on=True, holder="default/join_rally")
+    tab.sync()
+    for _ in range(tab.MONSTER_BUSY_TRIES + 2):
+        tab.tick.armed.pop("secret_monster_follow", None)
+        tab.fire()
+    assert tab.tick.armed == {}
+    tab.arm()                                    # a block of ground arrived
+    tab.tick.armed.pop("secret_monster_follow", None)
+    tab.fire()
+    assert "secret_monster_follow" in tab.tick.armed
 
 
 def test_a_free_client_is_read_without_waiting():

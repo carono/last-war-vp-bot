@@ -569,6 +569,18 @@ class MapIndex(LiveDecoder):
         self.blocks_seen = 0
         self.tiles_seen = 0
         self.tile_kinds: Counter = Counter()
+        #: The SHAPE of one tile of every kind nothing in this repository decodes —
+        #: field names only, never a value (#2740).
+        #:
+        #: A census that says «f2=61: 23» tells you a kind is leaking past and nothing
+        #: whatever about what it is. The names of the fields, and of the fields inside
+        #: its own sub-message, are what the next reader starts from — and they are shape
+        #: rather than identity, so they may be printed into a log that people send each
+        #: other (`CLAUDE.md`, «Not one identifier of a real account is written down»).
+        #:
+        #: Filled once per kind and never again: a kind the game has always sent costs
+        #: one walk of one tile's keys, for the whole run.
+        self.tile_shapes: dict = {}
         # Counted before any filtering, unlike LiveDecoder.packets which only
         # counts TCP packets carrying a payload. The gap between the two is
         # the difference between "npcap delivered nothing" and "it delivered
@@ -638,6 +650,7 @@ class MapIndex(LiveDecoder):
             self.blocks_seen += 1
             self.tiles_seen += sum(kinds.values())
             self.tile_kinds.update(kinds)
+            self._note_shapes(blocks, kinds)
             now = time.time()
             # A declared jump is applied here, on the map's own word, and before
             # the ballots below — so the response that confirms it is counted for
@@ -656,6 +669,36 @@ class MapIndex(LiveDecoder):
             if viewing is not None:
                 self._switch_to(viewing)
             self.on_blocks(payload, blocks, now)
+
+    def _note_shapes(self, blocks, kinds) -> None:
+        """Record the field NAMES of one tile of each kind we have no reader for (#2740).
+
+        `_index_lock` is held. Costs nothing on the ordinary tick: the loop below runs
+        only for a kind that is both unknown and unrecorded, which after the first block
+        carrying it is never again.
+        """
+        wanted = [kind for kind in kinds
+                  if kind is not None
+                  and kind not in proto.TILE_KIND_NAMES
+                  and kind not in self.tile_shapes]
+        if not wanted:
+            return
+        for block in blocks:
+            for point in block.get("points") or ():
+                tile = (point or {}).get("_protobuf") or {}
+                kind = tile.get("f2")
+                if kind not in wanted:
+                    continue
+                shape = []
+                for key, value in sorted(tile.items()):
+                    if isinstance(value, dict):
+                        shape.append("%s{%s}" % (key, ",".join(sorted(value))))
+                    else:
+                        shape.append(str(key))
+                self.tile_shapes[kind] = " ".join(shape)
+                wanted.remove(kind)
+                if not wanted:
+                    return
 
     # -- subclass hooks ----------------------------------------------------
 

@@ -781,6 +781,9 @@ class SecretTasksTab(PanelTab):
         #: Empty means it is not listening at all, which is what «Следить за картой»
         #: being off has to cost: nothing.
         self._monster_offs: list = []
+        #: How many times running a settled reading has stepped aside for a busy client
+        #: (#2740). Cleared by a reading that gets through and by any fresh ground.
+        self._monster_busy_tries = 0
         #: The earliest moment the follow may ask again (`time.monotonic`). The wire
         #: fires once per block the client loads and a person panning the map loads
         #: dozens in a second, so the floor is what turns a burst into ONE read.
@@ -3361,9 +3364,19 @@ class SecretTasksTab(PanelTab):
             self._wire_kinds = counted
             fresh = sorted(set(counted) - self._wire_said)
             self._wire_said |= set(counted)
+        shapes = record.get("shapes")
+        shapes = shapes if isinstance(shapes, dict) else {}
         for kind in fresh:
             self.say("secret", "log.secret.wire_kind",
                      kind=proto.tile_kind_name(kind), n=counted.get(kind, 0))
+            # …AND WHAT IT LOOKS LIKE, when nothing here has a reader for it (#2740).
+            # «f2=61: 23» says a kind is leaking past and nothing about what it is; the
+            # field names are where decoding it starts. Names only — the values are
+            # somebody's account and never reach a log.
+            shape = shapes.get(str(kind))
+            if shape and proto.tile_kind_name(kind).startswith("f2="):
+                self.say("secret", "log.secret.wire_kind_shape",
+                         kind=proto.tile_kind_name(kind), shape=str(shape)[:400])
 
     def wire_kinds(self) -> dict:
         """The census as it stands — `{f2: tiles}`, for whoever is comparing (Tk safe)."""
@@ -3626,6 +3639,30 @@ class SecretTasksTab(PanelTab):
     #: burst cost one round trip instead of thirty.
     MONSTER_SETTLE_MS = 700
 
+    #: How long a reading the CLIENT was too busy for waits before it is offered again,
+    #: in milliseconds (#2740).
+    #:
+    #: WHY IT IS NOT «the next block of ground will bring it back». That is what #2711
+    #: wrote, and it is true only while the map is MOVING. The event this follow rides is
+    #: the server answering a request for ground — so the last answer of a walk is
+    #: exactly the one most likely to land while a robbery or an errand is holding the
+    #: link, and after it the map is still, no more ground is asked for, and the reading
+    #: that was stepped aside for is not offered again until somebody moves the camera.
+    #: «Занята панель» then reads as «монстров нет», which is one of the three things the
+    #: operator named.
+    #:
+    #: Stepping aside is still right — the read is a nicety and the profile has one link.
+    #: What was wrong is dropping it for ever, so it comes back, at most
+    #: :data:`MONSTER_BUSY_TRIES` times, on the same named booking a ground answer would
+    #: re-arm. A retry that finds the client still busy costs one claim lookup and no
+    #: round trip at all.
+    MONSTER_BUSY_RETRY_MS = 4000
+
+    #: …and how many times, so a client held all day spins a claim check a handful of
+    #: times rather than for ever. The count is cleared by any reading that gets through
+    #: and by any fresh ground, which is what makes it a bounded RETRY and not a clock.
+    MONSTER_BUSY_TRIES = 5
+
     #: The command the client's ground-loading rides, and the whole reason this page can
     #: be kept true without a clock. A monster is never on the wire — placement is
     #: computed client-side — but the GROUND is, and the register is fed by loading it
@@ -3693,16 +3730,22 @@ class SecretTasksTab(PanelTab):
         """
         self.post(self._monster_arm)
 
-    def _monster_arm(self) -> None:
+    def _monster_arm(self, retry: bool = False) -> None:
         """Arm the ONE settling shot, on the Tk thread.
 
         Named, so a burst of ground answers re-arms the same booking instead of making
         thirty of them, and the read happens once the walking stops. Never sooner than
         the box's own floor: the interval is no longer a period, it is «not more often
         than this», which is the only honest meaning it can have on an event stream.
+
+        `retry` marks the one caller that is not fresh ground: a reading the client was
+        too busy for, offering itself again (#2740). Fresh ground clears the retry count,
+        because a walk is a new question rather than the old one asked louder.
         """
         if not self.monsters.follow_var.get():
             return
+        if not retry:
+            self._monster_busy_tries = 0
         floor = max(0.0, self._monster_next - time.monotonic())
         self.rt.tick.arm("secret_monster_follow",
                          int(max(self.MONSTER_SETTLE_MS / 1000.0, floor) * 1000),
@@ -3729,6 +3772,14 @@ class SecretTasksTab(PanelTab):
             return
         if self._monster_busy:
             take.dropped(reason="already_reading")
+            # The same bounded retry as the busy-client case below, and for the same
+            # reason: the read in flight may be over a different patch of ground, and no
+            # further answer is coming to ask again on this one (#2740).
+            self._monster_busy_tries = int(
+                getattr(self, "_monster_busy_tries", 0) or 0) + 1
+            if self._monster_busy_tries <= self.MONSTER_BUSY_TRIES:
+                self.rt.tick.arm("secret_monster_follow", self.MONSTER_BUSY_RETRY_MS,
+                                 self._monster_follow_fire)
             return
         if not self.rt.game.ready():
             take.dropped(reason="no_game")
@@ -3742,7 +3793,21 @@ class SecretTasksTab(PanelTab):
             # «Уступает тем, кто делает работу»: named on the ledger so the page's own
             # strip can say WHY nothing arrived, rather than looking broken.
             take.dropped(reason="game_busy")
+            # …AND IT COMES BACK (#2740). Stepping aside is right; dropping the reading
+            # for ever is what made «занята панель» read as «монстров нет». The map may
+            # well be still by now — the last answer of a walk is the one most likely to
+            # arrive while something holds the link — so there is no more ground coming
+            # to bring it back. It offers itself again, a bounded number of times, on the
+            # same named booking a ground answer would re-arm.
+            self._monster_busy_tries = int(
+                getattr(self, "_monster_busy_tries", 0) or 0) + 1
+            if self._monster_busy_tries <= self.MONSTER_BUSY_TRIES:
+                self.rt.tick.arm("secret_monster_follow", self.MONSTER_BUSY_RETRY_MS,
+                                 self._monster_follow_fire)
             return
+        # A reading that got through is the end of the retry chain — whatever was
+        # holding the link has let go (#2740).
+        self._monster_busy_tries = 0
         self._monster_next = (time.monotonic()
                               + max(5, self.monsters.follow_seconds()))
         self._monster_busy = True

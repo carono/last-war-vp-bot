@@ -2428,6 +2428,7 @@
   "flow.state.starving": "● kaynak konuşuyor ({heard}) ama buraya hiçbir şey ulaşmadı · {why}",
   "log.secret.area_gone": "harita onların karelerini yanıtladı ve orada yoklar: {n} tanesi gitti",
   "log.secret.wire_kind": "hattan {kind} türünde kareler geliyor: şimdiye dek {n}",
+  "log.secret.wire_kind_shape": "{kind} türünü burada kimse okumuyor; alanları: {shape}",
   "secrettasks.wire_kinds": "hattan geldi",
   "log.secret.verify_start": "{rows} hazır satır denetleniyor — {servers} savaş bölgesi, {points} kamera durağı",
   "log.secret.verify_unwatched": "★ izleyicisi kapalı — tur hiçbir şeyi çözmez, hiçbir şey denetlenmez",
