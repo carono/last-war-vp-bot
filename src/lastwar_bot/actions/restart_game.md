@@ -65,7 +65,14 @@ ATTACH_GAME WITHIN 120s
 # and one more launch costs the thirty seconds the press was already spending. It is
 # tried ONCE: a second failure is a fact about the machine (no session, a closed server,
 # a client that dies on start), and the honest thing then is to say which step stopped.
-STEP progress.game.check
+#
+# TWO `STEP`s CAME OUT OF HERE AFTER THE FIRST LIVE RUN (#2742). The gate before the
+# retry had one and the gate after it had one, so an ordinary restart drew «проверяю,
+# что сессия в игре» twice, 0.7 s and 0.1 s apart; and the closing `in_play` repeated
+# the line `launch_game` had already said inside the CALL. Neither was untrue and both
+# read as noise, which is the failure mode a progress list has: a person scanning it for
+# the slow step has to skip lines that say nothing new. One check, one «в игре», and the
+# final point says «готово».
 IF client != ready
     STEP progress.game.retry
     LOG "The client is up but nothing is in play — one more launch before giving up."
@@ -77,5 +84,4 @@ STEP progress.game.check
 IF client != ready
     FAIL "the client is up and the game link answers, but nothing is in play"
 
-STEP progress.game.in_play
 LOG "Client restarted — the session is back in play."

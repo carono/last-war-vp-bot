@@ -145,8 +145,16 @@ def test_lifecycle_recipes() -> None:
 
     check("progress.game.quit" in steps["restart_game"]
           and "progress.game.attach" in steps["restart_game"]
-          and "progress.game.in_play" in steps["restart_game"],
-          "a restart names the close, the attach and the end")
+          and "progress.game.check" in steps["restart_game"],
+          "a restart names the close, the attach and the last gate")
+    # …AND SAYS EACH OF THEM ONCE. The first live run drew «проверяю, что сессия в игре»
+    # twice and «клиент в игре» twice — the second gate had a step of its own and the
+    # closing line repeated what the nested launch had already said. A list a person has
+    # to skip lines in is the failure mode this whole block exists to avoid.
+    check(steps["restart_game"].count("progress.game.check") == 1,
+          "…and the gate is announced once, not once per gate")
+    check("progress.game.in_play" not in steps["restart_game"],
+          "…and «клиент в игре» is said by the launch it belongs to, not twice")
     # THE GUARANTEE: a client that came up without reaching the game is given one more
     # launch before the run is called a failure.
     check("progress.game.retry" in steps["restart_game"],
