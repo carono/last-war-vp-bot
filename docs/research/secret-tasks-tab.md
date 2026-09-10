@@ -116,6 +116,27 @@ an absent per-tile detail with a live control point, or a read that could see th
 did not carry it). Everything else hides, not removes. Robbed rows are never removed by
 clause 2. «Очистить список» and a profile switch are the only wipes.
 
+### The clause-2 removal fired on a false premise for ten months (#2740)
+
+There was no third path — clause 2 itself was misreading its own evidence, in two places
+at once, and between them the list lost rows as fast as a lap of the map brought them in.
+
+* **The block's uuid set held OWNERS, not tiles.** `block_areas` read `f10.f1` first —
+  the account id behind the tile, decoded as `owner_uid` by `secret_tasks` and a different
+  number from the tile uuid every row is keyed on. `key in area["uuids"]` therefore never
+  matched, so «this answer carried your tile» could not be true and the reply that CARRIED
+  a tile struck its own row off.
+* **A newly added row carried no `seen_at`.** The second guard — the answer must be newer
+  than the row's own last sighting — read `0` for it and lost every argument, so a row
+  survived only as long as it took the next region answer to arrive (`TILES_MS`).
+
+Live on 2026-09-10, `default` walking warzone 954: «карта ответила про их клетки и их там
+нет: пропало 1» every couple of seconds, «снято ранее» climbing 26 → 29 of the 93 tiles
+the capture was holding at that same moment. Because a removal is also BOOKED, the
+checkpoint could not put the row back, and the sniffer does not re-announce a tile it has
+already reported — so a tile lost this way stayed lost. That is «стою прямо на нужной
+секретке, а в грид ничего не попадает».
+
 ## 3a. «Old» rows: measured, then hidden — never deleted (#1999)
 
 Asked for as «секретки старше 12 часов автоматически скрываем или удаляем из базы». The
