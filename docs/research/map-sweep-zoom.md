@@ -415,6 +415,34 @@ A lap that DOES name a warzone still jumps, on purpose: that is `sweep_star_serv
 which walks five to ten of them in a row.
 
 **And the lap grew its two knobs** — `zoom` and `every`, behind the gear on «Обход карты»
-(`panel/runtime`'s one modal). The paces are `lua_actions.SWEEP_PACES`: 0.02 «быстро» (the
-measured floor of §9 — below it the traffic only drains later), 0.05 «обычно» (what every
-lap has always walked at) and 0.15 «спокойно».
+(`panel/runtime`'s one modal).
+
+### The pace is twenty divisions, and the reason is the PC rather than the camera
+
+The pace shipped as three words and lasted a day. The person's words: «Градация скорости
+слишком маленькая, не на всех ПК поток будет успевать, делай 20 делений, можно цифрами,
+где 1 это медленно, 10 это нормально 20 это как сейчас быстро». A lap fires one
+`world.get.block` per waypoint with no debounce on either side, so the number does not
+really set a camera speed: it sets how fast the ANSWERS arrive at a machine that has to
+decode them, and a computer that cannot keep up needs something between two words.
+
+`lua_actions.sweep_pace(n)`, `n` in 1…20, default **10**. Three anchors the person named,
+hit exactly: **20 → 0.02 s** (the old «быстро», and the measured floor of §9 — below it
+nothing arrives sooner, the traffic merely drains later), **10 → 0.05 s** (the old
+«обычно», what every lap has walked at since there were laps) and **1 → 0.20 s**, four
+times slower than the middle.
+
+Geometric in TWO segments rather than one, because all three anchors are wanted: one curve
+through 20 and 10 lands on 0.114 at division 1, which is not «заметно медленнее», and one
+through 20 and 1 lands on 0.067 at ten, which is not «нормально». Each segment has a
+constant ratio a step — about 17 % below ten, about 10 % above — so no single turn of the
+knob is a jump.
+
+| division | 1 | 3 | 5 | 8 | 10 | 13 | 16 | 20 |
+|---|---|---|---|---|---|---|---|---|
+| seconds between waypoints | 0.200 | 0.147 | 0.108 | 0.068 | **0.050** | 0.038 | 0.029 | **0.020** |
+| one lap at step 90 | 26 s | 20 s | 15 s | 10 s | **8 s** | 7 s | 5 s | **4 s** |
+
+A profile written before the scale holds one of the three words and is carried across once
+(`SWEEP_PACE_WORDS`): «fast» → 20, «normal» → 10, «calm» → 3 (0.147 s, the 0.15 it walked
+at). Nobody's lap changes speed because the control changed shape.

@@ -144,29 +144,98 @@ def zoom_level(name: "str | None") -> tuple:
 #: 121/121 while the traffic took 2.9 s to drain, so anything below ~0.02 buys nothing.
 FAST_INTERVAL = 0.05
 
-#: HOW HARD A LAP LEANS ON THE CLIENT, as three words rather than a number (#2705). The
-#: person asked for a speed beside the zoom, and seconds-between-waypoints is not a thing
-#: anybody wants to type on a phone. The floor is the wire, not the camera: 0.05 already
-#: delivers every response, and 0.02 buys nothing but drains the traffic later — so
-#: «быстро» is the measured floor, «обычно» is what every lap has always walked at, and
-#: «спокойно» is for a client that is doing something else at the same time.
-SWEEP_PACES: dict = {"fast": 0.02, "normal": FAST_INTERVAL, "calm": 0.15}
+#: HOW HARD A LAP LEANS ON THE CLIENT, as a division of a scale of twenty (#2705).
+#:
+#: THE THREE WORDS WERE NOT ENOUGH, and the reason is a machine rather than a taste —
+#: the person's words: «Градация скорости слишком маленькая, не на всех ПК поток будет
+#: успевать, делай 20 делений, можно цифрами, где 1 это медленно, 10 это нормально 20
+#: это как сейчас быстро». A lap fires one `world.get.block` per waypoint with no
+#: debounce on either side, so the pace is not really a camera setting: it is how fast
+#: the answers arrive at a machine that has to decode them. A computer that cannot keep
+#: up needs a number between the three words, and it needs to be able to go slower than
+#: any of them went.
+#:
+#: THE LAW, and it has three anchors the person named rather than one curve somebody
+#: liked: **20 = 0.02 s** (the old «быстро», and the measured floor — below it nothing
+#: arrives sooner, the traffic merely drains later), **10 = 0.05 s** (the old «обычно»,
+#: what every lap has walked at since there were laps) and **1 = 0.20 s**, four times
+#: slower than the old middle and comfortably slower than the old «спокойно».
+#:
+#: It is GEOMETRIC in two segments rather than one, because all three anchors are
+#: wanted: one curve through 20 and 10 lands on 0.114 at division 1, which is not
+#: «заметно медленнее», and one through 20 and 1 lands on 0.067 at ten, which is not
+#: «нормально». Two segments hit all three exactly, each with a constant ratio per step
+#: — about 17 % a step below ten and 10 % a step above — so the knob moves smoothly
+#: wherever a person happens to be turning it. A step is never a jump.
+SWEEP_PACE_MIN = 1
+SWEEP_PACE_MAX = 20
 
-#: …and what a lap walks at when nobody has said. What it has always walked at.
-DEFAULT_SWEEP_PACE = "normal"
+#: …and what a lap walks at when nobody has said: «нормально», which is what every lap
+#: has always walked at.
+SWEEP_PACE_DEFAULT = 10
 
-#: The order the words are offered in — quickest first, the way the list reads.
-SWEEP_PACE_NAMES = ("fast", "normal", "calm")
+#: The scale's own three anchors, in seconds between two waypoints.
+SWEEP_PACE_SLOWEST = 0.20
+SWEEP_PACE_NORMAL = FAST_INTERVAL
+SWEEP_PACE_FASTEST = 0.02
+
+#: WHAT AN OLD PROFILE'S WORD BECOMES. The knob was three words until #2705 and a saved
+#: profile still holds one; each is carried to the division that walks at the same pace
+#: it did, so nobody's lap changes speed because the control did.
+SWEEP_PACE_WORDS: dict = {"fast": 20, "normal": 10, "calm": 3}
 
 
-def sweep_pace(name: "str | None") -> float:
-    """Seconds between two waypoints of a named pace — answered, never raised on.
+def sweep_pace(division) -> float:
+    """Seconds between two waypoints at a division of the scale — never raised on.
 
-    Same rule as :func:`zoom_level`: the name comes out of a saved profile, and a panel
+    Same rule as :func:`zoom_level`: the value comes out of a saved profile, and a panel
     that will not draw because a settings row holds an old word is worse than one that
-    walks at the ordinary pace.
+    walks at the ordinary pace. A word from before #2705 is carried across
+    (:data:`SWEEP_PACE_WORDS`), anything unreadable is the default, and a number outside
+    the scale is pulled onto it rather than refused.
     """
-    return SWEEP_PACES.get(name or "", SWEEP_PACES[DEFAULT_SWEEP_PACE])
+    if isinstance(division, str):
+        raw = division.strip()
+        if raw in SWEEP_PACE_WORDS:
+            division = SWEEP_PACE_WORDS[raw]
+        else:
+            try:
+                division = int(float(raw))
+            except (TypeError, ValueError):
+                division = SWEEP_PACE_DEFAULT
+    try:
+        step = int(division)
+    except (TypeError, ValueError):
+        step = SWEEP_PACE_DEFAULT
+    step = max(SWEEP_PACE_MIN, min(SWEEP_PACE_MAX, step))
+    if step >= SWEEP_PACE_DEFAULT:
+        # 10 → 20: 0.05 s down to 0.02 s, a constant ratio a step.
+        share = (step - SWEEP_PACE_DEFAULT) / float(SWEEP_PACE_MAX - SWEEP_PACE_DEFAULT)
+        gap = SWEEP_PACE_NORMAL * (SWEEP_PACE_FASTEST / SWEEP_PACE_NORMAL) ** share
+    else:
+        # 1 → 10: 0.20 s down to 0.05 s, its own constant ratio.
+        share = (step - SWEEP_PACE_MIN) / float(SWEEP_PACE_DEFAULT - SWEEP_PACE_MIN)
+        gap = SWEEP_PACE_SLOWEST * (SWEEP_PACE_NORMAL / SWEEP_PACE_SLOWEST) ** share
+    # Three decimals: the wire cannot tell 0.0501 from 0.05 and a person reading the
+    # card should not be shown sixteen digits of float.
+    return round(gap, 3)
+
+
+def sweep_division(value) -> int:
+    """The division a saved value means — a number, or a word from before #2705."""
+    if isinstance(value, str):
+        raw = value.strip()
+        if raw in SWEEP_PACE_WORDS:
+            return SWEEP_PACE_WORDS[raw]
+        try:
+            value = int(float(raw))
+        except (TypeError, ValueError):
+            return SWEEP_PACE_DEFAULT
+    try:
+        step = int(value)
+    except (TypeError, ValueError):
+        return SWEEP_PACE_DEFAULT
+    return max(SWEEP_PACE_MIN, min(SWEEP_PACE_MAX, step))
 
 
 def jump_to_coord(x: int, y: int, server: "int | None" = None,
