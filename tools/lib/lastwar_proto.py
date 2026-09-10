@@ -2825,6 +2825,38 @@ TILE_KIND_NAMES = {
 }
 
 
+#: THE KINDS WE DELIBERATELY DO NOT COLLECT (#2740), and why that is written down.
+#:
+#: The person's decision, in their words: «объекты, которые мы не собираем в гриды прямо
+#: — можно игнорировать». `f2 = 11` and `f2 = 61` are alliance structures on a seasonal
+#: warzone — both carry the alliance-city sub-message `f101` — and nothing in this bot
+#: farms one. Writing a decoder for them would be a store nobody reads.
+#:
+#: So they are not given a NAME (a name here means «something decodes this»), and they are
+#: not left looking like a leak either: the census says «намеренно не собираем» about
+#: these two and «никто не разбирает» about anything else. The difference is the whole
+#: point — one is a decision and the other is a lead.
+#:
+#: A kind added here needs a reason beside it. «It was noisy in the log» is not one.
+TILE_KINDS_IGNORED = {
+    11: "alliance structure (seasonal) — nothing here farms one",
+    61: "alliance structure (seasonal) — nothing here farms one",
+}
+
+
+def tile_kind_ignored(kind) -> bool:
+    """Whether a kind is one we have decided not to collect (#2740).
+
+    Kept apart from «no reader»: a kind nobody has looked at yet is a lead, and a kind
+    somebody looked at and decided against is not. A census that draws them the same way
+    turns every future lead into noise.
+    """
+    try:
+        return int(kind) in TILE_KINDS_IGNORED
+    except (TypeError, ValueError):
+        return False
+
+
 def tile_kind_name(kind) -> str:
     """`"mine"` for a kind we read, `"f2=<n>"` for one nothing here has a reader for.
 
