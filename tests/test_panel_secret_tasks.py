@@ -2599,6 +2599,12 @@ def test_a_robbed_row_leaves_only_by_its_own_clock():
     tab._verify_auto = False
     tab._verify_was = {}
     tab._sweeping, tab._sweep_btn = False, None
+    # …and what a lap keeps for its report (#2741) — the wipe below goes through it.
+    tab._sweep_srv = 0
+    tab._sweep_queue, tab._sweep_note, tab._sweep_mark = [], "", None
+    tab._sweep_failed, tab._sweep_cut, tab._sweep_revived = "", False, False
+    tab._sweep_wire, tab._wire_kinds = (0, 0), {}
+    tab._tiles_lock = __import__("threading").Lock()
     # THE SPEED MEASUREMENT (#2705) — nothing measured, and the day's history already
     # asked, because this fixture has no store to ask it of.
     tab._bench, tab._bench_busy, tab._bench_loaded = None, False, True
@@ -3003,17 +3009,144 @@ def test_a_warzone_tile_carries_both_presses_and_names_the_warzone():
     for press in presses.values():
         assert press["args"] == {"server": 1001}, press
         assert not press["disabled"]
-    # …and the lap is one at a time, with the walking tile saying which it is.
+    # …and the lap is one at a time IN THE GAME, which since #2741 is not the same thing
+    # as one press at a time: a tile that is not walking QUEUES, so four presses in a row
+    # are four laps rather than two cut ones. Nothing is dead but the jump's own guard.
     tab._sweeping, tab._sweep_srv = True, 1002
+    tab._sweep_queue = [1001]
     card = st.SecretTasksTab._picker_card(tab)
     laps = [{a["id"]: a for a in item["actions"]}["sweep_server"] for item in card["items"]]
-    assert laps[0]["disabled"], laps[0]
+    assert not laps[0]["disabled"], laps[0]
     # …AND THE WALKING TILE IS ALIVE, because pressing it is how the phone stops the lap
     # (#2739). A tile that says «Обходим…» and takes no press is a lap nobody away from
     # the machine can end.
     assert not laps[1]["disabled"], laps[1]
-    assert laps[0]["label"] == "secrettasks.picker.sweep"
+    assert laps[0]["label"] == "secrettasks.picker.queued", laps[0]
     assert laps[1]["label"] == "secrettasks.picker.sweeping", laps[1]
+    # …and what is waiting is ON THE CARD, never in the log alone.
+    assert {"label": "coord.sweep.queue", "value": "1001"} in card["rows"], card["rows"]
+
+
+def st_outcome(ok, reason=""):
+    """The shape `play_async` hands to `on_result` — ok, and what it said if not."""
+    return type("Outcome", (), {"ok": ok, "reason": reason, "ctx": None})()
+
+
+def _report_tab(**over):
+    """A tab with just enough of itself to press «Обойти» and be reported to (#2741)."""
+    import threading
+
+    tab = object.__new__(st.SecretTasksTab)
+    tab.t = lambda key, **fmt: key
+    tab.say = lambda tag, key, **fmt: tab._said.append(key)
+    tab.post = lambda call: call()
+    tab._said = []
+    tab._sweeping, tab._sweep_srv = False, 0
+    tab._sweep_queue, tab._sweep_note, tab._sweep_mark = [], "", None
+    tab._sweep_failed, tab._sweep_cut, tab._sweep_revived = "", False, False
+    tab._sweep_wire, tab._wire_kinds, tab._rows = (0, 0), {}, {}
+    tab._tiles_lock = threading.Lock()
+    tab._zoom_level, tab._sweep_pace = 5, 3
+    tab._launched = []
+    tab._sweep_launch = lambda srv: tab._launched.append(srv)
+    tab.rt = type("RT", (), {"settings": type("S", (), {"changed": staticmethod(lambda: None)})()})()
+    tab.capture = type("C", (), {"running": True, "restart": lambda self: None})()
+    tab.ghost_capture = type("C", (), {"running": False, "restart": lambda self: None})()
+    for name, value in over.items():
+        setattr(tab, name, value)
+    return tab
+
+
+def test_a_second_warzone_is_queued_and_never_cuts_the_lap_that_is_walking():
+    """Four presses, four laps (#2741) — the complaint, and what it cost live.
+
+    Measured on 2026-09-10 in the profile's own log: a lap of warzone 942 started at
+    19:23:16 and was cut at 19:23:21 by the NEXT tile's press, which started nothing;
+    the same pair again at 19:23:29/19:23:34. The person pressed «Обойти» on several
+    warzones and got two stopped laps, no report, and no secret tasks — «никакой
+    гарантии выполнения».
+    """
+    tab = _report_tab()
+    st.SecretTasksTab._sweep_server(tab, 942)
+    assert tab._launched == [942], tab._launched
+    # …a second warzone while that one walks: QUEUED, said out loud, and the first lap
+    # is untouched.
+    tab._sweeping, tab._sweep_srv = True, 942
+    st.SecretTasksTab._sweep_server(tab, 953)
+    st.SecretTasksTab._sweep_server(tab, 954)
+    assert tab._sweep_queue == [953, 954], tab._sweep_queue
+    assert tab._launched == [942], tab._launched
+    assert tab._sweep_note == "coord.sweep.queued"
+    # …pressing a queued tile takes the ask back rather than starting anything.
+    st.SecretTasksTab._sweep_server(tab, 953)
+    assert tab._sweep_queue == [954], tab._sweep_queue
+    assert tab._sweep_note == "coord.sweep.unqueued"
+    # …and the queue drains by itself when the lap ends.
+    tab._sweeping = False
+    st.SecretTasksTab._sweep_next(tab)
+    assert tab._launched == [942, 954], tab._launched
+
+
+def test_the_walking_warzones_own_tile_is_still_the_stop():
+    """One tile keeps the old meaning (#2739): the one that is walking."""
+    tab = _report_tab(_sweeping=True, _sweep_srv=942)
+    tab._stopped = []
+    tab._sweep_stop = lambda: tab._stopped.append(True)
+    st.SecretTasksTab._sweep_server(tab, 942)
+    assert tab._stopped == [True]
+    assert tab._launched == [] and tab._sweep_queue == []
+
+
+def test_a_lap_reports_what_the_wire_brought_and_never_ends_in_silence():
+    """The guarantee (#2741): zone, map responses, tiles, what was found."""
+    tab = _report_tab()
+    st.SecretTasksTab._sweep_open(tab, 953)
+    tab._sweep_wire = (155, 25563)
+    tab._wire_kinds = {17: 40, 29: 3}
+    tab._rows = {i: i for i in range(12)}
+    st.SecretTasksTab._sweep_report(tab)
+    assert tab._sweep_note == "coord.sweep.result.ok", tab._sweep_note
+    # …and the report is a DELTA: the same totals again mean this lap brought nothing.
+    st.SecretTasksTab._sweep_open(tab, 954)
+    st.SecretTasksTab._sweep_report(tab)
+    assert tab._sweep_note == "coord.sweep.result.zero", tab._sweep_note
+
+
+def test_a_lap_that_brought_nothing_says_WHY_it_brought_nothing():
+    """The four live reasons, each named on the card rather than guessed at (#2741)."""
+    import lua_actions
+
+    # 1. nothing was listening at all.
+    tab = _report_tab()
+    tab.capture = type("C", (), {"running": False, "restart": lambda self: None})()
+    assert st.SecretTasksTab._sweep_why(tab, 0, 0, 0, 0) == "coord.sweep.why.no_monitor"
+    # 2. the monitor is on and heard NOT ONE map response while a whole warzone walked
+    #    — deaf, because the client's stream moved under it. It is revived, once.
+    revived = []
+    tab = _report_tab()
+    tab.capture = type("C", (), {"running": True,
+                                 "restart": lambda self: revived.append(1)})()
+    assert st.SecretTasksTab._sweep_why(tab, 0, 0, 0, 0) == "coord.sweep.why.deaf"
+    assert revived == [1]
+    assert st.SecretTasksTab._sweep_why(tab, 0, 0, 0, 0) == "coord.sweep.why.deaf"
+    assert revived == [1], "a deaf monitor is bounced once per lap, never in a loop"
+    # 3. the camera was too high for the tiles being looked for (#2737).
+    tab = _report_tab(_zoom_level=lua_actions.SWEEP_ZOOM_MAX_DIV)
+    assert st.SecretTasksTab._sweep_why(tab, 900, 4000, 0, 0) == "coord.sweep.why.zoom"
+    # 4. the warzone simply holds none — and the tiles prove the lap really walked.
+    tab = _report_tab()
+    assert st.SecretTasksTab._sweep_why(tab, 900, 4000, 0, 0) == "coord.sweep.why.empty"
+    # 5. …and tasks that came but were filtered out are not «пусто» either.
+    assert st.SecretTasksTab._sweep_why(tab, 900, 4000, 9, 0) == "coord.sweep.why.filtered"
+
+
+def test_a_press_the_gate_refused_is_answered_on_the_card():
+    """Six presses on 2026-09-10 were refused for a red link and said so only in a log."""
+    tab = _report_tab()
+    st.SecretTasksTab._sweep_open(tab, 942)
+    st.SecretTasksTab._sweep_answer(tab, st_outcome(False, "action.held.human"))
+    st.SecretTasksTab._sweep_report(tab)
+    assert tab._sweep_note == "coord.sweep.result.failed", tab._sweep_note
 
 
 def test_the_lap_of_a_named_warzone_is_a_recipe_that_takes_the_number():
@@ -4975,6 +5108,13 @@ def _sweep_tab(rows=None):
     tab._zoom_level = 7
     tab._sweep_pace = 10
     tab._sweeping, tab._sweep_btn = False, None
+    # WHAT A LAP REPORTS WITH (#2741): the queue behind it, the wire's totals when it
+    # started, and the sentence it leaves on the card.
+    tab._sweep_srv = 0
+    tab._sweep_queue, tab._sweep_note, tab._sweep_mark = [], "", None
+    tab._sweep_failed, tab._sweep_cut, tab._sweep_revived = "", False, False
+    tab._sweep_wire, tab._wire_kinds = (0, 0), {}
+    tab._tiles_lock = __import__("threading").Lock()
     # THE SPEED MEASUREMENT (#2705) — nothing measured, and the day's history already
     # asked, because this fixture has no store to ask it of.
     tab._bench, tab._bench_busy, tab._bench_loaded = None, False, True
