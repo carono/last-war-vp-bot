@@ -2427,6 +2427,7 @@
   "flow.state.refused": "● yêu cầu không đi qua ({why}) · lần đến gần nhất {since} trước · nhận {seen} · lấy {kept}",
   "flow.state.starving": "● nguồn đang nói ({heard}) nhưng không có gì đến đây · {why}",
   "log.secret.area_gone": "bản đồ đã trả lời về ô của chúng mà không có chúng: mất {n}",
+  "log.secret.wire_kind": "đường truyền đang mang ô loại {kind}: {n} cho đến giờ",
   "log.secret.verify_start": "đang đối chiếu {rows} dòng sẵn sàng — {servers} vùng chiến, {points} điểm dừng máy quay",
   "log.secret.verify_unwatched": "màn theo dõi ★ đang tắt — một vòng đi không giải mã gì, sẽ không đối chiếu được gì",
   "log.round.report": "vòng ★ đã đi qua {n} chiến khu ({servers}): {added} dòng mới, {rows} trong danh sách, {ready} sẵn sàng cướp; đã cướp hôm nay {done}, còn lại {left}",

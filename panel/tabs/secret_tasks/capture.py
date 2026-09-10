@@ -67,6 +67,17 @@ AREA_MARKER = "##AREA##"
 #: file stays what it always was: the fallback for a restart.
 GHOST_MARKER = "##GHOST##"
 
+#: The machine line that says WHAT THE WIRE CARRIED, per tile kind, on every tick — the
+#: census «а ничего мимо нас не утекает?» is answered from (#2740). It MUST match
+#: `KINDS_MARKER` in `tools/secret_task_capture.py`.
+#:
+#: The count is CUMULATIVE for the child's whole run and is only printed when it moved,
+#: so the panel holds the latest and never adds them up. What it is for is the DIFFERENCE
+#: between what the wire carried and what this panel took: the intake ledger already says
+#: the second half, and until now there was no first half at all — a kind nothing here
+#: decodes was counted inside the capture and named to nobody.
+KINDS_MARKER = "##KINDS##"
+
 #: A confirmed incoming map-server transition.  Both passive capture children emit
 #: this from ``MapIndex.drain_server_changes``; unlike a requested jump destination,
 #: it is evidence that map traffic from this server has actually arrived.
@@ -470,6 +481,20 @@ class Capture:
             self.tab.ghost_tile_seen(record)
         return False
 
+    def on_kinds(self, line: str) -> bool:
+        """The wire's own census of tile kinds — parse, hand over, return (#2740).
+
+        Same shape and same cost as :meth:`on_tile`, and for the same reason: this runs
+        on the child's reader thread, which may never be made to wait.
+        """
+        try:
+            record = json.loads(line[len(KINDS_MARKER):].strip())
+        except ValueError:
+            return False                # a torn line is not worth a word
+        if isinstance(record, dict):
+            self.tab.wire_census(record)
+        return False
+
     def on_line(self, line: str) -> bool:
         """One capture line: log it if the display filter lets it through, record a real
         finding into the profile's own log, and nudge the list to re-merge the
@@ -496,6 +521,8 @@ class Capture:
             return self.on_area(line)
         if line.startswith(GHOST_MARKER):
             return self.on_ghost(line)
+        if line.startswith(KINDS_MARKER):
+            return self.on_kinds(line)
         is_finding = bool(coords.parse(line))
         # THE CHECKPOINT MERGE IS THE FALLBACK NOW, not the feed (#1416). The tiles
         # arrive as their own events above; this keeps the old path alive for what the

@@ -6088,6 +6088,65 @@ CS.UnityEngine.Debug.LogError("ACT treasure_scan n="..n.." zoom="..height.." ste
 TREASURE_LOOK_BOX = 60
 
 
+def map_intake_census(box: int = 40) -> str:
+    """Lua *expression* -> what the CLIENT holds around the camera, counted by kind.
+
+    THE REFERENCE HALF OF «ничего не утекает мимо нас» (#2740). Everything the panel
+    knows about the map comes off a passive pcap child, and a pcap child that misses
+    frames looks exactly like a map with nothing on it. So there has to be a second
+    count, taken from the client itself, of the same ground at the same moment — and the
+    client keeps one: `WorldScene.PointManager` holds every tile it has been answered
+    about, and `GetPointInfo(pid)` returns it.
+
+    **The KIND is the class name of what comes back**, not a field on it. `pointType`
+    reads `nil` through this bridge, and reflection over the object's properties comes
+    back empty — but `GetType().Name` answers, and it is the same distinction the wire
+    draws: `ResPointInfo` is a mine, `BuildPointInfo` somebody's base, `AllyCityPointInfo`
+    an alliance city. Measured live on 2026-09-10 over a 121x121 box: 393 tiles known,
+    `BuildPointInfo:333 AllyCityPointInfo:49 ResPointInfo:11`.
+
+    It is a READ and it presses nothing: no jump, no zoom change, not one byte to the
+    server. What it costs is `(2*box+1)^2` calls into the point store — 6 561 at the
+    default, about a fifth of a second — so it is played by a person's press and never
+    by a clock, exactly like every other lap on this map.
+
+    Answers a STRING — `known=<n> of=<n> cam=<x>,<y> <Kind>:<n> …`, or
+    `why=<no-point-manager|no-camera-tile>` when the client cannot be asked. An
+    expression rather than a `Debug.LogError`, so a recipe can `READ_LUA … INTO` it and
+    say it in its own words.
+    """
+    return ('(function() ' + FIND_WORLD_SCENE + """
+local scene = DataCenter.__lw_ws
+local pm = scene and scene.PointManager
+if pm == nil then return "why=no-point-manager" end
+local size = 1000
+pcall(function() size = math.floor(scene.TileCount.x) end)
+local cx, cy = -1, -1
+pcall(function() cx, cy = math.floor(scene.CurTilePos.x), math.floor(scene.CurTilePos.y) end)
+if cx < 0 or cy < 0 then return "why=no-camera-tile" end
+local box = %d
+local kinds, known, of = {}, 0, 0
+for ty = math.max(0, cy - box), math.min(size - 1, cy + box) do
+  local base = ty * size + 1
+  for tx = math.max(0, cx - box), math.min(size - 1, cx + box) do
+    of = of + 1
+    local ok, info = pcall(function() return pm:GetPointInfo(base + tx) end)
+    if ok and info ~= nil then
+      known = known + 1
+      local name = "?"
+      pcall(function() name = info:GetType().Name end)
+      kinds[name] = (kinds[name] or 0) + 1
+    end
+  end
+end
+local out = {}
+for k, v in pairs(kinds) do out[#out + 1] = tostring(k) .. ":" .. tostring(v) end
+table.sort(out)
+return "known=" .. tostring(known) .. " of=" .. tostring(of) ..
+  " cam=" .. tostring(cx) .. "," .. tostring(cy) .. " " .. table.concat(out, " ")
+end)()""" % int(box))
+
+
 def treasure_look_around() -> str:
     """Read the chests in what the client is ALREADY looking at. Moves nothing.
 

@@ -2427,6 +2427,7 @@
   "flow.state.refused": "● sorgu geçmiyor ({why}) · son geliş {since} önce · gelen {seen} · alınan {kept}",
   "flow.state.starving": "● kaynak konuşuyor ({heard}) ama buraya hiçbir şey ulaşmadı · {why}",
   "log.secret.area_gone": "harita onların karelerini yanıtladı ve orada yoklar: {n} tanesi gitti",
+  "log.secret.wire_kind": "hattan {kind} türünde kareler geliyor: şimdiye dek {n}",
   "log.secret.verify_start": "{rows} hazır satır denetleniyor — {servers} savaş bölgesi, {points} kamera durağı",
   "log.secret.verify_unwatched": "★ izleyicisi kapalı — tur hiçbir şeyi çözmez, hiçbir şey denetlenmez",
   "log.round.report": "★ turu {n} savaş bölgesi gezdi ({servers}): {added} yeni satır, listede {rows}, soyulmaya hazır {ready}; bugün soyulan {done}, kalan {left}",

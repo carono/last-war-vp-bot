@@ -91,6 +91,19 @@ TILE_MARKER = "##TILE##"
 #:
 #: Must match `panel/tabs/secret_tasks/capture.py::AREA_MARKER`.
 AREA_MARKER = "##AREA##"
+
+#: The machine line that says WHAT THE WIRE CARRIED, per tile kind, on every tick — the
+#: census that answers «а ничего мимо нас не утекает?» with numbers rather than a shrug
+#: (#2740). It MUST match `panel/tabs/secret_tasks/capture.py::KINDS_MARKER`.
+#:
+#: `MapIndex` has counted every `f2` it decodes since it was written (`tile_kinds`), and
+#: until now that Counter was printed in exactly one place: the summary a capture writes
+#: when it EXITS. A capture the panel started does not exit, so the census had never been
+#: read by anybody — a kind the game adds or renumbers would arrive, be counted, be
+#: dropped for want of a reader, and say nothing whatever. Now every kind is named every
+#: tick, and one nothing in this repository decodes is named by its NUMBER so it can be
+#: looked up (`lastwar_proto.tile_kind_name`).
+KINDS_MARKER = "##KINDS##"
 from map_capture import (  # noqa: E402
     MapIndex, ProgressTicker, add_capture_arguments, check_platform, diagnose,
     dump_records as dump_tasks, human_size, level_set, start_capture,
@@ -393,6 +406,8 @@ def main() -> int:
     # alive rather than silent. The checkpoint/transcript flushes below still
     # run every tick regardless; only the console line is suppressed.
     ticker = ProgressTicker()
+    #: The census as it was last announced, so an unchanged one stays silent (#2740).
+    last_census: dict = {}
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(1.0)
@@ -473,6 +488,17 @@ def main() -> int:
             # per region, drained on the tick so the sniffer thread never prints: it is
             # the only evidence that a tile is GONE, and a reader that gets the tiles
             # without the regions can add rows for ever and remove none.
+            # WHAT THE WIRE CARRIED, BY KIND — said only when it MOVED (#2740). The
+            # census is cumulative, so a tick on which nothing arrived repeats the last
+            # one exactly; printing that would flood a log for no news, which is the
+            # rule the progress line above already obeys.
+            census = dict(index.tile_kinds)
+            if census != last_census:
+                last_census = census
+                print(KINDS_MARKER + "\t" + json.dumps(
+                    {"tiles": index.tiles_seen, "blocks": index.blocks_seen,
+                     "kinds": {str(k): v for k, v in census.items()}},
+                    ensure_ascii=False), flush=True)
             for area in index.take_areas():
                 print(AREA_MARKER + "\t" + json.dumps({
                     "server": area["server"], "at": round(area["at"], 3),

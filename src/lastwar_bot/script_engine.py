@@ -344,6 +344,13 @@ _READ_LUA_RE = re.compile(
 _SCAN_MONSTERS_RE = re.compile(
     r"^SCAN_MONSTERS\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
 )
+# AUDIT_MAP [BOX n] INTO <var>
+# What the CLIENT holds around the camera, counted by kind — the reference the panel's
+# own tally is compared against (#2740). Its own statement for the same reason
+# SCAN_MONSTERS is one: the chunk is long, and a copy of it in a recipe drifts.
+_AUDIT_MAP_RE = re.compile(
+    r"^AUDIT_MAP(?:\s+BOX\s+(\d+))?\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
+)
 # CHAT_SEND [ROOM <var>] [TO <var>] [TEXT <var>] [STICKER <var>] [COORDS <var>]
 #           [SERVER <var>] [LABEL <var>]
 # Put a message in front of a player — text (with inline emoji), a sticker, or a map
@@ -578,6 +585,23 @@ class ReadLuaStmt(_Stmt):
     #: expression of its own and its own `pcall`, so one failing read cannot take its
     #: neighbours' answers with it.
     exprs: tuple = ()
+
+
+@dataclass(slots=True)
+class AuditMapStmt(_Stmt):
+    """Count what the CLIENT holds around the camera, by kind, into `var` (#2740).
+
+    The reference half of «ничего не утекает мимо нас»: everything the panel knows about
+    the map comes off a passive pcap child, and a child that misses frames is
+    indistinguishable from empty ground. This asks the client instead — its own
+    `WorldScene.PointManager` — over a box it names, so the two counts can be subtracted.
+
+    A statement rather than a `READ_LUA` with the chunk in the recipe, for the same
+    reason `SCAN_MONSTERS` is one: the chunk walks `(2*box+1)^2` tiles and a copy of it
+    in a `.md` is a copy that drifts. See `lua_actions.map_intake_census`.
+    """
+    var: str
+    box: int = 40
 
 
 @dataclass(slots=True)
@@ -1209,6 +1233,11 @@ def _parse_one(lines, i, indent):
     m = _SCAN_MONSTERS_RE.match(text)
     if m:
         return ScanMonstersStmt(text=text, line_no=ln, var=m.group(1)), i + 1
+
+    m = _AUDIT_MAP_RE.match(text)
+    if m:
+        return AuditMapStmt(text=text, line_no=ln, var=m.group(2),
+                            box=int(m.group(1) or 40)), i + 1
 
     m = _READ_CHAT_RE.match(text)
     if m:
@@ -1846,6 +1875,8 @@ class Interpreter:
                 self._do_read_lua(stmt)
             case ScanMonstersStmt():
                 self._do_scan_monsters(stmt)
+            case AuditMapStmt():
+                self._do_audit_map(stmt)
             case ReadChatStmt():
                 self._do_read_chat(stmt)
             case ChatSendStmt():
@@ -3229,6 +3260,34 @@ class Interpreter:
         self.ctx.vars[stmt.var] = value
         found = 0 if not value else len(str(value).split("|"))
         self._log(f"SCAN_MONSTERS -> {found} monster(s) INTO {stmt.var}")
+
+    def _do_audit_map(self, stmt: AuditMapStmt) -> None:
+        """Ask the CLIENT what it holds here, and say it — the reference count (#2740).
+
+        One expression, down the same channel `READ_LUA` uses, so it gets the same answer
+        path and the same failure shape. The line is logged because a client that cannot
+        be asked (`why=no-point-manager`) and ground with nothing on it read identically
+        otherwise, which is the whole fault this exists for.
+        """
+        self._tools_lib_on_path()
+        import lua_actions
+
+        chunk = (
+            'local ok,v=pcall(function() return %s end) '
+            'CS.UnityEngine.Debug.LogError("RLUA "..(ok and tostring(v) or ("ERR:"..tostring(v))))'
+            % lua_actions.map_intake_census(stmt.box)
+        )
+        value: Any = None
+        for ln in self._run_lua(chunk, marker="RLUA"):
+            if "RLUA " in ln:
+                raw = ln.split("RLUA ", 1)[1].strip()
+                if raw.startswith("ERR:"):
+                    self._log(f"AUDIT_MAP error: {raw[4:]}")
+                    value = None
+                else:
+                    value = raw
+        self.ctx.vars[stmt.var] = value
+        self._log(f"AUDIT_MAP -> {value} INTO {stmt.var}")
 
     def _do_read_chat(self, stmt: ReadChatStmt) -> None:
         """Seed the client's held messages into a buffer of our own, then drain it.

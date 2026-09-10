@@ -2427,6 +2427,7 @@
   "flow.state.refused": "● the ask is not getting through ({why}) · last arrival {since} ago · in {seen} · taken {kept}",
   "flow.state.starving": "● the source is talking ({heard}) and nothing has reached this list · {why}",
   "log.secret.area_gone": "the map answered about their squares without them: {n} tile(s) are gone",
+  "log.secret.wire_kind": "the wire is carrying {kind} tiles: {n} so far",
   "log.secret.verify_start": "verifying {rows} ready row(s) — {servers} warzone(s), {points} camera stop(s)",
   "log.secret.verify_unwatched": "the ★ monitor is off — a walk decodes nothing, so nothing would be verified",
   "log.round.report": "the ★ round walked {n} warzone(s) ({servers}): {added} new row(s), {rows} on the list, {ready} ready to rob; robbed today {done}, {left} left",
