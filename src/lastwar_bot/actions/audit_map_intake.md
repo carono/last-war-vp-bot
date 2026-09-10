@@ -48,5 +48,9 @@ IF scene != world
 LOG "Walking the sector at @[{x},{y}|{server}]."
 VISIT_MAP POINTS {x},{y} ZOOM {zoom} EVERY 0.05 SERVER {server}
 
-AUDIT_MAP BOX {box} INTO client
+# THE BOX IS THE GROUND WE WALKED, NOT WHEREVER THE CAMERA ENDED UP (#2740). A walk and
+# a read are two calls, and a neighbour taking the game link between them moves the
+# camera: the first control run walked to one waypoint and counted a box around another,
+# and only the camera on the answer line gave it away. The answer reports both.
+AUDIT_MAP BOX {box} AT {x},{y} INTO client
 LOG "The client holds, around @[{x},{y}|{server}]: {client}"

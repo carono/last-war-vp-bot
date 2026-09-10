@@ -1005,7 +1005,7 @@ clones are not in the register. Those need `scan_map_monsters.md`, which is 147 
 no uuid. The two are different questions, and `actions/list_world_monsters.md` is the
 recipe for this one.
 
-### `AUDIT_MAP [BOX <n>] INTO <var>`
+### `AUDIT_MAP [BOX <n>] [AT <x>,<y>] INTO <var>`
 
 Count what the **client** holds around the camera, by kind — the reference our own tally
 is subtracted from (#2740).
@@ -1018,19 +1018,26 @@ count of the same ground at the same moment, taken from the client itself:
 
 ```
 VISIT_MAP POINTS 500,500 ZOOM 600 EVERY 0.05 SERVER 954
-AUDIT_MAP BOX 40 INTO client
+AUDIT_MAP BOX 40 AT 500,500 INTO client
 LOG "The client holds: {client}"
 ```
 
 | Modifier | Effect | Default |
 |---|---|---|
 | `BOX n` | half the side of the box, in tiles — `(2n+1)^2` lookups | 40 |
+| `AT x,y` | the tile to centre the box on | wherever the camera is |
 
 The answer is one string:
 
 ```
-known=393 of=6561 cam=342,862 AllyCityPointInfo:49 BuildPointInfo:333 ResPointInfo:11
+known=393 of=6561 at=500,500 cam=342,862 AllyCityPointInfo:49 BuildPointInfo:333 ResPointInfo:11
 ```
+
+**Name the centre.** A walk and a read are two calls, and a neighbour taking the game
+link between them moves the camera — the first control run walked to one waypoint and
+counted a box around another, and only `cam=` on the answer line gave it away. `AT` fixes
+the GROUND; `cam=` is reported beside it so a reader can see whether the client was still
+looking at it.
 
 **The KIND is the class name of what the point store returns**, not a field on it —
 `pointType` reads `nil` through this bridge and reflection over the object's properties
