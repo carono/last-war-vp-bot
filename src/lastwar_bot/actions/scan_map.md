@@ -30,13 +30,19 @@
 # is thrown across the whole server by the time it is done — so «put the map up first» is
 # what the run was always going to do, only earlier and on purpose.
 
-# THE LAP NAMES NO WARZONE, AND THAT IS THE ABILITY (#2705). It walks the one the
-# client is already looking at — the person stands where they want to stand and presses
-# the button, in their own words: «мы сами в игре встаем на нужный сервер и делаем
-# обход». There is no `server` argument to get wrong, no home warzone out of a settings
-# file and nothing that could send the camera somewhere else. A lap of a NAMED warzone
-# is a different ability with a different price (`sweep_star_servers.md`, which jumps
-# five to ten times on purpose).
+# THE LAP TAKES NO WARZONE FROM ANYBODY, AND THAT IS THE ABILITY (#2705). It walks the
+# one the client is already looking at — the person stands where they want to stand and
+# presses the button, in their own words: «мы сами в игре встаем на нужный сервер и
+# делаем обход». There is no `server` argument to get wrong and no home warzone out of a
+# settings file. A lap of a NAMED warzone is a different ability with a different price
+# (`sweep_star_servers.md`, which jumps five to ten times on purpose).
+#
+# WHICH IS NOT THE SAME AS NAMING NOTHING (#2727). Handed an empty warzone slot the
+# game's own jump loads the HOME world, so between #2705 and #2727 the lap went on
+# pulling the camera off the warzone the person was standing on — and said «the warzone
+# the client is on» in the log while doing it. The lap now READS the warzone in the game
+# at the moment it starts, from one place and with no setting and no cache behind it
+# (`lua_actions.live_server_expr`), and the log line names the number it walked.
 #
 # `zoom` decides what the lap collects and `every` how hard it leans on the client —
 # both are the panel's own settings behind the gear beside «Обойти карту».

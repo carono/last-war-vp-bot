@@ -1317,6 +1317,27 @@ def _parse_scan_missions(rest: str, text: str, ln: int) -> ScanMissionsStmt:
     return stmt
 
 
+def _sweep_walked(lines) -> int:
+    """The warzone the lap's own chunk says it walked — `ACT sweep … srv=<id>` (#2727).
+
+    Nothing depends on it: it is what the log line NAMES, and a chunk whose line never
+    arrived answers 0 so the sentence falls back to words. The lap resolves the warzone
+    inside the game, so this is the only place the panel can learn which one it was
+    without asking a second time.
+    """
+    for line in reversed(list(lines or [])):
+        text = str(line)
+        if " sweep " not in text and not text.startswith("sweep "):
+            continue
+        for part in text.split():
+            if part.startswith("srv="):
+                try:
+                    return int(float(part[4:]))
+                except (TypeError, ValueError):
+                    return 0
+    return 0
+
+
 def _parse_sweep_map(rest: str, text: str, ln: int) -> SweepMapStmt:
     """Parse the modifier tail of SWEEP_MAP — same rules as the scan's.
 
@@ -2274,16 +2295,24 @@ class Interpreter:
         """
         self._tools_lib_on_path()
         import lua_actions
-        self._run_lua(lua_actions.fast_map_sweep(stmt.zoom, stmt.step, stmt.every,
-                                                 server=stmt.server,
-                                                 harvest=stmt.harvest))
+        lines = self._run_lua(lua_actions.fast_map_sweep(stmt.zoom, stmt.step, stmt.every,
+                                                         server=stmt.server,
+                                                         harvest=stmt.harvest))
         span = lua_actions.fast_sweep_seconds(stmt.step, stmt.every)
         zoom = stmt.zoom if stmt.zoom is not None else lua_actions.SWEEP_ZOOM_MAX
-        # A LAP THAT NAMES NOTHING SAYS SO (#2705), because the alternative is a
-        # line that reads the same whether the camera stayed or was thrown into
-        # another warzone — which is exactly the bug this became a rule after.
-        where = (f", server {stmt.server}" if stmt.server
-                 else ", the warzone the client is on")
+        # A LAP SAYS WHICH WARZONE IT WALKED, AND IT IS THE ONE THE GAME ANSWERED WITH
+        # (#2727). «the warzone the client is on» was the honest line while the slot
+        # carried nothing, and it was unfalsifiable: a lap that had pulled the camera
+        # home logged exactly the same words as one that had stayed. The chunk resolves
+        # the warzone inside the game and prints it, so the number in the log is the
+        # number the waypoints were walked with.
+        walked = _sweep_walked(lines)
+        if stmt.server:
+            where = f", server {stmt.server}"
+        elif walked:
+            where = f", server {walked} — the warzone the client is on"
+        else:
+            where = ", the warzone the client is on"
         picks = " + monsters" if stmt.harvest else ""
         self._log(f"SWEEP_MAP -> zoom {zoom}{where}, one lap, ~{span + 2:.0f}s{picks}")
         # …plus a breath for the last waypoint's answer to arrive: the map data lands a
