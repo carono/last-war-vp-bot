@@ -3064,6 +3064,34 @@ def test_no_reading_can_push_the_page_sideways():
             f"a rule may run off the screen: {block.strip()[:90]}"
 
 
+def test_the_days_take_stands_on_a_plate_in_both_palettes():
+    """#2743: «Нужна подложка под ресурсы, не видно на фоне».
+
+    The card is a PHOTOGRAPH and the row of resources shipped without the plate every
+    other line on a cover card has had since #2340. Four small numbers over whatever the
+    sprite happens to be is the one thing on the card that has to be read rather than
+    glanced at.
+
+    BOTH PALETTES OR NEITHER: the plate is `var(--card)`, which is what the theme moves,
+    so a hard-coded colour here would be a light-theme bug nobody sees in the dark. And
+    it may not push the page sideways on a phone — the row still wraps, and the plate is
+    held inside the card by `max-width`.
+    """
+    css = _css()
+    rule = re.search(r"\n\.res-row\s*\{[^}]*\}", css)
+    assert rule, "the day's take has no rule of its own any more"
+    body = rule.group(0)
+    assert "background:" in body, "the row has no plate and sits on the picture"
+    assert "var(--card)" in body, "the plate is not drawn out of the theme's own colours"
+    assert "#" not in body, "a hard-coded colour is one palette's answer"
+    assert "max-width: 100%" in body and "flex-wrap: wrap" in body, \
+        "a plate that cannot wrap or is not held inside the card can widen the page"
+    # …and the cover card keeps it in the same family as its neighbours rather than
+    # growing a second look for one row.
+    shared = re.search(r"\.item\.errand\.cover \.res-row[^{]*\{[^}]*\}", css)
+    assert shared and "var(--card)" in shared.group(0)
+
+
 def test_the_poll_survives_a_phone_being_locked():
     """#2418: the beat used to die on the FIRST `visibilitychange` and never come back.
 
