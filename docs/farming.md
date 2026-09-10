@@ -188,7 +188,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - 🟡 **Задание, которого больше нет, уходит из списка само** — a row no longer sits there saying «ready to rob» about empty ground
 - 🟡 **Every tile the bot happens to hear now counts as a check** — each row says when the game last confirmed it, in words
 - 🟡 «Обновить состояние» — re-checks the tasks already on the list, on demand only, and only the ones ready to rob
-- ✅ One lap of the WHOLE map, in about three seconds — «Обойти карту» walks the camera over every corner of the server
+- ✅ One lap of the WHOLE map, in about three seconds — «Обойти карту» walks the camera over every corner of the warzone the client is on; zoom and speed behind its gear
 - 🟡 Which warzones are having their star-secret-task day — three states beside the season, in the «Серверы» window and on the phone
 - 🟡 «Куда идти сегодня» — a magnifier that opens a grid of the warzones a robbery is possible on today
 - ✅ Ghost-recon robbery as a standing order — a checkbox with its own minimum-level field, on the «Призрак: карта» page

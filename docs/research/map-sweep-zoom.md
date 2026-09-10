@@ -374,8 +374,8 @@ before it is called one.
   ability, one file, which is what the panel plays.
 * «Секретки» → the coordinate bar: **«Зум»** with the three levels and **«Обойти карту»**
   beside it. The height governs every jump the tab makes, so a coordinate clicked in the
-  table and one typed into the boxes arrive the same way. Mirrored on the phone as a
-  cycling button and a press.
+  table and one typed into the boxes arrive the same way. On the phone it is a card of its
+  own since #2705 — the height and the pace behind its gear, the press under them (§10).
 * **One camera control, not two.** `sweep_zoom` and `sweep_step` are gone from Settings:
   the height and the step are one decision — a step measured at one height means nothing
   at another — and the box sweep now takes both from the level chosen on that bar. What
@@ -388,3 +388,33 @@ before it is called one.
 * Settings → «Автообъезд карты» → «Высота камеры», bounded at 600 so the knob cannot be
   turned to a height that finds nothing.
 * `JUMP x, y [, server] [ZOOM height]` in the DSL (`docs/dsl.md`).
+
+## 10. The lap that names no warzone (#2705)
+
+The lap took a warzone id and handed it to `GotoWorldPos` as the last argument, which is
+the argument that LOADS a world. The panel filled it from the «Сервер» box, so the button
+could send the camera to a warzone the person had left — the box is a saved setting and
+nobody tells it where they walked in the game. The person's rule for the button: «мы сами
+в игре встаем на нужный сервер и делаем обход».
+
+Two candidates, both measured against a live client:
+
+| waypoint | warzone after | `Zoom` after | LOD | tiles known in a 161 × 161 box |
+|---|---|---|---|---|
+| `GotoWorldPos(pos, 600, 0, nil, nil)` | unchanged | **600.0** | 4 | **332** |
+| `GotoWorldPos(pos, 600, 0, nil, <the same id>)` | unchanged | 600.0 | 4 | **332** |
+| `MoveToWorldPoint(pid)` | unchanged | **105.0** | 1 | — |
+
+So `nil` in the warzone slot is the answer: identical fetching, identical height, and no
+argument that could name another world. `MoveToWorldPoint` is the one that looks right and
+is not — it takes no warzone either, but it also resets the camera to the scene's
+`InitZoom` (600 in, 105 out, measured immediately and again three seconds later), so every
+request would go out at LOD 1.
+
+A lap that DOES name a warzone still jumps, on purpose: that is `sweep_star_servers.md`,
+which walks five to ten of them in a row.
+
+**And the lap grew its two knobs** — `zoom` and `every`, behind the gear on «Обход карты»
+(`panel/runtime`'s one modal). The paces are `lua_actions.SWEEP_PACES`: 0.02 «быстро» (the
+measured floor of §9 — below it the traffic only drains later), 0.05 «обычно» (what every
+lap has always walked at) and 0.15 «спокойно».

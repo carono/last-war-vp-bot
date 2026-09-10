@@ -30,11 +30,16 @@
 # is thrown across the whole server by the time it is done — so «put the map up first» is
 # what the run was always going to do, only earlier and on purpose.
 
-# WHICH SERVER the lap walks. 0 — the default — means «ask the client», which is what
-# every lap did before and what is right when nobody knows better. A caller that DOES
-# know says so: the client's own answer is a cached manager field, and live it kept
-# sending the camera back to the server before last (#1280).
-ARGS server = 0
+# THE LAP NAMES NO WARZONE, AND THAT IS THE ABILITY (#2705). It walks the one the
+# client is already looking at — the person stands where they want to stand and presses
+# the button, in their own words: «мы сами в игре встаем на нужный сервер и делаем
+# обход». There is no `server` argument to get wrong, no home warzone out of a settings
+# file and nothing that could send the camera somewhere else. A lap of a NAMED warzone
+# is a different ability with a different price (`sweep_star_servers.md`, which jumps
+# five to ten times on purpose).
+#
+# `zoom` decides what the lap collects and `every` how hard it leans on the client —
+# both are the panel's own settings behind the gear beside «Обойти карту».
 ARGS zoom = 600
 ARGS step = 90
 ARGS every = 0.05
@@ -44,6 +49,6 @@ IF scene != world
     GAME WORLD
     WAIT scene == world WITHIN 30s
 
-SWEEP_MAP ZOOM {zoom} STEP {step} EVERY {every} SERVER {server}
+SWEEP_MAP ZOOM {zoom} STEP {step} EVERY {every}
 
 LOG "One lap of the map is done."

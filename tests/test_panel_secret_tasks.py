@@ -217,6 +217,7 @@ def _make_tab(rows, lo="", hi="", autoloot=False, rob_min=None):
     # How far back the camera sits when this tab moves it (#1265) — the close view a
     # fresh profile has, which is what every jump did before the setting existed.
     tab._zoom_level = "tile"
+    tab._sweep_pace = "normal"
     return tab
 
 
@@ -1754,6 +1755,7 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
     tab.hide_own_var = _Var(False)
     tab.autoassist_var = _Var(False)
     tab._zoom_level = "tile"
+    tab._sweep_pace = "normal"
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
@@ -1833,6 +1835,7 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.autoassist_var = _Var(False)
     tab._visible_rows = lambda: list(rows.values())
     tab._zoom_level = "tile"
+    tab._sweep_pace = "normal"
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
@@ -1984,6 +1987,7 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.autoassist_var = _Var(False)
     tab._visible_rows = lambda: list(rows.values())
     tab._zoom_level = "tile"
+    tab._sweep_pace = "normal"
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
@@ -2953,6 +2957,7 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab._visible_rows = lambda: []
     tab._sort = gr.DEFAULT_SORT         # the order the ★ table stands in (#2592)
     tab._zoom_level = "tile"            # the camera height the bar is set to (#1265)
+    tab._sweep_pace = "normal"
     # The card carries the RULE beside the state now (#1256), so the stand-in
     # answers both questions the phone asks of the standing order.
     tab.autoloot = types.SimpleNamespace(
@@ -3576,6 +3581,7 @@ def _config_stub():
     stub._jump_hist = []
     stub._zoom_level = "tile"
     # …and the order the ★ table stands in (#2592), which `config()` saves too.
+    stub._sweep_pace = "normal"
     stub._sort = gr.DEFAULT_SORT
     # Every page keeps its own settings block now (#1251), so `config()` asks each of
     # them for one. A stand-in that answers is all this fixture needs.
@@ -4644,13 +4650,29 @@ def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None)
     posted = []
     tab.post = lambda fn: posted.append(fn)
 
+    tab._sweep_pace = lua_actions.DEFAULT_SWEEP_PACE
+    tab._sync_zoom_combo = lambda: None
+    tab.pieces = None
     # The close view is the default, and it is the height the jump always used.
     assert lua_actions.zoom_level(tab._zoom_level)[0] == lua_actions.JUMP_ZOOM
-    # …and the phone cycles through all three and back, writing the window's own field.
-    assert tab.web_press("zoom", {}) == {"ok": True}
-    for fn in posted:
-        fn()
+    # …and the phone PICKS one behind the gear now (#2705) — no press that cycles
+    # through three words, and the field it writes is the window's own.
+    assert tab.web_press("zoom", {}) == {"error": "unknown"}
+    assert tab.web_press("set", {"key": "sweep_zoom", "value": "tasks"}) == {"ok": True}
     assert tab._zoom_level == "tasks"
+    # A height nobody offers is REFUSED rather than quietly kept: the value comes off a
+    # form on a phone.
+    assert tab.web_press("set", {"key": "sweep_zoom",
+                                 "value": "tile"}) == {"ok": False}
+    assert tab._zoom_level == "tasks"
+    # …and the second knob the person asked for, on the same terms.
+    assert tab.web_press("set", {"key": "sweep_pace", "value": "calm"}) == {"ok": True}
+    assert tab._sweep_pace == "calm"
+    assert tab.web_press("set", {"key": "sweep_pace",
+                                 "value": "whenever"}) == {"ok": False}
+    assert lua_actions.sweep_pace("calm") == lua_actions.SWEEP_PACES["calm"]
+    assert lua_actions.sweep_pace("from-an-older-panel") == \
+        lua_actions.SWEEP_PACES[lua_actions.DEFAULT_SWEEP_PACE]
     assert lua_actions.zoom_level("tasks")[0] == lua_actions.SWEEP_ZOOM_MAX
     assert lua_actions.zoom_level("bases")[0] == lua_actions.BASE_ZOOM_MAX
     # A level nobody has heard of (an old profile) answers with the close view rather
@@ -4659,6 +4681,32 @@ def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None)
         lua_actions.ZOOM_LEVELS[lua_actions.DEFAULT_ZOOM_LEVEL]
     # Every level has a step that belongs to it: a step is meaningless without its height.
     assert all(step > 0 for _height, step in lua_actions.ZOOM_LEVELS.values())
+
+
+def test_the_lap_carries_its_two_knobs_behind_one_gear():
+    """«Нужна настройка для обхода, зум и скорость» (#2705).
+
+    Both are the card's `options`, which is what the ONE modal this front-end has opens
+    (`CLAUDE.md`) — never a button that cycles through words, and never a second sheet.
+    The card also SAYS what the lap will do before it is pressed.
+    """
+    import lua_actions
+    tab = _sweep_tab()
+    tab._sync_zoom_combo = lambda: None
+    card = tab._sweep_card()
+
+    keys = [field["key"] for field in card["options"]]
+    assert keys == ["sweep_zoom", "sweep_pace"], keys
+    assert all(field["kind"] == "choice" for field in card["options"])
+    assert [choice["value"] for choice in card["options"][1]["options"]] == \
+        list(lua_actions.SWEEP_PACE_NAMES)
+    assert [row["label"] for row in card["rows"]] == \
+        ["coord.zoom", "coord.sweep.pace", "coord.sweep.span"]
+    assert [action["id"] for action in card["actions"]] == ["sweep_now"]
+    # …and the pace the gear picks is the pace the recipe is played with.
+    tab.set_sweep_pace("calm")
+    tab._sweep_once()
+    assert tab.rt.played[-1][1]["every"] == lua_actions.SWEEP_PACES["calm"]
 
 
 def test_the_lap_is_a_scenario_and_the_panel_only_plays_it():
@@ -4672,8 +4720,10 @@ def test_the_lap_is_a_scenario_and_the_panel_only_plays_it():
     tab._sweep_once()
     assert played == [("scan_map", {"zoom": lua_actions.SWEEP_ZOOM_MAX,
                                     "step": lua_actions.FAST_STEP,
-                                    # …and WHERE, off the tab's own box (#1280).
-                                    "server": 300})]
+                                    # …and the pace the gear picked (#2705). No warzone
+                                    # travels with it: the lap walks the one the client
+                                    # is on.
+                                    "every": lua_actions.SWEEP_PACES["normal"]})]
     # Nothing was said about an unwatched lap: the ★ monitor is on.
     assert "log.coord.sweep_unwatched" not in tab.said
 
@@ -4692,9 +4742,12 @@ def _sweep_tab(rows=None):
     tab = object.__new__(st.SecretTasksTab)
     tab.t = i18n.t
     tab._zoom_level = "tasks"
+    tab._sweep_pace = "normal"
+    tab._sweep_pace = "normal"
     tab._sweeping, tab._sweep_btn = False, None
-    # The box the lap is aimed by (#1280) — a server the person is actually on, rather
-    # than the cached manager field the client answers with.
+    # THE BOX IS HERE TO BE IGNORED (#2705). It used to aim the lap (#1280); the lap
+    # names no warzone at all now, so a box holding somebody else's number is exactly
+    # the fixture that proves it.
     tab.coord_srv_var = _Var("300")
     tab._rows = dict(rows or {})
     tab._collected, tab._restore_pending = {"already-robbed"}, {"x"}
@@ -4719,6 +4772,7 @@ def _sweep_tab(rows=None):
     played = []
     tab.rt = types.SimpleNamespace(
         played=played,
+        settings=types.SimpleNamespace(changed=lambda: None),
         play_async=lambda name, args=None, **kw: played.append((name, args)) or True)
     return tab
 
@@ -4741,23 +4795,31 @@ def test_pressing_the_lap_keeps_every_row_it_already_had():
     assert not hasattr(tab, "_wipe_for_sweep"), "the wipe grew back"
 
 
-def test_the_lap_walks_the_server_in_the_box():
-    """«Перехожу на другой сервер, жму обход — возвращает на предыдущий» (#1280).
+def test_the_lap_names_no_warzone_at_all(monkeypatch=None):
+    """«Не нужно переходить ни на какой сервер» (#2705).
 
-    The waypoints used to be handed the client's own `curServerId`, which is a cached
-    manager field rather than where the camera is. The box on the coordinate bar is the
-    one number that is certainly current — «↻ сервер» fills it and every jump writes into
-    it — so that is what the lap is given. An empty box still means «ask the client».
+    The press used to carry one — the client's cached answer (#1280), then the «Сервер»
+    box, which is a saved setting and knows nothing about where the person walked in the
+    game. The person's rule: they stand where they want to stand and press the button.
+    So the lap carries a height and a pace and NOTHING that could move the camera to
+    another warzone, whatever the box beside it happens to hold.
     """
+    import lua_actions
     tab = _sweep_tab()
 
     tab._sweep_once()
-    assert tab.rt.played[-1][1]["server"] == 300, tab.rt.played
+    name, args = tab.rt.played[-1]
+    assert name == "scan_map"
+    assert "server" not in args, args
+    assert set(args) == {"zoom", "step", "every"}, args
 
-    tab._sweeping = False
-    tab.coord_srv_var.set("")
-    tab._sweep_once()
-    assert tab.rt.played[-1][1]["server"] == 0, "an empty box must not name a server"
+    # …and the primitive itself: a lap with no warzone hands the game `nil` where the
+    # warzone goes, so `GotoWorldPos` cannot load another world. A lap WITH one still
+    # names it — that is the star round, which jumps on purpose.
+    stay = lua_actions.fast_map_sweep(600, 90, 0.05)
+    assert "local srv=nil" in stay, stay[:400]
+    assert lua_actions.current_server_expr() not in stay
+    assert "local srv=300" in lua_actions.fast_map_sweep(600, 90, 0.05, server=300)
 
 
 def test_a_second_press_stops_the_lap_instead_of_starting_another():
