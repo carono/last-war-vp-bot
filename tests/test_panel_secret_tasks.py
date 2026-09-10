@@ -4768,9 +4768,11 @@ def test_the_lap_is_a_scenario_and_the_panel_only_plays_it():
     tab._sweep_once()
     assert played == [("scan_map", {"zoom": lua_actions.SWEEP_ZOOM_MAX,
                                     "step": lua_actions.FAST_STEP,
-                                    # …and the pace the gear picked (#2705). No warzone
-                                    # travels with it: the lap walks the one the client
-                                    # is on.
+                                    # …and the pace the gear picked (#2705), and the
+                                    # warzone the WIRE last named (#2727) — 0 from a
+                                    # panel that has heard none, which the recipe reads
+                                    # as «ask the client» rather than as «name none».
+                                    "server": 0,
                                     "every": lua_actions.sweep_pace(
                                         lua_actions.SWEEP_PACE_DEFAULT)})]
     # Nothing was said about an unwatched lap: the ★ monitor is on.
@@ -4809,7 +4811,9 @@ def test_the_measurement_is_a_recipe_and_its_answer_is_only_a_recommendation():
     tab._bench_once()
     assert calls["name"] == "benchmark_map_sweep"
     assert calls["args"]["zoom"] == lua_actions.zoom_level("tasks")[0]
-    assert "server" not in calls["args"], "the measurement names no warzone either"
+    # …and it walks the warzone the wire named, like the lap: an unnamed one is the
+    # HOME world, and the measurement jumps twice (#2727).
+    assert calls["args"]["server"] == 0, calls["args"]
     assert calls["kw"].get("on_result") is not None, \
         "the answer rides on on_result — on_done is called with no arguments at all"
 
@@ -4919,21 +4923,23 @@ def test_the_lap_names_no_warzone_at_all(monkeypatch=None):
     tab._sweep_once()
     name, args = tab.rt.played[-1]
     assert name == "scan_map"
-    assert "server" not in args, args
-    assert set(args) == {"zoom", "step", "every"}, args
+    # A warzone travels again since #2727 — but it is a live READING and never the box:
+    # a panel whose header has heard nothing hands 0, whatever the box holds.
+    tab.coord_srv_var.set("936")
+    tab._sweeping = False
+    tab._sweep_once()
+    args = tab.rt.played[-1][1]
+    assert args["server"] == 0, args
+    assert set(args) == {"zoom", "step", "every", "server"}, args
 
-    # …and the primitive itself: a lap with no warzone RESOLVES one in the game at the
-    # moment it starts (#2727). `nil` in that slot is not «do not switch» — it loads the
-    # home world, which is why the lap went on moving the camera after #2705. A lap WITH
-    # a warzone still names it: that is the star round, which jumps on purpose.
+    # …and the primitive itself NEVER leaves the warzone slot empty (#2727): `nil` there
+    # is not «do not switch», it loads the home world, which is why the lap went on
+    # moving the camera after #2705. With nothing passed it falls back to the client's
+    # own field; a lap WITH a warzone names it, which is what the press now hands it.
     stay = lua_actions.fast_map_sweep(600, 90, 0.05)
     assert "local srv=nil" not in stay, stay[:400]
-    assert lua_actions.live_server_expr() in stay
-    assert "IsInOtherServer" in stay
+    assert lua_actions.current_server_expr() in stay
     assert "local srv=300" in lua_actions.fast_map_sweep(600, 90, 0.05, server=300)
-    # …and either way it writes down where it took the camera, so the next thing to ask
-    # «which warzone am I looking at» is not told the home one.
-    assert lua_actions.VIEW_VAR + " = {srv = srv" in stay
 
 
 def test_a_second_press_stops_the_lap_instead_of_starting_another():
@@ -5841,25 +5847,40 @@ def test_the_phone_sorts_the_grid_it_pressed_on_and_no_other():
     assert ally.web_sort("alliance:nonesuch") is None
 
 
-def test_the_lap_resolves_the_warzone_live_and_a_stale_note_loses():
-    """The lap's warzone comes from ONE live reading, and the note perishes (#2727).
+def test_the_press_hands_the_lap_the_warzone_the_wire_last_named():
+    """ONE live source, and it is not the client and not the box (#2727).
 
-    «Обход карты всё равно меняет сервер» after #2705 had left the slot empty: measured
-    live, one waypoint with no warzone took the wire from the foreign one to home inside
-    a second. The reading the lap now takes is the client's own field, overridden by
-    this panel's last camera move only while the client still says it is elsewhere and
-    the field has not moved since — so a player who walks in the game wins over a note.
+    «Неа, ничего не поменялось»: caught from the person's own screen, they had walked to
+    another warzone in the game, pressed «Обойти карту», and the wire went from that
+    warzone to home in the same second. The client cannot be asked — with the camera on
+    a foreign warzone `curServerId` still names home — and the «Сервер» box is a saved
+    setting. What knows is the map traffic, which the capture publishes as `game.server`
+    and the header holds.
     """
-    import lua_actions
-    expr = lua_actions.live_server_expr()
-    # the client's own answer is what it falls back to…
-    assert lua_actions.current_server_expr() in expr
-    # …the note is only honoured while the client agrees it is away from home…
-    assert "IsInOtherServer" in expr
-    # …and only while the field it was written against has not moved.
-    assert "b == cur" in expr
-    # A coordinate jump is a camera move, so it writes the note itself.
-    assert lua_actions.VIEW_VAR in lua_actions.jump_to_coord(1, 2, 300)
+    tab = _sweep_tab()
+    tab.rt.header = types.SimpleNamespace(server_now=lambda: 935)
+
+    tab._sweep_once()
+    name, args = tab.rt.played[-1]
+    assert name == "scan_map"
+    assert args["server"] == 935, args
+    assert set(args) == {"zoom", "step", "every", "server"}, args
+
+    # …and a panel that has heard nothing hands 0, which the recipe reads as «not named»
+    # and answers with the client's own field rather than with an empty slot.
+    tab.rt.header = types.SimpleNamespace(server_now=lambda: 0)
+    tab._sweep_once()
+    assert tab.rt.played[-1][1]["server"] == 0
+
+
+def test_the_measurement_walks_the_same_warzone_as_the_lap():
+    """It jumps twice and it used to jump HOME twice (#2727)."""
+    tab = _sweep_tab()
+    tab.rt.header = types.SimpleNamespace(server_now=lambda: 935)
+    tab._bench_once()
+    name, args = tab.rt.played[-1]
+    assert name == "benchmark_map_sweep"
+    assert args["server"] == 935, args
 
 
 def test_the_lap_log_line_names_the_warzone_the_chunk_walked():

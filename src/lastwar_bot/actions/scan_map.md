@@ -40,12 +40,20 @@
 # WHICH IS NOT THE SAME AS NAMING NOTHING (#2727). Handed an empty warzone slot the
 # game's own jump loads the HOME world, so between #2705 and #2727 the lap went on
 # pulling the camera off the warzone the person was standing on — and said «the warzone
-# the client is on» in the log while doing it. The lap now READS the warzone in the game
-# at the moment it starts, from one place and with no setting and no cache behind it
-# (`lua_actions.live_server_expr`), and the log line names the number it walked.
+# the client is on» in the log while doing it. Caught live from the person's own screen:
+# they walked to another warzone in the game, pressed the button, and the wire went from
+# that warzone to home in the same second.
+#
+# So `server` is back as an ARGUMENT, and it is not a setting: it is what the panel HAS
+# JUST HEARD ON THE WIRE (`game.server` → `panel/runtime/header.py::server_now`, the
+# number the header draws — «в хедере был корректный»). The client's own Lua cannot
+# answer it: on a foreign warzone `curServerId` still names home, whether the person
+# walked there or the panel jumped. Left at 0 the lap falls back to that field, which is
+# right for somebody who never left home. The log line names the number it walked.
 #
 # `zoom` decides what the lap collects and `every` how hard it leans on the client —
 # both are the panel's own settings behind the gear beside «Обойти карту».
+ARGS server = 0
 ARGS zoom = 600
 ARGS step = 90
 ARGS every = 0.05
@@ -55,6 +63,6 @@ IF scene != world
     GAME WORLD
     WAIT scene == world WITHIN 30s
 
-SWEEP_MAP ZOOM {zoom} STEP {step} EVERY {every}
+SWEEP_MAP ZOOM {zoom} STEP {step} EVERY {every} SERVER {server}
 
 LOG "One lap of the map is done."

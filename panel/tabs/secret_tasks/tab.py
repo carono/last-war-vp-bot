@@ -2317,6 +2317,20 @@ class SecretTasksTab(PanelTab):
                  updated=tally["updated"], gone=tally["gone"],
                  unconfirmed=tally["unconfirmed"])
 
+    def _live_server(self) -> int:
+        """The warzone the client is looking at, as the WIRE last said — 0 if unheard.
+
+        ONE SOURCE, and it is not this tab's «Сервер» box (#2727). The box is a saved
+        setting; the client's own `curServerId` names home even while foreign tiles are
+        arriving; and an empty warzone slot loads the home world. What is true is the map
+        traffic, which the ★ capture publishes as `game.server` and the header holds.
+        """
+        header = getattr(self.rt, "header", None)
+        try:
+            return int(header.server_now()) if header is not None else 0
+        except Exception:                      # noqa: BLE001 — a reading, never a press
+            return 0
+
     def _sweep_once(self) -> None:
         """«Обойти карту» — and «Остановить» while one is walking (#1272).
 
@@ -2350,9 +2364,16 @@ class SecretTasksTab(PanelTab):
 
         Leaving the slot EMPTY was not the same thing, and that is #2727: the game's own
         jump loads the HOME world when nothing is named, so the lap went on changing the
-        server while logging «the warzone the client is on». The recipe reads the warzone
-        in the game at the moment it starts (`lua_actions.live_server_expr`) — one live
-        reading, no setting, no cache — and the log line names the number it walked.
+        server while logging «the warzone the client is on». Caught from the person's own
+        screen: they had walked to another warzone in the game, pressed this, and the wire
+        went from that warzone to home in the same second.
+
+        So the press hands the recipe ONE live reading — `rt.header.server_now()`, the
+        warzone the wire last reported (`game.server`) and the number the header itself
+        draws. It is not the «Сервер» box and not a saved anything: nobody types it, and
+        it moves when the map traffic moves. The client's own Lua cannot answer this —
+        with the camera on a foreign warzone `curServerId` still names home — which is
+        why asking the game was never going to work, however the question was phrased.
 
         THE HEIGHT AND THE PACE ARE THE GEAR'S (#2705) — the two knobs behind «Обход
         карты» on the phone, and `ARGS` of the recipe. Nothing else about the lap is the
@@ -2371,7 +2392,8 @@ class SecretTasksTab(PanelTab):
                  level=self.t(f"coord.zoom.{self._zoom_level}"),
                  pace=self._pace_words(), secs=int(seconds))
         started = self.rt.play_async(
-            "scan_map", {"zoom": height, "step": step, "every": every}, tag="coord",
+            "scan_map", {"zoom": height, "step": step, "every": every,
+                         "server": self._live_server()}, tag="coord",
             human=True,
             on_start=lambda: self.post(self._sweep_began),
             on_done=self._sweep_ended)
@@ -2421,7 +2443,8 @@ class SecretTasksTab(PanelTab):
             self.post(self._bench_idle)
 
         started = self.rt.play_async(
-            "benchmark_map_sweep", {"x": x, "y": y, "zoom": height},
+            "benchmark_map_sweep", {"x": x, "y": y, "zoom": height,
+                                    "server": self._live_server()},
             tag="coord", human=True, on_result=landed, on_done=done)
         if not started:
             self._bench_busy = False
@@ -3637,8 +3660,8 @@ class SecretTasksTab(PanelTab):
             return
         self._monster_busy = True
         pace, stages = self.monsters.pace(), self.monsters.stages()
-        srv = self.coord_srv_var.get().strip()
-        server = int(srv) if srv.isdigit() else 0
+        # The warzone the wire last named, never the box beside it (#2727).
+        server = self._live_server()
         self.say("coord", "log.monsters.sweeping", stages=len(stages),
                  pace=pace, secs=int(self._monster_lap_seconds(pace, stages)))
 

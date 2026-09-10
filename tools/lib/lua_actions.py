@@ -63,58 +63,24 @@ def current_server() -> str:
             % current_server_expr())
 
 
-#: Where a camera move writes the warzone it moved to — `{srv, base}` in the game's own
-#: Lua, read back by :func:`live_server_expr`. Our own namespace inside `DataCenter`, the
-#: same one every other parked value of this repository uses.
-VIEW_VAR = "DataCenter.__lw_view"
-
-
-def view_park(server_expr: str) -> str:
-    """Lua that records the warzone a camera move is about to load.
-
-    **A CROSS-SERVER CAMERA JUMP IS SHALLOW, AND NOTHING IN THE CLIENT WRITES IT DOWN
-    (#2727).** `GotoWorldPos(pos, zoom, nil, nil, serverId)` fetches that warzone's tiles
-    for the current view and leaves every field the client keeps about «which world am I
-    looking at» untouched: measured live, after a jump to a foreign warzone
-    `WorldFavoDataManager.curServerId`, `WarFlagDataManager.curServerId` and
-    `LuaEntry.Player.serverId` all still named the HOME one, and a value-search of the
-    whole Lua side for the foreign id found nothing but a weather record. So the mover is
-    the only one who knows, and this is the mover writing it down.
-
-    `base` is what the client's own reading said AT THE MOMENT of the jump, and it is
-    what makes the note perishable: as soon as the game's own field moves — which is what
-    an in-game walk into another warzone does — the note is about a world nobody is
-    looking at any more, and :func:`live_server_expr` drops it.
-    """
-    return "%s = {srv = %s, base = %s} " % (VIEW_VAR, server_expr, current_server_expr())
-
-
-def live_server_expr() -> str:
-    """Lua EXPRESSION for the warzone the camera is looking at RIGHT NOW (#2727).
-
-    :func:`current_server_expr` is the client's own answer, and it is the truth for a
-    world the PLAYER walked into: the game's own switch writes `curServerId`. It is a lie
-    for a world this panel jumped to, because that jump is shallow (:func:`view_park`) —
-    and `nil`, which the lap carried between #2705 and #2727, is worse than either: the
-    warzone slot handed nothing loads the HOME world. Measured live on a client whose
-    camera stood on a foreign warzone: one waypoint with the slot empty and the wire went
-    from that warzone to the home one inside a second, which is the whole of «обход всё
-    равно меняет сервер». `MoveToWorldPoint` does the same and drops the zoom besides.
-
-    So the answer is the client's own reading, OVERRIDDEN by this panel's own last camera
-    move while — and only while — three things hold together: the client says it is in
-    somebody else's warzone at all (`IsInOtherServer`), the note names one, and the
-    client's own field has not moved since the note was written. Any of them failing
-    hands back `curServerId`, which is what a player who walked there themselves has
-    already made true.
-    """
-    return ("(function() local cur = %s local other = false "
-            "pcall(function() other = CrossServerUtil.IsInOtherServer() and true or false end) "
-            "local v = %s "
-            "if other and type(v) == 'table' then "
-            "local s = tonumber(v.srv) or 0 local b = tonumber(v.base) or -1 "
-            "if s > 0 and b == cur then return math.floor(s + 0) end end "
-            "return cur end)()" % (current_server_expr(), VIEW_VAR))
+#: WHY THE WARZONE SLOT IS NEVER LEFT EMPTY (#2727), whatever the caller wants.
+#:
+#: `GotoWorldPos(pos, zoom, nil, nil, serverId)` handed nothing in that slot does not
+#: mean «do not switch»: it loads the HOME world. Measured live against a camera standing
+#: on a foreign warzone — four arguments, five with `nil`, and `MoveToWorldPoint` too:
+#: every one of them took the wire back to the home warzone inside a second, while the
+#: same waypoint carrying that warzone's id walked on without leaving it. #2705 measured
+#: the same call on a client that was already at home, where the two are indistinguishable.
+#:
+#: AND THE CLIENT DOES NOT KNOW WHERE IT IS LOOKING. With the camera on a foreign warzone
+#: and that warzone's tiles arriving, `WorldFavoDataManager.curServerId`,
+#: `WarFlagDataManager.curServerId` and `LuaEntry.Player.serverId` all still name home;
+#: `CrossServerUtil.OnCrossServer(id)` flips `GetIsCrossServer()` and writes none of them;
+#: a value-search of the whole Lua side for the foreign id finds nothing usable, and a
+#: tile's own `serverId` is its OWNER's warzone rather than the world's. So the in-game
+#: fallback below is the best the GAME can answer, and it is only a fallback: the panel
+#: hears the truth on the wire (`game.server` → `panel/runtime/header.py`) and hands it
+#: in as the warzone to walk.
 
 
 #: The camera height the in-game coordinate jump uses — the client's own `InitZoom`.
@@ -358,14 +324,10 @@ def jump_to_coord(x: int, y: int, server: "int | None" = None,
     """
     sid = str(int(server)) if server is not None else current_server_expr()
     height = int(JUMP_ZOOM if zoom is None else zoom)
-    # AND IT WRITES DOWN WHERE IT WENT (#2727). The jump is the only thing that knows: a
-    # cross-server one is shallow and leaves every field the client keeps naming the home
-    # warzone, so a lap pressed straight afterwards had nothing truthful to walk on and
-    # went home mid-lap. `view_park` is that note; `live_server_expr` reads it back.
-    return ('local srv=%s %spcall(function() GoToUtil.GotoWorldPos('
+    return ('local srv=%s pcall(function() GoToUtil.GotoWorldPos('
             'CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),%d,nil,nil,srv) end) '
             'CS.UnityEngine.Debug.LogError("ACT jump=%d,%d srv="..tostring(srv))'
-            % (sid, view_park("srv"), x, y, height, x, y))
+            % (sid, x, y, height, x, y))
 
 
 #: Lua that finds the live `WorldScene` MonoBehaviour and caches it in `DataCenter.__lw_ws`. The
@@ -655,13 +617,12 @@ def fast_map_sweep(zoom: "int | None" = None, step: "int | None" = None,
     height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
     stride = max(1, int(FAST_STEP if step is None else step))
     gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
-    # WHAT «THE WARZONE THE CLIENT IS ON» IS, and it is a READING rather than an empty
-    # slot (#2727). Handed nothing, the last argument of `GotoWorldPos` does not mean «do
-    # not switch»: it loads the HOME world, which is why the lap went on pulling the
-    # camera off the warzone the person was standing on after #2705 left the slot `nil`.
-    # `MoveToWorldPoint` is the same answer by another door and drops the zoom besides.
-    # So the lap asks, once, at the moment it starts: `live_server_expr`.
-    where = str(int(server)) if server else live_server_expr()
+    # A LAP ALWAYS NAMES A WARZONE (#2727, and see the note above `JUMP_ZOOM`): an empty
+    # slot loads the home world, so a lap that named nothing was a lap that went home.
+    # `server` is what the caller HEARD on the wire; with none the chunk falls back to
+    # the client's own field, which is right for a player who has not left home and is
+    # the best the game itself can answer for one who has.
+    where = str(int(server)) if server else current_server_expr()
     move = ('pcall(function() GoToUtil.GotoWorldPos(V3(x*2+1, 0, y*2+1), %d, 0, '
             'nil, srv) end)' % height)
     # THE SAMPLER IS INSTALLED IN FRONT OF THE WAYPOINTS, never inside one (#1523): it is
@@ -682,10 +643,6 @@ local DC = DataCenter.ActDispatchTaskDataManager
 DC.__lw_sweep_run = (tonumber(DC.__lw_sweep_run) or 0) + 1
 local run = DC.__lw_sweep_run
 local srv=%s
--- …and the lap writes down where it took the camera, exactly as a coordinate jump does
--- (#2727): 121 waypoints of a named warzone leave the client looking at it, and the next
--- thing to ask «where am I» must not be told the home one.
-%s
 local size = 1000
 pcall(function() size = WS.TileCount.x end)
 local step, half = %d, math.floor(%d / 2)
@@ -709,8 +666,7 @@ for row = 1, #axis do
 end
 CS.UnityEngine.Debug.LogError("ACT sweep n="..n.." zoom=%d step=%d srv="..tostring(srv)
   .." span="..string.format("%%.1f", (n - 1) * %f).." size="..tostring(size))
-''' % (where, view_park("srv"), stride, stride, move, gap,
-       sample_call, height, stride, gap))
+''' % (where, stride, stride, move, gap, sample_call, height, stride, gap))
 
 
 #: The Lua one :func:`fast_map_visit` fills in — the waypoint walk with the grid taken
@@ -724,8 +680,6 @@ local DC = DataCenter.ActDispatchTaskDataManager
 DC.__lw_sweep_run = (tonumber(DC.__lw_sweep_run) or 0) + 1
 local run = DC.__lw_sweep_run
 local srv = %s
--- Where the camera is being taken, written down for whatever asks next (#2727).
-%s
 local pts = {%s}
 local V3, tm = CS.UnityEngine.Vector3, TimerManager:GetInstance()
 for n = 1, #pts do
@@ -772,9 +726,9 @@ def fast_map_visit(points, zoom: "int | None" = None,
     """
     height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
     gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
-    where = str(int(server)) if server else live_server_expr()
+    where = str(int(server)) if server else current_server_expr()
     items = ",".join("{%d,%d}" % (int(x), int(y)) for x, y in points)
-    return (VISIT_CHUNK % (where, view_park("srv"), items, height, gap, height, gap))
+    return (VISIT_CHUNK % (where, items, height, gap, height, gap))
 
 
 def fast_visit_seconds(count: int, interval: "float | None" = None) -> float:
@@ -5803,7 +5757,7 @@ def treasure_scan_sweep(zoom: "int | None" = None, step: "int | None" = None,
     height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
     stride = max(1, int(FAST_STEP if step is None else step))
     gap = max(0.0, float(TREASURE_SCAN_STEP_SEC if interval is None else interval))
-    where = str(int(server)) if server else live_server_expr()
+    where = str(int(server)) if server else current_server_expr()
     return (FIND_WORLD_SCENE + '''
 local DC = DataCenter.ActDispatchTaskDataManager
 local S = {found = {}, n = 0, done = 0, tiles = 0, known = 0, chests = 0,
