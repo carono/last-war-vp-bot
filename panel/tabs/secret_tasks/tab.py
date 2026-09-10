@@ -5145,6 +5145,13 @@ class SecretTasksTab(PanelTab):
                 "text": text,
                 "facts": facts,
                 "tags": [tag],
+                # …AND THE COLOUR THAT SAYS IT AT A GLANCE (#2740) — «готовые карточки
+                # секретки измени цветом». The panel names the STATE and the front-end
+                # paints it with the palette it already has, so there is no colour
+                # anywhere in here and no second theme over there. Only «готово» is
+                # lifted: a wall in which everything is coloured is a wall in which
+                # nothing is, and ready is the only one of the four that is a decision.
+                **({"tone": "ok"} if tag == "ready" else {}),
                 # Ready: how long is left to take it. Not ready: when it becomes one.
                 "until": ((exp if row.get("ready") else done) or 0) / 1000.0 or None,
                 # Robbed outranks both other pills: «готово» on a tile we have taken is
@@ -5212,6 +5219,14 @@ class SecretTasksTab(PanelTab):
                            # «все» is always there, because a filter with no way back is a
                            # filter nobody presses.
                            "filters": self._star_filters(tally, len(items)),
+                           # THE NUMBER BESIDE THE HEADING IS WHAT CAN BE TAKEN (#2740).
+                           # The person's words: «счетчик во вкладке с секретками выводим
+                           # только готовые». A list of eighty-two tiles of which twelve
+                           # are ripe is answered by «12» — the count is read as «сколько
+                           # мне тут есть», and the total is the one number that does not
+                           # say that. The whole tally is still on the chips, so nothing
+                           # is hidden: «все 82 · готовые 12 · ещё идут 70».
+                           "count": int(tally.get("ready") or 0),
                            # DRAWN WHOLE (#2740): «убрать пагинацию на секретках». A lap
                            # brings tiles in wherever the sort puts them, and cut to
                            # thirty the new ones landed under the cut — which is exactly

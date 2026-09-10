@@ -862,9 +862,14 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
       ) : null}
     </>
   )
-  if (!place) return <div className="mini">{inside}</div>
+  /* WHAT THE PANEL SAID THIS ROW IS (#2740) — «готовые карточки секретки измени
+     цветом». The word is the panel's and the colour is the stylesheet's: `--ok`,
+     `--warn`, `--bad` are already what a pill and a dot are painted with, so a ready tile
+     joins the palette rather than starting a second one. */
+  const tone = item.tone ? ' tone-' + item.tone : ''
+  if (!place) return <div className={'mini' + tone}>{inside}</div>
   return (
-    <button className="mini act" onClick={() => void jump(place)}>
+    <button className={'mini act' + tone} onClick={() => void jump(place)}>
       {inside}
     </button>
   )
@@ -919,8 +924,19 @@ function cardName(card: ViewCard): string {
  * the caps as GONE. Only a card with nothing else to show is counted by its fields, so
  * a card that already draws items or readings is left exactly as it was.
  */
+/* THE NUMBER BESIDE A CARD'S NAME — the card's own where it sent one (#2740).
+ *
+ * «Счетчик во вкладке с секретками выводим только готовые»: a list of eighty-two tiles of
+ * which twelve can be taken is answered by «12». The panel decides what it counts, because
+ * only the panel knows what its rows ARE; a card that sends no count is counted by its
+ * rows, which is what every card did before and what most still do. */
+function cardCount(card: ViewCard): number {
+  if (typeof card.count === 'number') return card.count
+  return (card.items || []).length
+}
+
 function tileCount(card: ViewCard): number {
-  const items = (card.items || []).length
+  const items = cardCount(card)
   if (items) return items
   if ((card.rows || []).length) return 0
   return (card.fields || []).length
@@ -1065,8 +1081,8 @@ function Card({
               began as. */}
           {paged ? (
             paging ? <span className="count">{paging.total}</span> : null
-          ) : items.length ? (
-            <span className="count">{items.length}</span>
+          ) : cardCount(card) ? (
+            <span className="count">{cardCount(card)}</span>
           ) : null}
           {gear.button ? <span className="head-acts">{gear.button}</span> : null}
         </div>

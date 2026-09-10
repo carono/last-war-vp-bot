@@ -2228,7 +2228,10 @@ def test_a_tile_is_the_place_it_draws_and_its_own_buttons_are_not():
       press bubbled up to the tile it sits on.
     """
     script = _front_end_source()
-    assert '"mini act"' in script, "a tile that is a place is not a button"
+    # Since #2740 the class carries the panel's own tone with it («готовые карточки
+    # секретки измени цветом»), so what is pinned is that a PLACE is a `<button>` wearing
+    # `mini act` — not the exact spelling of the attribute it is built from.
+    assert "'mini act' + tone" in script, "a tile that is a place is not a button"
     assert "useJump" in script, "the tile does not play the panel's own jump"
     assert script.count("name: 'goto_coord'") == 1, \
         "the jump is played from more than one place — they will drift"

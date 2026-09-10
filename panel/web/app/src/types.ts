@@ -337,6 +337,12 @@ export interface ViewItem {
      not to send it. The panel decides what «used up» means (a shop row whose quota is
      spent); the front-end only greys it. */
   dim?: boolean
+  /* THIS ROW IS WORTH LOOKING AT (#2740) — «готовые карточки секретки измени цветом».
+     The panel says WHICH of its own states the row is in and the front-end paints it with
+     the colours it already has (`--ok`, `--warn`, `--bad`); there is no second theme and
+     no colour anywhere in the panel. It is the counterpart of `dim`, which greys a row
+     that is used up: this lifts one that is ready. */
+  tone?: 'ok' | 'warn' | 'bad' 
   /* THE NAME THIS ITEM TRAVELS UNDER WHEN IT IS DRAGGED (#2670). Present exactly when
      the item may be reordered; the whole list of them comes back to the tab as one
      `set` press with the key `order`. */
@@ -507,6 +513,13 @@ export interface ViewCard {
      warzones of «Куда идти сегодня» are a chart a person reads at a glance, and cut to
      thirty they are a list nobody pages through. A card of wide rows keeps the cut. */
   whole?: boolean
+  /* WHAT THE NUMBER BESIDE THE HEADING COUNTS, when it is not «how many rows» (#2740).
+     The person's words: «счетчик во вкладке с секретками выводим только готовые». A list
+     of eighty-two tiles of which twelve can be taken is answered by «12», not by «82» —
+     the count is read as «how much is there for me», and the total is the one number that
+     does not say that. The panel decides what it counts; the front-end only draws it, and
+     a card that sends none is counted by its rows exactly as before. */
+  count?: number
   note?: string
   /* ALREADY DRAWN BY THE PICTURE ABOVE (#2064). A screen that is DRAWN rather than
      listed still sends its cards, so a front-end that does not know that kind shows
