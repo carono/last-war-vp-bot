@@ -192,8 +192,20 @@ def test_the_pile_waiting_to_be_collected_is_the_sum_of_the_buildings():
     rt = _rt(rows=[{"pending": 377023}, {"pending": 604724}, {"pending": 0}], age=12.4)
     stat = statsmod.of(rt, "collect_base_resources")
     assert stat["key"] == "timers.stat.pending"
-    assert stat["fmt"]["n"] == "981\u2009747", stat   # a thin space, so seven figures read
+    # SHORT, like the day's take beside it (#2744): «Кол ресурсов что ждет сбора тоже в
+    # шорт формат». A pile written out in full next to a row of «12.34M» chips reads as
+    # two numbers about two different things.
+    assert stat["fmt"]["n"] == "981.75K", stat
     assert stat["age"] == 12.4
+    # …and this one card counts DOWN to its next run instead of drawing that age.
+    assert stat["countdown"] is True
+
+
+def test_only_the_base_harvest_counts_down_and_every_other_card_keeps_its_age():
+    """#2744 was asked for one card, so exactly one card is marked (`COUNTDOWN_ROWS`)."""
+    rt = _rt(rows=[{"pending": 7}], blobs={"rally_counts": {"counts": {"a": 2}}})
+    assert "countdown" not in (statsmod.of(rt, "join_rally") or {})
+    assert statsmod.COUNTDOWN_ROWS == frozenset({"collect_base_resources"})
 
 
 def test_a_stock_nobody_has_read_says_nothing_rather_than_zero():

@@ -90,6 +90,8 @@ function ErrandBlock({
   facts,
   queued,
   stat,
+  next,
+  now,
   res,
   phases,
   arms,
@@ -107,6 +109,8 @@ function ErrandBlock({
   facts: string
   queued?: boolean
   stat?: ErrandStat | null
+  next?: number | null
+  now?: number
   res?: ErrandRes[]
   phases?: ArmsPhase[]
   arms?: ArmsNow
@@ -132,6 +136,11 @@ function ErrandBlock({
       facts={facts}
       queued={queued}
       stat={stat}
+      /* THE COUNTDOWN ON THE STAT LINE (#2744) — the card that has a clock of its own
+         says «через 12 мин» where the others say how old their reading is. Every row
+         hands over the two numbers; which card uses them is decided by the stat. */
+      next={next}
+      now={now}
       /* WHAT CAME IN TODAY (#2743), for the errand whose card is about a pile. */
       res={res}
       /* THE DAY, PHASE BY PHASE (#2579) — «Гонка вооружений» alone sends it, and it is
@@ -210,6 +219,8 @@ export function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; r
       facts={bits.join(' · ')}
       queued={row.queued}
       stat={row.stat}
+      next={row.next}
+      now={now}
       /* WHAT THE BASE PAID TODAY (#2743) — pictures instead of a count of runs, on the
          two cards about the base's own pile and on no other. */
       res={row.res}

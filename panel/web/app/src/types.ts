@@ -144,6 +144,11 @@ export interface ErrandStat {
   key: string
   fmt?: Record<string, unknown>
   age?: number | null
+  /* THE CARD COUNTS DOWN INSTEAD OF SAYING HOW OLD ITS READING IS (#2744) — set by the
+     one errand that has a clock of its own, «Сбор ресурсов». The countdown is worked out
+     from the row's own `next`, on the screen's clock, so nothing is asked of the game;
+     an errand that is switched off has no next run and the age comes back. */
+  countdown?: boolean
 }
 
 /* ONE RESOURCE THE BASE PAID TODAY, drawn as a picture and a short number (#2743).
