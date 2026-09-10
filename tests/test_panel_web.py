@@ -2847,10 +2847,17 @@ def test_the_warzone_chart_is_whole_tappable_and_filtered_by_chips():
       the warzone in their own `args`, so neither depends on where the camera is;
     * the filters are SCREEN STATE. A chip writes nothing and sends nothing: the panel
       keeps no copy of what is being looked at, so there is no second version of it.
+
+    WHAT #2740 CHANGED, AND WHAT IT DID NOT. The chip now SURVIVES leaving the page —
+    «при смене вкладки фильтры должны сохраняться» — so it is no longer a bare `useState`
+    that dies with the card. The rule this pins is unchanged and is the one that matters:
+    it lives in exactly ONE place on the front-end and nothing about it reaches the panel.
     """
     script = _front_end_source()
-    assert "const [only, setOnly] = useState('')" in script, \
-        "the chosen filter is not the screen's own state"
+    assert "const chipHeld = new Map<string, string>()" in script, \
+        "the chosen filter is not the screen's own state, held in one place"
+    assert "chipHeld.set(chipKey, id)" in script and "chipHeld.get(chipKey)" in script, \
+        "the one place is written by a press and read back by the card"
     assert "post<PressAnswer>('/api/screen/press'" in script and \
         "setOnly(f.id)" in script, "a filter chip must move nothing but the screen"
     assert "'/api/screen/press', {\n            id: screen,\n            action: 'set'" not in script, \
