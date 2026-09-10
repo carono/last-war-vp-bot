@@ -80,3 +80,33 @@ rather than waited on. `actions/read_collect_rewards.md` reads the ring back.
 
 The trigger `collect_reward_watch` is a poll of the hook's OWN FLAG, not of the game: a
 client restart takes the VM and the ear with it, and this puts it back.
+
+## The kind decides whether a march is right at all (#2738)
+
+**#2406 measured four announcements and every one was `type = 6`, so the ear marched at
+whatever arrived. Live there are at least four kinds and only `6` is an ordinary gather
+point.** Read straight off `CollectRewardDataManager.collectRewardList` on a live
+account, 2026-09-10:
+
+| `type` | seen | note |
+|---|---|---|
+| 6 | most of the list | the ordinary point a `COLLECT` march takes — the proven pair |
+| 2 / 8 / 12 | one or two each | announcements of another shape; a `COLLECT` march at one of them is unproven |
+
+What that cost, measured on the live client the same day: the ear's own ring read
+`heard=14 sent=7`, and among the seven were **a march at the player's OWN base tile**
+(the announced `pointId` was exactly `LuaEntry.Player.world_main_pos`) and **three
+marches at one tile** — the base the person happened to be attacking by hand, announced
+three times under three different uuids, so the uuid dedup let all three through. From
+the person's chair that is «я атакую игрока, и после каждой атаки мои отряды уходят
+куда-то в пустое место».
+
+So the ear now:
+
+* marches only at the kinds it is given (`kinds`, default `[6]`) and names the kind of
+  everything else in its ring instead of guessing a march for it;
+* refuses outright a point standing on our own base tile — there is nothing to march to;
+* remembers the TILE as well as the uuid, so one tile costs one squad however many times
+  it is announced.
+
+Adding a kind is an argument, not an edit: prove the pair, then pass `kinds`.
