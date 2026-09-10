@@ -144,6 +144,30 @@ def zoom_level(name: "str | None") -> tuple:
 #: 121/121 while the traffic took 2.9 s to drain, so anything below ~0.02 buys nothing.
 FAST_INTERVAL = 0.05
 
+#: HOW HARD A LAP LEANS ON THE CLIENT, as three words rather than a number (#2705). The
+#: person asked for a speed beside the zoom, and seconds-between-waypoints is not a thing
+#: anybody wants to type on a phone. The floor is the wire, not the camera: 0.05 already
+#: delivers every response, and 0.02 buys nothing but drains the traffic later — so
+#: «быстро» is the measured floor, «обычно» is what every lap has always walked at, and
+#: «спокойно» is for a client that is doing something else at the same time.
+SWEEP_PACES: dict = {"fast": 0.02, "normal": FAST_INTERVAL, "calm": 0.15}
+
+#: …and what a lap walks at when nobody has said. What it has always walked at.
+DEFAULT_SWEEP_PACE = "normal"
+
+#: The order the words are offered in — quickest first, the way the list reads.
+SWEEP_PACE_NAMES = ("fast", "normal", "calm")
+
+
+def sweep_pace(name: "str | None") -> float:
+    """Seconds between two waypoints of a named pace — answered, never raised on.
+
+    Same rule as :func:`zoom_level`: the name comes out of a saved profile, and a panel
+    that will not draw because a settings row holds an old word is worse than one that
+    walks at the ordinary pace.
+    """
+    return SWEEP_PACES.get(name or "", SWEEP_PACES[DEFAULT_SWEEP_PACE])
+
 
 def jump_to_coord(x: int, y: int, server: "int | None" = None,
                   zoom: "int | None" = None) -> str:
@@ -457,18 +481,37 @@ def fast_map_sweep(zoom: "int | None" = None, step: "int | None" = None,
     requests, 20 742 tiles, 597 distinct secret tasks and 189 ghost-recon tiles. The same
     lap at `BASE_ZOOM_MAX` needs 49 waypoints and finds 4 762 bases in 2.6 s.
 
-    `server` NAMES the server the waypoints are walked on (#1280). Left out, the lap asks
-    the client — `current_server_expr()`, which reads `WorldFavoDataManager.curServerId`
-    and falls back to `HOME_SERVER` (0 unless the machine sets it). That answer is a
-    cached manager field rather than the camera: «перехожу на другой сервер, жму обход —
-    возвращает на предыдущий», live. So a caller that knows where the person actually is
-    — the panel's «Сервер» box, filled by «↻ сервер» and by every jump — says so, and
-    the guess stays only for callers that have nothing to say.
+    `server` NAMES the server the waypoints are walked on, and NAMING ONE IS A JUMP: the
+    waypoint is `GotoWorldPos`, whose last argument loads that warzone's world. The star
+    round wants exactly that — it walks five to ten warzones in a row — so the argument
+    stays for a caller with a warzone to walk.
+
+    **LEFT OUT, THE LAP STAYS WHERE THE PERSON PUT THE CAMERA (#2705)**, and it stays
+    there without naming a warzone at all: the waypoint becomes `MoveToWorldPoint`, which
+    takes no `serverId` and therefore cannot switch, and the height is set on the scene
+    itself before each move. That is the person's own rule for the button: «мы сами в
+    игре встаем на нужный сервер и делаем обход».
+
+    It used to guess instead — `current_server_expr()`, a cached manager field — and the
+    guess is what «перехожу на другой сервер, жму обход — возвращает на предыдущий» was
+    (#1280). The cure then was to name the warzone out of the panel's «Сервер» box, which
+    only moved the lie: a box is a saved setting, and a person who walked somewhere in the
+    game never told it. A lap that names nothing cannot be wrong about where it is.
     """
     height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
     stride = max(1, int(FAST_STEP if step is None else step))
     gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
-    where = str(int(server)) if server else current_server_expr()
+    # WHAT «NO WARZONE» IS, and it is one word rather than a second kind of waypoint.
+    # The last argument of `GotoWorldPos` is the warzone to load; handed `nil` it loads
+    # none and the jump is an ordinary camera move on whatever world is open. Measured
+    # live (#2705): `GotoWorldPos(pos, 600, 0, nil, nil)` left `curServerId` where it
+    # was, held the height at 600.0 and the LOD at 4 — which is the whole of what the
+    # lap needs. `MoveToWorldPoint` was the obvious other candidate and is WRONG for a
+    # lap: it takes no warzone either, but it also resets the camera to the scene's
+    # `InitZoom` (measured: 600 in, 105 out), so every request would go out at LOD 1.
+    where = str(int(server)) if server else "nil"
+    move = ('pcall(function() GoToUtil.GotoWorldPos(V3(x*2+1, 0, y*2+1), %d, 0, '
+            'nil, srv) end)' % height)
     # THE SAMPLER IS INSTALLED IN FRONT OF THE WAYPOINTS, never inside one (#1523): it is
     # one assignment and the closures below only call it, so a lap of 121 views defines
     # the function once. `harvest` is off by default because the ★ lap is timed in
@@ -504,13 +547,13 @@ for row = 1, #axis do
     n = n + 1
     tm:DelayInvoke(function()
       if DC.__lw_sweep_run ~= run then return end
-      pcall(function() GoToUtil.GotoWorldPos(V3(x*2+1, 0, y*2+1), %d, 0, nil, srv) end)
+      %s
     end, (n - 1) * %f)
 %s  end
 end
-CS.UnityEngine.Debug.LogError("ACT sweep n="..n.." zoom=%d step=%d span="
-  ..string.format("%%.1f", (n - 1) * %f).." size="..tostring(size))
-''' % (where, stride, stride, height, gap, sample_call, height, stride, gap))
+CS.UnityEngine.Debug.LogError("ACT sweep n="..n.." zoom=%d step=%d srv="..tostring(srv)
+  .." span="..string.format("%%.1f", (n - 1) * %f).." size="..tostring(size))
+''' % (where, stride, stride, move, gap, sample_call, height, stride, gap))
 
 
 #: The Lua one :func:`fast_map_visit` fills in — the waypoint walk with the grid taken

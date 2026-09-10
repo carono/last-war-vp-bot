@@ -727,6 +727,10 @@ class SecretTasksTab(PanelTab):
         self._zoom_level = lua_actions.SWEEP_LEVELS[0]
         self._zoom_label_var = tk_stringvar(master)
         self._zoom_combo = None
+        # …and how hard the lap leans on the client (#2705). The second half of «нужна
+        # настройка для обхода, зум и скорость»: a word rather than a number of seconds,
+        # and the ordinary one is what every lap has always walked at.
+        self._sweep_pace = lua_actions.DEFAULT_SWEEP_PACE
 
         self.alliance = AllianceGrid(self)
         # The third and fourth pages (#1251): the weekly event's squads — mine, and my
@@ -1125,6 +1129,7 @@ class SecretTasksTab(PanelTab):
             "coord_server": self.coord_srv_var.get(),
             "coord_history": list(self._jump_hist),
             "coord_zoom": self._zoom_level,
+            "coord_sweep_pace": self._sweep_pace,
             # «Обмен кусочками» keeps its two knobs and its box under its own key,
             # exactly as every other page here has since #1251.
             "pieces": self.pieces.config(),
@@ -1223,6 +1228,7 @@ class SecretTasksTab(PanelTab):
         self.coord_srv_var.set(str(raw.get("coord_server", "")))
         self._set_jump_history(raw.get("coord_history"))
         self._zoom_level = str(raw.get("coord_zoom") or self._zoom_level)
+        self._sweep_pace = str(raw.get("coord_sweep_pace") or self._sweep_pace)
         self._sync_zoom_combo()
         self.pieces.apply_config(raw.get("pieces"))
         self._refresh_rule_hints()
@@ -1922,6 +1928,35 @@ class SecretTasksTab(PanelTab):
         self.say("coord", "log.coord.zoom", level=self.t(f"coord.zoom.{self._zoom_level}"),
                  height=height, step=step)
 
+    # -- how hard the lap leans on the client (#2705) --------------------------
+    def _pace_names(self) -> list:
+        """The paces a lap may be walked at, quickest first."""
+        import lua_actions
+        return list(lua_actions.SWEEP_PACE_NAMES)
+
+    def set_sweep_zoom(self, name) -> bool:
+        """Move the lap's height — the gear's knob, and the window's box is the same one.
+
+        Answered rather than raised on, and refused for a word that names no height: a
+        knob written from the phone is a string off a form.
+        """
+        chosen = str(name or "")
+        if chosen not in self._zoom_names():
+            return False
+        self._zoom_level = chosen
+        self._sync_zoom_combo()
+        self.rt.settings.changed()
+        return True
+
+    def set_sweep_pace(self, name) -> bool:
+        """…and the lap's pace, on the same terms."""
+        chosen = str(name or "")
+        if chosen not in self._pace_names():
+            return False
+        self._sweep_pace = chosen
+        self.rt.settings.changed()
+        return True
+
     # -- the background half: harvest what the sniffer has already heard (#1484) -----
     def _harvest_tick(self) -> None:
         """Re-merge the capture's checkpoint, on a clock, asking the game nothing.
@@ -2234,27 +2269,34 @@ class SecretTasksTab(PanelTab):
         ★ monitor. Saying so is the difference between «nothing was found» and «nothing
         was written down».
 
-        AND IT WALKS THE SERVER IN THE BOX (#1280). The lap used to ask the client which
-        server it was on, and the client answers with a cached manager field: «перехожу
-        на другой сервер, жму обход — возвращает на предыдущий», live, every time. The
-        box beside it is the one thing on this tab that is definitely current — «↻
-        сервер» fills it and every jump writes into it — so that is what the waypoints
-        are given. An empty box still means «ask the client», which is where it started.
+        AND IT NAMES NO WARZONE AT ALL (#2705). It used to pass one — first the client's
+        own cached answer (#1280: «перехожу на другой сервер, жму обход — возвращает на
+        предыдущий»), then the «Сервер» box, which only moved the lie one step: a box is
+        a saved setting, and a person who walked somewhere in the game never told it. The
+        person's rule for this button is «мы сами в игре встаем на нужный сервер и делаем
+        обход», so the lap walks the warzone the client is looking at and there is nothing
+        left for it to be wrong about. Measured live: the same jump with the warzone left
+        out fetched the same 332 tiles, held the height at 600.0 and left `curServerId`
+        where it was.
+
+        THE HEIGHT AND THE PACE ARE THE GEAR'S (#2705) — the two knobs behind «Обход
+        карты» on the phone, and `ARGS` of the recipe. Nothing else about the lap is the
+        panel's to decide.
         """
         if self._sweeping:
             self._sweep_stop()
             return
         import lua_actions
         height, step = lua_actions.zoom_level(self._zoom_level)
+        every = lua_actions.sweep_pace(self._sweep_pace)
         if not (self.capture.running or self.ghost_capture.running):
             self.say("coord", "log.coord.sweep_unwatched")
-        seconds = lua_actions.fast_sweep_seconds(step) + 2
+        seconds = lua_actions.fast_sweep_seconds(step, every) + 2
         self.say("coord", "log.coord.sweeping",
-                 level=self.t(f"coord.zoom.{self._zoom_level}"), secs=int(seconds))
-        srv = self.coord_srv_var.get().strip()
+                 level=self.t(f"coord.zoom.{self._zoom_level}"),
+                 pace=self.t(f"coord.pace.{self._sweep_pace}"), secs=int(seconds))
         started = self.rt.play_async(
-            "scan_map", {"zoom": height, "step": step,
-                         "server": int(srv) if srv.isdigit() else 0}, tag="coord",
+            "scan_map", {"zoom": height, "step": step, "every": every}, tag="coord",
             human=True,
             on_start=lambda: self.post(self._sweep_began),
             on_done=self._sweep_ended)
@@ -4598,7 +4640,8 @@ class SecretTasksTab(PanelTab):
         # under the checkbox (#1294). Empty until a sprint has run, and a row that would
         # say nothing is left off the card rather than drawn blank.
         assist_tally = self.autoassist.tally_text()
-        screen = {"cards": [self._coord_card(), self._picker_card(),
+        screen = {"cards": [self._coord_card(), self._sweep_card(),
+                            self._picker_card(),
                           # «АВТОЛУТ ★» HAS NO CARD OF ITS OWN ANY MORE (#2010). The
                           # person's words: «целая вкладка для одного чекбокса лишняя».
                           # It was a card holding a switch, a rule and a state line, and
@@ -4941,23 +4984,17 @@ class SecretTasksTab(PanelTab):
                 "now": now,
                 # What is left at the bottom is what belongs to the WHOLE tab.
                 #
-                # «Зум» and «Обойти карту» are here because the window put them on the
-                # coordinate bar, which belongs to the whole tab too (#1265). The lap is
-                # a scenario (`actions/scan_map.md`) and nothing else, so it is a press
-                # the phone may make — as is «Собрать» on a tile above, since #2660.
-                # The level cycles rather than offering three
-                # buttons: it is one setting with three values, and a screen that shows
-                # which one is on and moves to the next is how the other switches on this
-                # tab already read.
+                # «Зум» AND «Обойти карту» USED TO BE HERE, as a press and a word that
+                # cycled through three heights (#1265). They are a card of their own now
+                # (`_sweep_card`, #2705): the person asked for the lap to carry settings —
+                # a zoom and a speed — and a knob a person can SEE and pick belongs behind
+                # a gear in the one modal, never in a button that changes its own label.
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
                             # «Обновить состояние» (#1272) — the same press the window
                             # grew, and one the phone MAY make: it re-reads what is
                             # already on the list and robs nothing. The robbery itself
                             # is a tile's own button now (#2660).
                             {"id": "refresh_state", "label": "coord.refresh_state"},
-                            {"id": "zoom",
-                             "label": f"coord.zoom.{self._zoom_level}"},
-                            {"id": "sweep_now", "label": "coord.sweep_now"},
                             # …AND THE DAY'S OWN ERRAND (#1976): claim what ripened, open
                             # the boxes, refresh, send. It is one recipe with defaults of
                             # its own and the schedule has been playing it for months —
@@ -5136,8 +5173,8 @@ class SecretTasksTab(PanelTab):
         Three boxes and two presses, and the jump underneath is `rt.game.jump` — the very
         one the links walk, and a camera move rather than anything sent to the game.
 
-        The lap's height, «Обойти карту» and «Обновить состояние» are already the
-        screen's own actions and are not repeated here.
+        «Обновить состояние» is the screen's own action and is not repeated here; the
+        lap and its two knobs are a card of their own since #2705 (`_sweep_card`).
         """
         return {"title": "coord.frame",
                 "fields": [{"key": "coord_x", "label": "coord.x",
@@ -5155,6 +5192,51 @@ class SecretTasksTab(PanelTab):
                 "actions": [{"id": "goto", "label": "coord.jump"},
                             {"id": "reload_server",
                              "label": "coord.reload_server"}]}
+
+    def _sweep_card(self) -> dict:
+        """«Обход карты» — the lap, and the two knobs it is walked by, behind one gear.
+
+        THE PERSON ASKED FOR BOTH (#2705): «Нужна настройка для обхода, зум и скорость».
+        They were half there and in the wrong shape — the height was a screen action that
+        CYCLED through three words with nothing to say what the third one was for, and
+        the pace was not a setting at all. A gear and the one modal this front-end has is
+        the shape every other knob on the phone already opens in (`CLAUDE.md`).
+
+        The card says what the lap will do before it is pressed — how far back the camera
+        will sit, how hard it will lean on the client, and how long that comes to — and
+        the press below plays `actions/scan_map.md` with exactly those two numbers.
+
+        IT NAMES NO WARZONE, and the card says so in its own words: the lap walks the one
+        the client is looking at. The «Сервер» box on the coordinate card above is about
+        «Перейти» and decides nothing here any more.
+        """
+        import lua_actions
+        height, step = lua_actions.zoom_level(self._zoom_level)
+        every = lua_actions.sweep_pace(self._sweep_pace)
+        secs = int(lua_actions.fast_sweep_seconds(step, every) + 2)
+        return {"title": "coord.sweep.frame",
+                "note": "coord.sweep.note",
+                "rows": [{"label": "coord.zoom",
+                          "value": self.t(f"coord.zoom.{self._zoom_level}")},
+                         {"label": "coord.sweep.pace",
+                          "value": self.t(f"coord.pace.{self._sweep_pace}")},
+                         {"label": "coord.sweep.span",
+                          "value": self.t("coord.sweep.span.value", secs=secs)}],
+                "options": [{"key": "sweep_zoom", "label": "coord.zoom",
+                             "kind": opt_value.CHOICE, "value": self._zoom_level,
+                             "options": [{"value": name,
+                                          "text": self.t(f"coord.zoom.{name}")}
+                                         for name in self._zoom_names()]},
+                            {"key": "sweep_pace", "label": "coord.sweep.pace",
+                             "kind": opt_value.CHOICE, "value": self._sweep_pace,
+                             "options": [{"value": name,
+                                          "text": self.t(f"coord.pace.{name}")}
+                                         for name in self._pace_names()]}],
+                # ONE BUTTON, TWO WORDS — the window's own (`_retitle_sweep`): a lap that
+                # is walking is stopped by the same press that started it.
+                "actions": [{"id": "sweep_now",
+                             "label": ("coord.sweep_stop" if self._sweeping
+                                       else "coord.sweep_now")}]}
 
     def _picker_card(self) -> dict:
         """«Куда идти сегодня» — the window's magnifier grid, as the phone's card (#1467).
@@ -5280,6 +5362,14 @@ class SecretTasksTab(PanelTab):
             # front-end asked decides nothing. The block an unbuilt tab hands back is
             # kept in step inside each of them, which is what «включил с телефона,
             # перезапустил панель — выключено» was (#2010).
+            # THE LAP'S OWN TWO (#2705), out of the sheet behind «Обход карты»'s gear.
+            # They are the window's own values — the height is the box on the coordinate
+            # bar — so a level picked on the phone is the level the window's box shows,
+            # and neither front-end holds a second opinion about the lap.
+            if key in ("sweep_zoom", "sweep_pace"):
+                move = (self.set_sweep_zoom if key == "sweep_zoom"
+                        else self.set_sweep_pace)
+                return {"ok": bool(move(args.get("value")))}
             if key == "autoloot_level_min":
                 self.set_autoloot_level(args.get("value"))
                 return {"ok": True}
@@ -5395,11 +5485,6 @@ class SecretTasksTab(PanelTab):
             if page not in self.CLEAR_PAGES:
                 return {"error": "unknown"}
             self.post(getattr(self, page).clear_pressed)
-            return {"ok": True}
-        if action == "zoom":
-            # The window's own field, moved on by one — so the two front-ends cannot
-            # disagree about how far back the camera is going to sit.
-            self.post(self._cycle_zoom)
             return {"ok": True}
         if action == "sweep_now":
             self.post(self._sweep_once)
@@ -5520,17 +5605,6 @@ class SecretTasksTab(PanelTab):
         """Flip «только свободные» through the very handler a finger goes through."""
         self.mines.free_var.set(not self.mines.free_var.get())
         self.mines.refilter()
-
-    def _cycle_zoom(self) -> None:
-        """Next zoom level, on the Tk thread — the phone's version of the window's box."""
-        names = self._zoom_names()
-        try:
-            nxt = names[(names.index(self._zoom_level) + 1) % len(names)]
-        except ValueError:                        # a level that no longer exists
-            nxt = names[0]
-        self._zoom_level = nxt
-        self._sync_zoom_combo()
-        self._on_zoom_choice()
 
     def _toggle_autoloot(self) -> None:
         """Flip «Автолут ★» from the phone, on the Tk thread (#1882)."""

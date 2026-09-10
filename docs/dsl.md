@@ -912,7 +912,7 @@ tiles** (docs/research/map-sweep-zoom.md).
 SWEEP_MAP                       # the default: the secret-task height
 SWEEP_MAP ZOOM 1199 STEP 150    # four times the ground, bases and mines, no tasks
 SWEEP_MAP EVERY 0.02            # …in half the time
-SWEEP_MAP SERVER 300            # …on that server, whatever the client believes
+SWEEP_MAP SERVER 300            # …on that warzone — NAMING ONE IS A JUMP
 SWEEP_MAP EVERY 1.2 HARVEST     # …and pick up the monsters it drives past
 ```
 
@@ -921,7 +921,7 @@ SWEEP_MAP EVERY 1.2 HARVEST     # …and pick up the monsters it drives past
 | `ZOOM h` | camera height — **600** collects secret tasks and everything else, **1199** is the last height at which anything arrives at all (bases, mines; no tasks) | 600 |
 | `STEP n` | tiles between waypoints. A step belongs to its height: 90 goes with 600, 150 with 1199 | 90 |
 | `EVERY s` | seconds between two waypoints | 0.05 |
-| `SERVER id` | which server the waypoints are walked on. `0` (and leaving it out) means «ask the client» | 0 |
+| `SERVER id` | which warzone the waypoints are walked on, and **naming one JUMPS there**. `0` (and leaving it out) walks the warzone the client is already on, and names nothing at all — so a lap can never send the camera somewhere the person did not put it (#2705) | 0 |
 | `HARVEST` | also SAMPLE the monsters the lap drives past, into a table of the game's own that a later `READ_LUA` drains. A flag, so it carries no value | off |
 
 An unknown modifier is a **parse error**, not a warning — a silently ignored `ZOOM`
