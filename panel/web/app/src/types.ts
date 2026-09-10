@@ -350,14 +350,6 @@ export interface ViewItem {
   facts?: Fact[]
   until?: number
   actions?: ViewAction[]
-  /* THE WHOLE TILE IS THIS ITEM'S FIRST PRESS (#2737) — the person's words about the
-     warzone grid: «на сервере кнопку перейти», meaning the server itself, not a 70 px
-     button under it. A tile whose name is a COORDINATE already works that way
-     (`firstPlace`); a tile whose name is a warzone number has no coordinate to read, so
-     the panel says so here instead. The press is still the one in `actions`, played
-     through the one `PressButton` there is — and the separate button is not drawn, or
-     the same press would stand on the tile twice. */
-  tap?: boolean
   /* WHAT THIS ITEM IS, for the card's own filter chips (#2737) — words of the panel's
      own choosing, matched against `ViewCard.filters`, never translated. A card with no
      filters ignores them. */

@@ -597,6 +597,9 @@ class SecretTasksTab(PanelTab):
         # …and whether a lap of the map is walking right now (#1272): the one button says
         # «Обойти карту» or «Остановить» by it, and a second press is the stop.
         self._sweeping = False
+        #: …and WHICH warzone it is walking, when the lap was started off that warzone's
+        #: own tile (#2737). 0 for the card's own button, which names none.
+        self._sweep_srv = 0
         self._sweep_btn = None
         # Cached (server, allianceId) for the chat room ids — read once, live.
         self._ids = None
@@ -2388,6 +2391,56 @@ class SecretTasksTab(PanelTab):
         if not started:
             self._sweep_ended()
 
+    def _sweep_server(self, server: int) -> None:
+        """«Обойти карту» off one warzone's tile (#2737) — the lap of a NAMED warzone.
+
+        The person asked the chart of warzones for two buttons: «перейти на сервер и
+        обойти карту». The first has been there since #1467; this is the second, and it is
+        a different ability from the button on «Обход карты» above rather than the same one
+        with an argument — which is the whole of what #2705 and #2727 settled. That lap
+        NAMES no warzone and reads the one the client is holding, because every cached
+        answer the panel tried to pass it moved the client somewhere it had not been. Here
+        the warzone is CHOSEN, by somebody looking at its tile, so naming it is the point:
+        `actions/sweep_server.md` takes it as an argument and the jump is what the press
+        is for.
+
+        The height and the pace are the same two knobs the other button plays with — the
+        gear on «Обход карты» — so a lap is walked the same way wherever it was started.
+        And there is one lap at a time: a second press while one is walking STOPS it, the
+        way the card's own button does, because the waypoints are the game's timer's and
+        there is only one of those.
+        """
+        if self._sweeping:
+            self._sweep_stop()
+            return
+        try:
+            server = int(server)
+        except (TypeError, ValueError):
+            server = 0
+        if server <= 0:
+            # A tile with no warzone on it cannot be walked, and walking «wherever the
+            # camera is» instead is exactly the accident #2727 was about.
+            self.say("coord", "log.coord.sweep_no_server")
+            return
+        import lua_actions
+        height, step = lua_actions.zoom_level(self._zoom_level)
+        every = lua_actions.sweep_pace(self._sweep_pace)
+        if not (self.capture.running or self.ghost_capture.running):
+            self.say("coord", "log.coord.sweep_unwatched")
+        seconds = lua_actions.fast_sweep_seconds(step, every) + 2
+        self.say("coord", "log.coord.sweeping_server", srv=server,
+                 level=self.t(f"coord.zoom.{self._zoom_level}"),
+                 pace=self._pace_words(), secs=int(seconds))
+        self._sweep_srv = server
+        started = self.rt.play_async(
+            "sweep_server",
+            {"server": server, "zoom": height, "step": step, "every": every},
+            tag="coord", human=True,
+            on_start=lambda: self.post(self._sweep_began),
+            on_done=self._sweep_ended)
+        if not started:
+            self._sweep_ended()
+
     #: THE DAY'S OWN RECORD OF THE MEASUREMENT (#2705), by the rule the person wrote
     #: the same day: a statistic is a HISTORY (`CLAUDE.md`). Three names under one day,
     #: so «как менялась машина» is a `SELECT` rather than a thing nobody kept.
@@ -2522,6 +2575,10 @@ class SecretTasksTab(PanelTab):
     def _sweep_ended(self) -> None:
         """…and back, whether it finished, was stopped, or never started."""
         self._sweeping = False
+        # …and the tile stops saying «Обходим…» (#2737). Cleared here rather than on the
+        # way out of `_sweep_server`, because every one of the three endings comes through
+        # this method and a lap that failed to start must not leave a dead button behind.
+        self._sweep_srv = 0
         self.post(self._retitle_sweep)
 
     def _sweep_stop(self) -> None:
@@ -5588,6 +5645,11 @@ class SecretTasksTab(PanelTab):
         # live on the card: «переходим на N…», then either the arrival or the reason it
         # did not happen. Never silence, which is what the person actually reported.
         going = getattr(self, "_jump_busy", 0)
+        # …and WHICH WARZONE A LAP IS WALKING (#2737), for the same reason the jump says
+        # so: a lap takes seconds, and a tile that looked idle is a tile somebody presses
+        # again. Zero when nothing is walking, and zero too for a lap started from the
+        # «Обход карты» card, which names no warzone at all.
+        sweeping = getattr(self, "_sweep_srv", 0) if self._sweeping else 0
         state = (self.t("secrettasks.picker.jump.going", srv=going)
                  if going else getattr(self, "_jump_note", ""))
         rows = [{"label": "secrettasks.picker.jump.label", "value": state}] if state else []
@@ -5606,29 +5668,38 @@ class SecretTasksTab(PanelTab):
                           # WHICH CHIP KEEPS THIS TILE (#2737) — the tile's own state, as
                           # the card's filters name it. A word of the panel's, never a key.
                           "tags": [row["state"]],
-                          # THE WHOLE TILE IS «ПЕРЕЙТИ» (#2737), the person's own decision
-                          # about this card: a warzone number is not a coordinate, so the
-                          # tile could not make itself a jump the way every coordinate tile
-                          # on this screen does — it carried a button instead, under a
-                          # two-digit name. The press below is unchanged; what goes is the
-                          # second control over it.
-                          "tap": True,
                           # THE BUTTON IS THE STATE OF THE JUMP (#2593). While one is in
                           # flight every «Перейти» on the card is dead and the one being
                           # walked to says «Переходим…», so a second press cannot be made
                           # at all — the five-a-day robberies are not what this spends,
                           # but a camera sent twice is two cross-server loads and the
                           # second one wins.
+                          # TWO BUTTONS ON A WARZONE'S TILE (#2737), and the person asked
+                          # for exactly these two: «перейти на сервер и обойти карту». They
+                          # are the two things one does with a warzone off this chart —
+                          # stand on it, or walk it to see what is there — and a lap used
+                          # to be reachable only by going there first and then finding the
+                          # other card.
                           "actions": [{"id": "jump_server",
-                                       # The words are the tile's TOOLTIP now rather than
-                                       # a button's face (#2737), so they name the warzone:
-                                       # «Перейти» alone is what every one of four hundred
-                                       # tiles would say to somebody reading the page aloud.
                                        "label": ("secrettasks.picker.going"
                                                  if going == row["server"]
-                                                 else "secrettasks.picker.go_srv"),
-                                       "label_fmt": {"srv": row["server"]},
+                                                 else "secrettasks.picker.go"),
                                        "disabled": bool(going),
+                                       "args": {"server": row["server"]}},
+                                      # …AND THE LAP OF THIS WARZONE, which NAMES it
+                                      # (`actions/sweep_server.md`). `scan_map.md` walks
+                                      # the one the client is holding and must not be
+                                      # handed a number (#2705, #2727); this is the other
+                                      # case — a warzone chosen off a chart by somebody
+                                      # looking at its tile — so the jump is the point
+                                      # rather than the accident. One lap at a time: while
+                                      # one is walking every other tile's button is dead
+                                      # and the walking one says so.
+                                      {"id": "sweep_server",
+                                       "label": ("secrettasks.picker.sweeping"
+                                                 if sweeping == row["server"]
+                                                 else "secrettasks.picker.sweep"),
+                                       "disabled": bool(going) or self._sweeping,
                                        "args": {"server": row["server"]}}]})
         # THE THREE TALLIES ARE THE FILTER CHIPS NOW (#2737) — the person asked for
         # «кнопки-фильтры, только звездные дни секреток», and a chip that carries its own
@@ -5845,6 +5916,18 @@ class SecretTasksTab(PanelTab):
             return {"ok": True}
         if action == "sweep_now":
             self.post(self._sweep_once)
+            return {"ok": True}
+        if action == "sweep_server":
+            # THE LAP OF THE WARZONE THIS TILE IS (#2737). The number comes off the tile
+            # rather than out of any box, which is what makes it a press the phone may
+            # make: the camera walks, nothing is spent and no window opens.
+            try:
+                server = int(args.get("server") or 0)
+            except (TypeError, ValueError):
+                server = 0
+            if server <= 0:
+                return {"ok": False, "reason": "coord.sweep.no_server"}
+            self.post(lambda srv=server: self._sweep_server(srv))
             return {"ok": True}
         if action == "bench_now":
             # THE MEASUREMENT (#2705) — camera only, so the phone may press it.

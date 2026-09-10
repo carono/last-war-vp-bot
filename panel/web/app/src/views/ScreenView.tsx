@@ -803,13 +803,6 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
   //: The place this tile IS, or `null` — see the note above. Only the NAME counts: a
   //: coordinate buried in a fact is not what the tile is about.
   const place = item.label ? null : firstPlace(item.text_parts)
-  /* …OR THE PRESS THIS TILE IS, when the panel said so and there is no place to go
-     (#2737). A warzone number is not a coordinate, so `firstPlace` can never make the
-     tile a button — and «Перейти» as a separate 70 px button under a two-digit tile is
-     the shape the person asked to be rid of. The press is the item's FIRST action,
-     played through the one `PressButton` there is, and it is then not drawn a second
-     time in the `acts` row below. */
-  const tap = !place && item.tap ? (item.actions || [])[0] || null : null
   //: Inside a tile that is a button, a mark is drawn as text rather than as a second
   //: button — `mark` is that decision, made once and used for every piece of prose.
   const mark = (text?: string | null, parts?: ViewItem['text_parts']) =>
@@ -858,7 +851,7 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
       {bits.length ? <div className="bits">{bits}</div> : null}
       {item.pill ? <span className="pill">{t(item.pill)}</span> : null}
       {gear.sheet}
-      {!tap && (item.actions || []).length ? (
+      {(item.actions || []).length ? (
         /* A BUTTON ON A TILE THAT IS ITSELF A BUTTON. The press is about the button —
            «Ограбить» must never also walk the camera — so the click stops here. */
         <div className="acts" onClick={(e) => e.stopPropagation()}>
@@ -869,12 +862,6 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
       ) : null}
     </>
   )
-  if (tap)
-    return (
-      <PressButton action={tap} screen={screen} after={after} className="mini act">
-        {inside}
-      </PressButton>
-    )
   if (!place) return <div className="mini">{inside}</div>
   return (
     <button className="mini act" onClick={() => void jump(place)}>
