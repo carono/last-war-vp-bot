@@ -170,3 +170,38 @@ one lap.
   at zero, play `audit_map_intake` at a waypoint the camera has not visited, read the card's
   «пришло с провода» row against what `AUDIT_MAP` said. Anything other than
   wire ≥ client-box, for a kind that rides `world.get.block`, is a leak.
+
+## The lap that guarantees nothing (#2741, 2026-09-10)
+
+Reported as three separate faults — «нажал обойти несколько серверов, в хедере сервер не
+менялся, секреток 0 дошло» — and they are one chain, read out of `profiles/default/panel.log`:
+
+| time | what the log says | what it meant |
+|---|---|---|
+| 17:04–17:11 | seven `sweep_server` laps, warzones 943 936 952 938 956 953 954, `OK` | the ability works: warzone 943 alone brought 467 tasks and 35 ★ |
+| 19:21:39–19:22:00 | six × «`sweep_server` не запускается: статус не зелёный» | six presses refused for a red link, said in the log and NOWHERE on the card |
+| 19:22:05 | `GAME STREAM FOUND — …:18128` | the capture latched onto the stream |
+| 19:22:13 | «перезапускаю клиент рецептом restart_game…» | the client opened a NEW stream; the capture kept decoding the old one |
+| 19:23:16 / 19:23:21 | started warzone 942, `INTERRUPTED (stopped by the operator)` | the next tile's press was read as «Остановить» — it started nothing |
+| 19:23:29 / 19:23:34 | the same pair again | two laps cut 4 s and 5 s in |
+| 19:23:45–19:24:36 | warzone 953 walked whole, `OK` | and the capture reported `server unknown yet, 0 map response(s), 0 tile(s)` |
+
+So: the presses that were refused said nothing a person could see; the presses that landed
+cancelled each other; and the one lap that ran whole was decoded by nobody, which is why the
+header (the wire's last word since #2727) never moved and why no secret task arrived.
+
+Three fixes, all in `panel/tabs/secret_tasks/tab.py`:
+
+1. **A queue.** Only the WALKING warzone's own tile is the stop; another tile queues, a
+   queued tile un-queues, and the queue drains when a lap ends. One lap at a time stays
+   true of the game; it stopped being true of the presses.
+2. **Every lap reports on the CARD** — warzone, map responses, tiles, secret tasks (and how
+   many reached the list), ghost tiles. The counts are deltas of the two running totals the
+   capture has always printed in its `##KINDS##` record (`blocks`, `tiles`) and nothing read.
+   A lap that came home with nothing says WHICH of the five reasons it was: no monitor, a
+   deaf monitor, a camera above the task ceiling (division 7, #2737), an empty warzone, or
+   tasks filtered out by level. A refused press says the gate's own sentence.
+3. **A deaf monitor is re-aimed.** `bus.GAME_READY` — the client getting into the game — is
+   the moment its TCP stream is new, so a capture that has been running for longer than
+   `SecretTasksTab.REAIM_AFTER_S` is restarted on that edge; and a lap that walked a whole
+   warzone for `0 map response(s)` bounces it once as well. No clock is involved either way.

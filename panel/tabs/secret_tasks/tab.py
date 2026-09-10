@@ -608,7 +608,31 @@ class SecretTasksTab(PanelTab):
         #: …and WHICH warzone it is walking, when the lap was started off that warzone's
         #: own tile (#2737). 0 for the card's own button, which names none.
         self._sweep_srv = 0
+        #: THE LAPS ASKED FOR AND NOT YET WALKED (#2741). A press on ANOTHER warzone's
+        #: tile while one was walking used to be read as «Остановить», so a person
+        #: pressing four tiles in a row got two cut laps, no new ones and no word said:
+        #: measured live on 2026-09-10 — two laps of warzone 942 were cut four and five
+        #: seconds in by the next press. One lap at a time is still true of the GAME; the
+        #: queue is what makes several presses true of the PERSON.
+        self._sweep_queue: list = []
+        #: WHAT THE LAST LAP CAME TO, in words, for the CARD (#2741) — never the log
+        #: alone: «никакой гарантии выполнения в панели нет». Zone, map responses, tiles,
+        #: what was found, and when that is nothing — why it is nothing.
+        self._sweep_note = ""
+        #: The wire's totals at the moment a lap started — `(server, blocks, tiles,
+        #: kinds, rows)` — so the report is a DELTA rather than a running total.
+        self._sweep_mark = None
+        #: …and the totals as the capture last said them (:meth:`wire_census`).
+        self._sweep_wire = (0, 0)
+        #: What the run itself said when it did not run (`on_result`), and whether the
+        #: ending was a person's «Остановить».
+        self._sweep_failed = ""
+        self._sweep_cut = False
+        #: A monitor that heard nothing all lap is revived ONCE per lap, never in a loop.
+        self._sweep_revived = False
         self._sweep_btn = None
+        #: The «client is in the game» subscription — the sniffer's re-aim (#2741).
+        self._ready_off = None
         # Cached (server, allianceId) for the chat room ids — read once, live.
         self._ids = None
         # The player's OWN server, cached the same way: what the home-server
@@ -908,6 +932,57 @@ class SecretTasksTab(PanelTab):
         # for ever on exactly the profiles it costs the most. It is one transaction, once
         # per profile in its life, and it also sweeps what the old list never aged out.
         self.monsters.adopt_store()
+        # …AND THE EAR THAT KEEPS THE SNIFFER POINTED AT A LIVE STREAM (#2741). A capture
+        # decodes ONE TCP stream, the one it found when it started; a client that
+        # restarts opens a new one, and the child goes on decoding a socket nobody uses.
+        # Measured live on 2026-09-10: the client was put back at 19:22:13, the capture
+        # had latched onto the stream fifteen seconds earlier, and every lap after that
+        # reported `0 map response(s), 0 tile(s)` — a whole warzone walked and «секреток
+        # 0» with the monitor's own switch showing green.
+        #
+        # `bus.GAME_READY` is the edge of the client getting INTO the game — an event,
+        # not a clock (`CLAUDE.md`, «Read once, then LISTEN») — and it is exactly the
+        # moment the stream is new.
+        self._wire_ready()
+
+    def _wire_ready(self) -> None:
+        """Subscribe once to «the client is in the game» — the sniffer's own re-aim."""
+        if getattr(self, "_ready_off", None) is not None:
+            return
+        from ...runtime import bus
+
+        self._ready_off = self.rt.bus.subscribe(bus.GAME_READY, self._on_game_ready)
+
+    def _on_game_ready(self, *_args) -> None:
+        """The client is in the game — point the captures at the stream it opened.
+
+        Only a capture that is RUNNING is bounced, and only when it has been running
+        since before this edge: at boot the child is started by `ensure_loaded` a moment
+        earlier and is already on the new stream. A start-up that restarted it anyway
+        would cost every profile a child bounce for nothing.
+        """
+        self.post(self._revive_captures)
+
+    #: How long a capture must have been running before «the client is back» is taken to
+    #: mean its stream is stale. A child started seconds ago found the current stream.
+    REAIM_AFTER_S = 90.0
+
+    def _revive_captures(self) -> None:
+        """Bounce the sniffers whose stream the client has just left. Tk thread."""
+        import time
+
+        now = time.time()
+        for cap in (self.capture, self.ghost_capture):
+            if not cap.running:
+                continue
+            since = getattr(cap, "_started_at", 0) or 0
+            if since and now - since < self.REAIM_AFTER_S:
+                continue
+            self.say("secret", "log.secret.reaim")
+            try:
+                cap.restart()
+            except Exception as exc:           # noqa: BLE001 — a monitor, never the tab
+                self.rt.dbg("secret").warning("the monitor was not re-aimed: %s", exc)
 
     def on_show(self) -> None:
         """Somebody opened the tab: restore the last session's list, start the
@@ -2431,13 +2506,21 @@ class SecretTasksTab(PanelTab):
         self.say("coord", "log.coord.sweeping",
                  level=self._zoom_words(),
                  pace=self._pace_words(), secs=int(seconds))
+        # THE LAP IS MEASURED FROM HERE (#2741) — this one names no warzone, and it is
+        # reported exactly like a named one: what the wire brought while it walked.
+        self._sweep_open(0)
         started = self.rt.play_async(
             "scan_map", {"zoom": height, "step": step, "every": every}, tag="coord",
             human=True,
             on_start=lambda: self.post(self._sweep_began),
+            on_result=self._sweep_answer,
             on_done=self._sweep_ended)
         if not started:
-            self._sweep_ended()
+            # …AFTER the refusal itself has landed (#2741). `on_result` is delivered
+            # through the Tk queue, so a report built here and now would be built
+            # before the reason for it arrived, and would say «зона пуста» about a
+            # press that was never made.
+            self.post(self._sweep_ended)
 
     def _sweep_server(self, server: int) -> None:
         """«Обойти карту» off one warzone's tile (#2737) — the lap of a NAMED warzone.
@@ -2458,9 +2541,6 @@ class SecretTasksTab(PanelTab):
         way the card's own button does, because the waypoints are the game's timer's and
         there is only one of those.
         """
-        if self._sweeping:
-            self._sweep_stop()
-            return
         try:
             server = int(server)
         except (TypeError, ValueError):
@@ -2469,7 +2549,35 @@ class SecretTasksTab(PanelTab):
             # A tile with no warzone on it cannot be walked, and walking «wherever the
             # camera is» instead is exactly the accident #2727 was about.
             self.say("coord", "log.coord.sweep_no_server")
+            self._sweep_said("coord.sweep.no_server")
             return
+        # THE PRESS IS A PRESS, NOT A TOGGLE OF SOMEBODY ELSE'S LAP (#2741). Only the
+        # warzone that is WALKING is stopped by its own tile; another tile is a lap
+        # asked for, and a tile already waiting is that ask taken back. Nothing is ever
+        # answered with silence — the card says which of the three happened.
+        if self._sweeping and self._sweep_srv == server:
+            self._sweep_stop()
+            return
+        if server in self._sweep_queue:
+            self._sweep_queue.remove(server)
+            self._sweep_said("coord.sweep.unqueued", srv=server)
+            self.rt.settings.changed()
+            return
+        if self._sweeping:
+            self._sweep_queue.append(server)
+            self._sweep_said("coord.sweep.queued", srv=server,
+                             n=len(self._sweep_queue))
+            self.rt.settings.changed()
+            return
+        self._sweep_launch(server)
+
+    def _sweep_launch(self, server: int) -> None:
+        """Walk ONE named warzone now — the half of the press that talks to the game.
+
+        Split out of :meth:`_sweep_server` because the queue drains through it too
+        (#2741): the next warzone starts when the previous lap ends, on the Tk thread,
+        without a second press and without going back through the toggle above.
+        """
         import lua_actions
         height, step = lua_actions.sweep_zoom(self._zoom_level)
         every = lua_actions.sweep_pace(self._sweep_pace)
@@ -2480,14 +2588,21 @@ class SecretTasksTab(PanelTab):
                  level=self._zoom_words(),
                  pace=self._pace_words(), secs=int(seconds))
         self._sweep_srv = server
+        self._sweep_open(server)
+        self._sweep_said("coord.sweep.running", srv=server)
         started = self.rt.play_async(
             "sweep_server",
             {"server": server, "zoom": height, "step": step, "every": every},
             tag="coord", human=True,
             on_start=lambda: self.post(self._sweep_began),
+            on_result=self._sweep_answer,
             on_done=self._sweep_ended)
         if not started:
-            self._sweep_ended()
+            # A REFUSAL IS AN ANSWER, AND IT HAS TO REACH THE CARD (#2741). Six presses
+            # on 2026-09-10 were refused because the link was not green, and the only
+            # trace was one line in a log nobody was reading — «нажал обойти, ничего не
+            # произошло». `on_result` has already been handed the gate's own sentence.
+            self.post(self._sweep_ended)
 
     #: THE DAY'S OWN RECORD OF THE MEASUREMENT (#2705), by the rule the person wrote
     #: the same day: a statistic is a HISTORY (`CLAUDE.md`). Three names under one day,
@@ -2615,19 +2730,152 @@ class SecretTasksTab(PanelTab):
             return False
         return self.set_sweep_pace(self._bench[2])
 
+    #: THE TWO KINDS A LAP IS WALKED FOR, as the wire numbers them (`lastwar_proto`).
+    #: Named here because the report counts them by hand out of the census: a lap that
+    #: brought tiles and no secret tasks is a different answer from one that brought
+    #: nothing at all, and only these two numbers tell them apart.
+    SWEEP_TASK_KIND = 17
+    SWEEP_GHOST_KIND = 29
+
+    def _sweep_watching(self) -> bool:
+        """Is anything decoding the wire while the camera walks?"""
+        return bool(self.capture.running or self.ghost_capture.running)
+
+    def _sweep_totals(self) -> tuple:
+        """`(blocks, tiles, kinds, rows)` as they stand — Tk-safe, one lock."""
+        with self._tiles_lock:
+            blocks, tiles = self._sweep_wire
+            kinds = dict(self._wire_kinds)
+        return blocks, tiles, kinds, len(self._rows)
+
+    def _sweep_open(self, server: int) -> None:
+        """Mark where the wire stood before this lap, so the report is a DELTA."""
+        self._sweep_failed = ""
+        self._sweep_cut = False
+        self._sweep_revived = False
+        blocks, tiles, kinds, rows = self._sweep_totals()
+        self._sweep_mark = (server, blocks, tiles, kinds, rows)
+
+    def _sweep_answer(self, outcome=None) -> None:
+        """What the RUN said — the gate's refusal, or the scenario's own `FAIL`.
+
+        `on_done` is called with no arguments at all, so a reason read off it is `None`
+        every time (#2705 learnt this the expensive way with the benchmark). The reason
+        is the whole point here: «не запустился» and «прошёл, но пусто» are the two
+        answers a person cannot tell apart from the outside.
+        """
+        if outcome is None or getattr(outcome, "ok", False):
+            return
+        self._sweep_failed = (getattr(outcome, "reason", "") or "").strip()
+
     def _sweep_began(self) -> None:
         """The lap is walking: the button becomes «Остановить» and says so."""
         self._sweeping = True
         self._retitle_sweep()
 
     def _sweep_ended(self) -> None:
-        """…and back, whether it finished, was stopped, or never started."""
+        """…and back, whether it finished, was stopped, or never started.
+
+        AND IT REPORTS (#2741). Every one of the three endings comes through here, which
+        is what makes this the one place a lap can be guaranteed to say something: the
+        card gets the warzone, how many map responses arrived while the camera walked,
+        how many tiles they carried, what was found — and when that is nothing, WHY it is
+        nothing. «Никакой гарантии выполнения в панели нет» was true because a lap that
+        did nothing looked exactly like a lap that worked.
+        """
         self._sweeping = False
         # …and the tile stops saying «Обходим…» (#2737). Cleared here rather than on the
         # way out of `_sweep_server`, because every one of the three endings comes through
         # this method and a lap that failed to start must not leave a dead button behind.
         self._sweep_srv = 0
+        self.post(self._sweep_report)
         self.post(self._retitle_sweep)
+        self.post(self._sweep_next)
+
+    def _sweep_next(self) -> None:
+        """Start the next warzone somebody asked for. Tk thread, one at a time."""
+        if self._sweeping or not self._sweep_queue:
+            return
+        self._sweep_launch(self._sweep_queue.pop(0))
+
+    def _sweep_report(self) -> None:
+        """Turn the lap into the sentence the card shows. Tk thread."""
+        mark, self._sweep_mark = self._sweep_mark, None
+        if mark is None:
+            return
+        server, blocks0, tiles0, kinds0, rows0 = mark
+        blocks, tiles, kinds, rows = self._sweep_totals()
+        tasks = max(0, kinds.get(self.SWEEP_TASK_KIND, 0)
+                    - kinds0.get(self.SWEEP_TASK_KIND, 0))
+        ghosts = max(0, kinds.get(self.SWEEP_GHOST_KIND, 0)
+                     - kinds0.get(self.SWEEP_GHOST_KIND, 0))
+        got_blocks = max(0, blocks - blocks0)
+        got_tiles = max(0, tiles - tiles0)
+        added = max(0, rows - rows0)
+        where = str(server) if server else self.t("coord.sweep.here")
+        if self._sweep_failed and not got_blocks:
+            self._sweep_said("coord.sweep.result.failed", srv=where,
+                             why=self._sweep_failed)
+            return
+        if self._sweep_cut:
+            self._sweep_said("coord.sweep.result.stopped", srv=where,
+                             blocks=got_blocks, tasks=tasks)
+            return
+        if got_blocks and (tasks or ghosts):
+            self._sweep_said("coord.sweep.result.ok", srv=where, blocks=got_blocks,
+                             tiles=got_tiles, tasks=tasks, added=added, ghosts=ghosts)
+            return
+        self._sweep_said("coord.sweep.result.zero", srv=where,
+                         why=self._sweep_why(got_blocks, got_tiles, tasks, added))
+
+    def _sweep_why(self, blocks: int, tiles: int, tasks: int, added: int) -> str:
+        """The reason a lap came home with nothing — in the order the causes are real.
+
+        Every one of these was live on 2026-09-10, and none of them reached the person:
+        the monitor was switched off, or it was decoding a socket the client had already
+        left (a client restart gives it a new port — the lap of warzone 953 at 19:23 ran
+        whole and the capture counted `0 map response(s)`), or the camera was walking too
+        high for the tiles being looked for, or the warzone genuinely holds none.
+        """
+        import lua_actions
+
+        if not self._sweep_watching():
+            return self.t("coord.sweep.why.no_monitor")
+        if blocks <= 0:
+            # A MONITOR THAT HEARD NOTHING WHILE A WHOLE WARZONE WALKED IS DEAF, not
+            # idle — so it is bounced once, here, rather than left decoding a dead
+            # stream for the rest of the day.
+            self._sweep_revive()
+            return self.t("coord.sweep.why.deaf")
+        if tasks == 0 and not lua_actions.sweep_zoom_catches_tasks(self._zoom_level):
+            return self.t("coord.sweep.why.zoom", n=self._zoom_level)
+        if tasks == 0:
+            return self.t("coord.sweep.why.empty", blocks=blocks, tiles=tiles)
+        if added == 0:
+            return self.t("coord.sweep.why.filtered", tasks=tasks)
+        return self.t("coord.sweep.why.empty", blocks=blocks, tiles=tiles)
+
+    def _sweep_revive(self) -> None:
+        """Bounce a deaf capture — ONCE per lap, and said out loud."""
+        if self._sweep_revived:
+            return
+        self._sweep_revived = True
+        for cap in (self.capture, self.ghost_capture):
+            if not cap.running:
+                continue
+            try:
+                cap.restart()
+            except Exception as exc:           # noqa: BLE001 — a monitor, never the tab
+                self.rt.dbg("coord").warning("the monitor was not revived: %s", exc)
+
+    def _sweep_said(self, key: str, **fmt) -> None:
+        """Put the sentence on the CARD, and in the log beside it."""
+        self._sweep_note = self.t(key, **fmt)
+        self.say("coord", key, **fmt)
+        try:
+            self.rt.settings.changed()
+        except Exception:                      # noqa: BLE001 — a redraw, never the tab
+            pass
 
     #: THE RECIPES WHOSE WHOLE POINT IS A LAP (#2739) — what «Остановить» ends. Named
     #: here rather than guessed from the register because the press must end the lap and
@@ -2655,6 +2903,14 @@ class SecretTasksTab(PanelTab):
         the only way to stop it. That is the case `actions/stop_map_sweep.md` exists for.
         """
         self.say("coord", "log.coord.sweep_stopped")
+        # A STOP IS A STOP (#2741): the warzones queued behind this lap were asked for
+        # while it was walking, and carrying on into them after somebody pressed
+        # «Остановить» is the panel doing something nobody asked for. Said, not silent.
+        self._sweep_cut = True
+        if self._sweep_queue:
+            dropped = ", ".join(str(srv) for srv in self._sweep_queue)
+            self._sweep_queue = []
+            self.say("coord", "log.coord.sweep_queue_dropped", list=dropped)
         asked = []
         if getattr(self.rt, "interrupts", None) is not None:
             from panel.runtime import interrupt
@@ -3360,8 +3616,18 @@ class SecretTasksTab(PanelTab):
                 counted[int(raw)] = int(count)
             except (TypeError, ValueError):
                 continue
+        # …AND THE TWO RUNNING TOTALS BESIDE IT (#2741). The capture has always sent
+        # them; nothing here read them, so the panel could not answer «сколько ответов
+        # карты пришло за этот круг» — the one question that tells a deaf monitor from
+        # an empty warzone. A tuple write under the lock the census already takes.
+        try:
+            totals = (int(record.get("blocks") or 0), int(record.get("tiles") or 0))
+        except (TypeError, ValueError):
+            totals = None
         with self._tiles_lock:
             self._wire_kinds = counted
+            if totals is not None:
+                self._sweep_wire = totals
             fresh = sorted(set(counted) - self._wire_said)
             self._wire_said |= set(counted)
         shapes = record.get("shapes")
@@ -5967,7 +6233,20 @@ class SecretTasksTab(PanelTab):
                          # was measured an hour ago: the reading is picked back up out
                          # of the day's history on the first draw.
                          {"label": "coord.bench",
-                          "value": self._bench_words()}],
+                          "value": self._bench_words()}]
+                # WHAT THE LAST LAP CAME TO, ON THE CARD (#2741). Never «the log will
+                # say»: a lap takes a minute, a toast is gone in three seconds, and the
+                # person pressing this is on a phone. Zone, map responses, tiles, what
+                # was found — and when nothing was, the reason it was nothing.
+                + ([{"label": "coord.sweep.last",
+                     "value": getattr(self, "_sweep_note", "")}]
+                   if getattr(self, "_sweep_note", "") else [])
+                # …AND WHAT IS STILL WAITING TO BE WALKED. A queue nobody can see is a
+                # queue that looks like a press that did nothing.
+                + ([{"label": "coord.sweep.queue",
+                     "value": ", ".join(str(srv)
+                                        for srv in getattr(self, "_sweep_queue", ()))}]
+                   if getattr(self, "_sweep_queue", ()) else []),
                 "options": [# A NUMBER, NOT TWO WORDS (#2737) — the same shape the pace
                             # got in #2705, and for the person's own reason: «добавь
                             # большую градацию зума при обходе карты». The scale is 1…10,
@@ -6040,6 +6319,14 @@ class SecretTasksTab(PanelTab):
         state = (self.t("secrettasks.picker.jump.going", srv=going)
                  if going else getattr(self, "_jump_note", ""))
         rows = [{"label": "secrettasks.picker.jump.label", "value": state}] if state else []
+        # THE LAP ANSWERS ON THE CHART IT WAS STARTED FROM (#2741) — the same two rows
+        # «Обход карты» carries, because this is where the presses are actually made.
+        queue = list(getattr(self, "_sweep_queue", ()))
+        if getattr(self, "_sweep_note", ""):
+            rows.append({"label": "coord.sweep.last", "value": self._sweep_note})
+        if queue:
+            rows.append({"label": "coord.sweep.queue",
+                         "value": ", ".join(str(srv) for srv in queue)})
         view = self.picker_view()
         cells = view["rows"]
         tally = {"day": 0, "post": 0, "plain": 0, "unknown": 0}
@@ -6083,17 +6370,21 @@ class SecretTasksTab(PanelTab):
                                       # one is walking every other tile's button is dead
                                       # and the walking one says so.
                                       {"id": "sweep_server",
+                                       # THREE WORDS NOW (#2741). «Обходим…» on the one
+                                       # walking — pressing it stops the lap, as #2739
+                                       # made real — «В очереди» on one already asked
+                                       # for, pressing it takes the ask back, and
+                                       # «Обойти» everywhere else, which QUEUES rather
+                                       # than cutting the lap in flight. Nothing is dead:
+                                       # a tile that cannot be pressed while another
+                                       # warzone walks is how four presses became two
+                                       # stopped laps and no report.
                                        "label": ("secrettasks.picker.sweeping"
                                                  if sweeping == row["server"]
+                                                 else "secrettasks.picker.queued"
+                                                 if row["server"] in queue
                                                  else "secrettasks.picker.sweep"),
-                                       # …AND THE WALKING TILE IS THE STOP (#2739).
-                                       # Dead everywhere else — one lap at a time — but
-                                       # the one saying «Обходим…» takes the press and
-                                       # ends it, exactly as the card's own button does.
-                                       # A tile nobody can press is a lap the phone
-                                       # cannot stop at all.
-                                       "disabled": bool(going) or (
-                                           self._sweeping and sweeping != row["server"]),
+                                       "disabled": bool(going),
                                        "args": {"server": row["server"]}}]})
         # THE THREE TALLIES ARE THE FILTER CHIPS NOW (#2737) — the person asked for
         # «кнопки-фильтры, только звездные дни секреток», and a chip that carries its own
