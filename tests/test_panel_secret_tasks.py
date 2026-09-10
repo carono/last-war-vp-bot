@@ -2559,6 +2559,9 @@ def test_a_robbed_row_leaves_only_by_its_own_clock():
     tab._verify_auto = False
     tab._verify_was = {}
     tab._sweeping, tab._sweep_btn = False, None
+    # THE SPEED MEASUREMENT (#2705) — nothing measured, and the day's history already
+    # asked, because this fixture has no store to ask it of.
+    tab._bench, tab._bench_busy, tab._bench_loaded = None, False, True
     tab._retitle_sweep = lambda: None
     tab.capture = types.SimpleNamespace(running=True)
     tab.ghost_capture = types.SimpleNamespace(running=False)
@@ -4746,8 +4749,8 @@ def test_the_lap_carries_its_two_knobs_behind_one_gear():
                                           lua_actions.SWEEP_PACE_MAX)
     assert pace["hint"] == "coord.sweep.pace.hint", "the field lost the reason for it"
     assert [row["label"] for row in card["rows"]] == \
-        ["coord.zoom", "coord.sweep.pace", "coord.sweep.span"]
-    assert [action["id"] for action in card["actions"]] == ["sweep_now"]
+        ["coord.zoom", "coord.sweep.pace", "coord.sweep.span", "coord.bench"]
+    assert [action["id"] for action in card["actions"]] == ["sweep_now", "bench_now"]
     # …and the pace the gear picks is the pace the recipe is played with.
     tab.set_sweep_pace(3)
     tab._sweep_once()
@@ -4781,6 +4784,63 @@ def test_the_lap_is_a_scenario_and_the_panel_only_plays_it():
     assert "log.coord.sweep_unwatched" in tab.said
 
 
+def test_the_measurement_is_a_recipe_and_its_answer_is_only_a_recommendation():
+    """«Замерить скорость» (#2705) — the ability is a scenario, the pace stays a knob.
+
+    Three things at once, and each has been the bug in something else on this tab:
+
+    * the press plays `benchmark_map_sweep.md` and assembles no Lua of its own;
+    * the answer arrives on `on_result` — `on_done` is called with NO arguments, so a
+      measurement read off it is `None` every time and the card lies about a run that
+      worked;
+    * nothing is applied by itself. The recommendation is drawn with a button beside it,
+      and the pace only moves when a hand presses that button.
+    """
+    import lua_actions
+    tab = _sweep_tab()
+    tab._sync_zoom_combo = lambda: None
+    calls = {}
+
+    def play(name, args=None, **kw):
+        calls.update(name=name, args=args, kw=kw)
+        return True
+
+    tab.rt.play_async = play
+    tab._bench_once()
+    assert calls["name"] == "benchmark_map_sweep"
+    assert calls["args"]["zoom"] == lua_actions.zoom_level("tasks")[0]
+    assert "server" not in calls["args"], "the measurement names no warzone either"
+    assert calls["kw"].get("on_result") is not None, \
+        "the answer rides on on_result — on_done is called with no arguments at all"
+
+    class _Ctx:
+        vars = {"bench_ms": "260", "bench_tiles": "412"}
+
+    calls["kw"]["on_result"](type("O", (), {"ctx": _Ctx})())
+    assert tab._bench[:2] == (260, 412)
+    assert tab._bench[2] == lua_actions.sweep_division_for(0.26)
+    # …and the pace has NOT moved: it is a recommendation until a hand takes it.
+    assert tab._sweep_pace == 10
+    card = tab._sweep_card()
+    assert [a["id"] for a in card["actions"]] == ["sweep_now", "bench_now", "bench_apply"]
+    tab._bench_apply()
+    assert tab._sweep_pace == tab._bench[2]
+
+
+def test_a_measurement_of_nothing_is_not_turned_into_a_recommendation():
+    """An empty view, an interrupted lap, a client that said nothing (#2705).
+
+    The honest answer is to keep the last real reading and say so, never to compute a
+    division off zero — a card that recommends something off no evidence is worse than
+    one that admits it does not know.
+    """
+    tab = _sweep_tab()
+    tab._bench = (100, 5, 20)
+    tab._bench_ended(type("O", (), {"ctx": type("C", (), {"vars": {}})})())
+    assert tab._bench == (100, 5, 20)
+    assert "log.coord.bench_empty" in tab.said
+
+
 def _sweep_tab(rows=None):
     """A tab wired for the lap: no window, no game, just the decisions it makes."""
     import types
@@ -4790,6 +4850,10 @@ def _sweep_tab(rows=None):
     tab._zoom_level = "tasks"
     tab._sweep_pace = 10
     tab._sweeping, tab._sweep_btn = False, None
+    # THE SPEED MEASUREMENT (#2705) — nothing measured, and the day's history already
+    # asked, because this fixture has no store to ask it of.
+    tab._bench, tab._bench_busy, tab._bench_loaded = None, False, True
+    tab.monsters = types.SimpleNamespace(a_tile=lambda: (0, 0))
     # THE BOX IS HERE TO BE IGNORED (#2705). It used to aim the lap (#1280); the lap
     # names no warzone at all now, so a box holding somebody else's number is exactly
     # the fixture that proves it.

@@ -278,6 +278,9 @@ export interface Fact {
 export interface ViewAction {
   id: string
   label: string
+  /* What fills the label's placeholders — the same thing `label_fmt` does for a field
+     row, so a press whose words carry a number does not need a second mechanism. */
+  label_fmt?: Record<string, unknown>
   args?: Record<string, unknown>
   prompt?: string
   value?: string

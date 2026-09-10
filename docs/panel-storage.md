@@ -358,6 +358,24 @@ An upsert on that key is «add to today» and cannot reach yesterday; the write 
 `store.submit`, never off the Tk thread; the day turns over by ADDING a row, so «сегодня»
 stays a `SELECT` and the history is the by-product.
 
+**The table EXISTS since schema v11** (`panel/runtime/store.py`, `SCOPED_TABLES` →
+`all_day_stats`), with an `at` column beside the value so a reading can say how fresh it is
+and an index on `(profile, name, day)` so a graph is one seek. Four methods on `Store`:
+
+| method | for |
+|---|---|
+| `day_stat_add(day, name, amount=1)` | a TALLY — the upsert adds, so a burst of pushes is a burst of `+1` |
+| `day_stat_set(day, name, value)` | a READING — a benchmark taken twice today is the machine as it is now, not twice as fast |
+| `day_stat(day, name)` | «сколько сегодня», a plain `SELECT` |
+| `day_stat_history(name, limit)` | `[(day, value, at), …]` newest first — the graph the rule exists for |
+
+Both writers go through `store.submit`, so no caller pays a transaction for a statistic.
+
+**The first three names in it** are the map lap's own speed measurement (#2705):
+`sweep_bench_ms`, `sweep_bench_tiles`, `sweep_bench_division` — written with `day_stat_set`
+by «Замерить скорость» on «Секретки», and read back on the first draw of the card so a
+panel restart does not make it say «не замерялось» about a machine measured an hour ago.
+
 ### Already keeps a per-day history
 
 | tally | where | shape | note |
