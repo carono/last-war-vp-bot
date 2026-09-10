@@ -3023,6 +3023,7 @@
   "timers.stat.radar": "свободных мест: {n} · помочь: {help}",
   "timers.stat.mail": "подарков в почте: {n}",
   "timers.stat.today": "сегодня: {n}",
+  "timers.stat.collected": "собрано сегодня: {n}",
   "timers.stat.today_none": "сегодня ещё не запускалось",
   "timers.stat.none": "живого показания нет",
   "web.ui.stop": "Остановить",

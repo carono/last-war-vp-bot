@@ -36,6 +36,7 @@ from .paths import TOOLS, repo_rel
 from . import claims
 from . import errand_args as errandargs
 from . import panel_orders
+from . import resource_book
 from . import errand_options as errandopts
 from . import link as linkmod
 from . import squad_gate as squadgate
@@ -166,6 +167,11 @@ class Schedule:
         # reward-popup ear, whose page is `IN_DEVELOPMENT` and therefore absent
         # from the live profile while the ability itself runs in every one.
         panel_orders.register(self)
+        # …and the resource book (#2743), for the same reason: its trigger is switched
+        # on in every live profile, and its handler used to belong to a tab that is
+        # `IN_DEVELOPMENT` — so on a live panel it was bound to nothing and the tally
+        # was empty for as long as it had existed.
+        resource_book.register(self)
         self.timers = timersmod.TimerScheduler(
             store=self.store,
             catalogue=lambda: self.timer_catalogue,
@@ -211,6 +217,17 @@ class Schedule:
             self._handlers[spec.name] = getattr(tab, handler)
             if getattr(spec, "needs_game", False):
                 self._needs_game.add(spec.name)
+
+    def bind(self, name: str, handler, *, needs_game: bool = False) -> None:
+        """Bind the handler of a trigger that belongs to NO TAB (#2743).
+
+        Same effect as :meth:`register` has for a tab's `TRIGGERS`, and the same
+        consequence: a `__handler__` trigger is only OFFERED once something has bound
+        it (:meth:`offered`).
+        """
+        self._handlers[name] = handler
+        if needs_game:
+            self._needs_game.add(name)
 
     def _register_knobs(self, tab) -> None:
         """One tab's KNOBS and its standing orders (#2017).

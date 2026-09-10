@@ -3023,6 +3023,7 @@
   "timers.stat.radar": "free slots: {n} · to help: {help}",
   "timers.stat.mail": "gifts in the mail: {n}",
   "timers.stat.today": "today: {n}",
+  "timers.stat.collected": "collected today: {n}",
   "timers.stat.today_none": "not run today yet",
   "timers.stat.none": "no live reading for this one",
   "web.ui.stop": "Stop",

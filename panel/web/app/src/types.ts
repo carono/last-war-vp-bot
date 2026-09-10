@@ -146,6 +146,21 @@ export interface ErrandStat {
   age?: number | null
 }
 
+/* ONE RESOURCE THE BASE PAID TODAY, drawn as a picture and a short number (#2743).
+ *
+ * The person's words: «вместо количества прогонов, красиво и ровно выводим иконки
+ * ресурсов что собрали сегодня, только те, что с базы, сокращаем до #.##M». `key` is a
+ * locale key for the resource's name — used as the label when this machine has no
+ * sprite, and as the title of the pill when it has — `value` is the short figure
+ * («12.34M»), `exact` the same number in full, and `icon` a link to the game's own art,
+ * empty where nothing was extracted. Nothing stands in for a missing picture. */
+export interface ErrandRes {
+  key: string
+  value: string
+  exact?: string
+  icon?: string
+}
+
 /* ONE PHASE OF «Гонка вооружений», for the sheet behind the card's «i» (#2579).
  *
  * The person asked for it in these words: «при нажатии на i, выводим иконками каждый час
@@ -221,6 +236,9 @@ export interface TimerRow {
   /** Where the card crops that cover — a CSS vertical position, e.g. `"45%"` (#2340). */
   focus?: string
   stat?: ErrandStat | null
+  /* WHAT THE BASE PAID TODAY (#2743) — sent by the two rows about the base's own pile
+     and empty for every other errand, which therefore draws exactly what it did. */
+  res?: ErrandRes[]
   /* THE DAY, PHASE BY PHASE (#2579) — sent for «Гонка вооружений» alone, and only once
      the day's book has something in it. Every other errand sends nothing and the sheet
      grows no section. */
@@ -248,6 +266,8 @@ export interface TriggerRow {
   icon?: string
   focus?: string
   stat?: ErrandStat | null
+  /* WHAT THE BASE PAID TODAY (#2743) — the listener that watches the same pile. */
+  res?: ErrandRes[]
 }
 
 /* A STANDING ORDER THAT IS IN NO CATALOGUE (#2017): «Автолут ★», «Автопомощь»,

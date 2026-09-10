@@ -121,7 +121,7 @@ FIELD_SEP = ";;"
 _ICONS: "dict | None" = None
 
 
-def _icon_for(type_id: int) -> str:
+def icon_for(type_id: int) -> str:
     """The sprite name for this resource, or ``""`` when there is none to serve.
 
     Two things have to be true: the game names a picture for the type, and that picture
@@ -180,7 +180,7 @@ def parse(answer: str) -> list:
                      # sprite the client's own config names, resolved against what has
                      # actually been extracted on THIS machine. Nothing stands in for a
                      # missing one: a resource with no sprite shows its name.
-                     "icon": _icon_for(type_id),
+                     "icon": icon_for(type_id),
                      "name": FIELD_SEP.join(parts[6:]).strip()})
     # BIGGEST FIRST, and it is a SORT rather than a filter: a resource the base does not
     # make is still a resource this account holds, and dropping it would be the panel

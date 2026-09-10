@@ -3023,6 +3023,7 @@
   "timers.stat.radar": "slot kosong: {n} · dibantu: {help}",
   "timers.stat.mail": "hadiah di surat: {n}",
   "timers.stat.today": "hari ini: {n}",
+  "timers.stat.collected": "dikumpulkan hari ini: {n}",
   "timers.stat.today_none": "hari ini belum dijalankan",
   "timers.stat.none": "tidak ada data langsung",
   "web.ui.stop": "Hentikan",

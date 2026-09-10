@@ -3023,6 +3023,7 @@
   "timers.stat.radar": "posti liberi: {n} · da aiutare: {help}",
   "timers.stat.mail": "regali nella posta: {n}",
   "timers.stat.today": "oggi: {n}",
+  "timers.stat.collected": "raccolto oggi: {n}",
   "timers.stat.today_none": "oggi non ancora eseguito",
   "timers.stat.none": "nessun dato in tempo reale",
   "web.ui.stop": "Ferma",

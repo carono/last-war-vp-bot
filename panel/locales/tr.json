@@ -3023,6 +3023,7 @@
   "timers.stat.radar": "boş yer: {n} · yardım: {help}",
   "timers.stat.mail": "postadaki hediye: {n}",
   "timers.stat.today": "bugün: {n}",
+  "timers.stat.collected": "bugün toplanan: {n}",
   "timers.stat.today_none": "bugün henüz çalışmadı",
   "timers.stat.none": "canlı veri yok",
   "web.ui.stop": "Durdur",

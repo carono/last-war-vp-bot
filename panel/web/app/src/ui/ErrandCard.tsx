@@ -1,7 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { span, t } from '../i18n'
 import { Modal } from './Modal'
-import type { ArmsNow, ArmsPhase, ErrandStat } from '../types'
+import type { ArmsNow, ArmsPhase, ErrandRes, ErrandStat } from '../types'
 
 /* THE CARD EVERY SELF-RUNNING THING IS DRAWN AS — and since #2119 every LIST is too.
  *
@@ -270,6 +270,35 @@ function Reading({ stat, queued }: { stat?: ErrandStat | null; queued?: boolean 
   return <Stat stat={stat} />
 }
 
+/* WHAT THE BASE PAID TODAY, IN THE GAME'S OWN PICTURES (#2743).
+ *
+ * The person's words: «вместо количества прогонов, красиво и ровно выводим иконки
+ * ресурсов что собрали сегодня, только те, что с базы, сокращаем до #.##M». So it is a
+ * row of pairs — one picture and one short number each — laid across the width of the
+ * card and wrapped, every picture the same size, which is what «ровно» asks for.
+ *
+ * A RESOURCE WITH NO PICTURE DRAWS ITS NAME (`CLAUDE.md`): the panel sends an empty
+ * `icon` for a sprite this machine never extracted, and another resource's art standing
+ * in for it would be worse than none. The exact figure travels as the title, so the
+ * short one on the card never has to be the whole truth.
+ */
+function ResRow({ rows }: { rows: ErrandRes[] }) {
+  return (
+    <p className="res-row small">
+      {rows.map((row) => (
+        <span className="res" key={row.key} title={t(row.key) + ': ' + (row.exact || row.value)}>
+          {row.icon ? (
+            <img src={row.icon} alt={t(row.key)} loading="lazy" />
+          ) : (
+            <span className="muted">{t(row.key)}</span>
+          )}
+          <b>{row.value}</b>
+        </span>
+      ))}
+    </p>
+  )
+}
+
 /* THE CARD ITSELF. Three rows and the order of them is the point (#2061): the name with
  * its switch in the corner, what it is waiting for and what it has brought in, and —
  * last — the signs that ACT. The buttons used to sit on the head row beside the switch,
@@ -295,6 +324,7 @@ export function ErrandCard({
   pill,
   state,
   stat,
+  res,
   phases,
   arms,
   switchNode,
@@ -327,6 +357,10 @@ export function ErrandCard({
   /** What this row is DOING, already in the panel's words — data, never a key (#2068). */
   state?: string
   stat?: ErrandStat | null
+  /** WHAT THE BASE PAID TODAY (#2743), drawn as pictures with short numbers under them.
+   *  Sent by the two errands about the base's own pile; every other card leaves it out
+   *  and looks exactly as it did. */
+  res?: ErrandRes[]
   /** THE DAY BROKEN UP BY PHASE (#2579), drawn in the sheet behind the «i». Sent for
    *  «Гонка вооружений» alone; every other card leaves it out and the sheet is what it
    *  always was. */
@@ -404,6 +438,9 @@ export function ErrandCard({
         {/* THE HOUR OF THE ARMS RACE (#2635) — readings, never a press: what is running,
             which of its chests are in, how many points and how old the answer is. */}
         {arms ? <ArmsHour arms={arms} /> : null}
+        {/* WHAT CAME IN TODAY (#2743) — pictures and short numbers, above the foot row
+            so the reading and the signs keep the floor of the card. */}
+        {res && res.length ? <ResRow rows={res} /> : null}
         {/* THE READING SHARES THE FOOT WITH THE SIGNS ON A COVER CARD (#2340) — the
             person's words: «данные со статистикой давай перенесем в линию, где кнопка
             запуска, пусть будет слева». It is a line of its own on every other card, and

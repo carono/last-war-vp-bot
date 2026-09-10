@@ -3023,6 +3023,7 @@
   "timers.stat.radar": "vagas livres: {n} · para ajudar: {help}",
   "timers.stat.mail": "presentes no correio: {n}",
   "timers.stat.today": "hoje: {n}",
+  "timers.stat.collected": "coletado hoje: {n}",
   "timers.stat.today_none": "hoje ainda não foi executado",
   "timers.stat.none": "sem leitura ao vivo",
   "web.ui.stop": "Parar",
