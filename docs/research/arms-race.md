@@ -132,6 +132,60 @@ squad and an unscored chest — refused by a ceiling that was never about it, an
 same book was being emptied by auto-join at up to 14 banners in three minutes. The
 recipe's ceilings are the stamina, the top chest and the squad.
 
+## A refused claim SPEAKS: the day chests and the toast that read as «недостаточно» (#2709)
+
+`claim_arms_chests` used to offer every unclaimed DAY box by index — the row carries no
+`target`, so the reasoning was «a server that disagrees simply refuses; nothing is lost
+either way». Something is lost. The client answers a refused day claim with a toast of
+its own, and the recipe runs at the head of every arms-race turn.
+
+Caught live with `UIUtil.ShowTipsId` wrapped for one run: **tip `120228`, raised from
+`Net/Msgs/Activity/ActivityHeroDayRewardMessage.lua:16`**, twice per run — once per
+unearned box. That is the whole of the report «час юнитов не работает, при запуске пишет,
+что недостаточно ресурсов»: the unit phase had sent NOTHING at all, and the message on
+screen came from the chest claim two steps earlier.
+
+The manager answers the question itself, so nothing has to be guessed:
+
+    ActivityBoxState = { Close = 1, CanOpen = 2, Open = 3 }
+    ActivityPersonalArmsDataManager:GetDailyBoxState(data, i)   -- i counted from ONE
+    ActivityPersonalArmsDataManager:GetScoreBoxState(data, i)
+
+`GetDailyBoxState` takes the row's POSITION (1..3), not the row's zero-based `index` —
+asking it for 0 or 4 throws. Read live with one phase of the day finished it answered
+`3, 1, 1`: the first box taken, the other two shut. The fallback, for a build that will
+not answer at all, is the day's own progress: `claimStatus` is keyed `<day>_<stage>` and
+non-zero once that phase counts as finished, so box `index` is owed when more phases
+than that are done.
+
+The PHASE boxes never had the problem: their rows carry `target`, the recipe compares it
+against the server's own `sc`, and a run over an account with nothing owing sends
+nothing.
+
+## Freeing a barracks is WHOLE OR NOT AT ALL (#2709)
+
+The unit phase's step 2 pours speed-ups into a barracks that is still training, so the
+emptied one can start a scoring batch. Two faults in how it did that, both of which spend
+pieces and buy nothing:
+
+* it poured into a barracks whatever the fuse allowed, so a fuse smaller than the queue
+  left the barracks busy and the bag lighter;
+* it only took pieces no longer than what was left, so the last remainder — anything
+  under the smallest piece — was never covered and the barracks stayed busy after the
+  minutes went in.
+
+The run now PLANS one barracks before it sends anything: small denominations first,
+specialised before universal, and one piece of the next size up to finish the remainder.
+A plan the fuse would not stretch to, or that the bag cannot fill, is not sent at all and
+is named in the log. The shortest queue is freed first, so a given fuse empties as many
+barracks as it can.
+
+Measured on the live account on 2026-09-10, which is what made the fault visible: all
+four barracks busy (6 h, 6 h, 21 h, 22 h), `free_minutes = 0`, four runs of the errand
+inside one phase, `0/75 000` points and nothing sent. The bag held ≈9 700 minutes of
+SOLDIER speed-ups and ≈18 000 universal. The person's ceiling for this account is **3 000
+minutes a run**.
+
 ## The game keeps NO history of a phase, and that is why the panel books one (#2579)
 
 Asked of the live client, so it is measured rather than assumed. `dataDict` carries:
