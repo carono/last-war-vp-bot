@@ -87,6 +87,28 @@ def test_the_recipe_walks_before_it_counts_and_refuses_an_unnamed_warzone():
     assert "FAIL" in text and "server == 0" in text
 
 
+def test_a_kind_we_decided_against_is_not_drawn_as_a_lead():
+    """A settled question must not be reported as an open one (#2740).
+
+    «Объекты, которые мы не собираем в гриды прямо — можно игнорировать». `f2=11` and
+    `f2=61` are alliance structures nothing here farms; drawn among the rest they read as
+    a shortfall, drawn nowhere they read as a leak. They are neither: they are named, on a
+    line that says what they are.
+    """
+    import lastwar_proto as proto
+
+    assert proto.tile_kind_ignored(11) and proto.tile_kind_ignored(61)
+    assert not proto.tile_kind_ignored(7), "a mine is collected"
+    assert not proto.tile_kind_ignored(99), "an unknown kind is a LEAD, not a decision"
+    assert not proto.tile_kind_ignored(None)
+    # …and each carries its reason, because «it was noisy in the log» is not one.
+    for kind, why in proto.TILE_KINDS_IGNORED.items():
+        assert len(why) > 20, f"{kind} was ignored without saying why: {why!r}"
+    # An ignored kind still has no NAME: a name means «something here decodes it».
+    for kind in proto.TILE_KINDS_IGNORED:
+        assert proto.tile_kind_name(kind).startswith("f2="), kind
+
+
 def test_an_unknown_kind_names_its_SHAPE_and_never_a_value():
     """«f2=61: 23» says a kind is leaking past and nothing about what it is (#2740).
 

@@ -3373,6 +3373,14 @@ class SecretTasksTab(PanelTab):
             # «f2=61: 23» says a kind is leaking past and nothing about what it is; the
             # field names are where decoding it starts. Names only — the values are
             # somebody's account and never reach a log.
+            if proto.tile_kind_ignored(kind):
+                # A DECISION, NOT A LEAD (#2740). «Объекты, которые мы не собираем в гриды
+                # прямо — можно игнорировать»: these are alliance structures nothing here
+                # farms, and a census that called them «никто не разбирает» would report a
+                # settled question as an open one every time the map is walked.
+                self.say("secret", "log.secret.wire_kind_ignored",
+                         kind=proto.tile_kind_name(kind))
+                continue
             shape = shapes.get(str(kind))
             if shape and proto.tile_kind_name(kind).startswith("f2="):
                 self.say("secret", "log.secret.wire_kind_shape",
@@ -5745,9 +5753,23 @@ class SecretTasksTab(PanelTab):
             return []
         # A kind nothing here decodes is named by its number, biggest first: it is the
         # row somebody has to act on, and burying it under `base: 40000` would hide it.
-        parts = ["%s %d" % (proto.tile_kind_name(kind), count)
-                 for kind, count in sorted(census.items(), key=lambda kv: -kv[1])]
-        return [{"label": "secrettasks.wire_kinds", "value": " · ".join(parts)}]
+        #
+        # …AND THE ONES WE DECIDED AGAINST GO ON THEIR OWN LINE (#2740). «Объекты, которые
+        # мы не собираем в гриды прямо — можно игнорировать»: drawn among the rest they
+        # read as a shortfall, and drawn nowhere they read as a leak. A second row says
+        # what they are — a settled question — and keeps the first row's arithmetic
+        # honest, so «пришло с провода» is only ever about what we are taking.
+        taken, ignored = [], []
+        for kind, count in sorted(census.items(), key=lambda kv: -kv[1]):
+            line = "%s %d" % (proto.tile_kind_name(kind), count)
+            (ignored if proto.tile_kind_ignored(kind) else taken).append(line)
+        rows = []
+        if taken:
+            rows.append({"label": "secrettasks.wire_kinds", "value": " · ".join(taken)})
+        if ignored:
+            rows.append({"label": "secrettasks.wire_kinds_ignored",
+                         "value": " · ".join(ignored)})
+        return rows
 
     def _count_rows(self, page=None) -> list:
         """One card's «Показано / Скрыто» pair, for the phone (#1272).
