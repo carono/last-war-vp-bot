@@ -54,6 +54,9 @@
 #            GAME's answer, and the run asks each one for the size the game has already
 #            accepted for it. A ceiling here is for the person who wants one, never a
 #            safety somebody added on their behalf.
+#   ministry 1 to let the unit phase take the Minister of Defence seat before it trains
+#            (actions/apply_ministry_defence.md), 0 to leave the ministry alone. The seat
+#            speeds training up, so it is minutes of speed-up not spent (#2709).
 #   free_minutes  the minutes that run may spend FREEING a barracks that is still
 #            training, so the emptied one can start a scoring batch. Not the same fuse as
 #            `minutes`: that one buys POINTS in the building and research phases, this one
@@ -81,6 +84,7 @@ ARGS minutes = 60
 ARGS units = 0
 ARGS soldiers = 0
 ARGS free_minutes = 0
+ARGS ministry = 1
 ARGS stamina = 300
 ARGS rallies = 0
 ARGS squad = 1
