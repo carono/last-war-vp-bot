@@ -134,21 +134,31 @@ class ResourceBook:
             return None
 
     def note_running(self, now: "float | None" = None) -> None:
-        """ARM the claim if the base harvest is on the client right now.
+        """ARM the claim if the base harvest is on the client, or has just been.
 
-        Called on EVERY balance push, gain or no gain, and that is the point (#2743): a
-        push that could not be priced — the reading behind it was stale — is the very
-        push that arrives while the harvest is running. Arming only when a gain is
-        priced means the harvest is never seen at all, which is what the live run of
-        22:32 did.
+        TWO WAYS OF SEEING IT, and the second is what the live run of 22:43 needed
+        (#2743). A gain is priced when the READING lands, and by then the run is usually
+        over — measured: the run ended at 22:43:42 and the reading landed at 22:43:43,
+        already off the register. So the panel's own record of when it last ran the
+        errand arms the claim too, which is the same fact a second later.
+
+        Called on EVERY balance push and on every reading, gain or no gain: a push that
+        could not be priced is exactly the push that arrives while the harvest runs.
         """
         now = time.time() if now is None else float(now)
         try:
             names = {getattr(run, "name", "") for run in self.rt.interrupts.running()}
         except Exception:                # noqa: BLE001 — a source, never the gain
-            return
+            names = set()
         if COLLECT_ACTION in names:
             self._collect_at = now
+            return
+        try:
+            last = float(self.rt.schedule.store.last_run(COLLECT_ACTION) or 0.0)
+        except Exception:                # noqa: BLE001 — a source, never the gain
+            return
+        if last and now - last <= COLLECT_CLAIM_SEC and last > self._collect_at:
+            self._collect_at = last
 
     def from_base(self, now: "float | None" = None) -> bool:
         """Was this gain the base's own harvest? — the panel's own knowledge, free.
