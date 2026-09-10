@@ -844,6 +844,14 @@ class WebApi:
                 # bought with a question to the game; an errand nobody can answer for
                 # free simply has no line (`panel/runtime/errand_stats.py`).
                 "stat": statsmod.of(rt, timer.name),
+                # …AND WHAT THE BASE PAID TODAY, IN PICTURES (#2743) — the person's
+                # words: «вместо количества прогонов, красиво и ровно выводим иконки
+                # ресурсов что собрали сегодня, только те, что с базы, сокращаем до
+                # #.##M». Sent by the two rows about the base's own pile and empty for
+                # every other errand, so no other card changes; the pictures are the
+                # game's own, fetched off `/api/itemicon`, and a resource this machine
+                # has no sprite for travels with an empty `icon` and draws its name.
+                "res": statsmod.resources_of(rt, timer.name),
                 # …AND THE DAY BROKEN UP BY PHASE, for the ONE row that has such a thing
                 # (#2579). The person asked for it behind the «i»: «выводим иконками
                 # каждый час события за сегодня и сколько там собрано сундуков в каждом
@@ -1234,6 +1242,8 @@ class WebApi:
                 "options": schedule.options.fields(trig.name),
                 # …and its own live line, where one is free (#2019).
                 "stat": statsmod.of(rt, trig.name),
+                # …and the base's take on the listener that watches the same pile (#2743).
+                "res": statsmod.resources_of(rt, trig.name),
                 # A LISTENER GETS A COVER TOO, on the same terms as a timer (#2370),
                 # and since #2407 that is the ONLY picture a card of this page draws:
                 # no cover, no sprite under a wash — a placeholder.

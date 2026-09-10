@@ -3023,6 +3023,7 @@
   "timers.stat.radar": "freie Plätze: {n} · zu helfen: {help}",
   "timers.stat.mail": "Geschenke in der Post: {n}",
   "timers.stat.today": "heute: {n}",
+  "timers.stat.collected": "heute gesammelt: {n}",
   "timers.stat.today_none": "heute noch nicht ausgeführt",
   "timers.stat.none": "keine Live-Anzeige",
   "web.ui.stop": "Anhalten",

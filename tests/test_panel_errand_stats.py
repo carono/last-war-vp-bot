@@ -110,11 +110,22 @@ class _Schedule:
         return int(self._runs.get(name, 0))
 
 
+class _Day:
+    """This profile's game day — a string, and never this computer's date (#2743)."""
+
+    def __init__(self, key: str) -> None:
+        self._key = key
+
+    def day_key(self, now=None) -> str:
+        return self._key
+
+
 class _Rt:
     """Just enough runtime: a store, a profile's files, and the two caches."""
 
     def __init__(self, root: Path, blobs=None, rows=(), age=1.5, daily=None,
-                 daily_age=8.0, runs=None, timers=None) -> None:
+                 daily_age=8.0, runs=None, timers=None, day="2026-09-10") -> None:
+        self.day = _Day(day)
         self.store = _Store(blobs)
         self.profiles = _Profiles(root)
         self.resources = _Resources(rows, age)
@@ -690,6 +701,84 @@ def _run_standalone() -> int:
             print(f"  ERROR {test.__name__}: {type(exc).__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     return 1 if failed else 0
+
+
+
+# ---------------------------------------------------------------------------
+# what the BASE paid today, in pictures (#2743)
+# ---------------------------------------------------------------------------
+def test_a_big_number_is_written_the_way_the_person_asked_for_it():
+    """«сокращаем до #.##M» — two decimals, and the same shape one order down."""
+    assert statsmod.short_amount(12_340_118) == "12.34M"
+    assert statsmod.short_amount(842_500) == "842.50K"
+    # Under a thousand it is written out: «0.84K» would lose the only digits there are.
+    assert statsmod.short_amount(844) == "844"
+    assert statsmod.short_amount(0) == "0"
+    assert statsmod.short_amount(1_500_000_000) == "1.50B"
+    assert statsmod.short_amount("nonsense") == "0"
+
+
+def _base_rt(**kw):
+    from panel import resource_stats as store
+    day = kw.pop("day", "2026-09-10")
+    row = kw.pop("row", {"metal": 12_340_118, "food": 5_000})
+    blobs = kw.pop("blobs", {})
+    blobs[store.BASE_BLOB] = {day: dict(row)}
+    return _rt(blobs=blobs, day=day, **kw)
+
+
+def test_the_base_card_draws_what_the_base_paid_today_biggest_first():
+    """One entry per resource, short number, exact figure beside it — and no zeros."""
+    rt = _base_rt(row={"metal": 12_340_118, "food": 5_000, "oil": 0})
+    rows = statsmod.resources_of(rt, "collect_base_resources")
+    assert [row["key"] for row in rows] == ["stats.res.metal", "stats.res.food"], \
+        "the row is biggest first, and a resource that paid nothing is not drawn"
+    assert rows[0]["value"] == "12.34M"
+    assert rows[0]["exact"] == statsmod._number(12_340_118)
+    # A machine with nothing extracted has no picture and no broken link.
+    assert "icon" in rows[0]
+
+
+def test_yesterdays_take_is_not_todays():
+    """A day-keyed book, read by the GAME's day — the row of another day is not drawn."""
+    rt = _base_rt(day="2026-09-10")
+    rt.day = _Day("2026-09-11")
+    assert statsmod.resources_of(rt, "collect_base_resources") == []
+
+
+def test_no_other_errand_grows_a_row_of_pictures():
+    """Every other card is left exactly as it was."""
+    rt = _base_rt()
+    for errand in statsmod.PROVIDERS:
+        if errand in statsmod.RESOURCE_ROWS:
+            continue
+        assert statsmod.resources_of(rt, errand) == [], errand
+
+
+def test_the_card_says_what_came_in_rather_than_how_many_times_it_ran():
+    """#2743: «вместо количества прогонов». The pile still wins — it is what to act on."""
+    rt = _base_rt(rows=[{"pending": 7}], runs={"collect_base_resources": 3})
+    assert statsmod.of(rt, "collect_base_resources")["key"] == "timers.stat.pending"
+
+    # …and with nothing waiting and nothing read, the day's take — never the run count.
+    quiet = _base_rt(runs={"collect_base_resources": 3})
+    stat = statsmod.of(quiet, "collect_base_resources")
+    assert stat["key"] == "timers.stat.collected"
+    assert stat["fmt"]["n"] == "12.35M"      # 12 340 118 + 5 000
+
+    # A day nobody has collected anything on still falls back on the honest count.
+    empty = _base_rt(row={}, runs={"collect_base_resources": 3})
+    assert statsmod.of(empty, "collect_base_resources")["key"] == "timers.stat.today"
+
+
+def test_the_base_row_is_never_the_whole_tally():
+    """The card must not count a truck, a gift or a robbery — a separate book (#2743)."""
+    from panel import resource_stats as store
+    assert store.BASE_BLOB != store.STATS_BLOB
+    rt = _base_rt(row={"metal": 100})
+    rt.store.blobs[store.STATS_BLOB] = {"2026-09-10": {"metal": 9_000_000}}
+    rows = statsmod.resources_of(rt, "collect_base_resources")
+    assert [row["value"] for row in rows] == ["100"]
 
 
 if __name__ == "__main__":

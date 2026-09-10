@@ -13,6 +13,7 @@ import { useToast } from '../ui/Toast'
 import type {
   ArmsNow,
   ArmsPhase,
+  ErrandRes,
   ErrandStat,
   Field,
   OrderRow,
@@ -89,6 +90,7 @@ function ErrandBlock({
   facts,
   queued,
   stat,
+  res,
   phases,
   arms,
   errand,
@@ -105,6 +107,7 @@ function ErrandBlock({
   facts: string
   queued?: boolean
   stat?: ErrandStat | null
+  res?: ErrandRes[]
   phases?: ArmsPhase[]
   arms?: ArmsNow
   errand: string
@@ -129,6 +132,8 @@ function ErrandBlock({
       facts={facts}
       queued={queued}
       stat={stat}
+      /* WHAT CAME IN TODAY (#2743), for the errand whose card is about a pile. */
+      res={res}
       /* THE DAY, PHASE BY PHASE (#2579) — «Гонка вооружений» alone sends it, and it is
          drawn in the sheet the «i» opens rather than on the card: six rows with pictures
          are a screen of their own, and the card is a picture with three lines on it. */
@@ -205,6 +210,9 @@ export function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; r
       facts={bits.join(' · ')}
       queued={row.queued}
       stat={row.stat}
+      /* WHAT THE BASE PAID TODAY (#2743) — pictures instead of a count of runs, on the
+         two cards about the base's own pile and on no other. */
+      res={row.res}
       phases={row.phases}
       arms={row.arms}
       errand={row.name}
@@ -275,6 +283,7 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
       }}
       facts={signal + ' · ' + state}
       stat={row.stat}
+      res={row.res}
       errand={row.name}
       /* WHAT THE ORDER SPENDS (#2017): the squads «rally_auto_join» may send, the
          soldier floor, the day's ceiling. A listener that has declared no knobs — which

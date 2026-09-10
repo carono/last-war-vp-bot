@@ -51,6 +51,15 @@ RESOURCES: tuple[str, ...] = ("food", "metal", "oil", "gold")
 
 
 def _today() -> str:
+    """The PC's date — the LAST RESORT, and never what a caller should pass.
+
+    A day's statistic is filed under the GAME's day (`CLAUDE.md`, «A DAY'S STATISTIC IS
+    A HISTORY»): the boundary that hands the account a fresh quota is the warzone's own
+    reset, hours away from this computer's midnight, so a tally keyed by the PC's date
+    splits one game day across two rows and merges two halves of different ones. Every
+    caller in the panel passes `rt.day.day_key()` (`panel/runtime/day_reset.py`); this
+    is what is left when a profile has never had a client to ask.
+    """
     return datetime.date.today().isoformat()
 
 
@@ -150,17 +159,33 @@ def save_stats(stats: ResourceStats, path: str | None = None) -> None:
 #: The name this store's row lives under in `panel.db`'s `blobs` table.
 STATS_BLOB = "resource_stats"
 
+#: …and the row of the SAME shape holding only what the base's own buildings paid
+#: (#2743). Everything that raises a balance lands in :data:`STATS_BLOB` — a truck coming
+#: home, a gift, a chest, a robbery — and a card that says «сколько собрано с базы» must
+#: not count any of them. There is no field on the wire saying where a gain came from:
+#: the balance push says a number moved, so the SOURCE is the panel's own knowledge that
+#: it was playing `collect_base_resources` at that moment (`panel/tabs/stats.py`). A
+#: harvest somebody makes with their own thumb in the game is therefore not counted here,
+#: which is the honest answer rather than a guess — and the total tally still has it.
+BASE_BLOB = "resource_stats_base"
 
-def load_stats_from_store(store, path: str) -> ResourceStats:
-    """Read the tally out of `panel.db`, importing `path` the first time (#1465)."""
+
+def load_stats_from_store(store, path: "str | None",
+                          blob: str = STATS_BLOB) -> ResourceStats:
+    """Read the tally out of `panel.db`, importing `path` the first time (#1465).
+
+    ``path`` is the pre-#1465 file this row was carried across from, and may be `None`
+    for a tally that never had one (:data:`BASE_BLOB`) — then nothing is imported.
+    """
     from .runtime.store import blob_import_once
-    data = store.blob_get(STATS_BLOB)
-    if data is None:
-        blob_import_once(store, STATS_BLOB, path)
-        data = store.blob_get(STATS_BLOB)
+    data = store.blob_get(blob)
+    if data is None and path:
+        blob_import_once(store, blob, path)
+        data = store.blob_get(blob)
     return ResourceStats(data if isinstance(data, dict) else {}, path)
 
 
-def save_stats_to_store(store, stats: ResourceStats) -> None:
+def save_stats_to_store(store, stats: ResourceStats,
+                        blob: str = STATS_BLOB) -> None:
     """Checkpoint the tally into `panel.db`."""
-    store.blob_set(STATS_BLOB, stats.as_dict())
+    store.blob_set(blob, stats.as_dict())

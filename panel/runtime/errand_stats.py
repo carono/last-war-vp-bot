@@ -225,6 +225,115 @@ def _collect_ready(rt) -> "dict | None":
             "fmt": {"n": _int(values.get("base_ready"))}, "age": age}
 
 
+# ---------------------------------------------------------------------------
+# what the BASE paid today — pictures and short numbers (#2743)
+# ---------------------------------------------------------------------------
+#: How the person asked for a big number to be written: «сокращаем до #.##M». Two
+#: decimals, and the same shape one order down («842.50K») so a card does not change
+#: format as the day fills up. Under a thousand the figure is written out — rounding
+#: «844» to «0.84K» would lose the only digits there are.
+def short_amount(value) -> str:
+    """«12.34M» — a resource total as the card writes it."""
+    number = _int(value)
+    sign = "-" if number < 0 else ""
+    number = abs(number)
+    for cut, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")):
+        if number >= cut:
+            return f"{sign}{number / cut:.2f}{suffix}"
+    return f"{sign}{number}"
+
+
+def _base_today(rt) -> dict:
+    """`{resource: amount}` the BASE paid this GAME day — the panel's own book (#2743).
+
+    Off `resource_stats.BASE_BLOB`, which the profile's own book writes while
+    `collect_base_resources` is running (`panel/runtime/resource_book.py`) — a look at a
+    row of this profile's own database and never a question to the game, like everything
+    else here.
+    Zero-valued resources are left out: a picture of an empty pile is not a reading.
+    """
+    from .. import resource_stats as statsmod
+
+    try:
+        day = rt.day.day_key()
+    except Exception:                    # noqa: BLE001 — a reading, never the page
+        return {}
+    # THE BOOK IS ALREADY IN MEMORY (`panel/runtime/resource_book.py`): the page is
+    # polled, so a `SELECT` and a JSON parse per poll would be this line's whole cost
+    # for a number that only moves when a balance push is priced.
+    book = getattr(rt, "resource_book", None)
+    try:
+        stats = (book.base if book is not None
+                 else statsmod.load_stats_from_store(rt.store, None, statsmod.BASE_BLOB))
+    except Exception:                    # noqa: BLE001 — a reading, never the page
+        return {}
+    return {key: amount for key, amount in stats.on(day).items() if amount > 0}
+
+
+def _resource_icon(key: str) -> str:
+    """The game's own picture for one tracked resource, or `""` when there is none.
+
+    NEVER A STAND-IN (`CLAUDE.md`): a resource this machine has not extracted the sprite
+    for draws its NAME on the card, not another resource's art.
+    """
+    from urllib.parse import quote
+
+    from . import reads, resources as live
+    for type_id, name in reads.TRACKER_KEY.items():
+        if name != key:
+            continue
+        try:
+            stem = live.icon_for(type_id)
+        except Exception:                # noqa: BLE001 — no picture is a picture-less row
+            return ""
+        return "/api/itemicon?name=" + quote(stem) if stem else ""
+    return ""
+
+
+#: The errands whose card draws the day's take in pictures instead of a count of runs
+#: (#2743) — the base harvest and the listener that watches the same pile.
+RESOURCE_ROWS = frozenset({"collect_base_resources", "resource_tracker"})
+
+
+def resources_of(rt, errand: str) -> list:
+    """The row of pictures under one errand's card — `[]` for every other errand.
+
+    One entry per resource the base paid today, biggest first::
+
+        {"key": "stats.res.metal", "value": "12.34M", "exact": "12 340 118",
+         "icon": "/api/itemicon?name=…"}
+
+    `key` is a locale key and `value` the short figure the card shows; `exact` is the
+    same number in full, for the title a thumb rests on. `icon` is empty where this
+    machine has no sprite, and the front-end then draws the name.
+    """
+    if errand not in RESOURCE_ROWS:
+        return []
+    row = _base_today(rt)
+    out = []
+    for key, amount in sorted(row.items(), key=lambda pair: -pair[1]):
+        out.append({"key": "stats.res." + key, "value": short_amount(amount),
+                    "exact": _number(amount), "icon": _resource_icon(key)})
+    return out
+
+
+def _collect_base(rt) -> "dict | None":
+    """«Сбор ресурсов»: the pile waiting, else the buildings ready, else today's take.
+
+    The last of the three is what replaced the count of RUNS on this card (#2743): a
+    number of presses says the panel is alive, and what the person asked the card to say
+    is how much came in. The pictures beside it are :func:`resources_of`.
+    """
+    ready = _collect_ready(rt)
+    if ready is not None:
+        return ready
+    total = sum(_base_today(rt).values())
+    if total > 0:
+        return {"key": "timers.stat.collected",
+                "fmt": {"n": short_amount(total)}, "age": None}
+    return None
+
+
 def _rally_joins(rt) -> "dict | None":
     """«N стягов сегодня» — today's tally, off the day-keyed store the joiner writes."""
     from .. import rally_limits
@@ -821,7 +930,7 @@ def _market_coins(rt) -> "dict | None":
 
 
 PROVIDERS: dict = {
-    "collect_base_resources": _pending_resources,
+    "collect_base_resources": _collect_base,
     "rally_auto_join": _rally_joins,
     "rally_monitor": _rally_joins,
     "firework_collect": _fireworks_taken,
@@ -891,7 +1000,7 @@ PROVIDERS: dict = {
     "alliance_star_ceremony": _alliance_star,
     # …the listener that watches the same pile the errand collects, and the one that
     # watches the same chests.
-    "resource_tracker": _pending_resources,
+    "resource_tracker": _collect_base,
     "explorer_chests": _from_daily("timers.stat.explorer_chests",
                                    "explorer_chests", ("keys", "explorer_keys")),
 }

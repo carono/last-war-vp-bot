@@ -2231,6 +2231,13 @@ body.chatting .head-row .status { padding-top: 0; }
    card's own bubble: which hour it is with its window, and then the chests, the points
    and how old the reading is — the same `stat` line every other card's reading uses, so
    the two cannot drift apart by a font size. */
+/* WHAT THE BASE PAID TODAY (#2743) — «ровно»: one row, wrapped, every picture the same
+   size, the numbers on the baseline beside them. */
+.res-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 3px 0 0; }
+.res-row .res { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
+.res-row .res img { width: 18px; height: 18px; object-fit: contain; display: block; flex: 0 0 auto; }
+.res-row .res b { font-variant-numeric: tabular-nums; }
+
 .arms-now { margin-top: 2px; }
 .arms-now .hour { margin: 0; font-weight: 600; }
 .arms-now .stat { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; }

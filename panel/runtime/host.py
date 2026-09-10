@@ -25,6 +25,7 @@ from .progress import Progress
 from .power import Power
 from .recovery import Recovery as RecoveryState
 from .header import StatusHeader
+from .resource_book import ResourceBook
 from .resources import BaseResources
 from .errand_reads import DailyReads
 from .bus import EventBus
@@ -240,6 +241,12 @@ class PanelRuntime:
         # profile for the same reason as the stock above — it reads THIS
         # account's client — and it starts nothing until a page asks.
         self.daily_reads = DailyReads(self)
+        # …and THE DAY'S TALLY OF WHAT CAME IN (panel/runtime/resource_book.py, #2743):
+        # everything that raised a balance, and — kept apart — what the base's own
+        # buildings paid, which is what the card of «Сбор ресурсов» draws. Here rather
+        # than on «Статистика» because that tab is `IN_DEVELOPMENT`: its trigger is on
+        # in every live profile and its handler was bound to nothing.
+        self.resource_book = ResourceBook(self)
         # …and WHO IS PLAYING AND WHERE THEY ARE STANDING (panel/runtime/header.py,
         # #2016) — the strip along the top of every screen on the phone: the character's
         # name and level, the warzone, the scene and the window on top of it. Here for

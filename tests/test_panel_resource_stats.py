@@ -91,6 +91,86 @@ def test_a_missing_file_loads_empty():
     assert stats.dates() == []
 
 
+
+# -- the base's own book, and the day it is filed under (#2743) --------------
+class _Store:
+    def __init__(self) -> None:
+        self.blobs: dict = {}
+
+    def blob_get(self, name):
+        return self.blobs.get(name)
+
+    def blob_set(self, name, value) -> None:
+        self.blobs[name] = value
+
+
+def test_the_base_tally_is_a_row_of_its_own_and_imports_no_file():
+    """What the base paid is not what the day took: two books, never one (#2743).
+
+    A truck coming home, a gift, a chest and a robbery all raise a balance and all land
+    in the whole-day tally. The card of «Сбор ресурсов» asks a narrower question, so it
+    reads a narrower book — and that book never had a pre-#1465 file to be carried
+    across, so `None` is a legal path and imports nothing.
+    """
+    store = _Store()
+    assert rs.BASE_BLOB != rs.STATS_BLOB
+    base = rs.load_stats_from_store(store, None, rs.BASE_BLOB)
+    assert base.dates() == []
+    rs.save_stats_to_store(store, base.add({"metal": 100}, today=DAY1), rs.BASE_BLOB)
+    assert store.blobs[rs.BASE_BLOB][DAY1]["metal"] == 100
+    assert rs.STATS_BLOB not in store.blobs, "the whole-day tally was not touched"
+
+
+def test_a_gain_is_filed_under_the_games_day_and_not_this_computers():
+    """`CLAUDE.md`, «A DAY'S STATISTIC IS A HISTORY» — the boundary that zeroes the
+    counter is the warzone's own reset, so it is the one that names the row (#2743).
+
+    The tracker is on a Tk tab, so what is pinned here is the CALL: it asks the
+    profile's own day and hands it to `add`, and the PC's date is only what is left when
+    no client has ever answered.
+    """
+    src = (Path(__file__).resolve().parent.parent
+           / "panel" / "runtime" / "resource_book.py").read_text(encoding="utf-8")
+    assert "self.rt.day.day_key()" in src, "the tally is keyed by this PC's date again"
+    assert ".add(gains, day)" in src, "the day is read and then not used"
+    assert "datetime.date.today" not in src
+
+
+def test_only_a_harvest_the_panel_made_is_credited_to_the_base():
+    """Nothing on the wire says where a gain came from, so the panel says what it DID.
+
+    The window is the burst a single press makes — 36 collects and a tail of pushes —
+    and nothing wider: a truck arriving a minute later must not land in the base's book.
+    """
+    src = (Path(__file__).resolve().parent.parent
+           / "panel" / "runtime" / "resource_book.py").read_text(encoding="utf-8")
+    assert 'COLLECT_ACTION = "collect_base_resources"' in src
+    assert "self.rt.interrupts.running()" in src, "the source is guessed rather than read"
+    import re
+    window = float(re.search(r"COLLECT_WINDOW_SEC = ([0-9.]+)", src).group(1))
+    assert 10.0 <= window <= 90.0, "the window is a burst, not a minute of trading"
+
+
+
+def test_the_tracker_belongs_to_no_tab():
+    """#2743: it was «Статистика»'s method, and that tab is `IN_DEVELOPMENT`.
+
+    Measured on the live panel of 2026-09-10: `resource_tracker` switched ON in all
+    three profiles and not one `resource_stats` row in the database — the trigger fired
+    into a handler nothing had bound. So the book is the runtime's and the schedule
+    binds it whatever tabs a profile has.
+    """
+    root = Path(__file__).resolve().parent.parent
+    tab = (root / "panel" / "tabs" / "stats.py").read_text(encoding="utf-8")
+    assert "TRIGGERS" not in tab, "the tab owns the tracker again"
+    schedule = (root / "panel" / "runtime" / "schedule.py").read_text(encoding="utf-8")
+    assert "resource_book.register(self)" in schedule, "nothing binds the handler"
+    book = (root / "panel" / "runtime" / "resource_book.py").read_text(encoding="utf-8")
+    assert 'schedule.bind("resource_tracker"' in book
+    host = (root / "panel" / "runtime" / "host.py").read_text(encoding="utf-8")
+    assert "ResourceBook(self)" in host, "no profile has a book"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

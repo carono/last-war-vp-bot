@@ -3023,6 +3023,7 @@
   "timers.stat.radar": "chỗ trống: {n} · cần giúp: {help}",
   "timers.stat.mail": "quà trong thư: {n}",
   "timers.stat.today": "hôm nay: {n}",
+  "timers.stat.collected": "thu hôm nay: {n}",
   "timers.stat.today_none": "hôm nay chưa chạy",
   "timers.stat.none": "không có số liệu trực tiếp",
   "web.ui.stop": "Dừng",

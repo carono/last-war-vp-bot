@@ -429,7 +429,7 @@ def test_every_named_sprite_is_a_bare_name_and_a_missing_one_draws_a_letter():
             return None
     sys.modules["item_icons"] = _Nothing
     try:
-        assert res._icon_for(next(iter(icons))) == ""
+        assert res.icon_for(next(iter(icons))) == ""
     finally:
         if saved is not None:
             sys.modules["item_icons"] = saved
