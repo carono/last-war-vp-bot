@@ -2279,7 +2279,11 @@ class Interpreter:
                                                  harvest=stmt.harvest))
         span = lua_actions.fast_sweep_seconds(stmt.step, stmt.every)
         zoom = stmt.zoom if stmt.zoom is not None else lua_actions.SWEEP_ZOOM_MAX
-        where = f", server {stmt.server}" if stmt.server else ""
+        # A LAP THAT NAMES NOTHING SAYS SO (#2705), because the alternative is a
+        # line that reads the same whether the camera stayed or was thrown into
+        # another warzone — which is exactly the bug this became a rule after.
+        where = (f", server {stmt.server}" if stmt.server
+                 else ", the warzone the client is on")
         picks = " + monsters" if stmt.harvest else ""
         self._log(f"SWEEP_MAP -> zoom {zoom}{where}, one lap, ~{span + 2:.0f}s{picks}")
         # …plus a breath for the last waypoint's answer to arrive: the map data lands a
