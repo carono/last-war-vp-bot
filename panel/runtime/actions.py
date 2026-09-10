@@ -77,7 +77,7 @@ class ActionRunner:
 
     def __init__(self, log, claim=None, release=None, target=None,
                  activity=None, interrupts=None, regain=None, books=None,
-                 gate=None) -> None:
+                 gate=None, progress=None) -> None:
         self._log = log                   # the LogBus
         # callable(name, human) -> locale key or "" — «may anything run right now»
         # (`panel/runtime/gate.py::LinkGate.blocks`, #1910). HERE, because this class
@@ -121,6 +121,11 @@ class ActionRunner:
         # `play` on its own worker. A register hung on any of those would stop that one
         # and leave the others unstoppable, which is exactly the state «Стоп всё» was in.
         self._interrupts = interrupts if interrupts is not None else Interrupts()
+        # WHERE THE RUN SAYS IT HAS GOT TO (panel/runtime/progress.py, #2742). Every
+        # context built here carries the hook, so a scenario's `STEP` lines reach the
+        # object both front-ends draw. A runner built without one keeps every `STEP` as
+        # a log line and nothing else, which is what a harness wants.
+        self._progress = progress
 
     def _target_kw(self) -> dict:
         """The client this runner presses into, as keyword arguments for a context.
@@ -184,6 +189,8 @@ class ActionRunner:
         if self._regain is not None:
             kw.setdefault("regain", self._regain)
         kw["cancel"] = Stop(kw.get("cancel"))
+        if self._progress is not None:
+            kw.setdefault("on_step", self._progress.step)
         return script_engine.new_context(
             on_event=on_event if on_event is not None else self._log.put, **kw)
 

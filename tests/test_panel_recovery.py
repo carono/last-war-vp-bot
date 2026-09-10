@@ -457,6 +457,22 @@ def test_an_ordinary_errand_is_held_by_the_kick_too_and_stays_a_debt():
         assert "timers.log.skip_kicked" in locale, path.name
 
 
+from panel.runtime import progress as _progressmod   # noqa: E402
+
+
+class _CrashLog:
+    """`panel/runtime/crash_log.py` as the watchdog stub needs it: it records, silently."""
+
+    def __init__(self) -> None:
+        self.notes: list = []
+
+    def for_rt(self, _rt):
+        return None
+
+    def note(self, _rt, kind, text) -> None:
+        self.notes.append((kind, text))
+
+
 class _Watchdog:
     """The poll's `_watchdog_check`, run against a stub — no Tk, no game, no clock.
 
@@ -480,6 +496,9 @@ class _Watchdog:
         self._wd_held = ""
         self.said: list[tuple[str, dict]] = []
         self.launched: list[float] = []
+        #: Does the claim let the relaunch start? False stands for «the game is being
+        #: driven by something else», which during a crash is the ordinary case.
+        self.relaunch_starts = True
         self.now = 1000.0
         self._hold_left = hold_left
         env = {"WATCHDOG_STRIKES": self.STRIKES,
@@ -487,6 +506,12 @@ class _Watchdog:
                # The strike spacing reads the poll interval (#1702) — the panel's own
                # number, so a change to it changes what this stub polls at too.
                "POLL_SEC": 8.0,
+               # THE BLACK BOX (#2678) — the method writes one block into the profile's
+               # debug log the moment a client dies. A stub, because the stub has no
+               # profile and no log, and because this file is about the DECISION rather
+               # than about what it records. Without it the whole watchdog stub died on
+               # a NameError and every case below was silently unexercised.
+               "crash_log": _CrashLog(),
                "time": self}
         exec(compile("class _S:\n    " + _shell_method("_watchdog_check"),
                      "<watchdog>", "exec"), env)
@@ -518,6 +543,22 @@ class _Watchdog:
     def play_async(self, name) -> None:
         assert name == "launch_game", name
         self.launched.append(self.now)
+
+    def _relaunch(self, _rt, _action, _label, scenario) -> bool:
+        """Where the watchdog's launch goes since #2742 — and whether it STARTED.
+
+        The real one begins the progress both front-ends draw and hands the scenario to
+        `play_async`, which answers `False` when something else is driving the client.
+        That answer is the whole point of the method: a relaunch the claim refused must
+        not spend the five-minute cooldown, and until #2742 it did — live on 2026-09-10
+        that was three windows of 298, 313 and 317 s with a dead client and nobody
+        putting it back.
+        """
+        assert scenario == "launch_game", scenario
+        if not self.relaunch_starts:
+            return False
+        self.launched.append(self.now)
+        return True
 
     def kick_hold_left(self, now) -> int:
         return self._hold_left(now)
@@ -618,6 +659,36 @@ def test_the_watchdog_retries_on_its_cooldown_rather_than_once():
     for _ in range(10):
         w.poll()
     assert [k for k, _ in w.said].count("log.game.watchdog_hold") == 1, w.said
+
+
+def test_a_relaunch_the_claim_refused_does_not_spend_the_cooldown():
+    """«поднимаю игру заново» + «занят» + five minutes of nothing (#2742).
+
+    `play_async` answers `False` when something else is driving the client, and during a
+    crash that is the ordinary case: every reader that was mid-call is still holding it.
+    The stamp used to go on before the run was offered, so a relaunch that never happened
+    bought the full `WATCHDOG_COOLDOWN_SEC` of silence. Measured on the live default
+    profile on 2026-09-10: three windows of 298, 313 and 317 s — 71 % of that account's
+    whole day of downtime — each one a «вотчдог: поднимаю игру заново» followed instantly
+    by «занят».
+
+    A refused attempt is not an attempt: the next poll, eight seconds later, tries again.
+    """
+    w = _Watchdog(cooldown=300.0)
+    w.relaunch_starts = False
+    w.poll(); w.poll()
+    assert not w.launched, "nothing started — the claim refused it"
+    assert [k for k, _ in w.said].count("log.game.watchdog_busy") == 1, w.said
+
+    # The very next poll asks again rather than sitting out five minutes.
+    w.relaunch_starts = True
+    w.poll()
+    assert len(w.launched) == 1, "the refusal ate the retry it must not have eaten"
+    assert w.launched[0] - 1000.0 < 300.0, w.launched
+    # …and a launch that DID start still holds the next one back.
+    for _ in range(20):
+        w.poll()
+    assert len(w.launched) == 1, "the cooldown is gone as well as the bug"
 
 
 def test_a_client_that_came_back_is_put_back_again_at_once():
@@ -1036,6 +1107,10 @@ class _Press:
         #: «Профиль работает». A switched-off profile's daemon is down BECAUSE it was
         #: switched off (#1882) — that reading is not a fault to cure.
         self.power = _Power()
+        #: Where a relaunch says it has got to (#2742). The real object — it is pure
+        #: state, and the cure's own `_relaunch` fills it before handing the scenario to
+        #: `play_async`.
+        self.progress = _progressmod.Progress()
 
     # -- the runtime half
     recovery = None                       # set per case, below

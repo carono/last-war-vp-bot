@@ -435,6 +435,20 @@ class WebApi:
         return coordlinks.mark_line({"n": number, "text": text, "tag": tag_of(text),
                                      "sev": severity_of(text)})
 
+    @staticmethod
+    def _progress(rt) -> "dict | None":
+        """The lifecycle press's own steps, said in this panel's language (#2742)."""
+        state = rt.progress.state()
+        if not state:
+            return None
+        state["text"] = rt.t(state["label"]) if state.get("label") else ""
+        for step in state.get("steps") or []:
+            step["text"] = rt.t(step["key"], **(step.get("fmt") or {}))
+        final = state.get("final")
+        if final:
+            final["text"] = rt.t(final["key"], **(final.get("fmt") or {}))
+        return state
+
     # -- what the profile is doing ------------------------------------------
     def state(self, profile: str | None = None) -> dict:
         """One reading of everything the front page shows, for one profile."""
@@ -507,6 +521,15 @@ class WebApi:
             # `name` is passed through raw beside the sentence: the page marks the
             # scenario card that is running with it, and matching on the translated
             # sentence would be matching on a language.
+            # WHERE THE LIFECYCLE PRESS HAS GOT TO (#2742). `activity` beside it says
+            # WHICH scenario is playing; this says what that scenario is DOING and how
+            # it ended — the steps it named itself (`STEP` in the recipe), each with the
+            # seconds it took, and a final point either way. Pre-translated here, the
+            # same way `activity.text` is: the page draws a list, it does not compose
+            # sentences. `None` when nothing has been pressed lately, and a finished run
+            # stays readable for `progress.KEEP_SEC` so a person who put the phone down
+            # still finds the answer.
+            "progress": self._progress(rt),
             "activity": ({"key": step.key,
                           "name": str(step.fmt.get("name") or ""),
                           "text": rt.t(step.key, **step.fmt)}
@@ -692,7 +715,8 @@ class WebApi:
         try:
             found = game_process.probe(exe, user=user)
             running = found.running
-            message = game_process.worded(found, colour == profile_health.OK, user)
+            message = game_process.worded(found, colour == profile_health.OK, user,
+                                          starting=rt.progress.starting())
         except Exception as exc:             # noqa: BLE001 — a reading, never the server
             # A SENTENCE THAT FAILED IS NOT A VERDICT (#1982 follow-up). This used to
             # answer «клиент игры не запущен» — red, «no client» — and cache it for the

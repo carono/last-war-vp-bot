@@ -16,6 +16,7 @@ Grammar (formal-ish, case-insensitive keywords):
     call_stmt  ::= "CALL" action_name
     wait_stmt  ::= "WAIT" condition [ "WITHIN" number [ "s" ] ]
     log_stmt   ::= "LOG" "\"" any text "\""
+    step_stmt  ::= "STEP" locale_key { name "=" value }
     scan_stmt  ::= "SCAN_SECRET_MISSIONS" { scan_opt }
     scan_opt   ::= "LEVEL" number | "STAR" | "CAN_LOOT"
                  | "FREE_SLOTS" number | "WITHIN" number [ "s" ]
@@ -177,6 +178,14 @@ _WAIT_RE = re.compile(
     re.IGNORECASE,
 )
 _LOG_RE = re.compile(r'^LOG\s+"(.*)"\s*$', re.IGNORECASE)
+#: `STEP <locale key> [name=value …]` — WHERE THE RUN HAS GOT TO, in a word a person
+#: reads (#2742). Not a log line: the log is the record of what happened, and «идёт ли
+#: оно ещё» is a different question, answered by `panel/runtime/progress.py` and drawn
+#: by both front-ends. A KEY and not a sentence, because the panel says every word in
+#: whatever language it is showing (`CLAUDE.md`).
+_STEP_RE = re.compile(r"^STEP\s+([A-Za-z_][\w.]*)\s*(.*)$", re.IGNORECASE)
+#: The optional `name=value` pairs after the key — the numbers the sentence names.
+_STEP_ARG_RE = re.compile(r"([A-Za-z_]\w*)\s*=\s*(\S+)")
 #: A `{name}` in a LOG line — the script's own variables, filled in as it is logged.
 _VAR_REF_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _STOP_RE = re.compile(r"^STOP(?:\s+\"(.*)\")?\s*$", re.IGNORECASE)
@@ -737,6 +746,13 @@ class LogStmt(_Stmt):
 
 
 @dataclass(slots=True)
+class StepStmt(_Stmt):
+    """`STEP` — the run announcing which named phase it has reached (#2742)."""
+    key: str
+    args: dict = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class StopStmt(_Stmt):
     """Set the halt flag and bubble out of the entire action stack."""
     reason: str | None = None
@@ -1288,6 +1304,11 @@ def _parse_one(lines, i, indent):
     if m:
         return LogStmt(text=text, line_no=ln, message=m.group(1)), i + 1
 
+    m = _STEP_RE.match(text)
+    if m:
+        args = {k: v for k, v in _STEP_ARG_RE.findall(m.group(2) or "")}
+        return StepStmt(text=text, line_no=ln, key=m.group(1), args=args), i + 1
+
     m = _STOP_RE.match(text)
     if m:
         return StopStmt(text=text, line_no=ln, reason=m.group(1)), i + 1
@@ -1479,6 +1500,11 @@ def _parse_indented_block(lines, i, parent_indent, parent_line, required=True):
 class Context:
     hwnd: int
     on_event: EventCallback = field(default=lambda _msg: None)
+    # WHERE THE RUN SAYS IT HAS GOT TO — `STEP <key>` (#2742). A locale key and its
+    # numbers, never a sentence, so whoever draws it says it in their own language. The
+    # default swallows them: a scenario run outside the panel (a test, a tool) still
+    # parses and plays its `STEP` lines with nobody listening.
+    on_step: Any = field(default=lambda _key, **_fmt: None)
     last_find: Any = None
     halt: bool = False
     halt_reason: str | None = None
@@ -1791,6 +1817,18 @@ class Interpreter:
                 self._do_wait(stmt)
             case LogStmt():
                 self._log(f'LOG "{self._fill(stmt.message)}"')
+            case StepStmt():
+                # Said BOTH ways on purpose: into the progress object, which is what a
+                # person watching the press reads, and into the log, which is what the
+                # person reading it an hour later reads. Neither is the other's copy —
+                # the first is thrown away when the next press starts.
+                fmt = {k: self._fill(v) for k, v in (stmt.args or {}).items()}
+                self._log(f"STEP {stmt.key}"
+                          + ("".join(f" {k}={v}" for k, v in fmt.items())))
+                try:
+                    self.ctx.on_step(stmt.key, **fmt)
+                except Exception as exc:      # noqa: BLE001 — a reading, never the run
+                    self._log(f"   (step not reported: {exc})")
             case StopStmt():
                 self.ctx.halt = True
                 # …and so does a halt, for the same reason (#1702).
@@ -4094,6 +4132,7 @@ def new_context(
     regain: Any = None,
     store: Any = None,
     days: Any = None,
+    on_step: Any = None,
 ) -> Context:
     """A run context, optionally pre-seeded with script variables.
 
@@ -4118,7 +4157,8 @@ def new_context(
     ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile,
                   cancel=cancel, game_port=game_port, game_token=game_token,
                   game_user=game_user, yield_to=yield_to, regain=regain,
-                  store=store, days=days)
+                  store=store, days=days,
+                  on_step=on_step or (lambda _key, **_fmt: None))
     if variables:
         ctx.vars.update(variables)
     return ctx

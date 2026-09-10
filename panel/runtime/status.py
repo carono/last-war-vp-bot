@@ -605,7 +605,12 @@ class StatusPoll:
             # answers is «did the session hold?».
             if key in recoverymod.KICK_ACTS:
                 rt.recovery.note_kick_restart(time.time())
-            rt.play_async("restart_game")
+            # …AND IT DESCRIBES ITSELF LIKE A PRESS DOES (#2742). A restart the panel
+            # decided on by itself is the one a person is MOST likely to be staring at —
+            # they did not ask for it, the client vanished under them — so it feeds the
+            # same progress object a button's press feeds, and «клиент запускается» is
+            # what the status word says while it runs.
+            self._relaunch(rt, "restart", "game.restart", "restart_game")
 
     def _watchdog_check(self, running: bool) -> None:
         """Notice the client dying, and put it back if asked to.
@@ -737,7 +742,8 @@ class StatusPoll:
         # five minutes for as long as the client stays down — a night of it for a
         # profile whose Windows session is simply not up. The client coming back is
         # what clears it, which is the only event that makes the sentence new again.
-        self._watchdog_last = time.time()
+        # (An attempt that never STARTED is a different thing and does clear it — see
+        # the stamp below.)
         rt.say("game", "log.game.watchdog_relaunch")
         # …AND THE REASON, IN THE BLACK BOX (#2678). A relaunch is one of the two things
         # that reliably precede the next death — the other is a panel restart — so the
@@ -745,7 +751,46 @@ class StatusPoll:
         crash_log.note(rt, "relaunch",
                        f"the watchdog is putting the client back after "
                        f"{self._game_gone} dead readings")
-        rt.play_async("launch_game")
+        # THE COOLDOWN IS STAMPED BY A LAUNCH THAT HAPPENED, NEVER BY ONE THAT WAS
+        # REFUSED (#2742). It used to be stamped one line above this — before the run
+        # was offered — and `play_async` answers `False` whenever something else is
+        # driving the client, which during a crash is the ordinary case: every reader
+        # that was mid-call is still holding it. Live on 2026-09-10 that cost the default
+        # profile three dead windows of 298, 313 and 317 s — 71 % of its whole day of
+        # downtime — each one a «вотчдог: поднимаю игру заново» followed instantly by
+        # «занят» and then five minutes of «перезапуск был 0 мин назад — жду» over a
+        # client nobody was putting back. A refused attempt is not an attempt: the next
+        # poll, eight seconds later, tries again.
+        if not self._relaunch(rt, "launch", "game.launch", "launch_game"):
+            self._watchdog_last = 0.0
+            self._wd_held = ""
+            rt.say("game", "log.game.watchdog_busy")
+            return
+        self._watchdog_last = time.time()
+
+    def _relaunch(self, rt, action: str, label: str, scenario: str) -> bool:
+        """Put the client back, and DESCRIBE it while it happens (#2742).
+
+        The same progress object a person's press fills (`panel/runtime/progress.py`),
+        because from the outside the two are the same event: the client is down and
+        something is putting it back. ``False`` means nothing was started — the claim
+        was refused or the gate holds relaunches — and then the progress says so and the
+        caller must not behave as though an attempt had been spent.
+        """
+        rt.progress.begin(action, label)
+
+        def ended(outcome) -> None:
+            ok = bool(outcome is not None and getattr(outcome, "ok", False))
+            if ok:
+                rt.progress.finish(True, "progress.done")
+            else:
+                rt.progress.finish(False, "progress.failed",
+                                   reason=str(getattr(outcome, "reason", "") or ""))
+
+        started = bool(rt.play_async(scenario, tag="game", on_result=ended))
+        if not started:
+            rt.progress.finish(False, "progress.busy")
+        return started
 
     # -- the server probe ----------------------------------------------------
     def _probe_target(self) -> int:

@@ -21,6 +21,7 @@ from . import claims
 from . import game_process
 from .actions import ActionRunner, Outcome
 from .activity import Activity
+from .progress import Progress
 from .power import Power
 from .recovery import Recovery as RecoveryState
 from .header import StatusHeader
@@ -169,6 +170,14 @@ class PanelRuntime:
         # object, and a second copy of that bookkeeping is a second answer waiting to
         # disagree with the first.
         self.recovery = RecoveryState()
+        # …AND WHERE THE PRESS IN FLIGHT HAS GOT TO (panel/runtime/progress.py, #2742).
+        # A restart is the longest thing a person ever asks the panel for — half a
+        # minute of nothing on screen — and until this the only answer to «идёт ли оно
+        # ещё» was a log line written before it started. Fed by the SCENARIO's own `STEP`
+        # lines, so the phases are the ability's and not a second copy of them kept in
+        # the panel; drawn by both front-ends out of this one object, for the same reason
+        # `recovery` lives here.
+        self.progress = Progress()
         # …AND THE ONE LIGHT ON THIS PROFILE'S TAB (panel/runtime/health.py, #1299).
         # Same arrangement as `recovery` and for the same reason: written by whoever
         # polls the link, drawn by BOTH front-ends — the window on the notebook tab, the
@@ -321,7 +330,14 @@ class PanelRuntime:
                                     # at the one door every scenario goes through, so
                                     # there is no fourth path to find next time.
                                     gate=lambda name, human: self.gate.blocks(
-                                        name, human=human))
+                                        name, human=human),
+                                    # …and WHERE A RUN SAYS IT HAS GOT TO (#2742). Here
+                                    # rather than on the callers for the reason every
+                                    # other hook on this call is here: this is the one
+                                    # door every scenario goes through, so a `STEP` is
+                                    # heard whether the press came from the window, the
+                                    # phone, the watchdog or a timer.
+                                    progress=self.progress)
         self._schedule = None           # built on first ask (see the property below)
         self._chat_out = None       # …and the chat's own outgoing lane (#2594)
         self._squads = None             # …and so is the squad reader

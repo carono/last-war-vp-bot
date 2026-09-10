@@ -661,6 +661,18 @@ button {
 }
 .go.running { border-color: var(--accent); }
 
+/* THE PRESS DESCRIBING ITSELF (#2742) — the steps of a restart under the buttons that
+   started it. A list rather than a spinner: «идёт» answers nothing, and the question a
+   person actually has is WHICH part is slow and where it stopped. */
+.progress { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.progress-steps { list-style: none; margin: 6px 0 0; padding: 0; }
+.progress-steps li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+.progress-steps li .mark { width: 1em; text-align: center; }
+.progress-steps li .what { flex: 1 1 auto; }
+.progress-steps li.done .mark { color: var(--ok); }
+.progress-steps li.failed .mark, .progress-steps li.failed .what { color: var(--bad); }
+.progress-steps li.running .what { font-weight: 600; }
+
 .controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .controls.stack { flex-direction: column; }
 .controls .go { flex: 1 1 auto; }

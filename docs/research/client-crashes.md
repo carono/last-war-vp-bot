@@ -916,3 +916,51 @@ at import would need the restart this exists to make unnecessary.
 `tests/test_panel_crash_log.py` pins all of it, including the rule: the module's own source
 is searched for `run_action(`, `play_async(`, `.evaluator(` and `READ_LUA`, and finding one
 fails the test.
+
+## 12. The watchdog's cooldown, spent by a relaunch that never happened (#2742)
+
+**2026-09-10, live, the `default` and `sooperj` profiles.** The report was «панель
+постоянно тупит, то игру не видит, то коннект установить не может». Counted off
+`profiles/<name>/panel.log` for that day (the log runs on the game's clock and is never
+rotated — `docs/research/panel-log.md`):
+
+| profile | outages | total | median | longest |
+| --- | --- | --- | --- | --- |
+| `default` | 21 | 1306 s | 9 s | 317 s |
+| `sooperj` | 14 | 1879 s | 13 s | 1539 s |
+| `casper` | 0 | — | — | — |
+
+An «outage» is a «клиент пропал» / «связь с сервером пропала» to the matching «клиент
+снова на связи» / «связь с сервером восстановилась».
+
+**Three of `default`'s twenty-one are one bug, and they are 928 s of its 1306 — 71 %.**
+Each is the same four lines:
+
+```
+10:27:14 [game] клиент пропал — процесса игры больше нет
+10:27:14 [game] вотчдог: поднимаю игру заново
+10:27:14 [action] занят — дождись завершения текущего действия
+10:27:21 [game] вотчдог: перезапуск был 0 мин назад — жду
+…
+10:32:19 [game] вотчдог: поднимаю игру заново          ← five minutes later
+10:32:27 [action] < action: launch_game OK             ← and it works in 8 s
+```
+
+`_watchdog_check` stamped `self._watchdog_last` **before** offering the run, and
+`play_async` answers `False` whenever something else is driving the client — which
+during a crash is the ordinary case, because every reader that was mid-call is still
+holding it. So the cooldown was bought by a launch that never started, and the client
+that would have come back in eight seconds stayed down for five minutes. The other two
+windows are 10:27:14→10:32:27 (313 s) and 09:19:37→09:24:35 (298 s); the third, at
+19:48:38→19:53:55 (317 s), is the same shape through the recovery's own restart.
+
+The cure is one line moved: the stamp is reached only when the run was ACCEPTED, a
+refusal clears the latch and says `log.game.watchdog_busy`, and the next poll — eight
+seconds later — asks again. Pinned by
+`tests/test_panel_recovery.py::test_a_relaunch_the_claim_refused_does_not_spend_the_cooldown`.
+
+**What this does NOT explain**, and is left as it is: `sooperj`'s 1539 s window at
+18:59, which is the HUNG-client watch rather than the crash watchdog — the client
+answered its sockets and executed nothing, and the hung-restart threshold (602 s of dead
+looks before the first restart) is a deliberate number, not an accident. Changing it is
+a conversation, not a fix.

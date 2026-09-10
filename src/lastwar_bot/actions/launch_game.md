@@ -44,6 +44,14 @@
 # It says WHY it gave up — no client, a client whose sockets say the server hung up, or
 # a client that answered and is still loading are three different mornings.
 
+# WHERE IT HAS GOT TO, said in the recipe because the phases belong to the ability and
+# not to whoever is drawing it (#2742). `STEP` is a locale key: the panel holds the
+# newest one with its age, and both front-ends say it in their own language.
+STEP progress.game.start
 START_GAME
+
+STEP progress.game.wait_ready
 WAIT client == ready WITHIN 180s
+
+STEP progress.game.in_play
 LOG "Game ready — the client is up and in play."

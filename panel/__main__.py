@@ -3675,7 +3675,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
             ok = bool(getattr(found, "running", False))
             shown = runtime.game_process.worded(
                 found, health.colour == profile_health.OK,
-                runtime.game_process.profile_user(self._binder))
+                runtime.game_process.profile_user(self._binder),
+                starting=self._rt.progress.starting())
             self._later(0, lambda: (
                 self._set_status_msg(shown),
                 self._status_lbl.configure(

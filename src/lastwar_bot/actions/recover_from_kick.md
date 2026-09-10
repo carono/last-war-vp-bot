@@ -26,6 +26,8 @@
 # asks the game's own scene when there is a daemon to ask and the client's link to the
 # game server when there is not.
 
+STEP progress.game.kicked
 LOG "Session kicked (logged in on another device) — relaunching the client."
 CALL launch_game
+STEP progress.game.in_play
 LOG "Recovered: the client is back in play."

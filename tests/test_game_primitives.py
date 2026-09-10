@@ -1292,14 +1292,29 @@ def test_attach_without_a_daemon_waits_for_the_client_and_stops_there():
     assert client.reloads == 0, "there was no daemon to reload"
 
 
+def _acts(body: str) -> list:
+    """The recipe's statements with its `STEP` lines dropped (#2742).
+
+    `STEP` says where a run has got to, for the page drawing the press; it does nothing
+    to the game. These tests are about the shape of the ABILITY, so they read it without
+    the commentary.
+    """
+    return [s for s in se.parse_text(body) if type(s).__name__ != "StepStmt"]
+
+
 def test_restart_recipe_closes_relaunches_and_re_attaches():
     """actions/restart_game.md is the whole ability, in that order."""
     path = se.resolve_action("restart_game")
     assert path is not None, "actions/restart_game.md is missing"
     body, _merged = se.prepare_source(path.read_text(encoding="utf-8"), {})
-    kinds = [type(s).__name__ for s in se.parse_text(body)]
+    # `STEP` lines describe the run and are not part of the ability (#2742); the
+    # second IF is the RETRY — a client that came up without reaching the game gets one
+    # more launch before the restart is called a failure, which is the guarantee the
+    # person asked for in «оно гарантированно должно работать».
+    kinds = [type(s).__name__ for s in se.parse_text(body)
+             if type(s).__name__ != "StepStmt"]
     assert kinds == ["QuitGameStmt", "WaitStmt", "CallStmt", "AttachGameStmt",
-                     "IfStmt", "LogStmt"], kinds
+                     "IfStmt", "IfStmt", "LogStmt"], kinds
     called = [s.action_name for s in se.parse_text(body)
               if type(s).__name__ == "CallStmt"]
     assert called == ["launch_game"], "the restart must start the game the one way"
@@ -1314,7 +1329,11 @@ def test_restart_recipe_closes_relaunches_and_re_attaches():
     # …and it asks `client`, not `scene` (#1399): a daemon that has not finished coming
     # back cannot be asked about the scene at all, and «nobody could ask» is not
     # «nothing is in play». See tests/test_launch_readiness.py for the ladder itself.
-    guard = se.parse_text(body)[4]
+    retry, guard = [s for s in _acts(body) if type(s).__name__ == "IfStmt"]
+    assert retry.condition == "client != ready", retry.condition
+    inner = [type(x).__name__ for x in retry.then_block
+             if type(x).__name__ != "StepStmt"]
+    assert inner == ["LogStmt", "CallStmt", "AttachGameStmt"], inner
     assert guard.condition == "client != ready", guard.condition
     assert type(guard.then_block[0]).__name__ == "FailStmt", guard.then_block
 
@@ -1400,14 +1419,18 @@ def test_launch_recipe_starts_the_game_where_the_profile_lives():
     path = se.resolve_action("launch_game")
     assert path is not None, "actions/launch_game.md is missing"
     body, _merged = se.prepare_source(path.read_text(encoding="utf-8"), {})
-    kinds = [type(s).__name__ for s in se.parse_text(body)]
+    # A `STEP` is a description of the run, never a part of it (#2742) — the recipe
+    # says where it has got to so both front-ends can draw the press while it happens.
+    # It is dropped here, so this stays a test of the ABILITY's shape.
+    kinds = [type(s).__name__ for s in se.parse_text(body)
+             if type(s).__name__ != "StepStmt"]
     assert kinds == ["StartGameStmt", "WaitStmt", "LogStmt"], kinds
     assert "LAUNCH " not in body, \
         "LAUNCH spawns on THIS desktop — a profile in another session gets a third client"
     # …and it names no path. A scenario is the same file on every machine; the install
     # is not, and under another account it is not even expressible (%LOCALAPPDATA% is
     # per user). `tools/lib/game_paths.py` resolves it per session, LW_LAUNCHER moves it.
-    assert se.parse_text(body)[0].path is None, \
+    assert _acts(body)[0].path is None, \
         "the recipe must not carry one machine's install path"
     # READY MEANS THE CLIENT IS UP, NOT THAT IT IS AT THE BASE (#1281). A player on the
     # world map answers 'world' for ever, so waiting for the city sat out the whole
@@ -1418,7 +1441,7 @@ def test_launch_recipe_starts_the_game_where_the_profile_lives():
     # through the Lua daemon, which is precisely what a relaunch takes down — so the same
     # whole-cap failure came back, this time over a client that was up in 32 s. The
     # ladder behind `client == ready` is pinned in tests/test_launch_readiness.py.
-    wait = se.parse_text(body)[1]
+    wait = _acts(body)[1]
     assert wait.condition == "client == ready", wait.condition
     assert wait.timeout <= 180.0, ("the wait is also a CAP on how long the queue can be "
                                    "held: %r" % wait.timeout)

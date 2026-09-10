@@ -23,6 +23,7 @@
 # Nothing is spent in the game by closing it and nothing is lost: the session comes
 # back on the same base whenever `launch_game` is played next.
 
+STEP progress.game.quit
 QUIT_GAME
 
 LOG "Client closed — nothing of this profile's game is running."
