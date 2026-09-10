@@ -446,3 +446,47 @@ knob is a jump.
 A profile written before the scale holds one of the three words and is carried across once
 (`SWEEP_PACE_WORDS`): «fast» → 20, «normal» → 10, «calm» → 3 (0.147 s, the 0.15 it walked
 at). Nobody's lap changes speed because the control changed shape.
+
+## 11. Finding your own division instead of guessing it — «Замерить скорость» (#2705)
+
+The scale above is twenty numbers and the person asked for a way to land on their own:
+«добавь бенчмарк для обхода, автоопределение скорости, пусть экран перейдет на какую то
+область с монстрами, засекает и записывает данные, когда с провода перестанут приходить
+данные с карты, фиксируем и указываем оптимальную скорость обхода».
+
+The ability is `actions/benchmark_map_sweep.md` and it is nothing but camera moves — no
+window, nothing spent, and no warzone named, exactly like the lap it measures.
+
+**How it times a view.** Not by watching the wire: the panel's sniffer belongs to a
+capture that may not be running, and a measurement that needs one is a measurement most
+presses cannot make. It counts what the CLIENT ends up holding instead —
+`WorldScene.PointManager:HasPointInfo(pid)` over a grid around the target, ten readings a
+second for six seconds. The clock starts at the jump and the answer is the timestamp of
+the LAST reading at which that count still climbed, which is the stream of map answers
+arriving and then stopping.
+
+Three things it does deliberately:
+
+* **it goes AWAY first**, to the opposite corner, and only then jumps to the target.
+  Timing a view the client already holds times nothing at all — that was the first
+  version, and it answered 0 ms on a machine that is not fast;
+* **it stands on ground the wire has already said has something on it** — the panel hands
+  it a monster off `MonsterGrid`'s own register. A view of empty desert arrives instantly
+  and flatters the machine;
+* **a tile nobody named falls back to the middle of the map and SAYS so**
+  (`bench_where` ends in `named` or `centre`), because a measurement that will not say
+  what it stood on cannot be argued with.
+
+**From milliseconds to a division.** `lua_actions.sweep_division_for(seconds)` answers the
+FASTEST division whose pause is still at least as long as the measurement: a lap that
+jumps again before the previous view has finished arriving is a lap whose later waypoints
+ask over a client still busy with the earlier ones. Off the ends of the scale it answers
+the ends — 20 for a machine quicker than 0.02 s, 1 for one slower than 0.20 s — and a
+measurement of nothing is not turned into a recommendation at all.
+
+**Nothing is applied by itself.** The card draws the reading and a «Поставить деление N»
+beside it; the pace is the person's knob and a panel that moves it while nobody is looking
+is a panel whose settings cannot be trusted. The three numbers are filed in the day's own
+history (`sweep_bench_ms`, `sweep_bench_tiles`, `sweep_bench_division` in `all_day_stats`,
+`docs/panel-storage.md`), so a restart does not lose them and «стала ли машина медленнее»
+is a `SELECT`.

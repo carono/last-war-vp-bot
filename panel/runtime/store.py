@@ -151,6 +151,7 @@ SCOPED_TABLES = {
     "secret_days": "all_secret_days",
     "monsters": "all_monsters",
     "reward_popups": "all_reward_popups",
+    "day_stats": "all_day_stats",
 }
 
 #: «Призрак: карта»'s own list, by name — the one blob TWO tabs meet over (#2010).
@@ -686,6 +687,36 @@ MIGRATIONS: tuple = (
     (
         "UPDATE all_players SET search_text = flat(search_text)",
     ),
+    # -- v11: a day's statistic is a HISTORY, not one number overwritten (#2705) -------
+    #
+    # The person's rule, in their words: «Когда мы собираем какую либо статистику по
+    # дню … то это все должно храниться в базе и исторически сохраняться, чтобы при
+    # желании строить графики» (`CLAUDE.md`, «A DAY'S STATISTIC IS A HISTORY»). A counter
+    # zeroed at the day boundary answers «сколько сегодня» and destroys every other
+    # question anybody will ever ask of it; the day beside the number costs one column.
+    #
+    # `day` is the GAME's day and never the PC's calendar (`panel/runtime/day_reset.py`):
+    # the boundary that zeroes a counter is the one that has to name the row, and the two
+    # stores that got this wrong file part of one game day under each of two dates
+    # (`docs/panel-storage.md`, «Daily statistics»).
+    #
+    # The profile is FIRST in the key for the reason every other table here has it: a
+    # write that forgets the account must fail rather than land in all of them.
+    (
+        """CREATE TABLE all_day_stats (
+               profile TEXT NOT NULL,
+               -- `YYYY-MM-DD` of the warzone's own day.
+               day     TEXT NOT NULL,
+               -- `trucks_sent`, `secret_tasks_taken`, `sweep_bench_ms`…
+               name    TEXT NOT NULL,
+               -- REAL, because half of these are counts and half are measurements.
+               value   REAL NOT NULL DEFAULT 0,
+               -- When the row was last touched, so «сегодня» can say how fresh it is.
+               at      INTEGER NOT NULL DEFAULT 0,
+               PRIMARY KEY (profile, day, name)
+           )""",
+        "CREATE INDEX ix_day_stats_name ON all_day_stats(profile, name, day)",
+    ),
 )
 
 #: THE SCHEMA AS IT STOOD WHEN EVERY PROFILE HAD A DATABASE OF ITS OWN (#2025).
@@ -1017,6 +1048,60 @@ class Store:
             conn.execute(META_UPSERT, (self.profile, str(key), str(value)))
 
     # -- a whole-list checkpoint, kept as one row --------------------------------------
+    # -- a day's statistic, kept as a history (#2705) ---------------------------------
+    def day_stat_set(self, day: str, name: str, value) -> None:
+        """Write `value` for this profile's `day` — the LAST word about that day.
+
+        For a reading rather than a count: a benchmark taken twice today is the machine
+        as it is now, not twice as fast. A tally uses :meth:`day_stat_add`.
+
+        OFF THE CALLER'S THREAD, through the writer (`CLAUDE.md`: «the write goes through
+        `store.submit`, never straight from Tk»). A statistic is never what a caller is
+        waiting on, so nobody pays a transaction for it.
+        """
+        stamp = int(time.time())
+        row = (self.profile, str(day), str(name), float(value), stamp)
+
+        def job(conn):
+            conn.execute(
+                "INSERT INTO all_day_stats(profile, day, name, value, at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(profile, day, name) DO UPDATE SET "
+                "value = excluded.value, at = excluded.at", row)
+
+        self.submit(job)
+
+    def day_stat_add(self, day: str, name: str, amount=1) -> None:
+        """Add to this profile's tally for `day`, starting it at zero if it is new.
+
+        THE UPSERT IS THE WHOLE POINT: it cannot reach yesterday and it cannot reach
+        another account, so a day turning over is a new ROW rather than a counter being
+        wiped. «Сегодня» stays a `SELECT` and the history is the by-product.
+        """
+        stamp = int(time.time())
+        row = (self.profile, str(day), str(name), float(amount), stamp)
+
+        def job(conn):
+            conn.execute(
+                "INSERT INTO all_day_stats(profile, day, name, value, at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(profile, day, name) DO UPDATE SET "
+                "value = all_day_stats.value + excluded.value, at = excluded.at", row)
+
+        self.submit(job)
+
+    def day_stat(self, day: str, name: str, default=0.0) -> float:
+        """What this profile's `day` says about `name`, or `default` if it says nothing."""
+        row = self.read().execute(
+            "SELECT value FROM day_stats WHERE day = ? AND name = ?",
+            (str(day), str(name))).fetchone()
+        return float(row["value"]) if row is not None else float(default)
+
+    def day_stat_history(self, name: str, limit: int = 90) -> list:
+        """`[(day, value, at), …]` newest first — the graph the rule exists for."""
+        rows = self.read().execute(
+            "SELECT day, value, at FROM day_stats WHERE name = ? "
+            "ORDER BY day DESC LIMIT ?", (str(name), int(limit))).fetchall()
+        return [(str(r["day"]), float(r["value"]), int(r["at"])) for r in rows]
+
     def blob_get(self, name: str):
         """The named list/dict, decoded — or `None` when nothing has been saved yet.
 

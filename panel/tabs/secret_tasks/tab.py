@@ -733,6 +733,14 @@ class SecretTasksTab(PanelTab):
         # «не на всех ПК поток будет успевать» — because the knob is really about the
         # machine decoding the answers, and three words cannot say «a bit slower».
         self._sweep_pace = lua_actions.SWEEP_PACE_DEFAULT
+        # …and what the last speed measurement came to (#2705): `(ms, tiles, division)`,
+        # or `None` while nobody has measured. It is READ BACK from the day's history on
+        # first draw, so a restart does not lose what the machine already told us.
+        self._bench = None
+        self._bench_busy = False
+        # …and whether the day's history has been asked yet, so a machine that was never
+        # measured costs ONE query rather than one per draw of the card.
+        self._bench_loaded = False
 
         self.alliance = AllianceGrid(self)
         # The third and fourth pages (#1251): the weekly event's squads — mine, and my
@@ -1937,6 +1945,17 @@ class SecretTasksTab(PanelTab):
                  height=height, step=step)
 
     # -- how hard the lap leans on the client (#2705) --------------------------
+    def _bench_words(self) -> str:
+        """«0,14 с · 1240 тайлов · советую 8», or «не замерялось» (#2705)."""
+        self._bench_restore()
+        if self._bench_busy:
+            return self.t("coord.bench.running")
+        if not self._bench:
+            return self.t("coord.bench.never")
+        ms, tiles, division = self._bench
+        return self.t("coord.bench.value", secs=round(ms / 1000.0, 2),
+                      tiles=tiles, n=division)
+
     def _pace_words(self) -> str:
         """«10 — пауза 0,05 с» — the division, and what it actually comes to.
 
@@ -2325,6 +2344,132 @@ class SecretTasksTab(PanelTab):
             on_done=self._sweep_ended)
         if not started:
             self._sweep_ended()
+
+    #: THE DAY'S OWN RECORD OF THE MEASUREMENT (#2705), by the rule the person wrote
+    #: the same day: a statistic is a HISTORY (`CLAUDE.md`). Three names under one day,
+    #: so «как менялась машина» is a `SELECT` rather than a thing nobody kept.
+    BENCH_STATS = ("sweep_bench_ms", "sweep_bench_tiles", "sweep_bench_division")
+
+    def _bench_once(self) -> None:
+        """«Замерить скорость» — time how fast THIS computer takes one view of the map.
+
+        The person's words: «добавь бенчмарк для обхода, автоопределение скорости, пусть
+        экран перейдет на какую то область с монстрами, засекает и записывает данные,
+        когда с провода перестанут приходить данные с карты, фиксируем и указываем
+        оптимальную скорость обхода».
+
+        The ability is `actions/benchmark_map_sweep.md` and the panel only plays it. What
+        the panel decides is WHERE: a monster tile off its own register (`MonsterGrid`),
+        which is ground the wire has already said has something on it — a measurement
+        over empty desert times a fast machine and lies about it. With nothing to offer
+        the recipe falls back to the middle of the map and says so.
+
+        NOTHING IS APPLIED BY ITSELF. The answer is a RECOMMENDATION drawn on the card
+        with a button beside it, because the pace is the person's knob and a panel that
+        moves it while nobody is looking is a panel whose settings cannot be trusted.
+        """
+        import lua_actions
+
+        if self._bench_busy:
+            return
+        x, y = self.monsters.a_tile()
+        height, _step = lua_actions.zoom_level(self._zoom_level)
+        self._bench_busy = True
+        self.say("coord", "log.coord.bench_started", x=x or 0, y=y or 0)
+
+        # THE ANSWER RIDES ON `on_result`, NEVER ON `on_done` (#2705). `on_done` is
+        # called with no arguments at all — it is the «whatever happened, put the button
+        # back» hook — so a measurement read off it reads `None` every single time and
+        # the card says «не замерялось» after a run that worked.
+        def landed(outcome=None) -> None:
+            self.post(lambda: self._bench_ended(outcome))
+
+        def done() -> None:
+            self.post(self._bench_idle)
+
+        started = self.rt.play_async(
+            "benchmark_map_sweep", {"x": x, "y": y, "zoom": height},
+            tag="coord", human=True, on_result=landed, on_done=done)
+        if not started:
+            self._bench_busy = False
+            self.say("coord", "log.coord.bench_failed")
+
+    def _bench_ended(self, outcome) -> None:
+        """File what the measurement came to, and say it — on the Tk thread."""
+        import lua_actions
+
+        got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+        try:
+            ms = int(float(got.get("bench_ms") or 0))
+            tiles = int(float(got.get("bench_tiles") or 0))
+        except (TypeError, ValueError):
+            ms = tiles = 0
+        if ms <= 0 or tiles <= 0:
+            # A MEASUREMENT OF NOTHING IS NOT A MEASUREMENT. An empty view, a lap that
+            # was interrupted, a client that answered nothing — say so and keep the last
+            # honest reading rather than recommending a division off no evidence.
+            self.say("coord", "log.coord.bench_empty")
+            return
+        division = lua_actions.sweep_division_for(ms / 1000.0)
+        self._bench = (ms, tiles, division)
+        self.say("coord", "log.coord.bench_done", ms=ms, tiles=tiles, n=division)
+        self._remember_bench(ms, tiles, division)
+        self.rt.settings.changed()
+
+    def _bench_idle(self) -> None:
+        """The run is over, however it ended: the button goes back to «Замерить»."""
+        self._bench_busy = False
+        self.rt.settings.changed()
+
+    def _remember_bench(self, ms: int, tiles: int, division: int) -> None:
+        """Write the measurement into the day's history (`CLAUDE.md`, #2705).
+
+        `day_stat_set` and not `_add`: a benchmark taken twice today is the machine as it
+        is NOW, not twice as fast. The write goes through the store's own writer thread,
+        so the Tk thread pays nothing for it.
+        """
+        try:
+            import panel.timers as timersmod
+
+            day = timersmod.day_key()
+            store = getattr(self.rt, "store", None)
+            if store is None:
+                return
+            for name, value in zip(self.BENCH_STATS, (ms, tiles, division)):
+                store.day_stat_set(day, name, value)
+        except Exception as exc:               # noqa: BLE001 — a statistic, never the tab
+            self.rt.dbg("coord").warning("the benchmark was not filed: %s", exc)
+
+    def _bench_restore(self) -> None:
+        """Pick the last measurement back up out of the day's history, once.
+
+        A panel restart must not make the card say «не замерялось» about a machine that
+        was measured an hour ago — which is the whole reason the rule asks for a history
+        rather than a number in memory.
+        """
+        if self._bench is not None or self._bench_loaded:
+            return
+        self._bench_loaded = True
+        try:
+            store = getattr(self.rt, "store", None)
+            if store is None:
+                return
+            history = {name: store.day_stat_history(name, limit=1)
+                       for name in self.BENCH_STATS}
+            days = {rows[0][0] for rows in history.values() if rows}
+            if len(days) != 1:
+                return
+            ms, tiles, division = (int(history[name][0][1]) for name in self.BENCH_STATS)
+            if ms > 0 and tiles > 0:
+                self._bench = (ms, tiles, division)
+        except Exception:                      # noqa: BLE001 — a reading, never the tab
+            return
+
+    def _bench_apply(self) -> bool:
+        """«Поставить N» — the recommendation, moved by a HAND (#2705)."""
+        if not self._bench:
+            return False
+        return self.set_sweep_pace(self._bench[2])
 
     def _sweep_began(self) -> None:
         """The lap is walking: the button becomes «Остановить» and says so."""
@@ -5246,7 +5391,14 @@ class SecretTasksTab(PanelTab):
                          {"label": "coord.sweep.pace",
                           "value": self._pace_words()},
                          {"label": "coord.sweep.span",
-                          "value": self.t("coord.sweep.span.value", secs=secs)}],
+                          "value": self.t("coord.sweep.span.value", secs=secs)},
+                         # WHAT THIS COMPUTER ACTUALLY MANAGED (#2705) — how long one
+                         # view took to arrive, how much came, and the division that
+                         # follows from it. Never «не замерялось» about a machine that
+                         # was measured an hour ago: the reading is picked back up out
+                         # of the day's history on the first draw.
+                         {"label": "coord.bench",
+                          "value": self._bench_words()}],
                 "options": [{"key": "sweep_zoom", "label": "coord.zoom",
                              "kind": opt_value.CHOICE, "value": self._zoom_level,
                              "options": [{"value": name,
@@ -5266,7 +5418,22 @@ class SecretTasksTab(PanelTab):
                 # is walking is stopped by the same press that started it.
                 "actions": [{"id": "sweep_now",
                              "label": ("coord.sweep_stop" if self._sweeping
-                                       else "coord.sweep_now")}]}
+                                       else "coord.sweep_now")},
+                            # «ЗАМЕРИТЬ СКОРОСТЬ» (#2705). It moves the camera and
+                            # nothing else — no window, nothing spent, no warzone named
+                            # — so it is a press the phone may make.
+                            {"id": "bench_now",
+                             "label": ("coord.bench.running" if self._bench_busy
+                                       else "coord.bench.run")}]
+                         # …AND THE RECOMMENDATION, WHICH A HAND APPLIES (#2705). Drawn
+                         # only when there is one and it is not what is already set: a
+                         # button that would change nothing is a button that teaches
+                         # somebody the panel does nothing.
+                         + ([{"id": "bench_apply",
+                              "label": "coord.bench.apply",
+                              "label_fmt": {"n": self._bench[2]}}]
+                            if self._bench and self._bench[2] != self._sweep_pace
+                            else [])}
 
     def _picker_card(self) -> dict:
         """«Куда идти сегодня» — the window's magnifier grid, as the phone's card (#1467).
@@ -5518,6 +5685,16 @@ class SecretTasksTab(PanelTab):
             return {"ok": True}
         if action == "sweep_now":
             self.post(self._sweep_once)
+            return {"ok": True}
+        if action == "bench_now":
+            # THE MEASUREMENT (#2705) — camera only, so the phone may press it.
+            self.post(self._bench_once)
+            return {"ok": True}
+        if action == "bench_apply":
+            # …and the recommendation, applied by a HAND and never by the panel.
+            if not self._bench:
+                return {"ok": False, "reason": "coord.bench.never"}
+            self.post(self._bench_apply)
             return {"ok": True}
         if action == "goto":
             # «Перейти», the window's own button — the three boxes above, validated by

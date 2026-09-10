@@ -729,6 +729,27 @@ class MonsterGrid(WorldGrid):
         return sum(1 for r in self._rows.values()
                    if is_plain(r) and self.in_level_range(r))
 
+    def a_tile(self) -> tuple:
+        """A monster tile ON THIS WARZONE, for something that needs busy ground (#2705).
+
+        `benchmark_map_sweep.md` times how long the client takes to receive one view, and
+        a view of empty desert would time a fast machine and lie about it. The register
+        this page keeps came off the wire, so a row in it is ground the game has already
+        said has something on it.
+
+        `(0, 0)` when there is nothing to offer — an empty register, or one holding only
+        other warzones. The recipe falls back to the middle of the map and SAYS which it
+        used, so nobody has to guess whether the measurement stood on anything.
+        """
+        own = self.own_server()
+        for row in self._rows.values():
+            if own and int(row.get("server") or 0) != own:
+                continue
+            x, y = int(row.get("x") or 0), int(row.get("y") or 0)
+            if x > 0 and y > 0:
+                return x, y
+        return 0, 0
+
     def own_hidden(self) -> int:
         """How many rows the ZONE box is holding back — the number beside that one."""
         own = self.own_server()

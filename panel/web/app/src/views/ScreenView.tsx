@@ -54,7 +54,10 @@ function PressButton({
      cannot drift apart by a stylesheet. The label becomes the title, which is how a
      card with two of them says which is which. */
   const sign = action.icon === 'run'
-  const label = t(action.label)
+  /* …and the placeholders a press's own label may carry (#2705). A field row has had
+     `label_fmt` since the shop's currency; «Поставить деление 8» needs the same, and a
+     second way of filling a label is exactly what «written once» forbids. */
+  const label = t(action.label, action.label_fmt)
   return (
     <button
       className={className || (sign ? 'go icon run' : 'go')}

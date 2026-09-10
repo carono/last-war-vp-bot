@@ -221,6 +221,33 @@ def sweep_pace(division) -> float:
     return round(gap, 3)
 
 
+def sweep_division_for(seconds) -> int:
+    """The division a machine that needs `seconds` to take one view can actually hold.
+
+    THE BENCHMARK'S OWN ARITHMETIC (#2705). `actions/benchmark_map_sweep.md` times how
+    long THIS computer takes to receive one view's worth of map answers; a lap that jumps
+    again before that is done is a lap whose later waypoints are asking over a client
+    still busy with the earlier ones. So the recommendation is the FASTEST division whose
+    pause is still at least as long as the measurement — quick where a machine is quick,
+    and honest where it is not.
+
+    A measurement of nothing (0, or something unreadable) is not an answer and is not
+    turned into one: the default comes back, which is what the panel would have used
+    anyway. Faster than the fastest division answers 20 and slower than the slowest
+    answers 1 — the scale has ends, and the recommendation may not point off them.
+    """
+    try:
+        need = float(seconds)
+    except (TypeError, ValueError):
+        return SWEEP_PACE_DEFAULT
+    if need <= 0:
+        return SWEEP_PACE_DEFAULT
+    for step in range(SWEEP_PACE_MAX, SWEEP_PACE_MIN - 1, -1):
+        if sweep_pace(step) >= need:
+            return step
+    return SWEEP_PACE_MIN
+
+
 def sweep_division(value) -> int:
     """The division a saved value means — a number, or a word from before #2705."""
     if isinstance(value, str):
