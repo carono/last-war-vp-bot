@@ -405,17 +405,58 @@ Two candidates, both measured against a live client:
 | `GotoWorldPos(pos, 600, 0, nil, <the same id>)` | unchanged | 600.0 | 4 | **332** |
 | `MoveToWorldPoint(pid)` | unchanged | **105.0** | 1 | — |
 
-So `nil` in the warzone slot is the answer: identical fetching, identical height, and no
-argument that could name another world. `MoveToWorldPoint` is the one that looks right and
-is not — it takes no warzone either, but it also resets the camera to the scene's
-`InitZoom` (600 in, 105 out, measured immediately and again three seconds later), so every
-request would go out at LOD 1.
+So `nil` in the warzone slot looked like the answer: identical fetching, identical
+height, and no argument that could name another world. **It was measured on a client
+standing on its HOME warzone, and that is what made it wrong — see §11.**
+`MoveToWorldPoint` is the one that looks right and is not either — it takes no warzone,
+but it also resets the camera to the scene's `InitZoom` (600 in, 105 out, measured
+immediately and again three seconds later), so every request would go out at LOD 1.
 
 A lap that DOES name a warzone still jumps, on purpose: that is `sweep_star_servers.md`,
 which walks five to ten of them in a row.
 
 **And the lap grew its two knobs** — `zoom` and `every`, behind the gear on «Обход карты»
 (`panel/runtime`'s one modal).
+
+## 11. `nil` in the warzone slot means HOME, not «stay» (#2727)
+
+The lap of §10 went on moving the camera off the warzone the person was standing on, and
+the panel's log said «the warzone the client is on» about every one of those laps.
+
+Measured live, against a client whose camera had been sent to a foreign warzone:
+
+| what was run | what the wire did |
+|---|---|
+| `GotoWorldPos(pos, 600, 0, nil)` (four arguments) | the foreign warzone → **home**, inside a second |
+| `GotoWorldPos(pos, 600, 0, nil, nil)` | the same |
+| `MoveToWorldPoint(pid)` | the same, and the zoom fell from 600 to 237 on its way to 105 |
+| `GotoWorldPos(pos, 600, 0, nil, <the foreign id>)` | **stayed**: eight waypoints, ~1000 more tiles, all of that warzone |
+
+So the empty slot is not «do not switch». It loads the home world, and §10's table read
+«unchanged» only because the client it was measured on was already at home.
+
+### And nothing in the client writes down where the camera went
+
+A cross-server camera jump is SHALLOW. With the camera standing on a foreign warzone and
+the wire delivering that warzone's tiles, the client's own Lua answered:
+
+* `WorldFavoDataManager.curServerId` — the home warzone;
+* `WarFlagDataManager.curServerId` — the home warzone;
+* `LuaEntry.Player.serverId` — the home warzone (correctly: that is the account's);
+* `CrossServerUtil.IsInOtherServer()` — **true**, so the client knows it is away…
+* …and a value-search of the whole Lua side for the foreign id (`DataCenter` two levels
+  deep, `GoToUtil`, `SceneUtils`, `CrossServerUtil`, `package.loaded`) found **one** hit,
+  a season-weather record. Reflection over the `WorldScene` component was refused.
+* The tiles around the camera do carry a `serverId`, and it is the OWNER's warzone rather
+  than the world's — a base of a migrant reads as their old one — so a tile is a hint and
+  not an answer.
+
+The mover is therefore the only one who knows, which is what `lua_actions.view_park`
+records and `lua_actions.live_server_expr` reads back: the client's own field, overridden
+by this panel's last camera move while `IsInOtherServer()` is true AND that field has not
+moved since the note was written. A player who walks into another warzone in the game
+moves the field, so their walk always wins over a note — which is the failure mode #2727
+was asked to rule out.
 
 ### The pace is twenty divisions, and the reason is the PC rather than the camera
 

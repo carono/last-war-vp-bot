@@ -4922,13 +4922,18 @@ def test_the_lap_names_no_warzone_at_all(monkeypatch=None):
     assert "server" not in args, args
     assert set(args) == {"zoom", "step", "every"}, args
 
-    # …and the primitive itself: a lap with no warzone hands the game `nil` where the
-    # warzone goes, so `GotoWorldPos` cannot load another world. A lap WITH one still
-    # names it — that is the star round, which jumps on purpose.
+    # …and the primitive itself: a lap with no warzone RESOLVES one in the game at the
+    # moment it starts (#2727). `nil` in that slot is not «do not switch» — it loads the
+    # home world, which is why the lap went on moving the camera after #2705. A lap WITH
+    # a warzone still names it: that is the star round, which jumps on purpose.
     stay = lua_actions.fast_map_sweep(600, 90, 0.05)
-    assert "local srv=nil" in stay, stay[:400]
-    assert lua_actions.current_server_expr() not in stay
+    assert "local srv=nil" not in stay, stay[:400]
+    assert lua_actions.live_server_expr() in stay
+    assert "IsInOtherServer" in stay
     assert "local srv=300" in lua_actions.fast_map_sweep(600, 90, 0.05, server=300)
+    # …and either way it writes down where it took the camera, so the next thing to ask
+    # «which warzone am I looking at» is not told the home one.
+    assert lua_actions.VIEW_VAR + " = {srv = srv" in stay
 
 
 def test_a_second_press_stops_the_lap_instead_of_starting_another():
@@ -5836,6 +5841,35 @@ def test_the_phone_sorts_the_grid_it_pressed_on_and_no_other():
     assert ally.web_sort("alliance:nonesuch") is None
 
 
+def test_the_lap_resolves_the_warzone_live_and_a_stale_note_loses():
+    """The lap's warzone comes from ONE live reading, and the note perishes (#2727).
+
+    «Обход карты всё равно меняет сервер» after #2705 had left the slot empty: measured
+    live, one waypoint with no warzone took the wire from the foreign one to home inside
+    a second. The reading the lap now takes is the client's own field, overridden by
+    this panel's last camera move only while the client still says it is elsewhere and
+    the field has not moved since — so a player who walks in the game wins over a note.
+    """
+    import lua_actions
+    expr = lua_actions.live_server_expr()
+    # the client's own answer is what it falls back to…
+    assert lua_actions.current_server_expr() in expr
+    # …the note is only honoured while the client agrees it is away from home…
+    assert "IsInOtherServer" in expr
+    # …and only while the field it was written against has not moved.
+    assert "b == cur" in expr
+    # A coordinate jump is a camera move, so it writes the note itself.
+    assert lua_actions.VIEW_VAR in lua_actions.jump_to_coord(1, 2, 300)
+
+
+def test_the_lap_log_line_names_the_warzone_the_chunk_walked():
+    """«the warzone the client is on» could not be falsified; a number can (#2727)."""
+    from lastwar_bot.script_engine import _sweep_walked
+    assert _sweep_walked(["ACT sweep n=121 zoom=600 step=90 srv=1011 span=6.0"]) == 1011
+    assert _sweep_walked(["ACT sweep n=1 srv=nil"]) == 0
+    assert _sweep_walked([]) == 0
+
+
 if __name__ == "__main__":
     # ONE BROKEN TEST USED TO TAKE THE FILE WITH IT (#2660). The loop called every test
     # bare, so the first exception ended the process — and every test whose name sorts
@@ -5855,3 +5889,4 @@ if __name__ == "__main__":
                 print("ok", name)
     print("\n%d/%d passed" % (_ran - _failed, _ran))
     raise SystemExit(1 if _failed else 0)
+

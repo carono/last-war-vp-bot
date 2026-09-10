@@ -2341,15 +2341,18 @@ class SecretTasksTab(PanelTab):
         ★ monitor. Saying so is the difference between «nothing was found» and «nothing
         was written down».
 
-        AND IT NAMES NO WARZONE AT ALL (#2705). It used to pass one — first the client's
-        own cached answer (#1280: «перехожу на другой сервер, жму обход — возвращает на
-        предыдущий»), then the «Сервер» box, which only moved the lie one step: a box is
-        a saved setting, and a person who walked somewhere in the game never told it. The
-        person's rule for this button is «мы сами в игре встаем на нужный сервер и делаем
-        обход», so the lap walks the warzone the client is looking at and there is nothing
-        left for it to be wrong about. Measured live: the same jump with the warzone left
-        out fetched the same 332 tiles, held the height at 600.0 and left `curServerId`
-        where it was.
+        AND THE PANEL HANDS IT NO WARZONE (#2705, #2727). It used to pass one — first the
+        client's own cached answer (#1280: «перехожу на другой сервер, жму обход —
+        возвращает на предыдущий»), then the «Сервер» box, which only moved the lie one
+        step: a box is a saved setting, and a person who walked somewhere in the game
+        never told it. The person's rule for this button is «мы сами в игре встаем на
+        нужный сервер и делаем обход».
+
+        Leaving the slot EMPTY was not the same thing, and that is #2727: the game's own
+        jump loads the HOME world when nothing is named, so the lap went on changing the
+        server while logging «the warzone the client is on». The recipe reads the warzone
+        in the game at the moment it starts (`lua_actions.live_server_expr`) — one live
+        reading, no setting, no cache — and the log line names the number it walked.
 
         THE HEIGHT AND THE PACE ARE THE GEAR'S (#2705) — the two knobs behind «Обход
         карты» on the phone, and `ARGS` of the recipe. Nothing else about the lap is the

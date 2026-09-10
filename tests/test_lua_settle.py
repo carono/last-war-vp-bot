@@ -284,7 +284,13 @@ def test_a_jump_without_a_server_asks_the_game_inside_the_chunk():
 def test_a_jump_with_a_server_still_names_it_outright():
     chunk = lua_actions.jump_to_coord(561, 492, 300)
     assert "local srv=300 " in chunk, chunk
-    assert "curServerId" not in chunk, chunk
+    # The jump does not ASK which warzone it is on — it was told. What it does read the
+    # client's own field for is the note it leaves behind (#2727): the warzone a
+    # cross-server jump loads is written down nowhere in the client, so the mover writes
+    # it, stamped with the field's value so a later in-game walk invalidates it.
+    park = chunk.split("pcall(")[0]
+    assert lua_actions.VIEW_VAR in park, chunk
+    assert "curServerId" not in chunk.replace(park, ""), chunk
 
 
 def test_the_panel_jumps_in_one_call_and_never_reads_the_server_first():
