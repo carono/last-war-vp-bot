@@ -461,7 +461,7 @@ green after it:
    to draw;
 4. **the tabs, one per commit**, in the order they are least used at the machine:
    `alliance`, `profile`, `heroes`, `inventory`, `accounts`, `stats`, `players`,
-   `recruit`, `events`, `checklist`, `timers`, `treasure_debug`, `chat`, `command_post`,
+   `events`, `checklist`, `timers`, `treasure_debug`, `chat`, `command_post`,
    `rally`, `secret_tasks`, `vs_duel`, `develop`. Each loses `build()`, `settings_page()`
    and its `tkinter` import; each keeps `web_view` / `web_press` and its state;
 5. **the shell itself** — `panel/__main__.py`, `panel/widgets.py`, `panel/runtime/

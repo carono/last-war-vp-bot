@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 81 of 207
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 81 of 206
 
-🟩 81 done · 🟨 97 partly · 🟥 29 not automated
+🟩 81 done · 🟨 96 partly · 🟥 29 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what is
@@ -250,7 +250,6 @@ is a banked charge on a 23.5-hour-plus cooldown.
 ### Heroes
 
 - 🟡 Seeing your heroes in the panel — a tab lists every hero with its picture, level, stars and squad, read with no window opened
-- 🟡 Recruiting heroes and survivors from the panel — a «Найм» tab with both banners and three presses each: x1, x10 and x100
 - ✅ Spending only the FREE pull — the recruit run can be told «only if it is free» and sends nothing when the free pull has not come back
 - ✅ Every free pull in the tavern on a clock — a timer takes the free survivor and the free hero on every banner the game is showing
 - ❌ Levelling heroes, raising their rank, levelling skills
