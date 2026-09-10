@@ -151,6 +151,29 @@ def test_a_ready_tile_is_coloured_and_the_colour_lives_in_the_stylesheet():
             f"tone-{tone} does not use the palette this stylesheet already has")
 
 
+def test_every_table_carries_its_own_level_range_on_the_phone():
+    """The knob that hid a whole table from the front-end that could not reach it (#2740).
+
+    Measured live: «Шахты» held 381 mines and drew 0, because that page's own «уровень от»
+    was 10 and a seasonal warzone's mines are all below it. The window has the two boxes;
+    the card had neither. That is the shape #2010 and #2024 already named twice — a knob
+    only Tk can move is a knob nobody can move — and it reads on the phone as «ничего не
+    нашли», which is the one thing a page must never say untruthfully.
+    """
+    text = _TAB.read_text(encoding="utf-8")
+    pages = ("self.alliance", "self.ghost", "self.ghost_allies", "self.ghost_map",
+             "self.mines", "self.monsters", "self.trains", "self.trucks")
+    for page in pages:
+        assert "self._grid_level_fields(%s)" % page in text, (
+            f"{page} draws no level range on its card")
+    # …and a press on either box reaches the page's own variable, so the two front-ends
+    # hold ONE value.
+    assert "def _grid_level_write(self, key: str, value)" in text
+    assert 'key != "%s%s" % (page.CONFIG_KEY, suffix)' in text
+    assert "moved = self._grid_level_write(key, args.get(\"value\"))" in text, (
+        "nothing routes the press to the page's box")
+
+
 def test_the_chip_survives_leaving_the_page_and_is_held_in_ONE_place():
     """«При смене вкладки фильтры должны сохраняться» — and without a second copy."""
     text = _SCREEN.read_text(encoding="utf-8")
