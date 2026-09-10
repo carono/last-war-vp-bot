@@ -2613,17 +2613,43 @@ class SecretTasksTab(PanelTab):
         self._sweep_srv = 0
         self.post(self._retitle_sweep)
 
-    def _sweep_stop(self) -> None:
-        """Disown the waypoints still pending — by playing the recipe that does it.
+    #: THE RECIPES WHOSE WHOLE POINT IS A LAP (#2739) — what «Остановить» ends. Named
+    #: here rather than guessed from the register because the press must end the lap and
+    #: nothing else: a robbery running beside it is not the thing the person stopped.
+    SWEEP_RUNS = ("scan_map", "sweep_server", "scan_map_monsters", "sweep_star_servers")
 
-        It used to assemble the Lua here and run it through the evaluator: the last
-        hand-driven press on this bar, and the thing `CLAUDE.md` forbids. The ability is
-        `actions/stop_map_sweep.md`, and it is played `human=True` because the lap it
-        interrupts is holding the claim — a person pressing «Остановить» is exactly the
-        case that gate exists for (#1910).
+    def _sweep_stop(self) -> None:
+        """End the lap: the RUN first, and the recipe only when no run of ours is going.
+
+        It used to play `actions/stop_map_sweep.md` and nothing else, and that press could
+        not work while a lap was walking (#2739): the lap sits out its own span holding
+        the game claim at :data:`~panel.runtime.claims.HUMAN`, so a second HUMAN press
+        outranks nobody and is answered «занято». The token was never bumped, the game's
+        own timer walked the rest of the waypoint list, and the panel meanwhile put the
+        button back — «нажал прервать, а экран продолжает двигаться».
+
+        So the press ends the RUN (`panel/runtime/interrupt.py`), which is the one thing
+        that needs no claim: the flag is set, the lap's wait unwinds at its next slice,
+        and the interpreter bumps the run token on its way out
+        (`script_engine.Interpreter._sweep_wait`) — with the claim it is already holding.
+        The log says which recipe was cut and at which step, said by the register itself.
+
+        The recipe is still played when there was no run to end: a lap left walking by a
+        panel that has since restarted belongs to nobody, and bumping the token is then
+        the only way to stop it. That is the case `actions/stop_map_sweep.md` exists for.
         """
         self.say("coord", "log.coord.sweep_stopped")
-        if not self.rt.play_async("stop_map_sweep", tag="coord", human=True):
+        asked = []
+        if getattr(self.rt, "interrupts", None) is not None:
+            from panel.runtime import interrupt
+
+            for name in self.SWEEP_RUNS:
+                try:
+                    asked += interrupt.stop_named(self.rt, name)
+                except Exception as exc:       # noqa: BLE001 — a press, never the tab
+                    self.rt.dbg("coord").warning("the lap was not interrupted: %s", exc)
+        if not asked and not self.rt.play_async("stop_map_sweep", tag="coord",
+                                                human=True):
             self.say("coord", "log.coord.sweep_stop_failed")
         self._sweep_ended()
 
@@ -5740,7 +5766,14 @@ class SecretTasksTab(PanelTab):
                                        "label": ("secrettasks.picker.sweeping"
                                                  if sweeping == row["server"]
                                                  else "secrettasks.picker.sweep"),
-                                       "disabled": bool(going) or self._sweeping,
+                                       # …AND THE WALKING TILE IS THE STOP (#2739).
+                                       # Dead everywhere else — one lap at a time — but
+                                       # the one saying «Обходим…» takes the press and
+                                       # ends it, exactly as the card's own button does.
+                                       # A tile nobody can press is a lap the phone
+                                       # cannot stop at all.
+                                       "disabled": bool(going) or (
+                                           self._sweeping and sweeping != row["server"]),
                                        "args": {"server": row["server"]}}]})
         # THE THREE TALLIES ARE THE FILTER CHIPS NOW (#2737) — the person asked for
         # «кнопки-фильтры, только звездные дни секреток», and a chip that carries its own

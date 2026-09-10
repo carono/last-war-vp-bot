@@ -930,6 +930,15 @@ sweeps at the wrong height and comes home with the wrong half of the map.
 The statement waits out the lap it scheduled, plus a breath for the last answer to
 arrive, so the next line runs over a finished sweep and not a moving camera.
 
+**And the wait is where the lap is STOPPED (#2739).** The waypoints belong to the game's
+own timer, not to the thread that scheduled them, so a run that merely unwinds leaves the
+camera walking the rest of the list. When the operator ends the run — «Прервать», or the
+lap's own «Остановить обход» — the statement bumps the run token on its way out, with the
+game claim it is still holding, and every waypoint still pending disowns itself. The same
+is true of `VISIT_MAP`. What may NOT work is bumping the token from outside while the lap
+is walking: the lap holds the claim for its whole span, so a press played as a scenario of
+its own is refused «занято».
+
 Three things to know:
 
 - **The grid is the server's, not a number written here.** It is built from the scene's
