@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 81 of 206
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 82 of 207
 
-🟩 81 done · 🟨 96 partly · 🟥 29 not automated
+🟩 82 done · 🟨 96 partly · 🟥 29 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what is
@@ -189,6 +189,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - 🟡 **Every tile the bot happens to hear now counts as a check** — each row says when the game last confirmed it, in words
 - 🟡 «Обновить состояние» — re-checks the tasks already on the list, on demand only, and only the ones ready to rob
 - ✅ One lap of the WHOLE map, in about three seconds — «Обойти карту» walks the camera over every corner of the warzone the client is on; zoom and speed behind its gear
+- ✅ Naming the lap's own speed instead of guessing it — «Замерить скорость» times how fast this computer takes one view of the map and recommends a division; you decide whether to set it
 - 🟡 Which warzones are having their star-secret-task day — three states beside the season, in the «Серверы» window and on the phone
 - 🟡 «Куда идти сегодня» — a magnifier that opens a grid of the warzones a robbery is possible on today
 - ✅ Ghost-recon robbery as a standing order — a checkbox with its own minimum-level field, on the «Призрак: карта» page
