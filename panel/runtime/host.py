@@ -1293,6 +1293,11 @@ class PanelRuntime:
         if self._wire is not None:
             self._wire.stop()
         self.tick.disarm_all()
+        # …and the day's tally lets the reading it listens to go (#2743).
+        try:
+            self.resource_book.shutdown()
+        except Exception:                                           # noqa: BLE001
+            pass
         # EVERY child, not just the ones a tab remembered to stop. A tab's own
         # `shutdown` still runs first and still knows what its checkbox means; this is
         # the floor under it, and the only thing that catches a child whose tab was

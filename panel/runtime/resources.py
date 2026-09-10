@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import time
 
+from . import bus
 from . import claims
 
 #: The scenario that does the reading. One door, and the panel's only one.
@@ -447,6 +448,16 @@ class BaseResources:
         self._refusals = 0               # it got through; the backoff starts over
         self._rows = rows
         self._at = self._clock()
+        # …AND SAY SO (#2743). The day's tally is built by DIFFING balances, so it can
+        # only price a gain against a reading taken after the harvest — and this is the
+        # moment one arrives. Measured live: the push landed at 22:38:22, the tracker
+        # read the stale cache a second later and saw nothing, and the fresh numbers
+        # came some fifteen seconds after that, by which time no push was left to price
+        # them.
+        try:
+            self._rt.bus.publish(bus.RESOURCES_READ, None)
+        except Exception:                # noqa: BLE001 — a reading, never the page
+            pass
 
     # -- going away ----------------------------------------------------------
     def shutdown(self) -> None:

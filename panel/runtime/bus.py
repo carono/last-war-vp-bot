@@ -29,6 +29,12 @@ from . import spread as _spread
 #: which is the other time everything it holds may have moved unheard.
 GAME_READY = "game.ready"
 
+#: A FRESH BALANCE READING HAS LANDED (#2743) — said by `panel/runtime/resources.py`
+#: whenever a play of `read_base_resources` comes back with rows. The day's tally prices
+#: its gains on this rather than on the push behind it: the push says a balance moved,
+#: and the amount only exists once the reading that follows it has arrived.
+RESOURCES_READ = "resources.read"
+
 #: How far apart the listeners of a SPREAD topic are told, in seconds (#2678). The gap
 #: and the mechanism live in `panel/runtime/spread.py`, because a tab whose ONE listener
 #: takes several readings has to spread those the same way — a burst inside one handler
