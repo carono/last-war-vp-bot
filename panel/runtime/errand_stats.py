@@ -318,6 +318,15 @@ def _item_labels(rt) -> dict:
     return kept if isinstance(kept, dict) else {}
 
 
+#: HOW MANY CHIPS A CARD HOLDS BEFORE IT IS DRAWN TALL (#2744). The person's words:
+#: «Если все ресурсы не влезут, то можно увеличить карточку в полтора раза по высоте,
+#: это будет новый тип высоких карточек». Measured on the narrowest card the grid makes
+#: (280 px, one column on a 320 px phone): a chip is about 70 px, so four sit on a line
+#: and the ordinary card has room for one such line under its two of text. A fifth chip
+#: therefore starts a second line, and that is where the tall type earns its height.
+TALL_CHIPS = 4
+
+
 #: The errands whose card counts DOWN to its next run instead of saying how old its
 #: reading is (#2744). The person's words: «Текст "прочитано" можно убрать, вместо него
 #: обратный отсчет до таймера». It is not a retreat from «старое видно старым» — this one
@@ -371,6 +380,20 @@ def resources_of(rt, errand: str) -> list:
             entry["icon"] = _resource_icon(key)
         out.append(entry)
     return out
+
+
+def tall_card(rt, errand: str) -> bool:
+    """Is this card the TALL type (#2744) — half again as high as an ordinary one?
+
+    Decided by the PANEL and sent as data, so the phone draws one kind of card and is
+    told which shape it is standing in. It is not a property of the errand: the same
+    card is ordinary on a day the base paid four things and tall on a day it paid nine,
+    which is exactly when the room is needed.
+    """
+    try:
+        return len(resources_of(rt, errand)) > TALL_CHIPS
+    except Exception:                    # noqa: BLE001 — a shape, never the page
+        return False
 
 
 def _collect_base(rt) -> "dict | None":

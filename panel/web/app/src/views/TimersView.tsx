@@ -92,6 +92,7 @@ function ErrandBlock({
   stat,
   next,
   now,
+  tall,
   res,
   phases,
   arms,
@@ -111,6 +112,7 @@ function ErrandBlock({
   stat?: ErrandStat | null
   next?: number | null
   now?: number
+  tall?: boolean
   res?: ErrandRes[]
   phases?: ArmsPhase[]
   arms?: ArmsNow
@@ -141,6 +143,9 @@ function ErrandBlock({
          hands over the two numbers; which card uses them is decided by the stat. */
       next={next}
       now={now}
+      /* THE TALL TYPE (#2744) — the panel says when a card's row of chips needs the
+         extra half a height; the card is the same component either way. */
+      tall={tall}
       /* WHAT CAME IN TODAY (#2743), for the errand whose card is about a pile. */
       res={res}
       /* THE DAY, PHASE BY PHASE (#2579) — «Гонка вооружений» alone sends it, and it is
@@ -221,6 +226,7 @@ export function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; r
       stat={row.stat}
       next={row.next}
       now={now}
+      tall={row.tall}
       /* WHAT THE BASE PAID TODAY (#2743) — pictures instead of a count of runs, on the
          two cards about the base's own pile and on no other. */
       res={row.res}
@@ -295,6 +301,9 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
       facts={signal + ' · ' + state}
       stat={row.stat}
       res={row.res}
+      /* THE TALL TYPE (#2744) — the listener that watches the base's pile draws the same
+         chips as the harvest, so it grows the same way rather than clipping them. */
+      tall={row.tall}
       errand={row.name}
       /* WHAT THE ORDER SPENDS (#2017): the squads «rally_auto_join» may send, the
          soldier floor, the day's ceiling. A listener that has declared no knobs — which

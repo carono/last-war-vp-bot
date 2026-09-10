@@ -1333,6 +1333,27 @@ nav .nav.on::after {
 .item.errand.cover.art::before { background-position: center var(--art-pos, 60%); }
 /* A picture worth showing gets room to be one — a band 144 px tall is a strip. */
 .item.errand.cover { min-height: 168px; }
+/* THE TALL CARD — A TYPE, NOT A ONE-OFF (#2744).
+
+   The person's words: «Если все ресурсы не влезут, то можно увеличить карточку в полтора
+   раза по высоте, это будет новый тип высоких карточек». So it is half again the height
+   of the ordinary one — 144 → 216 for a card with no cover, 168 → 252 for one that is a
+   picture — and it is asked for BY THE PANEL (`tall` on the row,
+   `panel/runtime/errand_stats.py::tall_card`), never worked out in the browser by
+   measuring what happened to fit.
+
+   IT IS A FLOOR AND NOT A CEILING, exactly like the two heights it is built on: a card
+   whose chips need a fourth line still grows past it rather than clipping them. What the
+   type buys is that the row of cards it stands in keeps ONE height instead of one card
+   sticking out of the grid, and the picture behind it stays a picture rather than being
+   cropped to a band.
+
+   WHY 1.5 AND NOT «as much as it needs»: a card of this front-end is read across a page
+   of thirty, and a card that is any height its content asks for makes a column of rubble
+   (the same argument as the 144 px floor above). One step, declared, is a type somebody
+   can reuse; a height per card is not. */
+.item.errand.tall { min-height: 216px; }
+.item.errand.cover.tall { min-height: 252px; }
 /* NO PICTURE IS STILL THIS CARD (#2407). The shape, the floor, the pills and the «i» are
    the format; what changes is what is behind them. A ground mixed out of the card's own
    two colours — so it belongs to whichever palette is on without a second rule — and the
