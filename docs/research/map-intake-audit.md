@@ -170,3 +170,58 @@ one lap.
   at zero, play `audit_map_intake` at a waypoint the camera has not visited, read the card's
   «пришло с провода» row against what `AUDIT_MAP` said. Anything other than
   wire ≥ client-box, for a kind that rides `world.get.block`, is a leak.
+
+## 6. The capture that goes deaf while saying nothing (2026-09-10, #2740)
+
+The audit above measures what the WIRE carries against what the CLIENT holds. Neither
+count can see the third failure, and it is the one behind «сборщик секреток не
+собирает»: the capture process itself stops hearing the interface.
+
+### What was measured
+
+Live, profile `default`, warzone 953, same machine, same minute:
+
+| Process | Flags | Map responses | Tiles | Tasks |
+|---|---|---|---|---|
+| the panel's own child (pid 241076, started 19:14) | `--client-own-session --client-pid <dead pid>` | **0** | 0 | 0 |
+| a fresh `secret_task_capture.py --seconds 50` | none | 228 | 26 380 | 593 |
+| a fresh one with the panel's OWN flags | the same narrowing | 228 | 26 248 | 583 |
+
+Three laps of the map were driven through the panel while all three were listening. The
+panel's child heard nothing for all of them, and its checkpoint stayed `[]`.
+
+So it is not the narrowing (the third row rules that out), not the interface, not npcap
+starvation from six concurrent captures, and not the filter: the child's pcap handle had
+stopped delivering. The client had died at 19:21:42 and re-dialled through a different
+gateway (`136.107.113.253` → `166.117.55.137`), which is exactly the moment an adapter
+goes away under an open handle.
+
+### Why nothing said so
+
+* `sniff_forever` called `sniff()` ONCE. An exception printed one line to stderr and
+  ended the thread; a plain RETURN — what npcap does when its adapter goes — printed
+  nothing at all. The process went on ticking either way.
+* The progress line named map responses and tiles, never the packets underneath, so
+  «nobody is scrolling the map» and «this capture is deaf» printed the same sentence.
+* `diagnose()` knows the difference (`delivered` vs `packets` vs `blocks_seen`) and only
+  runs when the process EXITS — which a panel child does not do.
+* The panel's own revival path watches for a child that DIED. This one was alive.
+
+### What it costs, and the tell
+
+An idle base is not silent: measured on this filter, ~3.7 packets a second of
+keepalives. **Not one packet in three minutes is the handle, never the game.**
+
+### The cure
+
+* `map_capture.sniff_forever` loops: a capture that ends without being asked says so and
+  is opened again after `REOPEN_SEC`.
+* `map_capture.deaf_watch` ends the process when neither counter has moved for
+  `DEAF_SEC` while this account HAS a client — a handle parked inside a live `sniff()`
+  cannot be re-opened from inside it, and the panel already knows how to start a fresh
+  child. A capture whose client is down is right to hear nothing and is left alone.
+* The progress line names the packets, with the wire entering the ticker's signature as
+  a STATE (`bool(delivered)`) rather than a count, so it says «hearing» or «deaf» once
+  instead of returning to the per-second repeat of #1332.
+
+Pinned by `tests/test_capture_deafness.py`.

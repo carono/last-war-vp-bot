@@ -428,7 +428,12 @@ def main() -> int:
                     reported.clear()
             if time.time() - last_tick >= args.interval:
                 last_tick = time.time()
-                changed = ticker.due((index.current_server, index.blocks_seen,
+                # `bool(delivered)` and NOT the count: a capture that is hearing
+                # the wire says so once, a capture that is hearing NOTHING says so
+                # once, and the keepalives of an idle base do not turn the line back
+                # into the per-second repeat #1332 removed (#2740).
+                changed = ticker.due((bool(index.delivered),
+                                      index.current_server, index.blocks_seen,
                                       index.tiles_seen,
                                       len(index.current_missions),
                                       index.lootable_count,
@@ -445,6 +450,7 @@ def main() -> int:
                     shares = (f", {index.shares_marked} share(s) marked"
                               if index.shares_marked else "")
                     print(f"{C_DIM}  {left} — {where}, "
+                          f"{index.delivered} packet(s) from the wire, "
                           f"{index.blocks_seen} map response(s), "
                           f"{index.tiles_seen} tile(s), "
                           f"{len(index.current_missions)} mission(s), "
