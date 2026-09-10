@@ -50,7 +50,8 @@ from panel.runtime import game_control as gamectl   # noqa: E402
 from panel.runtime import gate as gatemod           # noqa: E402
 from panel.runtime import header as headermod       # noqa: E402
 from panel.runtime import health as healthmod       # noqa: E402
-from panel.runtime import interrupt as interruptmod  # noqa: E402
+from panel.runtime import interrupt as interruptmod
+from panel.runtime import progress as progressmod  # noqa: E402
 from panel.runtime import day_reset as dayresetmod  # noqa: E402
 from panel.runtime import panel_control as panelctl  # noqa: E402
 from panel.runtime import power as powermod  # noqa: E402
@@ -233,6 +234,11 @@ class _Runtime:
         # its one press (#1300). Pure state, thread-safe, no window and no client — a
         # fake would only pin a shape this file invented.
         self.interrupts = interruptmod.Interrupts()
+        # …and where the LIFECYCLE PRESS has got to (#2742). The real object again, for
+        # the reason every neighbour of it is real: `/api/state` draws its steps and
+        # `/api/game` fills them, and it is pure state — a locale key, a clock and a
+        # list, with nothing behind it to fake.
+        self.progress = progressmod.Progress()
         # …and this profile's server-day boundary, for the same reason once more (#1333):
         # `/api/timers` and `/api/state` ask when each errand is next due, and a daily
         # one's answer IS the game's 00:00. The real object, pointed at this test's own

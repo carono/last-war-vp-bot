@@ -25,6 +25,11 @@
 # and holds the game for the whole of it, so an action already in flight finishes
 # first and the restart waits its turn rather than cutting it off.
 
+# EVERY PHASE SAYS ITS NAME (#2742). A restart is the longest thing a person asks the
+# panel for, and until this it was one log line and then half a minute of nothing. The
+# panel holds the newest `STEP` with its age (`panel/runtime/progress.py`); the phone
+# and the window draw the list, and the run ends with a sentence either way.
+STEP progress.game.quit
 QUIT_GAME
 
 # A breath for the process to release its window and its files before the launcher
@@ -36,6 +41,7 @@ WAIT 3
 # reporting that it is interactive.
 CALL launch_game
 
+STEP progress.game.attach
 ATTACH_GAME WITHIN 120s
 
 # Done means BOTH halves, and this is the second one. The base was last seen through
@@ -52,7 +58,24 @@ ATTACH_GAME WITHIN 120s
 # a daemon that has not finished coming back cannot be asked about the scene at all, and
 # «nobody could ask» is not «nothing is in play». Where there IS a daemon — which, after
 # the ATTACH_GAME above, is the ordinary case — this is the scene reading it always was.
+# DONE MEANS DONE, AND A HALF-DONE RESTART GETS A SECOND GO (#2742). The person's
+# complaint was the guarantee rather than the button: «оно гарантированно должно
+# работать». A client that came up and did not reach the game is the one failure this
+# recipe can actually do something about — the launcher is there, the session is there,
+# and one more launch costs the thirty seconds the press was already spending. It is
+# tried ONCE: a second failure is a fact about the machine (no session, a closed server,
+# a client that dies on start), and the honest thing then is to say which step stopped.
+STEP progress.game.check
+IF client != ready
+    STEP progress.game.retry
+    LOG "The client is up but nothing is in play — one more launch before giving up."
+    CALL launch_game
+    STEP progress.game.attach
+    ATTACH_GAME WITHIN 120s
+
+STEP progress.game.check
 IF client != ready
     FAIL "the client is up and the game link answers, but nothing is in play"
 
+STEP progress.game.in_play
 LOG "Client restarted — the session is back in play."

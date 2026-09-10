@@ -248,7 +248,8 @@ _WORDS = {
 _CONFIRMED_WORDS = ("game.st.confirmed", "game.st.session_confirmed")
 
 
-def worded(found, confirmed: bool = False, user: "str | None" = None) -> Message:
+def worded(found, confirmed: bool = False, user: "str | None" = None,
+           starting: bool = False) -> Message:
     """The sentence to SHOW — the socket reading, with a fresh server answer folded in.
 
     `confirmed` is `Recovery.link_confirmed`: the game server answered an active probe
@@ -261,6 +262,18 @@ def worded(found, confirmed: bool = False, user: "str | None" = None) -> Message
     strip and the phone's card have to mean the same thing by the same reading, and the
     first time they do not, one of them is telling somebody the account is fine.
     """
+    # «ИГРА НЕ НАЙДЕНА» IS TRUE OF THE PROCESS TABLE AND A LIE ABOUT THE PANEL (#2742).
+    # The person named it: a client the panel is in the middle of starting reads as a
+    # missing one, so the page says the game is not there over a launcher this profile
+    # spawned four seconds ago — and «не видит игру» is exactly how that looks from the
+    # outside. `starting` is `rt.progress.starting()`: a lifecycle press of THIS profile
+    # is in flight. It only ever replaces the sentence for a client that is NOT running;
+    # a client that is up says what it always said.
+    if starting and not getattr(found, "running", False):
+        key = "game.st.session_starting" if user else "game.st.starting"
+        english = (f"the client is starting in {user}'s session, not attached yet"
+                   if user else "the client is starting, not attached yet")
+        return Message(key, english, **({"user": user} if user else {}))
     if not (confirmed and getattr(found, "running", False)
             and getattr(found, "link", "") == UNKNOWN):
         return found.message

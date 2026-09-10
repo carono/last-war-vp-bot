@@ -79,6 +79,25 @@ export interface Header {
   reading?: boolean
 }
 
+export interface ProgressStep {
+  key: string
+  text?: string
+  state: 'running' | 'done' | 'failed'
+  secs: number
+}
+
+export interface Progress {
+  action: string
+  label: string
+  text?: string
+  running: boolean
+  ok?: boolean | null
+  secs: number
+  age: number
+  steps: ProgressStep[]
+  final?: { key: string; text?: string } | null
+}
+
 export interface State {
   profile: string
   time: number
@@ -97,6 +116,13 @@ export interface State {
   }
   link: { port?: number; busy?: boolean; user?: string; shared?: string[] }
   activity?: { name?: string; text?: string } | null
+  /* WHERE THE LIFECYCLE PRESS HAS GOT TO (#2742). The steps the SCENARIO named itself
+     (`STEP` in the recipe), each already said in this panel's language, with the seconds
+     it took and whether it is running, done or the one it stopped on. `final` is the
+     point the run ended at — «готово, клиент в игре» or why not — and it is what makes a
+     press answerable half a minute after it was made. Null when nothing was pressed
+     lately; a finished run stays for ten minutes. */
+  progress?: Progress | null
   interrupt?: { running?: RunningRun[]; elsewhere?: number; stopping?: boolean }
   timers: { on: number; next?: number | null; next_name?: string }
   /* `age` is seconds since the stock was read, -1 when it never has been. */

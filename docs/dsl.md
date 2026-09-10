@@ -328,6 +328,41 @@ budget held back, a target chosen, a wait entered. The panel reads these lines t
 standing order that reports «waiting» without saying for what or how long is
 indistinguishable from a broken one.
 
+### `STEP <locale.key> [name=value …]`
+
+Say WHERE THE RUN HAS GOT TO — one named phase of the ability, for whoever is watching
+it happen.
+
+```
+STEP progress.game.quit
+QUIT_GAME
+
+STEP progress.game.wait_ready
+WAIT client == ready WITHIN 180s
+```
+
+It is **not** a log line, and it is not a second `LOG`. `LOG` writes into the record of
+what happened; `STEP` feeds `panel/runtime/progress.py`, which holds only the run that is
+in flight: the steps it has passed, how many seconds each took, which one it is on, and
+how it ended. Both front-ends draw that object, so a press on «Перезапустить игру» is
+answerable while it is still running instead of half a minute after it (#2742).
+
+The argument is a **locale key**, never a sentence — the panel says every word in
+whatever language it is showing (`CLAUDE.md`), so the key has to exist in all eleven
+files in `panel/locales/`. Optional `name=value` pairs are the placeholders that key
+names, and `{var}` inside a value is filled from the script's variables exactly as in
+`LOG`:
+
+```
+STEP progress.sweep.lap n={lap} of={laps}
+```
+
+A run played outside the panel (a test, a tool, `run_text`) parses and executes `STEP`
+with nobody listening — it costs a log line and nothing else.
+
+Use it in the abilities a person WAITS for: the client's lifecycle, a long sweep, a
+multi-minute errand. An ability that finishes in a second needs none.
+
 ### `STOP ["reason"]`
 
 Signal that the bot should halt entirely. Unwinds all enclosing blocks

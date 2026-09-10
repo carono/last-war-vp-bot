@@ -5,7 +5,7 @@ import { LINK_SHORT, LINK_WORDS } from '../ui/LinkLight'
 import { Pill } from '../ui/Pill'
 import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
-import type { Control, PressAnswer, Recovery, State } from '../types'
+import type { Control, PressAnswer, Progress, Recovery, State } from '../types'
 
 /* THE LIGHT ITSELF IS IN THE HEADER SINCE #2705 — the person's words, «В хеадер
  * перенеси светофор состояния игры и панели». What stood here was the pill and the two
@@ -165,6 +165,52 @@ function PanelCard({ state, onGone }: { state: State; onGone: () => void }) {
  * of for every phone that merely has the front page open (`panel/tabs/profile.py`).
  */
 
+
+/* WHAT THE PRESS IS DOING RIGHT NOW, AND HOW IT ENDED (#2742). The person's complaint
+ * was not the button: «я должен видеть прогресс что происходит с финальной точкой и
+ * когда все завершается». A restart is half a minute of a page that used to say nothing
+ * at all — one log line the phone does not show, and then either a client or silence.
+ *
+ * Every line here is the SCENARIO's own (a `STEP` line in the recipe), so the phases are
+ * the ability's and cannot drift from it; the panel says the words and counts the
+ * seconds. Nothing new is polled: it rides the /api/state the page already asks for
+ * every 2.5 s (`CLAUDE.md`, «читаем один раз, дальше слушаем»).
+ *
+ * The finished run stays on screen for ten minutes with its age, because a press made
+ * from a pocket is read afterwards. */
+function ProgressBlock({ progress }: { progress?: Progress | null }) {
+  if (!progress) return null
+  const mark = (state: string) => (state === 'done' ? '✓' : state === 'failed' ? '✕' : '●')
+  const tone = progress.running ? 'warn' : progress.ok ? 'ok' : 'bad'
+  return (
+    <div className="progress">
+      <div className="row">
+        <span>{progress.text || t(progress.label)}</span>
+        <Pill tone={tone}>
+          {progress.running
+            ? t('progress.running', { secs: Math.round(progress.secs) })
+            : t('progress.took', { secs: Math.round(progress.secs) })}
+        </Pill>
+      </div>
+      <ul className="progress-steps small">
+        {progress.steps.map((step, i) => (
+          <li key={`${step.key}-${i}`} className={step.state}>
+            <span className="mark">{mark(step.state)}</span>
+            <span className="what">{step.text || t(step.key)}</span>
+            <span className="muted secs">{t('progress.secs', { secs: step.secs })}</span>
+          </li>
+        ))}
+      </ul>
+      {progress.final ? (
+        <p className={'small ' + (progress.ok ? 'ok' : 'bad')}>
+          {progress.final.text || t(progress.final.key)}
+          {progress.age > 0 ? ' · ' + t('progress.ago', { secs: Math.round(progress.age) }) : ''}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 export function StateView({
   state,
   refresh,
@@ -279,6 +325,7 @@ export function StateView({
           />
         </div>
         <ControlRow controls={state.game.controls || []} route="/api/game" onDone={refresh} />
+        <ProgressBlock progress={state.progress} />
       </div>
 
       <div className="card">

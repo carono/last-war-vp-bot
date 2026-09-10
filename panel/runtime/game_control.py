@@ -164,9 +164,32 @@ def play(rt, action: str, up: "bool | None" = None) -> dict:
     if up is not None and not available(control, up):
         return {"ok": False, "unavailable": True, "id": control.id}
     rt.say(TAG, control.saying)
+    # …AND THE PRESS BEGINS TO DESCRIBE ITSELF (#2742). The line above is the LAST thing
+    # a person used to hear about a restart until either a client came back or it did
+    # not: half a minute of a page that says «работает» about a client that is being
+    # closed. From here the run's own `STEP` lines land in `rt.progress`, both front-ends
+    # draw them with their ages, and the run ENDS with a sentence either way — «готово,
+    # клиент в игре», or the step it stopped on and why.
+    rt.progress.begin(control.id, control.label)
+
+    def _ended(outcome) -> None:
+        ok = bool(outcome is not None and getattr(outcome, "ok", False))
+        if ok:
+            rt.progress.finish(True, "progress.done")
+            return
+        reason = str(getattr(outcome, "reason", "") or "")
+        rt.progress.finish(False, "progress.failed", reason=reason)
+
     # A PERSON PRESSED IT — in the window or on the phone, this table is both front-
     # ends' one door (#1910). Starting a client while the link is amber is precisely
     # what these buttons are for, so the gate does not get to hold them.
-    started = rt.play_async(control.scenario, tag=TAG, human=True)
+    started = rt.play_async(control.scenario, tag=TAG, human=True,
+                            on_result=_ended)
+    if not started:
+        # A PRESS THAT NEVER STARTED IS A PRESS THAT HAS TO SAY SO (#2742). `play_async`
+        # answers `False` when the claim is refused or the gate holds the run, and
+        # neither calls `on_result` — live on 2026-09-10 that was a «перезапускаю
+        # клиент…» in the log followed by nothing at all for forty seconds.
+        rt.progress.finish(False, "progress.busy")
     return {"ok": bool(started), "busy": not started, "id": control.id,
             "name": control.scenario}
