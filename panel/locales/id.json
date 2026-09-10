@@ -1351,6 +1351,7 @@
   "secrettasks.show_spent": "Tampilkan yang habis",
   "secrettasks.hide_spent": "Sembunyikan yang habis",
   "secrettasks.spent": "habis",
+  "secrettasks.filter.waiting": "masih berjalan",
   "secrettasks.share_alliance": "Aliansi",
   "secrettasks.share_world": "Dunia",
   "secrettasks.collect_ok": "pengambilan dikirim",

@@ -1351,6 +1351,7 @@
   "secrettasks.show_spent": "Hiện ô đã hết lượt",
   "secrettasks.hide_spent": "Ẩn ô đã hết lượt",
   "secrettasks.spent": "đã hết lượt",
+  "secrettasks.filter.waiting": "vẫn đang chạy",
   "secrettasks.share_alliance": "Liên minh",
   "secrettasks.share_world": "Thế giới",
   "secrettasks.collect_ok": "đã gửi lệnh thu",

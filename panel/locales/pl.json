@@ -1351,6 +1351,7 @@
   "secrettasks.show_spent": "Pokaż wyczerpane",
   "secrettasks.hide_spent": "Ukryj wyczerpane",
   "secrettasks.spent": "wyczerpana",
+  "secrettasks.filter.waiting": "jeszcze trwają",
   "secrettasks.share_alliance": "Sojusz",
   "secrettasks.share_world": "Świat",
   "secrettasks.collect_ok": "odbiór wysłany",

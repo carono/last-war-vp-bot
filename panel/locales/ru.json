@@ -1351,6 +1351,7 @@
   "secrettasks.show_spent": "Показывать исчерпанные",
   "secrettasks.hide_spent": "Скрыть исчерпанные",
   "secrettasks.spent": "исчерпана",
+  "secrettasks.filter.waiting": "ещё идут",
   "secrettasks.share_alliance": "Альянс",
   "secrettasks.share_world": "Мир",
   "secrettasks.collect_ok": "запрос на сбор отправлен",

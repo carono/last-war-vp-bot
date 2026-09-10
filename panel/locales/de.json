@@ -1351,6 +1351,7 @@
   "secrettasks.show_spent": "Ausgeschöpfte zeigen",
   "secrettasks.hide_spent": "Ausgeschöpfte ausblenden",
   "secrettasks.spent": "ausgeschöpft",
+  "secrettasks.filter.waiting": "läuft noch",
   "secrettasks.share_alliance": "Allianz",
   "secrettasks.share_world": "Welt",
   "secrettasks.collect_ok": "das Einsammeln ist raus",

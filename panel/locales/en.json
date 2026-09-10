@@ -1351,6 +1351,7 @@
   "secrettasks.show_spent": "Show looted-out",
   "secrettasks.hide_spent": "Hide looted-out",
   "secrettasks.spent": "looted out",
+  "secrettasks.filter.waiting": "counting down",
   "secrettasks.share_alliance": "Alliance",
   "secrettasks.share_world": "World",
   "secrettasks.collect_ok": "collect sent",
