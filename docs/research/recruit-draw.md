@@ -161,5 +161,9 @@ own account to prove a value the client's enum and cost table both already name.
   `tools/lib/game_buttons.py`;
 * the abilities — `src/lastwar_bot/actions/read_recruit_state.md` (the reading) and
   `src/lastwar_bot/actions/recruit_draw.md` (the pull, with `kind` / `count` / `free`);
-* the panel — `panel/tabs/recruit/`, which reads with the first and presses the second,
-  and holds no gate of its own.
+* the panel — **nothing draws them since #2704**: the «Найм» tab was deleted at the
+  person's request, page and all, and only the abilities were kept. What still plays the
+  pull is `actions/tavern_free_pull.md`, which `CALL`s `recruit_draw` for each banner's
+  free turn and runs from the timer catalogue (and «Выполнить сейчас» on «Таймеры»);
+  `read_recruit_state` is read by nobody, and its narrow half `read_survivor_tickets` is
+  what «ВС» draws.

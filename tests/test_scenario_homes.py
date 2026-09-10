@@ -112,6 +112,15 @@ EXEMPT = {
     # to the sweep above, since that reads `panel/**/*.py` for a quoted name. A
     # button of its own on some tab would be a fourth way to walk the camera to a
     # place the person would have to type out by hand.
+    # A READING WHOSE ONLY BOARD WAS DELETED (#2704). It answers for BOTH recruit
+    # banners at once, and the «Найм» tab was the one thing that asked — the person had
+    # it removed, page and all, keeping the abilities. What survives is the narrow half:
+    # `read_survivor_tickets` (the survivor banner alone) is read by «ВС» and drawn
+    # there. The broad reading is kept because the free-pull run and the arms-race hire
+    # are written against the same fields, so a future board has one to call; nobody
+    # presses it today, and that is the deletion's consequence rather than an oversight.
+    "read_recruit_state": "the «Найм» tab it was read for was deleted (#2704) — the "
+                          "narrow half, read_survivor_tickets, is what «ВС» draws",
     "goto_coord": "played by every coordinate link and every place-tile in the web front-end (Coord.tsx), which the python sweep cannot see",
 }
 
