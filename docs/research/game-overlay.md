@@ -79,6 +79,15 @@ bar shows the last log line the run wrote (`/api/log`, tag `action`, the newest 
 a harvest was refused is the scenario's own and the overlay does not invent a second
 wording for it. A press the panel would not take comes back as `busy` and says so.
 
+**And on the live machine that line is not there to be had, which is worth writing down.**
+The panel is hosted by the machine's service, and `/api/log` answers `{"lines": [],
+"next": 0}` for it — `WebApi._sync_feeds` returns early when the api instance is not
+`_attached`, so the phone's log page is empty on that panel too. It is not this bar's bug
+and it was not introduced here; the consequence is that the bar falls back to «Готово»
+for every run that ends, including one that HALTED with a reason. The refusals it can
+still name are the ones the press itself comes back with — `busy`, and a door that does
+not answer.
+
 ## 6. The token is not on a command line
 
 A command line is readable in every process list and the panel writes every child's
@@ -95,7 +104,24 @@ profile and reaped per profile. «Is it up» is therefore «has THIS profile's f
 live child with the overlay's tag», never a module-level flag two open accounts would
 share — and a panel that is closed or killed takes its bars with it.
 
-## 8. What is deliberately not here yet
+## 8. Proven live (2026-09-11)
+
+* the bar draws over the client at `(1408, 119)-(1728, 222)` inside a game window at
+  `(184, 99)-(1736, 1100)` — the right edge with the 12 px margin, and it re-attached by
+  itself to a NEW client after the watchdog relaunched one;
+* a real click on it ran the ability: `[web] > action: collect_base_resources` …
+  `READ_LUA harvest_pending = …` … `< action: collect_base_resources OK`, twice, two
+  minutes apart;
+* the bar's own status went green «Готово» after the run;
+* the click did not move the foreground: it was the game before the press and the game
+  after it.
+
+An hour of that session went on two faults, both now pinned by tests: the follower was
+handed the scenario TITLES where the window titles belong (so it looked for a window
+called «collect_base_resources» and hid itself for ever, silently), and the outcome was
+read out of log lines tagged «action» while a press from here is tagged «web».
+
+## 9. What is deliberately not here yet
 
 * **More buttons.** One is the trial. The set is the next conversation.
 * **Another Windows session.** Refused with a reason (§4).
