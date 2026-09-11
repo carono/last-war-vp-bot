@@ -213,3 +213,47 @@ POST /api/actions/run   {"profile": "<name>", "name": "<a recipe under actions/d
 
 Reflection from Lua needs `BindingFlags` cast rather than added — `a + b` on an enum
 raises, `CS.System.Reflection.BindingFlags.__CastFrom(60)` is Public+NonPublic+Instance+Static.
+
+## 4. Asking about ONE tile by its id — YES, and it says «there / not there» (#2780)
+
+Everything above is about `n/3`, and the verdict on it stands: the per-tile answer
+carries no stealer list, so the loot count cannot be refreshed this way. **The other
+half of a stale row — «is the tile still there at all» — CAN be asked per id, from
+where the client stands, with no camera move and no warzone jump.**
+
+`world.get.detail.new {pointId, serverId, 0, 17, ""}` for one point, a settle, then
+`WorldPointDetailManager:GetDetailByPointId(pointId)`. A tile that exists answers with
+the 45-field record; a point with nothing on it answers with no detail at all. The
+recipe is [`actions/read_secret_task_state.md`](../../src/lastwar_bot/actions/read_secret_task_state.md).
+
+**`pointId` is `y * 1000 + x`, server-local** (protocol.md §7) and is packed by the
+recipe rather than asked for: `SceneUtils.TilePosToIndex` answers **0** while the client
+stands in the base, which is where a panel reading a list usually is. Measured live —
+`tpi=0` on every run, while the hand-packed id answered.
+
+**A nil still needs the control** (THE_LIST_RULE clause 2, #1272): a reply that never
+arrived is indistinguishable from «nothing is there». The recipe asks an alliance task
+whose detail is NOT already cached alongside — preferring one on the same warzone — and
+reports `exists=unknown` when that control stayed silent too. Nothing may be struck off
+a list on such a run.
+
+**Measured live, 2026-09-11, warzone 8128, client in its own base the whole time:**
+
+| asked | answered |
+|---|---|
+| a live tile (an alliance task, detail not yet cached) | `exists=1` with `uuid`, `uid`, owner name, alliance tag, `srcServer` |
+| five rows the ★ list called «готово к сбору, 0/3, сверено только что» | `exists=0` on all five, three runs an hour apart |
+| the control, every run | answered every time, a different point each run |
+
+So the ★ list can hold rows for tiles that are long gone and still say «сверено только
+что»: the stamp records when the panel last MERGED something about the row, not when the
+server last confirmed the tile.
+
+**What it costs:** one request for the tile plus one for the control per RUN — so N rows
+of one warzone cost N+1 requests, not 2N, and the settle is shared. The whole of the
+five-tile run above took about ten seconds, eight of them the settle.
+
+**What it cannot do, and why the camera walk stays:** no `stealInfoList`, so `n/3` is
+untouched, and `expireTime` came back `0` on both the live tile and the gone ones — the
+countdown a row draws still comes from where it came from. This is a per-row TRUTH TEST,
+not a replacement for the lap.
