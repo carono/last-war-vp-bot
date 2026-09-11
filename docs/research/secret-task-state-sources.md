@@ -224,6 +224,53 @@ costs nothing. So it is worth wiring as a first step that can only add confirmat
 as a replacement for the walk, and never as a reason to drop a row it did not carry
 (THE_LIST_RULE clause 2 — the table holds what the alliance shared, never every tile).
 
+### The read takes NO arguments, and aiming it is ignored (#2784)
+
+The obvious next question — if the table has a server read of its own, why not call it with
+our own arguments: another warzone, a point id, a list of uuids we care about — measured on
+2026-09-11, 17:07–17:10, with `SFSNetwork.SendMessage` wrapped so that the payload itself is
+printed rather than guessed:
+
+```
+hero.dispatch.alliance.list (nil)        <- GetAllAllianceTasksFromServer()
+hero.dispatch.list          (nil)        <- GetAllSingleTasksFromServer()   (our own tasks)
+get.alliance.share.mission.list (nil)    <- SendGetMarkList()               (the marks)
+```
+
+**All three send an empty payload.** There is no warzone field, no point field, no filter and
+no list of ids to ask about: the scope is the caller's alliance and the server decides it.
+
+Aiming it anyway, by sending the same name with fields of our own
+(`{targetServer=<a foreign warzone>, serverId=<same>, srcServer=<same>}`) and counting how
+often the reply applier `UpdateAllAllianceTasks` runs, so that «no change» can be told from
+«no reply»:
+
+| | plain call | aimed at a foreign warzone |
+|---|---|---|
+| replies applied | **1** | **1** |
+| rows after | 130 | **130** |
+| rows off the home warzone | 1 | **1** |
+
+So the server **answers** — it does not refuse, it does not error — and the answer is the
+same alliance-scoped table. The extra fields are dropped on the floor. That is the fact to
+quote: not «the server said no», but «the server ignored the aim and re-sent its own scope».
+
+**The steal gate cannot fetch either — it is arithmetic, not a question.**
+`ActGhostreconManager:GetPointStealType(cfgId, completionTime, stealList)` classifies state
+the caller ALREADY HAS. Measured with the wire wrapped for the length of the call:
+
+```
+GetPointStealType(<a ghost cfgId>, <finished a minute ago>, {}) -> 2   (CanSteal)
+GetPointStealType(<a ghost cfgId>, <finishes in 10 min>,     {}) -> 4   (UnShow)
+wire during both calls: []          <- nothing was sent
+```
+
+Nothing goes out, so nothing comes back: given a `completionTime` we do not have, it has
+nothing to classify. `ActDispatchTaskDataManager` has no such method at all.
+
+The marks are not a back door either: `GetMarkList()` held **0** rows on this account at the
+time of the measurement, and its read is the third empty-payload message above.
+
 ## How a tile is learned to be GONE — the reply's own rectangle
 
 The question nothing above answers: the operator jumps to a coordinate the list calls
