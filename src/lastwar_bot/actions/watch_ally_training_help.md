@@ -20,11 +20,27 @@
 # It presses NOTHING. What it leaves behind is a queue in the game VM:
 #
 #     DataCenter.__lw_help_queue = { {uid = "<owner>", uuid = <event uuid>,
-#                                    eventId = <id>, t = <serverTime ms>}, … }
+#                                    eventId = <id>, t = <serverTime ms>,
+#                                    raw = "<the card's own extra, verbatim>"}, … }
 #
 # read back by `help_ally_training.md`, which is what actually joins.
+#
+# WHY `raw`, AND WHY THE FIELDS ARE DUG FOR RATHER THAN NAMED (#2755, the live pass).
+# The card's payload is not in the message body: `msg` is the one sentence
+# «Дорогие могущественные союзники…» and everything else rides `msg.extra`, whose values
+# are STRINGS of JSON — `msg:getExtra()` hands back a decoded `json.object` whose
+# `tostring` is a pointer, which is what an earlier version of this ear matched its
+# regexes against and therefore always parked a plea with no uuid in it. So the extra is
+# read the way `watch_red_packets.md` reads its own: value by value, decoded with
+# `rapidjson`, then walked for a key called `eventUuid`/`eventId`. `raw` is kept beside
+# the dug-out fields so the first live card can be read off the log rather than guessed
+# at a second time.
+#
+# VERSIONED. `__lw_help.ver` names the shape of this wrapper; a run whose version
+# differs unhooks the old one and installs the new, so an edit to this file reaches a
+# client that has been up for days. Same version, same wrapper — nothing is done.
 SHARE
 ARGS cap = 20
-LUA local D = DataCenter local C = package.loaded['Chat.Model.ChatMessage'] if not D.__lw_help_queue then D.__lw_help_queue = {} end D.__lw_help_cap = {cap} if not C.__lw_help_orig then C.__lw_help_orig = C.onParseServerData end C.onParseServerData = function(self, ...) local r = { C.__lw_help_orig(self, ...) } pcall(function() if tonumber(self.post) ~= 730 then return end local blob = '' local ex = self.getExtra and self:getExtra() if type(ex) == 'table' then for _, v in pairs(ex) do blob = blob .. ' ' .. tostring(v) end end local uuid = blob:match('"eventUuid"%s*:%s*"?(%d+)') or blob:match('"uuid"%s*:%s*"?(%d+)') local eid = blob:match('"eventId"%s*:%s*"?(%d+)') or blob:match('"id"%s*:%s*"?(%d+)') local uid = blob:match('"uid"%s*:%s*"?(%d+)') or tostring(self.senderUid) local Q = DataCenter.__lw_help_queue for _, e in ipairs(Q) do if tostring(e.uuid) == tostring(uuid) then return end end table.insert(Q, {uid = tostring(uid), uuid = uuid, eventId = eid, t = tonumber(self.serverTime) or 0, blob = blob:sub(1, 400)}) while #Q > (DataCenter.__lw_help_cap or 20) do table.remove(Q, 1) end end) return table.unpack(r) end
+LUA (function() local D = DataCenter local CM = package.loaded['Chat.Model.ChatMessage'] if type(CM) ~= 'table' or type(CM.onParseServerData) ~= 'function' then D.__lw_help_err = 'no chat class' return end local VER = 'ear3' local B = D.__lw_help if type(B) ~= 'table' then B = {} D.__lw_help = B end D.__lw_help_queue = D.__lw_help_queue or {} D.__lw_help_cap = {cap} B.take = function(msg) local Q = DataCenter.__lw_help_queue local p = nil pcall(function() p = tonumber(msg.post) end) if p ~= 730 then return end local raw, uuid, eid = '', nil, nil local function dig(t, depth) if type(t) ~= 'table' or depth > 4 then return end for k, v in pairs(t) do local ks = tostring(k) if type(v) == 'table' then dig(v, depth + 1) else local vs = tostring(v) if ks == 'eventUuid' or (ks == 'uuid' and uuid == nil) then uuid = vs elseif ks == 'eventId' or (ks == 'id' and eid == nil) then eid = vs end end end end local rj = package.loaded['rapidjson'] pcall(function() local ex = msg.extra if type(ex) == 'table' then for k, v in pairs(ex) do local vs = tostring(v) raw = raw .. ' ' .. tostring(k) .. '=' .. vs:sub(1, 200) if type(rj) == 'table' and vs:find('^%s*[%[{]') then local ok, d = pcall(function() return rj.decode(vs) end) if ok then dig(d, 1) end end if type(v) == 'table' then dig(v, 1) end end end end) local uid = nil pcall(function() uid = tostring(msg.senderUid) end) local st = 0 pcall(function() st = tonumber(msg.serverTime) or 0 end) local key = tostring(uuid or ('uid:' .. tostring(uid) .. ':' .. tostring(st))) for _, e in ipairs(Q) do if tostring(e.key) == key then return end end table.insert(Q, {key = key, uid = uid, uuid = uuid, eventId = eid, t = st, raw = raw:sub(1, 400)}) while #Q > (tonumber(DataCenter.__lw_help_cap) or 20) do table.remove(Q, 1) end end if B.ver == VER and B.wrapper ~= nil and CM.onParseServerData == B.wrapper then return end if B.wrapper ~= nil and CM.onParseServerData == B.wrapper and B.orig ~= nil then CM.onParseServerData = B.orig end B.orig = CM.onParseServerData B.wrapper = function(self, ...) local r = {B.orig(self, ...)} pcall(B.take, self) return table.unpack(r) end CM.onParseServerData = B.wrapper B.ver = VER end)()
 READ_LUA (function() return #(DataCenter.__lw_help_queue or {}) end)() INTO parked
 LOG "listening for «помощь союзников» cards — {parked} waiting"
