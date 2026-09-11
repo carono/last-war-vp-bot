@@ -556,8 +556,35 @@ desktop, so the press always belongs to the profile whose page is showing.
 | the presses | `tools/lib/game_buttons.py`, `macro_send` / `macro_repeat` |
 | the Lua | `tools/lib/lua_actions.py`, `macro_*` |
 | the click watcher | `tools/lib/lua_actions.py`, `_PICK_READ` / `_PICK_ARM` / `macro_pick_arm` |
-| the listener | `panel/runtime/hotkeys.py`, started by the shell |
+| the listener | `panel/runtime/hotkeys.py`, started by BOTH shells — `panel/__main__.py` and `panel/headless.py` |
+| which profile a press is | `panel/runtime/hotkeys.py::ForegroundProfile` (#2767) |
 | the tests | `tests/test_march_macros.py` |
+
+## The macros disappeared when the panel became a service (#2767)
+
+Reported as «макросы сломались, после того, как мы панель в службу превратили». Nothing
+in the hook, the recipes or the Lua had changed: **only `panel/__main__.py` ever started
+the listener**, and the machine's service runs `panel.headless` (#1976, P3), which started
+nothing. So there was no hook on the machine at all — and no line anywhere saying so,
+because the two lines that would have said it (`log.macro.listening` /
+`log.macro.unavailable`) are printed by the starter. Measured on the live panel: **zero
+occurrences of either key in any open profile's `panel.log`**, going back to the day the
+service took over.
+
+The service itself was never the obstacle. It runs as LocalSystem in session 0 and cannot
+hook a keyboard from there — but it does not try to: it starts the panel INSIDE the
+signed-in session with `CreateProcessAsUserW` and `lpDesktop = winsta0\default`
+(`panel/service/session.py`), so the panel process has the desktop, the foreground and the
+input queue exactly as a hand-started window does. `WH_KEYBOARD_LL` works there unchanged.
+
+What genuinely had no answer without a window is **which profile a press belongs to**. The
+window handed the listener `lambda: self._rt` — the page showing. `ForegroundProfile` asks
+the desktop instead: `GetWindowThreadProcessId` on the foreground window, matched against
+each open profile's own client pids (`panel/runtime/game_process.py::profile_pids`). A pid
+that is no open profile's client is answered `None` rather than guessed — a key that
+marched another account's squad is the isolation rule broken in the loudest way there is.
+The one fallback is a panel holding exactly ONE profile whose client is on this desktop,
+for the case where the pid cannot be read at all.
 
 ## What is proven, and what is not
 

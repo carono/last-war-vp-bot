@@ -627,6 +627,100 @@ def test_a_listener_that_cannot_name_the_window_never_fires():
     assert listener.game_in_front() is False
 
 
+# ---------------------------------------------------------------------------
+# which profile a press belongs to, with no window (#2767)
+# ---------------------------------------------------------------------------
+class _FakeSettings:
+    def __init__(self, user=None) -> None:
+        self.user = user
+
+
+class _FakeSession:
+    def __init__(self, name, rt, pids=(), user=None) -> None:
+        self.name = name
+        self.rt = rt
+        self.pids = list(pids)
+        rt.settings = _FakeSettings(user)
+
+
+class _FakeWorkspace:
+    def __init__(self, sessions) -> None:
+        self.sessions = list(sessions)
+
+
+def _resolver(workspace, pid, sessions):
+    """A :class:`ForegroundProfile` whose two readings are the test's own."""
+    who = hk.ForegroundProfile(workspace)
+    who._own_session = lambda s: s.rt.settings.user is None
+    who._client_pids = lambda s: s.pids
+    saved = hk._foreground_pid
+    hk._foreground_pid = lambda: pid
+    who._restore = lambda: setattr(hk, "_foreground_pid", saved)
+    return who
+
+
+def test_the_press_goes_to_the_profile_whose_client_is_in_front():
+    one, two = _FakeRuntime(), _FakeRuntime()
+    sessions = [_FakeSession("a", one, pids=[111]), _FakeSession("b", two, pids=[222])]
+    who = _resolver(_FakeWorkspace(sessions), 222, sessions)
+    try:
+        assert who() is two
+    finally:
+        who._restore()
+
+
+def test_a_press_belonging_to_no_open_profile_is_never_guessed():
+    """Several accounts and a foreground window that is none of their clients.
+
+    Answering «the current one» here would march somebody else's squad — the isolation
+    rule broken in the loudest way there is (`CLAUDE.md`).
+    """
+    one, two = _FakeRuntime(), _FakeRuntime()
+    sessions = [_FakeSession("a", one, pids=[111]), _FakeSession("b", two, pids=[222])]
+    who = _resolver(_FakeWorkspace(sessions), 999, sessions)
+    try:
+        assert who() is None
+    finally:
+        who._restore()
+
+
+def test_one_account_on_this_desktop_keeps_its_macros_with_no_pid_at_all():
+    """A `WTSEnumerateProcesses` that answers nothing must not cost the macros."""
+    only = _FakeRuntime()
+    sessions = [_FakeSession("a", only, pids=[])]
+    who = _resolver(_FakeWorkspace(sessions), 0, sessions)
+    try:
+        assert who() is only
+    finally:
+        who._restore()
+
+
+def test_a_profile_driving_a_client_in_another_windows_session_is_never_the_answer():
+    """It cannot own the foreground window of THIS desktop, so it is not a fallback."""
+    far = _FakeRuntime()
+    sessions = [_FakeSession("rdp", far, pids=[777], user="somebody")]
+    who = _resolver(_FakeWorkspace(sessions), 0, sessions)
+    try:
+        assert who() is None
+    finally:
+        who._restore()
+
+
+def test_a_panel_with_nothing_open_answers_nothing():
+    who = hk.ForegroundProfile(_FakeWorkspace([]))
+    assert who() is None
+
+
+def test_the_headless_panel_starts_the_listener_and_stops_it():
+    """The whole of #2767: only the WINDOW ever started the macros, and the machine's
+    service runs `panel.headless` — so five keys stopped existing with nothing said."""
+    source = (_REPO / "panel" / "headless.py").read_text(encoding="utf-8")
+    assert "hotkeysmod.HotkeyListener(" in source
+    assert "hotkeysmod.ForegroundProfile(self.workspace)" in source
+    assert "log.macro.listening" in source and "log.macro.unavailable" in source
+    assert "self._hotkeys.stop()" in source
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

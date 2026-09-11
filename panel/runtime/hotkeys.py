@@ -33,6 +33,18 @@ and a worker thread plays the scenario. Nothing here touches Tk.
 
 NOT WINDOWS, or the hook refused: `start()` answers False, says so once in the log, and
 the panel goes on without macros.
+
+WHICH PROFILE A PRESS BELONGS TO, with no window to ask (#2767). The window handed the
+listener `lambda: self._rt` — the page that is showing — and a panel run by the machine's
+service has no page and no window at all, which is how five keys stopped working the day
+the panel became a service: nothing started the listener, because only
+`panel/__main__.py` ever did. `panel.headless` starts it too now and answers the question
+the only way a windowless panel can: :class:`ForegroundProfile` asks WHICH CLIENT the
+person is typing into (`GetWindowThreadProcessId` on the foreground window) and hands back
+the profile whose own client that pid is (`panel/runtime/game_process.py::profile_pids`,
+the one place that answers «which client is this profile's»). A profile whose client lives
+in another Windows session can never be the foreground window of this desktop, so it can
+never be answered here — which is the isolation rule holding, not a limitation.
 """
 from __future__ import annotations
 
@@ -93,6 +105,83 @@ def _foreground_title() -> str:
         return buf.value or ""
     except Exception:                     # noqa: BLE001 — a hook must never raise
         return ""
+
+
+#: How long :class:`ForegroundProfile` trusts a profile's client pids before asking
+#: again. The reading costs a WTS enumeration per profile and a press must not stand and
+#: wait for one; a client that started a moment ago is picked up on the next press.
+PIDS_TTL_SEC = 5.0
+
+
+def _foreground_pid() -> int:
+    """The pid of the process owning the window the person is typing into. 0 when unknown."""
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return 0
+        pid = ctypes.c_ulong(0)
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return int(pid.value)
+    except Exception:                     # noqa: BLE001 — a reading, never a crash
+        return 0
+
+
+class ForegroundProfile:
+    """«Which profile is the person looking at», for a panel with no window (#2767).
+
+    The answer is the profile whose OWN client owns the foreground window. Never «the
+    current one» as a shortcut: a panel holds several accounts at once and a key that
+    marched somebody else's squad is the isolation rule broken in the loudest possible
+    way (`CLAUDE.md`, «A profile is a whole panel of its own»).
+
+    One fallback, and only one: a panel holding exactly ONE profile whose client is in
+    this Windows session answers that profile when the pid cannot be read at all — a
+    machine with one account must not lose its macros to a `WTSEnumerateProcesses` that
+    came back empty.
+    """
+
+    def __init__(self, workspace, *, ttl: float = PIDS_TTL_SEC) -> None:
+        self._workspace = workspace
+        self._ttl = float(ttl)
+        self._pids: dict = {}             # profile name -> (read_at, [pid, ...])
+
+    def __call__(self):
+        sessions = list(getattr(self._workspace, "sessions", []) or [])
+        if not sessions:
+            return None
+        pid = _foreground_pid()
+        mine = [s for s in sessions if self._own_session(s)]
+        if pid:
+            for session in sessions:
+                if pid in self._client_pids(session):
+                    return session.rt
+        if len(mine) == 1:
+            return mine[0].rt
+        return None
+
+    # -- the two readings ---------------------------------------------------
+    def _own_session(self, session) -> bool:
+        """Does this profile drive the client on THIS desktop?"""
+        try:
+            from . import game_process     # noqa: PLC0415 — Windows-only, and a cycle
+            return game_process.profile_user(session.rt.settings) is None
+        except Exception:                 # noqa: BLE001 — a reading, never a crash
+            return False
+
+    def _client_pids(self, session) -> list:
+        """This profile's client pids, remembered for :data:`PIDS_TTL_SEC`."""
+        now = time.monotonic()
+        seen = self._pids.get(session.name)
+        if seen is not None and now - seen[0] < self._ttl:
+            return seen[1]
+        try:
+            from . import game_process     # noqa: PLC0415
+            pids = list(game_process.profile_pids(session.rt.settings))
+        except Exception:                 # noqa: BLE001 — no WTS, no psutil, no answer
+            pids = []
+        self._pids[session.name] = (now, pids)
+        return pids
 
 
 class HotkeyListener:
