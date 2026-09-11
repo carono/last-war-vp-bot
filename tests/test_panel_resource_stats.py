@@ -609,5 +609,74 @@ def test_the_base_book_is_written_through_the_budget():
     assert "self._base = self.base.add(mine, day)" in src
 
 
+
+# -- forgetting one day, through the book that owns it (#2747) ----------------
+def test_one_day_is_forgotten_and_the_others_are_not():
+    from panel import resource_stats as rs
+
+    stats = rs.ResourceStats({}).add({"metal": 100}, DAY1).add({"metal": 5}, DAY2)
+    cut = stats.without(DAY2)
+    assert cut.dates() == [DAY1]
+    assert cut.on(DAY1)["metal"] == 100, "the history beside it was thrown away"
+    assert stats.without("2000-01-01") is stats, "a day with no row costs a save"
+
+
+def test_the_reset_goes_through_the_book_and_not_the_database():
+    """#2747: the runtime holds both tallies in memory and writes them back WHOLE on the
+    next gain, so a row deleted under a running panel is silently undone."""
+    from panel.runtime import resource_book as rb
+
+    src = (Path(__file__).resolve().parent.parent
+           / "panel" / "runtime" / "resource_book.py").read_text(encoding="utf-8")
+    assert "def clear_day(" in src, "there is no way to reset a day through the book"
+    api = (Path(__file__).resolve().parent.parent
+           / "panel" / "web" / "api.py").read_text(encoding="utf-8")
+    assert '"/api/resources/reset"' in api, "the reset is reachable from nowhere"
+    assert "book.clear_day(" in api, "the door writes the row behind the book's back"
+    assert rb.GAINED in ("resources.gained",)
+
+
+def test_clearing_a_day_drops_the_base_book_and_keeps_the_whole_tally():
+    from panel import resource_stats as rs
+    from panel.runtime import resource_book as rb
+
+    book = _book()
+    book.rt.store = _Store()
+    book.rt.day = _Day(DAY1)
+    book._stats = rs.ResourceStats({}).add({"item:7038": 56}, DAY1)
+    book._base = rs.ResourceStats({}).add({"item:7038": 34}, DAY1)
+
+    dropped = book.clear_day()
+    assert dropped["day"] == DAY1
+    assert dropped["base"] == {"item:7038": 34}
+    assert dropped["stats"] == {}, "the whole-day tally was cleared without being asked"
+    assert book.base.dates() == [], "the base's row survived the reset"
+    assert book.stats.on(DAY1)["item:7038"] == 56
+
+    book._base = rs.ResourceStats({}).add({"item:7038": 34}, DAY1)
+    both = book.clear_day(whole=True)
+    assert both["stats"] == {"item:7038": 56}
+    assert book.stats.dates() == []
+
+
+class _Store:
+    def __init__(self) -> None:
+        self.blobs: dict = {}
+
+    def blob_get(self, name):
+        return self.blobs.get(name)
+
+    def blob_set(self, name, data) -> None:
+        self.blobs[name] = data
+
+
+class _Day:
+    def __init__(self, key) -> None:
+        self._key = key
+
+    def day_key(self) -> str:
+        return self._key
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())

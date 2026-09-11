@@ -2278,6 +2278,31 @@ class WebApi:
         return {"ok": True, "on": bool(on), "unchanged": not box.get("moved")}
 
     # -- ending what is playing ----------------------------------------------
+
+    def reset_resource_day(self, profile: "str | None" = None,
+                           whole: bool = False, day: str = "") -> dict:
+        """Forget one GAME day's take — the base's book, and the whole tally on ask.
+
+        THE ONE DOOR THERE IS, and it has to be a door (#2747): the runtime holds both
+        tallies in memory and writes them back whole on the next gain, so a row deleted
+        in the database under a running panel is undone a minute later without a word.
+        `panel/runtime/resource_book.py::clear_day` changes the copy and the row
+        together.
+
+        It clears ONE day and never the history beside it. The default is today's, and
+        the default is the BASE's book alone — which is what the errand card of «Сбор
+        ресурсов» draws.
+        """
+        rt = self._runtime(profile)
+        book = getattr(rt, "resource_book", None)
+        if book is None:
+            return {"ok": False, "error": "no_book"}
+        try:
+            dropped = book.clear_day(day or None, whole=bool(whole))
+        except Exception as exc:         # noqa: BLE001 — a reset, never the page
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, **dropped}
+
     def interrupt(self, profile: str | None = None) -> dict:
         """«Прервать» from the phone — the same press the window's footer makes (#1300).
 
@@ -2438,6 +2463,9 @@ class WebApi:
                 return _answer(self.power(bool(body.get("on")), who))
             if path == "/api/watchdog":
                 return _answer(self.watchdog(bool(body.get("on")), who))
+            if path == "/api/resources/reset":
+                return _answer(self.reset_resource_day(
+                    who, bool(body.get("whole")), str(body.get("day") or "")))
             if path == "/api/interrupt":
                 return _answer(self.interrupt(who))
             if path == "/api/screen/press":

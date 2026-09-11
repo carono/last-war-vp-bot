@@ -266,6 +266,42 @@ class ResourceBook:
         self._budget_seq = None
         self._collect_run = None
 
+    def clear_day(self, day: "str | None" = None, whole: bool = False) -> dict:
+        """Forget ONE game day's row, through the book that owns it (#2747).
+
+        WHY IT CANNOT BE DONE TO THE DATABASE. The book holds both tallies in memory and
+        writes the WHOLE object back on the next gain, so a row deleted under a running
+        panel comes back the moment the base pays anything — the edit is not refused, it
+        is silently undone a minute later. The reset therefore belongs here, where the
+        in-memory copy and the row are changed together.
+
+        ``whole`` also clears the day in the everything-that-came-in tally; by default
+        only the base's own book is touched, which is what the errand card draws.
+
+        Returns ``{"base": {…}, "stats": {…}}`` — what was actually dropped, so the
+        caller can say what it did rather than «готово».
+        """
+        day = day or self.day() or statsmod._today()
+        dropped = {"day": day, "base": dict(self.base.as_dict().get(day) or {}),
+                   "stats": {}}
+        book = self.base.without(day)
+        if book is not self._base:
+            self._base = book
+            statsmod.save_stats_to_store(self.rt.store, self._base, statsmod.BASE_BLOB)
+        if whole:
+            dropped["stats"] = dict(self.stats.as_dict().get(day) or {})
+            total = self.stats.without(day)
+            if total is not self._stats:
+                self._stats = total
+                statsmod.save_stats_to_store(self.rt.store, self._stats)
+        # …and the page repaints off the same signal a gain sends, so nobody has to know
+        # a reset is a different kind of change.
+        try:
+            self.rt.bus.publish(GAINED, {})
+        except Exception:                # noqa: BLE001 — a repaint, never the reset
+            pass
+        return dropped
+
     # -- the day, and where a gain came from ---------------------------------
     def day(self) -> "str | None":
         """The GAME day a gain belongs to, or `None` when nobody can say.

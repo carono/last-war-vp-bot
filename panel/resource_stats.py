@@ -147,6 +147,25 @@ class ResourceStats:
             row[key] = row.get(key, 0) + amount
         return ResourceStats(days, self.path)
 
+    def without(self, day: str) -> "ResourceStats":
+        """The same tally with ONE day's row removed — the others untouched (#2747).
+
+        A day is forgotten rather than zeroed: a row of zeros and no row at all draw the
+        same, and a missing key is what every reader here already treats as «nothing was
+        counted». Returns ``self`` when there is no such row, so a caller can skip the
+        save.
+
+        This exists because a counter can be WRONG, not because a day's history is
+        disposable. `CLAUDE.md` («A DAY'S STATISTIC IS A HISTORY») is about the ROLL-OVER
+        never destroying yesterday; a person saying «сбрось сегодняшний» about rows a bug
+        wrote is a different thing, and it is still one day and never the history.
+        """
+        day = str(day or "")
+        if day not in self._days:
+            return self
+        days = {d: dict(r) for d, r in self._days.items() if d != day}
+        return ResourceStats(days, self.path)
+
 
 def _pos(value) -> bool:
     try:
