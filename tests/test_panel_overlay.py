@@ -170,6 +170,59 @@ def test_f12_only_counts_while_the_game_is_in_front():
            "                        and self.game_in_front():" in source
 
 
+def test_the_bar_stays_while_the_focus_is_somewhere_else():
+    """The last complaint of #2768: «оверлей виден только когда фокус на игре».
+
+    A person who presses a button here is on their way to the panel's own page in a
+    browser. A bar that vanished the moment they looked at it was a bar they could not
+    use, so focus is no longer part of the question.
+    """
+    source = HELPER.read_text(encoding="utf-8")
+    body, _, _ = source.partition("def _covered(")
+    sync = body.rpartition("def _sync(")[2]
+    assert "GetForegroundWindow" not in sync, (
+        "the bar is not decided by who has the focus")
+    assert "if self._covered(rect):" in sync
+
+
+def test_the_bar_goes_away_when_another_program_is_ON_TOP_of_it():
+    """Never a lid over another program — but «in front» is not «over the bar»."""
+    source = HELPER.read_text(encoding="utf-8")
+    assert "def _covered(" in source and "GetTopWindow" in source
+    assert "DWMWA_CLOAKED" in source, (
+        "a cloaked window is «visible» and nowhere on screen — it is not cover")
+    assert "hwnd != self.hwnd_self" in source, "our own bar is not cover for itself"
+
+
+def test_a_minimised_or_dead_client_still_takes_the_bar_with_it():
+    source = HELPER.read_text(encoding="utf-8")
+    sync = source.partition("def _sync(")[2].partition("def _covered(")[0]
+    assert "IsIconic" in sync and "IsWindowVisible" in sync
+    assert "if rect is None or minimised or not visible:" in sync
+
+
+def test_what_lies_over_the_bar_is_told_and_never_asked_on_a_clock():
+    """Three machine-wide events, because no event of the GAME's says «somebody else
+    has come to lie over you»: minimised, brought to the front, finished being dragged."""
+    import game_overlay
+
+    assert game_overlay.EVENT_SYSTEM_MOVESIZEEND == 0x000B
+    source = HELPER.read_text(encoding="utf-8")
+    assert "(EVENT_SYSTEM_MOVESIZEEND, EVENT_SYSTEM_MOVESIZEEND, 0, 0)" in source
+    assert "(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, 0, 0)" in source
+    body = source.partition("def _tick(")[0]
+    assert "while True" not in body and ".after(POLL" not in body
+
+
+def test_the_bars_place_is_worked_out_in_ONE_sum():
+    """`_place` moves it and `_covered` asks what is over it — one arithmetic, or the two
+    will one day disagree about where the bar is."""
+    source = HELPER.read_text(encoding="utf-8")
+    assert "def _patch(" in source
+    place = source.partition("def _place(")[2].partition("def _show(")[0]
+    assert "self._patch(rect)" in place
+
+
 def test_the_press_never_takes_the_foreground_away_from_the_client():
     """The client takes FOREGROUND input only — an overlay that activated itself on every
     press would be breaking the very thing it sits on."""
