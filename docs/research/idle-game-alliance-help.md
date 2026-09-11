@@ -86,3 +86,73 @@ Helping spends no troops and no march. The limits the game itself states
 The poll is also true while nothing is listening: a client restart wipes the VM and the
 ear with it, so «nobody is listening» is itself work and the errand's first step is to arm
 — the same shape `treasure_auto` uses for the treasure share next door.
+
+## 6. The live pass (2026-09-11)
+
+Everything below was read off a running client through the panel's own door — the ear, the
+client's chat backlog and the training's data manager. No window was opened and nothing
+was joined to learn it.
+
+### 6.1 The card carries nothing in its BODY
+
+A post-730 message is one sentence (`t11_idle_game_desc_51`) and a sender; the chat
+reader's own dump (`chat_log.jsonl`) records **47 of them over ten days**, all in the
+alliance room, all with `msg`, `sender_uid`, `seq_id`, `server_time` — and no attachment
+field at all, because that dump drops `extra`. So the event the card stands for is in
+`extra` or nowhere.
+
+### 6.2 `msg.extra` holds STRINGS; `msg:getExtra()` hands back a decoded object
+
+Measured on live cards of other kinds in the same room: `msg:getExtra()` returns a table
+whose interesting value prints as `json.object: 0000000397F95B60` — a pointer. An ear that
+concatenates `tostring(v)` over that table and matches regexes against the result can
+never find a uuid, which is what the first version of `watch_ally_training_help.md` did.
+The way the client's own readers do it (`watch_red_packets.md`, post 611) is
+`msg.extra.customJsonParam` — a STRING of JSON — decoded with `rapidjson`. The ear now
+reads every `extra` value that looks like JSON, decodes it and walks the result for
+`eventUuid` / `eventId`, and keeps the whole extra verbatim in `raw` beside them.
+
+### 6.3 The server's own chat history does NOT replay these cards
+
+`ChatManager2.Instance.Ctrl:ChatRoomRequestHistoryMsg(room, <oldest seqId>)` pages the
+alliance room back 100 messages at a time, and the pages do arrive through
+`Chat.Model.ChatMessage.onParseServerData` — **1715 messages** were re-parsed this way.
+Post types seen in them: `0`, `13`, `601`, `633`, `645`, `687`. **Not one 730.** So a plea
+cannot be recovered after the fact: the ear has to be listening when it lands, and a
+client restart that wipes the hook loses everything said while it was down.
+
+### 6.4 What the training manager holds, and what it does not
+
+`DataCenter.T11IdleGameDataManager` (live): `gameEventList` / `gameEventDict` — MY three
+events (`uuid`, `eventId`, `questId`, `num`, `status`, `rewardId`, `figure`, `getTime`);
+`InvitePlayersDict` — **empty** while nobody is helping; `lastShareTimestamp`, `shareCd`;
+`newEventList`, `newSpecialEventList`, `eventNodeUpdateList`. **There is no list of
+alliancemates' shared events anywhere in it** — the manager knows only about our own, which
+is the second half of why the chat card is the only announcement there is.
+
+Its methods (`_class_type`), the ones that matter here:
+
+| method | what it is |
+|---|---|
+| `ShareToChat` | puts one of MY events in alliance chat — the sender's half of the card |
+| `CanShareAllianceHelp` | the gate on that |
+| `CheckOpenTaskEventAllianceHelpView` | what the card's own click handler opens |
+| `SendIdleGameEventGetMessage` | fetch somebody else's event |
+| `SendIdleGameEventHelpMessage` | **the join** |
+| `GetInvitePlayerInfoList` / `AddInvitePlayerInfoDict` | the helpers an event already has — the «места» reading |
+| `ParsePushGameEvent` | what `push.idle.game.events` lands in |
+
+### 6.5 `idle.game.event.get` takes THREE arguments
+
+Asked live with a stale sharer's uid, in one recipe, each in a `pcall`:
+
+```
+SendIdleGameEventGetMessage(uid)        → SFSDataSerializer.lua:43 bad argument #2
+SendIdleGameEventGetMessage(uid, 0)     → SFSDataSerializer.lua:39 bad argument #2
+SendIdleGameEventGetMessage(uid, 0, 0)  → accepted
+```
+
+So the signature is `(uid, eventUuid, clientParam)` and **the uuid is not optional** — the
+card is the only place it can come from, which is why the ear's job is to get it out of
+`extra` intact. (The raw `SFSNetwork.SendMessage('idle.game.event.get', {…})` form is
+refused by the serialiser; the manager's own method is the door.)
