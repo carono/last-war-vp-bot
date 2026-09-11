@@ -277,6 +277,31 @@ parts, an arms-race prize or a crystal — the keys production never pays — an
 the base paid whole. A budget a RUN stated is unchanged and is still an exact cap, because
 that one is read off the game one line before anything is pressed.
 
+### Does the budget ever cut the panel's OWN sweep? Measured: no (#2747)
+
+The person's follow-up: «ресурсы собраны все, по механике нельзя собрать часть» — so the
+300 000 arrived and something on our side kept 180 000. It did, and it was the stale
+fallback above. The other candidate — that the panel enumerates fewer production lines
+than the base has — was checked with a census taken seventeen seconds before a sweep:
+
+| | five lines, census 10:26:43 | budget stated 10:27:00 | gain on the wire 10:27:24 | written to the base's book |
+|---|---|---|---|---|
+| hero experience | 5 × 17 280 = 86 400 | **95 040** | **+95 040** | **+95 040** |
+| metal | 56 548 | 61 296 | +61 563 | +61 296 |
+| food | 61 529 | 66 378 | +66 379 | +66 378 |
+| gold | 42 771 | 45 916 | +46 113 | +45 916 |
+| oil | — | 910 | +910 | +910 |
+
+All five lines of every kind are in the budget: it is larger than the census by exactly
+the production of the seventeen seconds between them (hero experience: 95 040 − 86 400 =
+8 640 = 5 lines × 4 ticks × 432). For the ITEM the three numbers are identical. So the
+enumeration is complete and nothing is cut.
+
+What IS dropped is the trickle between the budget's own read and the collects a
+fraction of a second later — 1 food, 267 metal, 197 gold here, **0.0015 % to 0.44 %**. It
+is left on the floor deliberately: closing it means letting a gain exceed the stated size
+by some margin, and a margin is exactly the door the budget was put in to shut.
+
 ## Notes for the next session
 
 - Reading values back from the daemon uses `CS.UnityEngine.Debug.LogError("MARK|"..x)`
