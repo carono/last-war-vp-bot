@@ -80,6 +80,11 @@ EXEMPT = {
     # until `stealTimes` fails to move — and it is run against a uuid the panel has just
     # pressed at, which is not a thing a button on a tab could pass.
     "read_ghost_steal_gate": "a read-only diagnosis for one uuid, pressed by nobody",
+    # The same shape for a secret-task tile (#2780): it asks the server about ONE point
+    # by its coordinate — no camera move, no jump — and says whether the tile is still
+    # there. The coordinate comes off a row somebody is checking, which is not a thing a
+    # button with no argument could pass, and it presses nothing.
+    "read_secret_task_state": "a read-only per-tile truth test, pressed by nobody",
     # Nothing to press: it is what the panel plays when the SERVER kicks this session,
     # and the person it happens to is not at the machine. A button would be a way to
     # relog for no reason, which the client's own «Перезапустить» already is.
