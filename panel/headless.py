@@ -39,6 +39,7 @@ from . import profile as profilemod
 from . import runtime as runtimemod
 from . import tabs as tabsreg
 from .runtime import autostart as autostartmod
+from .runtime import hotkeys as hotkeysmod
 from .runtime import streams as streamsmod
 from .runtime import panel_control as panelctl
 from .runtime import profile_control as profilectl
@@ -101,6 +102,8 @@ class HeadlessPanel:
         #: thread the request came in on — and two of them arriving together would open,
         #: close and rename profiles in the same workspace at once.
         self._press = threading.RLock()
+        #: The keyboard macros, once this process is up (#2767). None until `start`.
+        self._hotkeys = None
 
     # -- lifecycle ----------------------------------------------------------
     def open(self) -> list:
@@ -175,6 +178,22 @@ class HeadlessPanel:
         # and no profile could be opened from a phone at all. Which accounts are being
         # farmed is not a knob to lose while the window is being retired.
         profilectl.set_handler(self._profile_press)
+        # …AND THE FIVE KEYS (#2767). 1–4 send that squad at the clicked target and
+        # CapsLock repeats the last march (`panel/runtime/hotkeys.py`) — and the listener
+        # was started by the WINDOW alone, so the day the machine's service began running
+        # `panel.headless` the macros stopped existing: no hook, no line in any log, and
+        # nothing anywhere saying they were gone. Which profile a press belongs to is the
+        # one question the window answered by looking at its own notebook; here it is the
+        # profile whose client owns the foreground window.
+        self._hotkeys = hotkeysmod.HotkeyListener(
+            hotkeysmod.ForegroundProfile(self.workspace))
+        try:
+            started = self._hotkeys.start()
+        except Exception as exc:              # noqa: BLE001 — no macros, never a dead panel
+            print(f"panel: hotkeys: {type(exc).__name__}: {exc}", file=sys.stderr)
+            started = False
+        rt.say(hotkeysmod.TAG,
+               "log.macro.listening" if started else "log.macro.unavailable")
 
     def run(self) -> int:
         opened = self.open()
@@ -657,6 +676,9 @@ class HeadlessPanel:
         panelctl.set_handler(None, panelctl.RESTART)
         panelctl.set_handler(None, panelctl.QUIT)
         profilectl.set_handler(None)
+        if getattr(self, "_hotkeys", None) is not None:
+            self._hotkeys.stop()              # the keyboard belongs to Windows again
+            self._hotkeys = None
         if self._web:
             webctl.stop(quiet=True)
         servicectl.stop()
