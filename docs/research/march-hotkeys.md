@@ -586,6 +586,26 @@ marched another account's squad is the isolation rule broken in the loudest way 
 The one fallback is a panel holding exactly ONE profile whose client is on this desktop,
 for the case where the pid cannot be read at all.
 
+### Proven again after the fix, on the live service-run panel (2026-09-11)
+
+The panel the machine's service had started (`panel.headless`, head `adc0a7dd`, three
+profiles open) said `log.macro.listening` at boot — the line that had been missing from
+every profile's log since the service took over. With the game the foreground window and
+the pin deliberately empty (`pin=none last=none`, so nothing could be spent), each key was
+pressed once and answered in `default`'s log, and in no other profile's:
+
+```
+13:07:55 [macro] клавиша 2: … < march_selected_squad FAILED — nothing is chosen
+13:07:58 [macro] клавиша 3: …
+13:08:02 [macro] клавиша 4: …
+13:08:07 [macro] CapsLock: повторяю последний марш — … FAILED — nothing to repeat
+```
+
+…and key 1 the same, a moment earlier. **CapsLock did not flip the keyboard** — read
+before and after: `caps=0` → `caps=0` — which is the swallow working through the hook the
+service-started panel installed. The refusals are the recipes being honest about an empty
+pin, and they are what makes this a check that spends nothing.
+
 ## What is proven, and what is not
 
 **Proven against a live client — keys 1..4, twice, on two different target types.** With
