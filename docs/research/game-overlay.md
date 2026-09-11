@@ -52,8 +52,9 @@ break the thing it sits on top of. Two measures:
   re-asserted with `SWP_NOACTIVATE` on every tick so a client brought to the front does
   not paint over it.
 
-It hides itself when the game is minimised, and when the window in front is neither the
-game nor the bar — so it is never a lid over another program.
+It hides itself when the game is minimised or gone — and, since the third pass, only
+then and when something is genuinely ON TOP of it (§3c). Having the FOCUS is not the
+question any more.
 
 ## 3a. It moves WITH the window, and asks nobody where the window is (second pass)
 
@@ -86,6 +87,31 @@ own position, so the events above were needed regardless.
 The only clock left runs while there is NO client to follow (`RESCAN_MS`, 3 s): nothing
 announces a window that does not exist yet. A machine that refuses the hooks falls back to
 a clock and SAYS so on stdout, which the panel's log keeps — never a silent chase.
+
+## 3c. It stays while the focus is elsewhere, and hides under what is really over it
+
+The third pass, and the person's last complaint: «оверлей виден только когда фокус на
+игре». It was written that way to avoid being a lid over another program, and it made the
+bar unusable for the thing it is for — a press sends a person to the panel's own page in
+a browser, and the bar vanished the moment they looked at it.
+
+FOCUS IS NOT THE QUESTION. What decides whether the bar is a lid is not who is being
+typed at; it is whether the patch the bar draws on — the client's own top corner — is
+still on the screen. So `_sync` asks three things, and the focus is not one of them:
+
+* the client's window is gone, minimised or not visible → no bar;
+* another program's window lies ON TOP of that patch → no bar (`_covered`);
+* otherwise the bar is placed and shown, whoever has the focus.
+
+`_covered` walks DOWN the z-order from the top until it reaches the client: everything
+passed on the way is above it. Ours is skipped, and so is anything the window manager
+calls cloaked — an unopened app keeps a window that is «visible» and nowhere on the
+screen, and counting those as cover would have hidden the bar for ever.
+
+Three MACHINE-WIDE hooks tell it when that answer can have changed — minimising, the
+foreground moving, and any window finishing a drag or a resize (`EVENT_SYSTEM_MOVESIZEEND`,
+the one event that says somebody else has come to lie over the client with the focus never
+moving). They are events, not a clock: each fires when a person does something.
 
 ## 3b. F12
 
@@ -193,6 +219,33 @@ The bar does NOT follow while it is hidden — a client whose window is not in f
 one the bar is drawn over, so `_sync` hides and returns without placing. The foreground
 hook brings it back and places it in the same call, so what a person sees is a bar that
 was never in the wrong place.
+
+## 8b. The third pass, measured live (2026-09-11)
+
+Against the running client, with the focus deliberately in a terminal and in a browser:
+
+* **it stays.** Focus in another program, client uncovered: the bar is on screen at the
+  client's corner, 12 px in, exactly as when the game is in front.
+* **it still moves WITH the window while the focus is elsewhere** — 30 steps, worst 0 px,
+  30 of 30 exact, read 16 ms after each step. The glue of §8a did not cost anything.
+* **a press from an unfocused bar still costs nobody the focus**: the click ran
+  `[web] > action: collect_base_resources` … `< … OK`, and the window being typed at
+  before the press was the window being typed at after it — the game never took it
+  either.
+* **minimised → gone, restored → back**, at the same corner.
+* **covered → gone.** With the client shoved under a browser window that is above it in
+  the z-order, the bar hides; brought back onto its own uncovered patch it returns.
+* **the walk is not a cost**: 34 windows above the client, 0.08 ms per walk, and it runs
+  only when one of the three events says the answer may have changed.
+
+Two things measured on the way that are worth not re-deriving:
+
+* **a window handle is a pointer.** Read through ctypes' default `c_int` the walk stops
+  at a handle that is not there; `GetTopWindow`/`GetWindow` are given `c_void_p`.
+* **z-order cannot be rearranged from outside.** `SetWindowPos(HWND_TOP)` on another
+  process's window with `SWP_NOACTIVATE` is ignored — the rank comes back unchanged — so
+  «the client raised over the browser» can only be staged by actually bringing it to the
+  front, which is the path a person takes anyway.
 
 ## 9. What is deliberately not here yet
 

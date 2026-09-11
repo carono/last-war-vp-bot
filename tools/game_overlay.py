@@ -33,9 +33,11 @@ IT MUST NOT COST THE GAME ITS INPUT. The client takes only foreground input
 foreground every time a thumb landed on it would break the very thing it sits on top of.
 Two things prevent it: the window carries `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`, so a
 click on a button is delivered without the window ever being activated, and the bar is
-small and hugs one edge instead of covering the scene. It hides itself the moment the
-game is minimised or something else comes to the front, so it is never a lid over
-another program.
+small and hugs one edge instead of covering the scene. It STAYS on screen while the
+focus is somewhere else — the panel's own page in a browser is exactly where a person
+looks next — and goes away when the game is minimised or gone, or when another
+program's window is genuinely ON TOP of the patch the bar draws on, so it is never a lid
+over another program.
 
 NOTHING IS ASKED IN THE BACKGROUND. The panel is polled only while a press this overlay
 made is still running, and not at all otherwise (`CLAUDE.md`, «Read once, then LISTEN»).
@@ -132,6 +134,13 @@ EVENT_OBJECT_DESTROY = 0x8001
 EVENT_OBJECT_LOCATIONCHANGE = 0x800B
 EVENT_SYSTEM_MINIMIZESTART = 0x0016
 EVENT_SYSTEM_MINIMIZEEND = 0x0017
+#: Any window on the desktop has finished being dragged or resized — the one event that
+#: says another program may have come to lie over the client with the focus never moving.
+EVENT_SYSTEM_MOVESIZEEND = 0x000B
+#: `DwmGetWindowAttribute`: a window can be «visible» and nowhere on the screen at all —
+#: an unopened app keeps one. Counting those as cover would hide the bar for ever.
+DWMWA_CLOAKED = 14
+GW_HWNDNEXT = 2
 WINEVENT_OUTOFCONTEXT = 0x0000
 OBJID_WINDOW = 0
 
@@ -234,6 +243,29 @@ def window_rect(hwnd: int) -> "tuple | None":
     if not _user32().GetWindowRect(ctypes.c_void_p(hwnd), ctypes.byref(rect)):
         return None
     return (rect.left, rect.top, rect.right, rect.bottom)
+
+
+def _cloaked(hwnd: int) -> bool:
+    """Is this window hidden by the desktop window manager rather than by its own style?
+
+    A machine without `dwmapi` — or an attribute it will not answer — is read as «not
+    cloaked», which is the safe way round: the worst that costs is a bar that hides when
+    something invisible is in the way, never one that sits over another program.
+    """
+    try:
+        value = ctypes.c_int(0)
+        ok = ctypes.windll.dwmapi.DwmGetWindowAttribute(
+            ctypes.c_void_p(hwnd), DWMWA_CLOAKED, ctypes.byref(value),
+            ctypes.sizeof(value))
+        return ok == 0 and bool(value.value)
+    except Exception:                      # noqa: BLE001 — never the bar
+        return False
+
+
+def _overlap(one, other) -> bool:
+    """Do two ``(left, top, right, bottom)`` rectangles share a pixel?"""
+    return not (one[2] <= other[0] or other[2] <= one[0]
+                or one[3] <= other[1] or other[3] <= one[1])
 
 
 # -- the bar ------------------------------------------------------------------
@@ -458,14 +490,17 @@ class Overlay:
                                    ctypes.c_long, ctypes.c_long, ctypes.c_ulong,
                                    ctypes.c_ulong)
         self._winevent_proc = proto(self._on_window_event)
-        # Two narrowed to the client's own thread — moved, minimised, shown, gone — and
-        # one MACHINE-WIDE for «which window is in front», because the bar has to go away
-        # when something else is brought up over the game and no event of the game's own
-        # says that. It is still an event and not a poll: it fires when a person switches
-        # windows, which is a handful of times a day.
-        wanted = ((EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, pid.value, thread),
+        # ONE narrowed to the client's own thread — moved, gone — and three MACHINE-WIDE,
+        # because what decides whether the bar is a lid over another program is not the
+        # game's own window: it is whether something else has come to lie ON TOP of the
+        # patch the bar draws on, and no event of the game's says that. Minimising,
+        # switching windows and finishing a drag are the three ways that changes. They
+        # are still events and not a poll — each fires when a person does something, a
+        # handful of times a day, and never on a clock.
+        wanted = ((EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, 0, 0),
                   (EVENT_OBJECT_DESTROY, EVENT_OBJECT_LOCATIONCHANGE, pid.value, thread),
-                  (EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, 0, 0))
+                  (EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, 0, 0),
+                  (EVENT_SYSTEM_MOVESIZEEND, EVENT_SYSTEM_MOVESIZEEND, 0, 0))
         for low, high, who, which in wanted:
             handle = user32.SetWinEventHook(low, high, None, self._winevent_proc,
                                             who, which, WINEVENT_OUTOFCONTEXT)
@@ -490,7 +525,10 @@ class Overlay:
                          _thread, _time) -> None:
         """One thing the client's window did. Called on THIS thread, while Tk pumps."""
         try:
-            if event == EVENT_SYSTEM_FOREGROUND:
+            if event in (EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_MOVESIZEEND,
+                         EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND):
+                # Machine-wide: the window that did it is somebody else's as often as it
+                # is the client's, and either way what changed is what lies over the bar.
                 self._sync()
                 return
             if int(hwnd or 0) != self.hwnd_game or id_object != OBJID_WINDOW:
@@ -520,15 +558,60 @@ class Overlay:
             return
         minimised = bool(user32.IsIconic(ctypes.c_void_p(self.hwnd_game)))
         visible = bool(user32.IsWindowVisible(ctypes.c_void_p(self.hwnd_game)))
-        # Never a lid over another program: the bar is the game's window's and goes away
-        # with it. Told by the foreground hook, not asked on a clock.
-        front = int(user32.GetForegroundWindow() or 0)
-        mine = front in (self.hwnd_game, self.hwnd_self)
         rect = window_rect(self.hwnd_game)
-        if rect is None or minimised or not visible or not mine:
+        if rect is None or minimised or not visible:
+            self._show(False)
+            return
+        # FOCUS IS NOT THE QUESTION, and asking it was this bar's last fault («оверлей
+        # виден только когда фокус на игре», #2768): a person who presses a button here
+        # is on their way to the panel's own page in a browser, and a bar that vanished
+        # the moment they looked at it is a bar they cannot use. The honest question is
+        # whether the patch it draws on is still ON the screen.
+        if self._covered(rect):
             self._show(False)
             return
         self._place(rect)
+
+    def _covered(self, rect) -> bool:
+        """Is another program's window lying ON TOP of the patch the bar draws on?
+
+        Walked down the z-order from the top until the client is reached: everything
+        passed on the way is above it. Ours is skipped, and so is anything the desktop
+        window manager calls CLOAKED — an unopened app keeps a window that is «visible»
+        and nowhere on the screen, and counting those as cover would hide the bar for
+        ever. Measured on the live desktop: 34 windows above the client, no ghosts among
+        them, 0.08 ms a walk, and the answer flips exactly when the client is shoved
+        under a browser and back (docs/research/game-overlay.md §8b).
+
+        Never a lid over another program — and never a bar that goes away merely because
+        somebody clicked elsewhere.
+        """
+        user32 = _user32()
+        # A window handle is a POINTER: read back through ctypes' default `c_int` it
+        # comes out truncated on a 64-bit desktop and the walk stops at a window that is
+        # not there. Said here rather than at import so a stubbed user32 stays stubbed.
+        try:
+            user32.GetTopWindow.restype = ctypes.c_void_p
+            user32.GetWindow.restype = ctypes.c_void_p
+        except Exception:                  # noqa: BLE001 — never the bar
+            pass
+        patch = self._patch(rect)
+        hwnd = int(user32.GetTopWindow(None) or 0)
+        while hwnd and hwnd != self.hwnd_game:
+            if hwnd != self.hwnd_self and user32.IsWindowVisible(ctypes.c_void_p(hwnd)):
+                if not _cloaked(hwnd):
+                    other = window_rect(hwnd)
+                    if other and _overlap(other, patch):
+                        return True
+            hwnd = int(user32.GetWindow(ctypes.c_void_p(hwnd), GW_HWNDNEXT) or 0)
+        return False
+
+    def _patch(self, rect) -> tuple:
+        """Where the bar goes for that client rectangle — the one place the sum is made."""
+        left, top, right, _bottom = rect
+        x = (right - self._size[0] - MARGIN) if self.anchor == "right" else (left + MARGIN)
+        y = top + MARGIN
+        return (int(x), int(y), int(x) + int(self._size[0]), int(y) + int(self._size[1]))
 
     def _place(self, rect) -> None:
         """Move the bar to the client's edge — one `SetWindowPos`, and no z-order change.
@@ -538,9 +621,7 @@ class Overlay:
         The z-order is left alone HERE and settled once by :meth:`_show` — re-asserting
         «topmost» on every step of a drag is work for nothing and a chance to flicker.
         """
-        left, top, right, _bottom = rect
-        x = (right - self._size[0] - MARGIN) if self.anchor == "right" else (left + MARGIN)
-        y = top + MARGIN
+        x, y, _right, _bottom = self._patch(rect)
         _user32().SetWindowPos(ctypes.c_void_p(self.hwnd_self), None, int(x), int(y),
                                0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
         self._show(True)
