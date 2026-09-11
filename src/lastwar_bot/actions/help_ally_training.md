@@ -44,8 +44,13 @@ IF parked == 0
 
 # 3. Join them. The queue entry carries everything the send needs, so this is one round
 #    trip per plea and no window is opened.
-READ_LUA (function() local Q = DataCenter.__lw_help_queue or {} local sent, bad, names = 0, 0, {} while #Q > 0 and sent < {limit} do local e = table.remove(Q, 1) local uuid = tonumber(e.uuid) local eid = tonumber(e.eventId) or 0 if uuid and e.uid then local ok = pcall(function() SFSNetwork.SendMessage('idle.game.event.help', { targetUid = tostring(e.uid), eventId = eid, eventUuid = uuid }) end) if ok then sent = sent + 1 names[#names+1] = tostring(uuid) DataCenter.__lw_help_sent = DataCenter.__lw_help_sent or {} table.insert(DataCenter.__lw_help_sent, { uid = tostring(e.uid), uuid = uuid }) else bad = bad + 1 end else bad = bad + 1 end end return 'sent=' .. sent .. ' unusable=' .. bad .. ' [' .. table.concat(names, ',') .. ']' end)() INTO report
+READ_LUA (function() local Q = DataCenter.__lw_help_queue or {} local sent, bad, names = 0, 0, {} while #Q > 0 and sent < {limit} do local e = table.remove(Q, 1) local uuid = tonumber(e.uuid) local eid = tonumber(e.eventId) or 0 if uuid and e.uid and e.uid ~= 'nil' then local ok = pcall(function() SFSNetwork.SendMessage('idle.game.event.help', { targetUid = tostring(e.uid), eventId = eid, eventUuid = uuid }) end) if ok then sent = sent + 1 names[#names+1] = tostring(uuid) DataCenter.__lw_help_sent = DataCenter.__lw_help_sent or {} table.insert(DataCenter.__lw_help_sent, { uid = tostring(e.uid), uuid = uuid }) else bad = bad + 1 end else bad = bad + 1 DataCenter.__lw_help_bad = (DataCenter.__lw_help_bad or {}) table.insert(DataCenter.__lw_help_bad, tostring(e.raw or '')) end end return 'sent=' .. sent .. ' unusable=' .. bad .. ' [' .. table.concat(names, ',') .. ']' end)() INTO report
 LOG "help sent: {report}"
+READ_LUA (function() local B = DataCenter.__lw_help_bad or {} DataCenter.__lw_help_bad = {} if #B == 0 then return 'none' end return table.concat(B, ' || '):sub(1, 400) end)() INTO unusable
+# A plea the ear could not read is worth SAYING, not swallowing: the card is the
+# only place the event's uuid comes from, so a run that parks one and cannot use it
+# is the ear being wrong about the shape rather than the alliance being quiet.
+LOG "cards that carried no event: {unusable}"
 WAIT 2
 
 # 4. Say what the GAME says came of it, rather than that a press was made: an event the
