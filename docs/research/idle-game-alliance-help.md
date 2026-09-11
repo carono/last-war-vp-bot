@@ -81,6 +81,7 @@ Helping spends no troops and no march. The limits the game itself states
 |---|---|
 | the ear | `src/lastwar_bot/actions/watch_ally_training_help.md` — wraps the client's own chat parse and parks each plea in `DataCenter.__lw_help_queue` |
 | the join | `src/lastwar_bot/actions/help_ally_training.md` — drains that queue, one `idle.game.event.help` per plea, then says what the CLIENT shows rather than that a press was made |
+| the ear's keeper | `panel/triggers.py::ally_training_ear` — a 300 s poll that re-arms the ear when the game VM has lost it (a client restart wipes it), **shipped on**: listening spends nothing |
 | the standing order | `panel/triggers.py::ally_training_help` — a poll over the parked queue (a local VM read, never a question to the server), **shipped off** because a join spends the day's participation-reward quota |
 
 The poll is also true while nothing is listening: a client restart wipes the VM and the
@@ -156,3 +157,38 @@ So the signature is `(uid, eventUuid, clientParam)` and **the uuid is not option
 card is the only place it can come from, which is why the ear's job is to get it out of
 `extra` intact. (The raw `SFSNetwork.SendMessage('idle.game.event.get', {…})` form is
 refused by the serialiser; the manager's own method is the door.)
+
+### 6.6 Sharing one of MY OWN events — what it does, and what it does not
+
+Tried live with the owner's permission, to see whether a card could be produced on demand
+rather than waited for.
+
+* **`ShareToChat(event)` is gated PER EVENT, and it fails silently.** Called on an event
+  the game will not share, it returns without error and does nothing at all — no wire
+  traffic, `lastShareTimestamp` unchanged. `CanShareAllianceHelp(event)` is the gate, and
+  of three events held at one moment exactly one answered `true`.
+* **When it does fire, nothing goes over the plain-TCP leg.** With
+  `SFSNetwork.SendMessage` wrapped for the duration of the call, the count was **zero**,
+  while `lastShareTimestamp` jumped to the current server time and `shareCd` became `60`.
+  The share therefore travels the chat websocket, which is the same leg the card comes
+  back on and the reason a passive capture is deaf to both.
+* **The sharer's own client never sees the card.** After a share the alliance room grew
+  by ordinary messages only: no post-730 anywhere in the client's rooms, and the ear
+  parked nothing. So an account cannot produce a specimen of this card for itself — the
+  shape has to be read off somebody ELSE's plea.
+
+That last point is why the ear keeps `raw`: the first real card is the only chance to
+check the dig, and there is no way to rehearse it.
+
+## 7. The standing order that keeps the ear alive
+
+`panel/triggers.py::ally_training_ear` — a poll, every 300 s, **shipped on**, whose whole
+job is that something is listening. It runs `watch_ally_training_help.md`, which rebuilds
+the wrapper from the saved original, so a run that finds the ear already up costs one
+local read and does nothing.
+
+It exists because of §6.3 and one measurement: the ear was armed by hand at 11:54 and was
+gone by 12:23 — the client had restarted in between and taken the Lua VM with it. A card
+said in that half hour would have been lost for good, because the server does not replay
+them. The joining order (`ally_training_help`) stays **off**: listening spends nothing,
+joining spends the day's participation-reward quota.
