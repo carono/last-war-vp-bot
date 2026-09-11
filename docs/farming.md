@@ -73,7 +73,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - ✅ Reading back who brought what to the rallies — one command turns every heard banner into a page of alliances, players and squads
 - 🟡 Treasure notifications, and answering one on its own — with the switch on, the nearest free squad marches and the gift is taken as soon as it is dug
 - 🟡 Digging the treasure, collecting the treasure gift — lists the chests that are out with their place, sends a squad and takes the reward
-- 🟡 Joining an alliancemate's help request in the Restricted Area Training — the panel hears the chat card and joins it; the switch is off until you turn it on
+- 🟡 Joining an alliancemate's help request in the Restricted Area Training — the panel hears the chat card and joins within a minute; an event holds five helpers and they go fast
 
 ### Radar assignments
 
