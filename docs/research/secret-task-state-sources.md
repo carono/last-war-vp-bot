@@ -271,6 +271,43 @@ nothing to classify. `ActDispatchTaskDataManager` has no such method at all.
 The marks are not a back door either: `GetMarkList()` held **0** rows on this account at the
 time of the measurement, and its read is the third empty-payload message above.
 
+### A REFUSED robbery says nothing about the tile either (#2784, owner-authorised)
+
+The last way of asking: send the robbery itself and read the refusal. The operator allowed
+one round of it explicitly, on a day whose budget was already spent —
+`GetTodayStealNum()` **5** against `GetDispatchSetting('steal_count')` **5**, checked before
+the first send and after the last, so nothing could be lost by a refusal.
+
+Ten `hero.dispatch.steal {uuid, targetServer}` were sent on 2026-09-11, 17:20–17:25, across
+targets chosen to differ as much as the ★ store allows:
+
+| target | what the panel believed about it | tip the client raised | `todayStealNum` |
+|---|---|---|---|
+| a ready row, 0 of 3 loot slots taken | raidable now | **E000000** | 5 |
+| a row already looted 3 of 3 | nothing left to take | **E000000** | 5 |
+| a row not due for another ~3 hours | not finished yet | **E000000** | 5 |
+| a uuid that was invented | no such tile anywhere | **E000000** | 5 |
+| a real uuid aimed at an impossible warzone | not a warzone at all | **E000000** | 5 |
+
+**One code for every one of them**, and the day's counter never moved — a refusal is free, and
+it is also mute. The reply lands in `Net.Msgs.DispatchTask.DispatchStealMessage:HandleMessage`
+(hooked for the length of the runs; the handler fires, then calls `UIUtil.ShowTipsId(code)`),
+and the object it is handed carries nothing readable from Lua — `pairs(self)` is `__ctype`
+and `_class_type`, the payload lives on the C# side. So the ONLY thing a refusal gives us is
+the tip id, and the tip id was constant.
+
+`E000000` is the generic code this client shows for «in cd» and for unspecified refusals
+(the same one the resource-collect path documents); the game's own locale tables have no
+entry for it, which is what a catch-all looks like. A refusal CAN be specific — the range
+refusal recorded in `secret-task-steal.md` §3 came back as its own tip with its own sentence
+— but the specific one is reached only after the general gates pass, and a spent budget is a
+general gate.
+
+**What that settles.** «Узнать состояние точки по отказу, не тратя кражу» does not work: with
+the budget spent every refusal is the same word, and with budget in hand a refusal that does
+distinguish states costs an attempt to obtain — which is the resource the whole ★ list exists
+to spend carefully. The camera walk stays the only reading.
+
 ## How a tile is learned to be GONE — the reply's own rectangle
 
 The question nothing above answers: the operator jumps to a coordinate the list calls
