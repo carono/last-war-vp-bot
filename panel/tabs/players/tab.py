@@ -113,6 +113,25 @@ Three things came out of it, and each is a rule rather than a repair:
   can see is a control people press until it lands, and nine columns is eight presses and
   eight re-reads to reach «мощь».
 
+## …and a person's own SHORT LIST over it (#2766)
+
+A register of three hundred thousand needs a way to say «эти шестеро». So a player can
+be starred — the press is in the sheet the «i» opens, the star is drawn as the card's
+pill — and «Избранные» is a chip over the grid with the count beside it.
+
+Three things about it are decisions rather than details:
+
+* **the star is in the database, keyed by uid** (`all_favourites`, `panel/runtime/store.py`):
+  it is data of the account, it outlives the panel, and a mark that followed a NAME
+  would follow whoever takes that name next;
+* **it is a table of its own and not a column on `players`**, for the same reason the
+  two notes are kept apart — a row of the register is merged by every source that meets
+  that player, and a star cleared by a lap of the map is a bug nobody would find;
+* **the chip narrows in SQL, not on the phone.** Every other chip strip on this
+  front-end keeps the items it was already given; this card holds ONE PAGE of the
+  register, so the chosen chip travels with the page's own fetch. It is still screen
+  state — the panel keeps no copy of which chip is down.
+
 ## …and the grid is DRIVEN FROM THE GRID (#2308)
 
 #2133 left the page right and the controls wrong, and the person said so: «Управление
@@ -1030,6 +1049,11 @@ class PlayersTab(PanelTab):
                 # THE FILTERS, ON THE GRID, BEHIND ITS OWN GEAR (#2308).
                 "options": self._web_filter_fields(),
                 "options_title": "players.filters",
+                # THE QUICK FILTER, AS CHIPS OVER THE ROWS (#2766) — the person's words:
+                # «добавь возможность добавить игроков в избранное, сделать быстрый
+                # фильтр по ним». One chip is down at a time and `""` is «все», exactly
+                # as on the ★ list (#2740).
+                "filters": self._web_chips(),
                 # …AND THE SORT, AS SMALL BUTTONS DIRECTLY OVER THE ROWS.
                 "sorts": self._web_sorts(),
                 "actions": [{"id": "page_prev", "label": "players.web.page.prev"},
@@ -1037,6 +1061,30 @@ class PlayersTab(PanelTab):
         return {"cards": [card], "now": now,
                 "actions": [{"id": "refresh", "label": "players.refresh"},
                             {"id": "reset", "label": "players.filters.reset"}]}
+
+    def _web_chips(self) -> list:
+        """«Все» and «Избранные» — the quick filter over the grid (#2766).
+
+        A CHIP ON THIS CARD IS NARROWED IN SQL, and that is the one thing about it that
+        is not like every other chip strip on this front-end. A chip is ordinarily
+        screen state that keeps the items it was given (`ViewCard.filters`), and this
+        card's items are ONE PAGE of a register of three hundred thousand: a star on
+        page 200 would be invisible and the pager would count the wrong rows. So the
+        chosen chip travels with the page's own fetch (`/api/screen/data?only=fav`) and
+        the filtering happens where the paging does. It is still screen state — the
+        panel keeps no copy of which chip is down, and no press is sent when one is
+        tapped.
+
+        The count is the whole register's, never the page's: «12» beside a word means
+        «twelve there are», which is what a person reads it as.
+        """
+        stars = self._registry.favourite_count()
+        chips = [{"id": "", "label": "web.ui.filter.all", "count": len(self._registry)}]
+        # A CHIP WITH NOTHING BEHIND IT EMPTIES THE CARD AND SAYS NOTHING (#2740), so it
+        # is left out until there is a first star to find.
+        if stars:
+            chips.append({"id": "fav", "label": "players.filter.fav", "count": stars})
+        return chips
 
     def _faces_for(self, rows) -> None:
         """Resolve the faces of the rows on this page — ON THE WORKER, with a budget.
@@ -1281,6 +1329,11 @@ class PlayersTab(PanelTab):
         # The typed word does not overwrite the saved filter — it narrows on top of what
         # the page already stands at, and stops narrowing when the box is cleared.
         chosen = dict(self._filter, text=needle) if needle else dict(self._filter)
+        # THE CHIP THE THUMB IS ON (#2766), which travels with the fetch rather than
+        # being stored here — see :meth:`_web_chips`. Anything but a chip this card
+        # offers narrows nothing, because a filter nobody asked for is worse than none.
+        if str((args or {}).get("only") or "") == "fav":
+            chosen["fav"] = True
         now = time.time()
         total = self._registry.count(chosen, now=now)
         pages = max(1, -(-total // WEB_PAGE))
@@ -1326,6 +1379,13 @@ class PlayersTab(PanelTab):
             coordlinks.mark_row(line)
         return {"title": str(row.get("name") or uid), "rows": rows,
                 "actions": [
+                    # THE STAR IS THE FIRST PRESS IN THE SHEET (#2766): it is the one a
+                    # person comes back to a player for, and its word says what the
+                    # press will DO rather than what the row is.
+                    {"id": "fav",
+                     "label": ("players.fav.off" if self._registry.is_favourite(uid)
+                               else "players.fav.on"),
+                     "args": {"uid": uid}},
                     {"id": "note", "label": "players.note.edit",
                      "prompt": "players.note.prompt.short",
                      "value": row.get("note") or "", "args": {"uid": uid}},
@@ -1366,6 +1426,11 @@ class PlayersTab(PanelTab):
                 # the one somebody reads.
                 "info": {"kind": "details", "args": {"uid": uid},
                          "title": str(row.get("name") or uid)}}
+        if self._registry.is_favourite(uid):
+            # THE STAR, IN THE CORNER EVERY CARD KEEPS ITS PILL IN (#2766). A key and
+            # not a character written here: the front-end translates a pill, and the
+            # eleven locales say the same star.
+            item["pill"] = "players.fav.pill"
         note = self.note_of(row)
         if note:
             # AT THE NAME (#2308), not on the line of facts under it.
@@ -1425,6 +1490,19 @@ class PlayersTab(PanelTab):
             if not self.set_note(uid, args.get("text")):
                 return {"ok": False, "reason": "players.web.no_such_row"}
             return {"ok": True}
+        if action == "fav":
+            uid = str(args.get("uid") or "")
+            # A TOGGLE THAT SAYS WHICH WAY IT WENT. `on` may be sent outright — a
+            # front-end that draws a switch rather than a press has a value in hand —
+            # and a press with nothing to say flips the star it found.
+            want = args.get("on")
+            on = (not self._registry.is_favourite(uid)) if want is None else bool(want)
+            if not self._registry.set_favourite(uid, on):
+                return {"ok": False, "reason": "players.web.no_such_row"}
+            # The card, the chip's count and the page a «Избранные» chip is narrowing
+            # all moved, so the phone is told to come back for them.
+            self._moved()
+            return {"ok": True, "on": on}
         if action == "goto":
             row = self._registry.get(str(args.get("uid") or "")) or {}
             if not self._jump(self.coords_of(row)):

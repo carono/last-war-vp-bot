@@ -152,6 +152,7 @@ SCOPED_TABLES = {
     "monsters": "all_monsters",
     "reward_popups": "all_reward_popups",
     "day_stats": "all_day_stats",
+    "favourites": "all_favourites",
 }
 
 #: «Призрак: карта»'s own list, by name — the one blob TWO tabs meet over (#2010).
@@ -716,6 +717,31 @@ MIGRATIONS: tuple = (
                PRIMARY KEY (profile, day, name)
            )""",
         "CREATE INDEX ix_day_stats_name ON all_day_stats(profile, name, day)",
+    ),
+
+    # -- v12: the players a person marked, so a register of 300 000 has a short list --
+    #
+    # A mark is a POINT WRITE on one player and it is read back as «who is on the list»,
+    # so it is a table rather than a named blob: a blob is the shape for a store that is
+    # read and written WHOLE (`CLAUDE.md`, «what is the unit of a WRITE»), and starring
+    # one player would rewrite every star there is.
+    #
+    # It is a table OF ITS OWN and not a column on `all_players` for the reason the two
+    # notes are kept apart: a mark belongs to the PERSON and a row of `all_players` is
+    # merged by every source that ever meets that player. A column there would have to
+    # survive an upsert written by a lap of the map, and «the star that a sweep cleared»
+    # is a bug nobody would find for months.
+    #
+    # `uid` and not a name: names change, and a mark that follows a name follows whoever
+    # takes it next.
+    (
+        """CREATE TABLE all_favourites (
+               profile TEXT NOT NULL,
+               uid     TEXT NOT NULL,
+               -- When it was marked, so a list of stars can be ordered by newest.
+               at      INTEGER NOT NULL DEFAULT 0,
+               PRIMARY KEY (profile, uid)
+           )""",
     ),
 )
 
