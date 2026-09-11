@@ -900,6 +900,36 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         enabled=False,
         label_key="triggers.item.explorer_chests",
     ),
+    Trigger(
+        name="ally_training_help",
+        # «Помощь союзников» in the Restricted Area Training: an alliancemate shares one
+        # of their training events to chat and mates join it while there are places left
+        # (`docs/research/idle-game-alliance-help.md`, #2755).
+        #
+        # A POLL, AND NOT BECAUSE A WIRE LISTENER WOULD BE SLOWER — because it would be
+        # DEAF, exactly as it is for the treasure share next door. The plea is a CHAT
+        # card (post type 730) and the alliance broadcast rides a TLS websocket this
+        # repository cannot decode; the game's plain-TCP `push.idle.game.events` carries
+        # only our OWN events — measured live 2026-09-11, it arrived every couple of
+        # minutes on an account nobody had shared anything to. So the ear sits inside the
+        # client (`watch_ally_training_help.md`) and what this check asks is the panel's
+        # OWN table in the game VM: a local read, no request to the server.
+        #
+        # True while a plea is parked, and whenever nothing is listening — a client
+        # restart wipes the VM and the ear with it, so «nobody is listening» is itself
+        # work and the errand's first step is to arm.
+        kind=KIND_POLL,
+        check=("(function() local D = DataCenter "
+               "if not D.__lw_help_queue then return true end "
+               "return #D.__lw_help_queue > 0 end)()"),
+        interval_sec=60,
+        cooldown_sec=60,
+        scenario=("help_ally_training",),
+        # OFF until the person says otherwise: joining spends the day's participation
+        # reward quota, and what is spent on one plea cannot be spent on the next.
+        enabled=False,
+        label_key="triggers.item.ally_training_help",
+    ),
 )
 
 

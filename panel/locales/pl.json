@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Skrzynie odkrywcy",
   "triggers.item.explorer_chests": "Otwieraj skrzynie odkrywcy po odebraniu naszych tajnych zadań",
   "triggers.item.explorer_chests.short": "Skrzynie odkrywcy",
+  "triggers.item.ally_training_help": "Dołączać do sojusznika proszącego o pomoc w wydarzeniu „Trening w ograniczonej strefie”",
+  "triggers.item.ally_training_help.short": "Prośba sojusznika o pomoc",
   "timers.stat.explorer_chests": "skrzyń do otwarcia: {n} · kluczy: {keys}",
   "timers.stat.hidden": "kompasów: {n} z {all} · kopań w zapasie: {digs} · do celu jeszcze około {left} · dziś: {today}",
   "timers.stat.hidden_closed": "tydzień zakończony",

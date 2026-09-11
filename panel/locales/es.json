@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Cofres del explorador",
   "triggers.item.explorer_chests": "Abrir los cofres del explorador tras recoger nuestras tareas secretas",
   "triggers.item.explorer_chests.short": "Cofres del explorador",
+  "triggers.item.ally_training_help": "Unirse a un aliado que pide ayuda en el Entrenamiento de Área Restringida",
+  "triggers.item.ally_training_help.short": "Petición de ayuda de un aliado",
   "timers.stat.explorer_chests": "cofres por abrir: {n} · llaves: {keys}",
   "timers.stat.hidden": "brújulas: {n} de {all} · excavaciones en reserva: {digs} · faltan unas {left} para la meta · hoy: {today}",
   "timers.stat.hidden_closed": "semana terminada",

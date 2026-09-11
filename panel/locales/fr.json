@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Coffres de l'explorateur",
   "triggers.item.explorer_chests": "Ouvrir les coffres de l'explorateur après la collecte de nos missions secrètes",
   "triggers.item.explorer_chests.short": "Coffres de l'explorateur",
+  "triggers.item.ally_training_help": "Rejoindre un allié qui demande de l'aide dans l'Entraînement en Zone Interdite",
+  "triggers.item.ally_training_help.short": "Appel à l'aide d'un allié",
   "timers.stat.explorer_chests": "coffres à ouvrir : {n} · clés : {keys}",
   "timers.stat.hidden": "boussoles : {n} sur {all} · fouilles en réserve : {digs} · encore environ {left} jusqu'à l'objectif · aujourd'hui : {today}",
   "timers.stat.hidden_closed": "semaine terminée",

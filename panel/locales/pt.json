@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Baús do explorador",
   "triggers.item.explorer_chests": "Abrir os baús do explorador depois de recolher as nossas tarefas secretas",
   "triggers.item.explorer_chests.short": "Baús do explorador",
+  "triggers.item.ally_training_help": "Entrar no pedido de ajuda de um aliado no Treinamento em Área Restrita",
+  "triggers.item.ally_training_help.short": "Pedido de ajuda de um aliado",
   "timers.stat.explorer_chests": "baús a abrir: {n} · chaves: {keys}",
   "timers.stat.hidden": "bússolas: {n} de {all} · escavações em reserva: {digs} · faltam cerca de {left} para a meta · hoje: {today}",
   "timers.stat.hidden_closed": "semana terminada",

@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Peti penjelajah",
   "triggers.item.explorer_chests": "Buka peti penjelajah setelah tugas rahasia kita diambil",
   "triggers.item.explorer_chests.short": "Peti penjelajah",
+  "triggers.item.ally_training_help": "Bergabung dengan sekutu yang meminta bantuan di Pelatihan Area Terlarang",
+  "triggers.item.ally_training_help.short": "Permintaan bantuan sekutu",
   "timers.stat.explorer_chests": "peti siap dibuka: {n} · kunci: {keys}",
   "timers.stat.hidden": "kompas: {n} dari {all} · galian tersedia: {digs} · sekitar {left} lagi ke target · hari ini: {today}",
   "timers.stat.hidden_closed": "minggu berakhir",

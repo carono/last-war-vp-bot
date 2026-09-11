@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Explorer's chests",
   "triggers.item.explorer_chests": "Open the explorer's chests once our secret tasks are claimed",
   "triggers.item.explorer_chests.short": "Explorer's chests",
+  "triggers.item.ally_training_help": "Join an alliancemate who asked for help in the Restricted Area Training",
+  "triggers.item.ally_training_help.short": "Ally's help request",
   "timers.stat.explorer_chests": "chests to open: {n} · keys: {keys}",
   "timers.stat.hidden": "compasses: {n} of {all} · digs in the bag: {digs} · about {left} more to the goal · today: {today}",
   "timers.stat.hidden_closed": "week over",

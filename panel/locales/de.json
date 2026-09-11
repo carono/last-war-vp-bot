@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Forscher-Truhen",
   "triggers.item.explorer_chests": "Forscher-Truhen öffnen, sobald unsere Geheimaufträge abgeholt sind",
   "triggers.item.explorer_chests.short": "Forscher-Truhen",
+  "triggers.item.ally_training_help": "Verbündeten beistehen, die in der Sperrzonensausbildung um Hilfe bitten",
+  "triggers.item.ally_training_help.short": "Hilferuf des Verbündeten",
   "timers.stat.explorer_chests": "zu öffnende Truhen: {n} · Schlüssel: {keys}",
   "timers.stat.hidden": "Kompasse: {n} von {all} · Grabungen im Vorrat: {digs} · noch etwa {left} bis zum Ziel · heute: {today}",
   "timers.stat.hidden_closed": "Woche vorbei",
