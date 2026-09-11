@@ -901,6 +901,35 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.explorer_chests",
     ),
     Trigger(
+        name="ally_training_ear",
+        # KEEPING THE EAR ALIVE, and it is not the same errand as joining (#2755).
+        #
+        # The plea is a chat card that the server NEVER replays: paging the alliance
+        # room back 1715 messages turned up post types 0, 13, 601, 633, 645 and 687 and
+        # not one 730 (`docs/research/idle-game-alliance-help.md` §6.3). So a card said
+        # while nothing was listening is lost for good — and a client restart wipes the
+        # Lua VM and the hook with it, which is exactly what happened during the live
+        # pass: the ear was installed at 11:54 and gone by 12:23.
+        #
+        # Hence a standing order whose whole job is to be listening. It spends nothing,
+        # asks the SERVER nothing — the check is a read of the panel's own table in the
+        # game VM — and the scenario it runs rebuilds the wrapper from the saved
+        # original, so a run that finds the ear already up does nothing at all.
+        #
+        # Shipped ON, because an ear nobody armed hears nothing and costs the person the
+        # very thing this task is about.
+        kind=KIND_POLL,
+        check=("(function() local D = DataCenter local CM = "
+               "package.loaded['Chat.Model.ChatMessage'] local B = D.__lw_help "
+               "if type(B) ~= 'table' or B.ver ~= 'ear3' then return true end "
+               "return not (type(CM) == 'table' and CM.onParseServerData == B.wrapper) "
+               "end)()"),
+        interval_sec=300,
+        cooldown_sec=300,
+        scenario=("watch_ally_training_help",),
+        label_key="triggers.item.ally_training_ear",
+    ),
+    Trigger(
         name="ally_training_help",
         # «Помощь союзников» in the Restricted Area Training: an alliancemate shares one
         # of their training events to chat and mates join it while there are places left

@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Kâşif sandıkları",
   "triggers.item.explorer_chests": "Gizli görevlerimiz toplandıktan sonra kâşif sandıklarını aç",
   "triggers.item.explorer_chests.short": "Kâşif sandıkları",
+  "triggers.item.ally_training_ear": "Yasak Bölge Eğitimi'ndeki müttefik yardım çağrılarını dinlemeyi sürdür",
+  "triggers.item.ally_training_ear.short": "Yardım çağrılarını dinle",
   "triggers.item.ally_training_help": "Yasak Bölge Eğitimi sırasında yardım isteyen müttefike katıl",
   "triggers.item.ally_training_help.short": "Müttefik yardım çağrısı",
   "timers.stat.explorer_chests": "açılacak sandık: {n} · anahtar: {keys}",
