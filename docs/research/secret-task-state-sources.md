@@ -152,11 +152,77 @@ Which rows are: measured on the same account, `targetServer` counted across all 
 worth having anyway: it is what keeps `n/3` honest for the home warzone, and on an
 account whose alliance is spread out it would answer for the ★ list too.
 
-The point this task was opened about is in neither table: `pointId=953218` is absent from
-all 154 alliance rows after a fresh server read, and `GetSingleTaskByPointId(953218)`
+The point this task was opened about is in neither table: `pointId=<pid>` is absent from
+all 154 alliance rows after a fresh server read, and `GetSingleTaskByPointId(<pid>)`
 answers `nil` against the 10 tasks of our own. That is stronger than the per-id silence
 and it is still not a denial — the table holds what the ALLIANCE shared, never every tile
 on the warzone.
+
+### On READY rows the table answers in full — and still about the wrong warzone (#2784)
+
+The measurement #2780 could not make: the operator emptied the ★ list and waited for
+secret tasks to come due, so that «is it ready» and «how many are already taken» could be
+asked of the shared table while there were ready rows to ask about. Four server reads on
+2026-09-11, 16:50–16:53, through a throwaway recipe under `actions/dev/` (that tree is git-ignored; the read is
+`ActDispatchTaskDataManager:GetAllAllianceTasksFromServer()` with `SFSNetwork.SendMessage`
+wrapped for the length of the call, exactly as #2780 did it) — one
+`hero.dispatch.alliance.list` each, nothing robbed, no window, the camera still:
+
+| read | rows | home / elsewhere | ready | pending | `stealInfoList` non-empty |
+|---|---|---|---|---|---|
+| 16:50:05 | 138 | — / — | 51 | 87 | 1 |
+| 16:51:28 | 132 | 131 / 1 | 46 | 86 | 1 |
+| 16:52:20 | 132 | 131 / 1 | 46 | 86 | 1 |
+| 16:52:53 | 132 | 131 / 1 | 46 | 86 | 1 |
+| 16:53:50 | 132 | 131 / 1 | **49** | 83 | 1 |
+
+(The first read reports no home warzone: `PlayerDataManager:GetServerId()` raises, and
+`LuaEntry.Player.serverId` is what answers. It is why that row has no split.)
+
+**Readiness and `n/3` are both in the row, and neither costs a robbery or a camera.**
+«Ready» is `completionTime > 0 and completionTime <= now` against the game's own clock
+(`UITimeManager.Instance:GetServerTime()`), and `actEndTime` says when the event closes —
+`endsIn=50991s` on every live row of this read, i.e. one shared deadline, not a per-tile
+expiry. A worked row:
+
+```
+pid=<y*1000+x> srv=<warzone> steals=1/3 doneAgo=15994s endsIn=50991s cfg=<cfgId>
+```
+
+So the answer to «видно ли, что секретка готова и сколько с неё взяли» is **yes, from one
+message**: 46 of 132 rows named themselves ready, and the one row carrying a robbery named
+it as `1` with the robber's uid, name, alliance tag and time. The table is live, too —
+138 rows fell to 132 and 51 ready to 46 inside 83 seconds, and three pending rows came
+due between 16:52:53 and 16:53:50 — 46 ready became 49 with no camera anywhere and
+nothing pressed. That is the finding this task was opened for: **a task COMING READY is
+visible in the shared table, by itself, for the price of one message.**
+
+**And it is still the wrong list.** Against the ★ store read out of `panel.db` at the same
+minute:
+
+| | |
+|---|---|
+| ★ rows held | **168** — three warzones, none of them home (161 / 6 / 1) |
+| alliance rows held | **132** — home (131), one other (1) |
+| rows in BOTH | **0** |
+
+Zero overlap, so nothing the server said about readiness could be checked against what the
+panel calls ready: the two lists do not describe the same tiles at all, by construction —
+the ★ list drops the home warzone because robbing at home is forbidden (#1188), and the
+alliance table is almost entirely home. The verdict of §3 is unchanged and now has a
+second, independent measurement behind it.
+
+**Our own dispatches are a third list again.** `singleTask`: 10 rows, all 10 ready,
+`stolen_from_me=0`, and every one of them carries `pointId=0` — an own task is not a point
+on the map for the client holding it. Nothing here answers the ★ list either.
+
+**What to do with it, and what not.** A pre-pass for «Сверить» is cheap and honest — one
+message, a reply inside the six-second settle, no map — and it should stamp the rows it
+covers and hand the rest to the camera walk unchanged. On THIS account it would stamp 0 of
+168 and save nothing; on an alliance spread across warzones it is the only state read that
+costs nothing. So it is worth wiring as a first step that can only add confirmations, never
+as a replacement for the walk, and never as a reason to drop a row it did not carry
+(THE_LIST_RULE clause 2 — the table holds what the alliance shared, never every tile).
 
 ## How a tile is learned to be GONE — the reply's own rectangle
 
@@ -266,7 +332,7 @@ it. What follows is what the measurements actually support.
 
 **A point answers only when the client ALREADY HOLDS IT.** That is §2 of this file seen
 from the other side, and it is what makes the reading one-directional. Measured live on
-2026-09-11, warzone 8128, the client standing in its own base:
+2026-09-11, the home warzone, the client standing in its own base:
 
 | asked about | answered |
 |---|---|
@@ -302,8 +368,8 @@ these a minute ago» was true of most of it. The counts are the point:
 | | |
 |---|---|
 | rows asked, one `world.get.detail.new` each | **20** |
-| of them walked over 1–2 min earlier (warzone 8128) | 17 — **0 answered** |
-| of them last confirmed 9 min earlier (warzone 940) | 3 — answered, **out of the cache** |
+| of them walked over 1–2 min earlier (the home warzone) | 17 — **0 answered** |
+| of them last confirmed 9 min earlier (another warzone) | 3 — answered, **out of the cache** |
 | detail cache before the burst / after | **19 → 20** |
 | what the one new entry was | the CONTROL — an alliance task |
 
@@ -313,7 +379,7 @@ the only way to tell them apart: **twenty requests for the list's own tiles prod
 new entry, and that one was the alliance control.** The three that answered were already
 in the cache from some earlier fetch; nothing on the wire came back for them now.
 
-The client was in the CITY for this run (`cur_server` 8128, `scene` city), which is where
+The client was in the CITY for this run (`cur_server` = home, `scene` city), which is where
 a panel reading a list normally sits. An hour earlier, *while the map was up right after a
 walk*, two tiles the walk had just heard did answer — so what makes a stranger's point
 answerable is the world being loaded around it, and it does not survive going back to the
@@ -332,11 +398,11 @@ are the ones the walk has just loaded, and only while the map is still up.
 
 ### The row this task was opened about (#2780)
 
-The coordinate the operator named — warzone 8128, X218 Y953 — asked from the base on
+The coordinate the operator named — the home warzone, X<x> Y<y> — asked from the base on
 2026-09-11 at 16:35, the link green and the client talking to the game:
 
 ```
-READ_LUA state = 'pid=953218 exists=unknown'
+READ_LUA state = 'pid=<pid> exists=unknown'
 ```
 
 `unknown`, which by the rule above says **nothing** about the tile: not that it is gone,
