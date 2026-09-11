@@ -262,8 +262,21 @@ class _Bus:
             func(payload)
 
 
+class _Wire:
+    def __init__(self) -> None:
+        self.subs: dict = {}
+
+    def subscribe(self, pattern, func):
+        self.subs[pattern] = func
+        return lambda: self.subs.pop(pattern, None)
+
+    def say(self, pattern) -> None:
+        self.subs[pattern](pattern)
+
+
 class _Rt:
     def __init__(self) -> None:
+        self.wire = _Wire()
         self.bus = _Bus()
         self.interrupts = _Runs()
         self.schedule = _Schedule()
@@ -378,6 +391,26 @@ def test_a_reading_is_ASKED_FOR_when_the_harvest_ends():
     res = (Path(__file__).resolve().parent.parent
            / "panel" / "runtime" / "resources.py").read_text(encoding="utf-8")
     assert "def ask(" in res, "there is no way to ask for a reading"
+
+
+def test_a_harvest_made_BY_HAND_in_the_game_is_counted_too():
+    """#2746b, the person's words: «Ищи пуши, я могу и в игре руками собрать ресурсы,
+    они должны учитываться».
+
+    «Our run was playing» can only ever count the harvests the PANEL made. What says
+    «this came off the base» is the game: `building.production.collect`, one frame per
+    building, the same whether a thumb taps the green bubble or the panel sweeps.
+    """
+    from panel.runtime import resource_book as rb
+
+    book = _book()
+    book.watch()
+    assert rb.COLLECT_COMMAND in book.rt.wire.subs, "nobody is listening for a harvest"
+    assert book.from_base() is False               # nothing has happened yet
+    book.rt.wire.say(rb.COLLECT_COMMAND)           # …a person taps a bubble
+    assert book.from_base() is True, "a hand-made harvest is not counted"
+    # …and it books the readings that price it, exactly as the panel's own run does.
+    assert len(book.rt.tick.armed) == len(rb.HARVEST_READS)
 
 
 def test_the_baseline_is_taken_when_the_client_gets_into_the_game():
