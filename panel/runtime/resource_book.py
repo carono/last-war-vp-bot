@@ -23,9 +23,27 @@ or having run within :data:`COLLECT_CLAIM_SEC` of the moment the gain could firs
 priced. A harvest made by a thumb in the game is therefore in the whole-day tally alone,
 which is a gap and not a lie.
 
-NOTHING HERE RUNS ON A CLOCK. The only thing that ever calls :meth:`track` is the
-game's own «your balance changed» push, through the `resource_tracker` trigger
-(`CLAUDE.md`, «Read once, then LISTEN»).
+NOTHING HERE RUNS ON A CLOCK. Three things fill the book, and every one of them is an
+EVENT (`CLAUDE.md`, «Read once, then LISTEN»): the game's own «your balance changed»
+push, through the `resource_tracker` trigger; a fresh reading landing; and the harvest
+RUN itself starting or ending on the register.
+
+WHY THE THIRD ONE EXISTS (#2746). The person's report: «не может за день быть всего по
+миллиону ресурсов, столько в час собирается». Measured on the live panel of 2026-09-11,
+the counter was short for two separate reasons, and neither was arithmetic:
+
+* `default` harvested six times between 01:03 and 06:06 and priced NOT ONE of them. Its
+  `resource_tracker` listener had died at 00:42 («слушатель завершился»), and the card's
+  own reading is demand-driven — nobody had the page open, so the ear was down and no
+  reading was ever taken to diff against. The whole day's tally was one hour's worth.
+* `sooperj` priced thirteen gains against fifteen harvests, and its base book held 7.66M
+  food where the log's own gain lines beside those runs sum to over 11M — the claim was
+  SPENT by the first gain of a harvest and every later burst fell outside.
+
+So the run arms the claim through the register (which does not care who pressed), every
+gain inside the window is counted rather than only the first, and the end of a run ASKS
+for the readings that price it. Nothing polls: a harvest the panel made is a thing the
+panel knows it did.
 """
 from __future__ import annotations
 
@@ -47,7 +65,40 @@ COLLECT_ACTION = "collect_base_resources"
 #: seconds. One press sends a collect per ready building — 36 of them, live — and the
 #: client answers with a burst of balance pushes (`docs/research/resource-collection.md`).
 #: The whole burst is one harvest and must be counted as one.
+#:
+#: IT IS NO LONGER A CLAIM THAT IS SPENT (#2746). It used to be: the FIRST gain priced
+#: after a run took the claim, opened this window, and everything that arrived after the
+#: window was the day's tally alone. Measured on the live panel of 2026-09-11, that threw
+#: away about a third of what the base paid — `sooperj` collected fifteen times and its
+#: base book held 7.66M food where the log's own gain lines near those runs sum to over
+#: 11M. A harvest's gains arrive in several bursts, and a counter that takes the first
+#: and drops the rest is not a counter. So EVERY gain priced inside
+#: :data:`COLLECT_CLAIM_SEC` of the run is the harvest's, and this is what each one
+#: pushes the window out by — bounded, because a harvest cannot go on arriving for ever.
 COLLECT_WINDOW_SEC = 45.0
+
+#: WHEN A READING IS ASKED FOR AFTER A HARVEST, in seconds from the moment the run left
+#: the register (#2746). Three of them, because the client answers a harvest with a
+#: cascade rather than a number: measured live, a run that ended at 22:32:47 was still
+#: unpriced at 22:32:53 and the fresh balance landed some fifteen seconds later.
+#:
+#: This is the half of the fix that has nothing to do with attribution. The card's door
+#: reads on a LOOK or on a push, so a panel nobody has open — whose capture ear is
+#: therefore down — harvests the base and takes no reading at all: `default` made six
+#: runs between 01:03 and 06:06 on 2026-09-11 and priced none of them. A reading asked
+#: for by the run that moved the balance is an EVENT, which is exactly what `CLAUDE.md`
+#: («Read once, then LISTEN») asks for and never a poll.
+HARVEST_READS = (2.0, 20.0, 45.0)
+
+#: The one-shot chains those readings are booked on (`panel/runtime/tick.py`).
+READ_CHAIN = "resources.harvest"
+
+#: THE BOUND ON A HARVEST, in seconds from the run. A cascade that is still arriving
+#: past :data:`COLLECT_CLAIM_SEC` keeps the window open (each gain pushes it out by
+#: :data:`COLLECT_WINDOW_SEC`), and without a ceiling a busy account whose balance moves
+#: every half minute would credit its whole day's trading to the base's card. Ten
+#: minutes is far longer than any measured harvest and far shorter than an errand round.
+HARVEST_MAX_SEC = 600.0
 
 #: HOW LONG A COLLECT MAY WAIT TO BE PRICED, in seconds — and why this is not the same
 #: number (#2743, measured live). A gain is priced by DIFFING the balance the panel has
@@ -83,11 +134,23 @@ class ResourceBook:
         # first read establishes a baseline — no gain is counted then, because there is
         # nothing to diff against.
         self._last: dict = {}
-        # When `collect_base_resources` was last seen running — the ARM — and when the
-        # first gain after it was priced, which opens the burst window.
+        # The last moment the base harvest was known to be ON the client — its start,
+        # every moment it was still there, and the moment it left. Never zeroed by a
+        # gain: every gain priced within `COLLECT_CLAIM_SEC` of it is that harvest's
+        # (#2746), and the burst window only ever pushes it further out.
         self._collect_at = 0.0
-        self._claim_from = 0.0
+        # Whether the run is on the register right now, so the edges can be seen.
+        self._collect_live = False
+        # When the last gain was credited to the harvest, so a cascade that is still
+        # arriving past the claim is still that harvest's — bounded by HARVEST_MAX_SEC.
+        self._burst_at = 0.0
         self._off = None
+        # The register's own «a run started or ended» (`panel/runtime/interrupt.py`) —
+        # the ONE signal that does not care who pressed. A run started from the phone,
+        # from `/api/actions/run` or by a person's thumb never touches the schedule's
+        # record of last runs, so a book armed off that record alone credited nothing to
+        # the base for any of them.
+        self._off_runs = None
         # The last set of item labels written down, so an unchanged one costs no write.
         self._labels: dict = {}
 
@@ -126,7 +189,8 @@ class ResourceBook:
         self._stats = self._base = None
         self._last = {}
         self._labels = {}
-        self._collect_at = self._claim_from = 0.0
+        self._collect_at = self._burst_at = 0.0
+        self._collect_live = False
 
     # -- the day, and where a gain came from ---------------------------------
     def day(self) -> "str | None":
@@ -173,24 +237,107 @@ class ResourceBook:
         """Was this gain the base's own harvest? — the panel's own knowledge, free.
 
         Nothing on the wire says where a gain came from, so the only honest answer is
-        what the panel was DOING. Two clocks, and the reason for the second is measured
-        rather than assumed (:data:`COLLECT_CLAIM_SEC`): the run ARMS a claim
-        (:meth:`note_running`), the first gain priced after it SPENDS the claim, and the
-        rest of that burst rides the window the spending opened. A harvest made by a
-        thumb in the game arms nothing and is in the whole-day tally alone — a gap, not
-        a lie.
+        what the panel was DOING: a gain priced while `collect_base_resources` is on the
+        client, or within :data:`COLLECT_CLAIM_SEC` of the last moment it was, is that
+        harvest's. A harvest made by a thumb in the game arms nothing and is in the
+        whole-day tally alone — a gap, not a lie.
+
+        NO CLAIM IS SPENT ANY MORE (#2746). The first gain used to take the arm and
+        everything after it fell outside; a harvest arrives in several bursts, so that
+        counted one of them and dropped the rest. Now every gain inside the window is
+        counted and pushes the window out by :data:`COLLECT_WINDOW_SEC`, so a cascade
+        that is still arriving is still the harvest's — bounded by
+        :data:`HARVEST_MAX_SEC`, because a cascade cannot go on for ever and a busy
+        account's ordinary trading must not be swept into the base's book.
         """
         now = time.time() if now is None else float(now)
         self.note_running(now)
-        # The rest of a burst that has already been claimed.
-        if self._claim_from and now - self._claim_from <= COLLECT_WINDOW_SEC:
+        if self._collect_live:
+            self._burst_at = now
             return True
-        if self._collect_at and now - self._collect_at <= COLLECT_CLAIM_SEC:
-            # The first gain after the run — spend the arm and open the window.
-            self._claim_from = now
-            self._collect_at = 0.0
+        if not self._collect_at:
+            return False
+        if now - self._collect_at > HARVEST_MAX_SEC:
+            return False
+        if now - self._collect_at <= COLLECT_CLAIM_SEC:
+            self._burst_at = now
+            return True
+        # Past the claim, and the cascade is STILL arriving: one burst after another
+        # with no gap wider than the burst itself is one harvest, up to the bound above.
+        if self._burst_at and now - self._burst_at <= COLLECT_WINDOW_SEC:
+            self._burst_at = now
             return True
         return False
+
+    # -- the run that moved the balance --------------------------------------
+    def watch(self) -> None:
+        """Listen for the harvest starting and ending, whoever started it (#2746).
+
+        Idempotent, and it asks the game nothing: the register tells its listeners that
+        something changed and they look. This is what arms the claim now — the schedule's
+        record of last runs only knows the runs the SCHEDULE made, so a harvest played
+        from the phone or from `/api/actions/run` armed nothing at all.
+        """
+        if self._off_runs is not None:
+            return
+        try:
+            self._off_runs = self.rt.interrupts.listen(self._runs_changed)
+        except Exception:                # noqa: BLE001 — a listener, never the gain
+            self._off_runs = None
+
+    def _runs_changed(self) -> None:
+        """A run started or ended. Called on whatever thread reported it."""
+        now = time.time()
+        try:
+            names = {getattr(run, "name", "") for run in self.rt.interrupts.running()}
+        except Exception:                # noqa: BLE001 — a source, never the gain
+            return
+        live = COLLECT_ACTION in names
+        if live == self._collect_live:
+            return
+        self._collect_live = live
+        self._collect_at = now
+        self._burst_at = 0.0
+        if live:
+            # CLOSE THE BOOKS ON WHAT CAME BEFORE, for nothing: whatever the last
+            # reading already showed is not this harvest's, and crediting it to the base
+            # is how an hour of trucks and gifts would land on the harvest card.
+            self._post(self._flush_baseline)
+        else:
+            self._post(self._book_reads)
+
+    def _post(self, func) -> None:
+        """Get onto the panel's own thread — a listener is called on any thread."""
+        try:
+            self.rt.tick.post(func)
+        except Exception:                # noqa: BLE001 — no ticker means no window;
+            try:                         #   then do it here, which is where it already is
+                func()
+            except Exception:            # noqa: BLE001
+                pass
+
+    def _flush_baseline(self) -> None:
+        """Price what is already in the cache as NOT the harvest's. Reads nothing."""
+        self._record(reads.resource_balance(self.rt, cached=True), base=False)
+
+    def _book_reads(self) -> None:
+        """Ask for a reading after the harvest — the half of the fix that is not
+        attribution (:data:`HARVEST_READS`). Without it a panel nobody is looking at
+        takes no reading at all and the harvest is never priced."""
+        for index, delay in enumerate(HARVEST_READS):
+            try:
+                self.rt.tick.arm(f"{READ_CHAIN}:{index}", int(delay * 1000),
+                                 self._ask_read)
+            except Exception:            # noqa: BLE001 — an unbooked reading is one
+                pass                     #   the next push or look still takes
+
+    def _ask_read(self) -> None:
+        """One booked reading. The answer arrives as `RESOURCES_READ` and is priced
+        there, like every other reading."""
+        try:
+            self.rt.resources.ask()
+        except Exception:                # noqa: BLE001 — a reading, never the gain
+            pass
 
     # -- the fresh reading -----------------------------------------------------
     def listen(self) -> None:
@@ -235,8 +382,13 @@ class ResourceBook:
         except Exception:                # noqa: BLE001 — a label, never the gain
             pass
 
-    def _record(self, current: dict) -> "dict | None":
-        """Diff `current` against the last balance and write the gains down."""
+    def _record(self, current: dict, base: "bool | None" = None) -> "dict | None":
+        """Diff `current` against the last balance and write the gains down.
+
+        ``base`` overrides the panel's own judgement of where the gain came from:
+        `False` is the baseline flush taken as a harvest STARTS, whose gains are by
+        definition everything that happened BEFORE it (#2746).
+        """
         if not current:
             return None
         gains = statsmod.positive_deltas(current, self._last)
@@ -250,7 +402,7 @@ class ResourceBook:
         # was its harvest. Two books rather than one column with a flag: the card of
         # «Сбор ресурсов» asks one question and «Статистика» asks the other, and neither
         # has to filter the other's rows.
-        if self.from_base():
+        if self.from_base() if base is None else bool(base):
             self._base = self.base.add(gains, day)
             statsmod.save_stats_to_store(
                 self.rt.store, self._base, statsmod.BASE_BLOB)
@@ -266,7 +418,18 @@ class ResourceBook:
         return gains
 
     def shutdown(self) -> None:
-        """Let the reading go when the profile closes."""
+        """Let the reading and the register go when the profile closes."""
+        if self._off_runs is not None:
+            try:
+                self._off_runs()
+            except Exception:            # noqa: BLE001
+                pass
+            self._off_runs = None
+        for index in range(len(HARVEST_READS)):
+            try:
+                self.rt.tick.disarm(f"{READ_CHAIN}:{index}")
+            except Exception:            # noqa: BLE001
+                pass
         if self._off is not None:
             try:
                 self._off()
@@ -315,3 +478,12 @@ def register(schedule) -> None:
     if book is None:
         return
     schedule.bind("resource_tracker", book.track, needs_game=True)
+    # …AND THE TWO THINGS THAT DO NOT DEPEND ON THAT TRIGGER AT ALL (#2746). Measured on
+    # the live panel of 2026-09-11: `default`'s `resource_tracker` listener died at
+    # 00:42 («слушатель завершился — больше не слежу») and the six harvests that followed
+    # were never priced — the day's tally stopped at one hour's worth of food while the
+    # base went on paying. A tally that only counts while a trigger happens to be alive
+    # is not a tally, so the book listens to the RUN REGISTER and to the reading itself,
+    # both of which are the runtime's own and cost the game nothing.
+    book.watch()
+    book.listen()

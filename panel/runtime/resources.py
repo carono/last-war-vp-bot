@@ -339,6 +339,32 @@ class BaseResources:
                 "items": [dict(row) for row in self._items],
                 "age": round(now - self._at, 1) if self._at else -1}
 
+    # -- a reading the panel ASKED for ---------------------------------------
+    def ask(self, now: float | None = None) -> None:
+        """Take a reading NOW, because something the panel DID moved the balance (#2746).
+
+        The card's own door is demand-driven: it reads when a page is looked at or when
+        the wire says a balance moved, and BOTH of those can be absent exactly when the
+        reading matters most — a panel nobody has open, whose capture ear is down, has
+        just harvested the base and no reading will be taken for an hour. Measured on the
+        live panel of 2026-09-11: the `default` profile made six harvests between 01:03
+        and 06:06 and priced NOT ONE of them, because nothing asked for a reading in
+        between.
+
+        This is an EVENT and never a clock (`CLAUDE.md`, «Read once, then LISTEN») — it
+        is called by the book when a harvest run leaves the register, and by nothing
+        else. It raises no ear and marks nobody as looking: it books the one play, which
+        publishes :data:`~panel.runtime.bus.RESOURCES_READ` when it lands and is what
+        actually fills the day's tally.
+        """
+        now = self._clock() if now is None else now
+        # SAID TO BE STALE, which is what makes this a PRESS rather than a sweep: the
+        # refresh below queues behind whatever is holding the link instead of being
+        # refused by it (`_maybe_refresh`, the `asked` branch).
+        self._dirty = True
+        self._hold_until = 0.0
+        self._maybe_refresh(now)
+
     # -- the ear -------------------------------------------------------------
     def _listen(self) -> None:
         """Subscribe to «your balance changed», once, on the profile's shared ear.
