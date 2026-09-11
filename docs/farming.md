@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 83 of 208
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 83 of 209
 
-🟩 83 done · 🟨 96 partly · 🟥 29 not automated
+🟩 83 done · 🟨 97 partly · 🟥 29 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what is
@@ -230,6 +230,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - ✅ Every shop the account has, on the phone, with the game's own pictures — the shelves are read out of the client without opening a window
 - ✅ Buying one item by hand — press it on the shelf, answer «are you sure?», and the log names the item, the price and the limit left before anything is sent
 - 🟡 Buying by an order of preference, on its own — behind each item's gear: buy it automatically or not, how many to own in all, and a ceiling
+- 🟡 «Buy the whole queue by priority» — one press takes the shelf's whole queue in order; only an item's limit, the purse and the currency ceiling stop it
 - 🟡 The storefronts that want real money are shown and never pressed
 - ❌ Buying levels of a battle pass — a purchase, and it is never made
 - 🟡 The shop opens and switches between its tabs on command
