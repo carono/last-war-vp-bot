@@ -135,11 +135,28 @@ HARVEST_MAX_SEC = 600.0
 #: cache and refreshes behind the answer. Live, the run finished at 22:32:47, the tracker
 #: read at 22:32:53 and still saw the pre-harvest numbers, and the fresh reading landed
 #: some fifteen seconds later — so a window measured from the RUN threw the harvest away.
-#: The claim is therefore armed by the run and spent by the first gain priced after it,
-#: within three minutes. Its cost when it is wrong is one mis-attributed gain — a truck
-#: that came home in the same three minutes — and never a lost one: the whole-day tally
-#: has every gain either way.
-COLLECT_CLAIM_SEC = 180.0
+#: The claim is therefore armed by the run, and every gain priced inside it is that
+#: harvest's.
+#:
+#: IT WAS THREE MINUTES, AND THREE MINUTES IS WIDE ENOUGH TO SWALLOW ANOTHER ERRAND
+#: (#2746e). Its cost when it is wrong was written down here as «one mis-attributed gain
+#: — a truck that came home in the same three minutes», and that was measured on the live
+#: panel of 2026-09-11 and is far dearer than a truck: `collect_base_resources` ran at
+#: 08:16:16, `heal_units` opened resource packs to pay for the heal at 08:16:55, and the
+#: packs' own gains landed at 08:18:50 and 08:19:19 — 154 s and 183 s after the harvest,
+#: inside the claim and inside the burst chain behind it. 32.5M food, 30.8M metal and
+#: 23.2M gold of PACKS were credited to the base's card, on a day whose real harvest was
+#: about 13M food. The person's complaint was a card that was short; a card that is three
+#: times over is the same bug wearing the other face.
+#:
+#: Sixty seconds is what the measurement supports, and it is affordable because the other
+#: half of #2746 removed the reason the window was wide: the run now ASKS for readings at
+#: :data:`HARVEST_READS` — 2 s, 20 s and 45 s — so a harvest is priced inside 45 s
+#: instead of waiting for whoever next opens a page. Live, the three runs of 08:16, 08:43
+#: and 08:44 were priced 0 s, 2 s and 2 s after the run. A cascade that is genuinely
+#: still arriving is not cut off by this: every gain pushes the window out by
+#: :data:`COLLECT_WINDOW_SEC`, bounded by :data:`HARVEST_MAX_SEC`.
+COLLECT_CLAIM_SEC = 60.0
 
 #: WHERE THE GAME'S OWN WORDS FOR THE BASE'S ITEM PAYMENTS ARE KEPT (#2744), so a card
 #: drawn before the first reading of a session still has a name and a picture for

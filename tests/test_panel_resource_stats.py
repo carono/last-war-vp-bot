@@ -160,7 +160,10 @@ def test_only_a_harvest_the_panel_made_is_credited_to_the_base():
     window = float(re.search(r"COLLECT_WINDOW_SEC = ([0-9.]+)", src).group(1))
     assert 10.0 <= window <= 90.0, "the window is a burst, not a minute of trading"
     claim = float(re.search(r"COLLECT_CLAIM_SEC = ([0-9.]+)", src).group(1))
-    assert window < claim <= 600.0, "a stale reading needs longer than a burst"
+    assert window < claim <= 120.0, (
+        "a stale reading needs longer than a burst — and a claim wide enough to hold "
+        "another errand's resource packs is how the card came out three times over "
+        "(#2746e)")
     cap = float(re.search(r"HARVEST_MAX_SEC = ([0-9.]+)", src).group(1))
     assert claim < cap <= 3600.0, "a harvest that never ends is the account's trading"
 
@@ -307,12 +310,13 @@ def test_every_gain_of_a_harvest_is_counted_and_not_only_the_first():
     late.rt.interrupts.names = ["collect_base_resources"]
     late.note_running(now=1000.0)        # a push arrives while it runs and prices nothing
     late.rt.interrupts.names = []
-    assert late.from_base(now=1000.0 + 100.0) is True, (
-        "a gain priced a minute and a half later is still that harvest's")
+    assert late.from_base(now=1000.0 + rb.COLLECT_CLAIM_SEC - 10.0) is True, (
+        "a gain priced while the claim is open is still that harvest's")
     # …and so is the one after it, which is the whole of the fix.
-    assert late.from_base(now=1000.0 + 150.0) is True, (
+    assert late.from_base(now=1000.0 + rb.COLLECT_CLAIM_SEC - 1.0) is True, (
         "the second burst of one harvest was dropped")
-    assert late.from_base(now=1000.0 + 150.0 + rb.COLLECT_WINDOW_SEC - 1) is True, (
+    assert late.from_base(now=1000.0 + rb.COLLECT_CLAIM_SEC
+                          + rb.COLLECT_WINDOW_SEC - 2.0) is True, (
         "a cascade still arriving past the claim is still the harvest's")
 
 
@@ -471,6 +475,25 @@ def test_a_run_that_has_just_ENDED_still_arms_the_claim():
     old = _book()
     old.rt.schedule.runs["collect_base_resources"] = 1000.0
     assert old.from_base(now=1000.0 + rb.COLLECT_CLAIM_SEC + 1) is False
+
+
+def test_another_errands_resource_packs_are_not_the_bases():
+    """#2746e, measured live on 2026-09-11 — the over-count that replaced the under-count.
+
+    `collect_base_resources` ran at 08:16:16. `heal_units` opened resource packs to pay
+    for the heal at 08:16:55, and the packs' gains landed 154 s and 183 s after the
+    harvest. With a three-minute claim both were credited to the base's card: 32.5M food
+    that no building had produced, on a day whose real harvest was about 13M.
+    """
+    book = _book()
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.note_running(now=1000.0)
+    book.rt.interrupts.names = []
+    assert book.from_base(now=1000.0) is True, "the harvest's own gain"
+    # …and then a long silence while the heal opens its packs, and their gains:
+    assert book.from_base(now=1000.0 + 154.0) is False, (
+        "a heal's resource packs are not what the base's buildings produced")
+    assert book.from_base(now=1000.0 + 183.0) is False
 
 
 def _run_standalone() -> int:
