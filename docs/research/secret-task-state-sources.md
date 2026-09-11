@@ -119,6 +119,45 @@ the table answers for none of it. It is still read every three seconds by the re
 poll, and where it *does* answer it now stamps the row as verified — it costs nothing and
 on another account, with an alliance spread across warzones, it would cover more.
 
+### …and it DOES have a state read of its own, asked of the server (#2780)
+
+The scope verdict above is unchanged; what the first pass of this file did not say is that
+the shared table is not a cache anybody has to hope is fresh. `ActDispatchTaskDataManager`
+has `GetAllAllianceTasksFromServer()`, and wrapping `SFSNetwork.SendMessage` for the
+length of one call names what it puts on the wire. Measured live, 2026-09-11:
+
+```
+share_wire sent=[hero.dispatch.alliance.list] count_after=154
+```
+
+One message, one reply, the table went 153 → 154 entries. Nothing is robbed, no window
+opens and the camera does not move — this is the per-id read's missing half, for the rows
+it covers.
+
+**And unlike the per-id detail, a row here carries STATE.** The fields of a live row:
+
+```
+uuid  pointId  targetServer  ownerId  allianceId  cfgId  cfg=<table:6>
+completionTime  actEndTime  rewarded  followCount  heroList  assistInfo
+stealInfoList=<table:N>
+```
+
+`stealInfoList` is the `n` of `n/3` and it is filled: of 153 rows one carried an entry,
+and the entry is the whole robbery — `uid`, `name`, alliance `abbr`, `time`, the avatar.
+`completionTime` says when it became raidable and `actEndTime` when the event closes.
+That is every number the ★ grid draws, for a row that is in this table.
+
+Which rows are: measured on the same account, `targetServer` counted across all 154 —
+**153 on the home warzone, 1 elsewhere.** So the scope verdict holds and the read is
+worth having anyway: it is what keeps `n/3` honest for the home warzone, and on an
+account whose alliance is spread out it would answer for the ★ list too.
+
+The point this task was opened about is in neither table: `pointId=953218` is absent from
+all 154 alliance rows after a fresh server read, and `GetSingleTaskByPointId(953218)`
+answers `nil` against the 10 tasks of our own. That is stronger than the per-id silence
+and it is still not a denial — the table holds what the ALLIANCE shared, never every tile
+on the warzone.
+
 ## How a tile is learned to be GONE — the reply's own rectangle
 
 The question nothing above answers: the operator jumps to a coordinate the list calls
