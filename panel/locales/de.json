@@ -2470,6 +2470,7 @@
   "secrettasks.checked.hour": "vor {n} Std.",
   "secrettasks.checked.min": "vor {n} Min.",
   "secrettasks.checked.never": "nie",
+  "secrettasks.checking": "wird geprüft …",
   "secrettasks.checked.now": "gerade eben",
   "secrettasks.col.checked": "Geprüft",
   "panel.quit": "⏻  Panel herunterfahren",

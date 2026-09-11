@@ -2470,6 +2470,7 @@
   "secrettasks.checked.hour": "{n} jam lalu",
   "secrettasks.checked.min": "{n} mnt lalu",
   "secrettasks.checked.never": "belum pernah",
+  "secrettasks.checking": "memeriksa…",
   "secrettasks.checked.now": "baru saja",
   "secrettasks.col.checked": "Diperiksa",
   "panel.quit": "⏻  Matikan panel",

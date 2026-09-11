@@ -2470,6 +2470,7 @@
   "secrettasks.checked.hour": "há {n} h",
   "secrettasks.checked.min": "há {n} min",
   "secrettasks.checked.never": "nunca",
+  "secrettasks.checking": "verificando…",
   "secrettasks.checked.now": "agora mesmo",
   "secrettasks.col.checked": "Verificado",
   "panel.quit": "⏻  Desligar o painel",

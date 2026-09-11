@@ -2470,6 +2470,7 @@
   "secrettasks.checked.hour": "{n} ч назад",
   "secrettasks.checked.min": "{n} мин назад",
   "secrettasks.checked.never": "ни разу",
+  "secrettasks.checking": "проверяется…",
   "secrettasks.checked.now": "только что",
   "secrettasks.col.checked": "Сверено",
   "panel.quit": "⏻  Выключить панель",
