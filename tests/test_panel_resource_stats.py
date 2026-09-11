@@ -613,18 +613,38 @@ def test_one_sweep_arms_one_budget_however_many_frames_it_makes():
     assert book._budget == {"metal": 500}, "every frame re-armed the budget"
 
 
-def test_a_harvest_made_by_hand_is_budgeted_off_the_last_reading():
+def test_a_harvest_made_by_hand_is_a_LIST_of_keys_and_not_a_cap():
     """#2746d stands: a thumb on the green bubbles counts. It states no size, so the
-    budget is the last reading's own `pending` — which only ever understates."""
+    last reading's `pending` says only WHICH keys the base was holding (#2747).
+
+    Measured live: the person collected five hero-experience lines by hand at 10:04:56
+    on 2026-09-11, the game paid 302 400, and the card wrote 183 600 — the reading the
+    cap came from was minutes old and had the same five lines at 36 720 each.
+    """
     book = _book()
     book.watch()
     book.rt.resources.data = {
         "rows": [{"type": 14, "pending": 2600}],
-        "items": [{"id": 7001, "pending": 219}, {"id": 630011, "pending": 0}]}
+        "items": [{"id": 8001, "pending": 183600}, {"id": 630011, "pending": 0}]}
     book.rt.wire.say("building.production.collect")
-    assert book._budget == {"food": 2600, "item:7001": 219}
-    assert book._claim({"food": 2600, "item:7001": 219, "item:630011": 20}) == {
-        "food": 2600, "item:7001": 219}
+    assert book._budget == {"food": 2600, "item:8001": 183600}
+    assert book._claim({"item:8001": 302400}) == {"item:8001": 302400}, (
+        "a stale cap threw away two fifths of a real harvest")
+    # …and the second burst of the same sweep is not refused for having spent it
+    assert book._claim({"item:8001": 1000}) == {"item:8001": 1000}
+    # …while a key the base was not holding still gets nothing, which is the whole point
+    assert book._claim({"item:630011": 20, "item:7038": 20}) == {}
+
+
+def test_a_sweep_the_panel_played_is_still_capped_exactly():
+    book = _book()
+    book.watch()
+    book.rt.interrupts.vars = {"harvest_pending": "i8001=164160"}
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.rt.interrupts.changed()
+    assert book._claim({"item:8001": 164160}) == {"item:8001": 164160}
+    assert book._claim({"item:8001": 164160}) == {}, (
+        "the run stated its own size and it is a CAP")
 
 
 def test_the_base_book_is_written_through_the_budget():

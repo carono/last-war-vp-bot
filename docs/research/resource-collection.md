@@ -257,6 +257,26 @@ neither.
 The reading is exact rather than inferred: the reading of 23:55 on 2026-09-10 said 219
 screws were standing, and the harvest a minute later paid exactly 219.
 
+### A harvest made BY HAND states no size, and a stale cap is worse than none (#2747)
+
+The person: «5 зданий для генерации опыта изготовили по 60 000, после сбора в статистике
+180 000». Measured on the live panel of 2026-09-11:
+
+* 10:04:56 — the balance rose by `item:8001 +302 400` (five lines × 60 480), and the base's
+  book took **183 600**.
+* No run of `collect_base_resources` was on the register: the panel's own play had been
+  refused minutes earlier and the client went down at 10:08. The collect was the person's
+  own thumb, which is exactly the case #2746d says must count.
+* With no run to state the size, the budget came off the last READING's `pending`, which
+  was minutes old — the same five lines at 36 720 each. 183 600 = 5 × 36 720.
+
+A cap that is stale by construction loses two fifths of a real harvest, which is far
+worse than what the cap is for. So a GUESSED budget is now a LIST of the keys the base was
+known to be holding and never a ceiling on the amount: it still refuses a chest of drone
+parts, an arms-race prize or a crystal — the keys production never pays — and it takes what
+the base paid whole. A budget a RUN stated is unchanged and is still an exact cap, because
+that one is read off the game one line before anything is pressed.
+
 ## Notes for the next session
 
 - Reading values back from the daemon uses `CS.UnityEngine.Debug.LogError("MARK|"..x)`
