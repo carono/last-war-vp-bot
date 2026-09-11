@@ -297,9 +297,9 @@ class Overlay:
                 continue
             if started or not running:
                 break
-        self._finish_with_log(mark)
+        self._finish_with_log(mark, name)
 
-    def _finish_with_log(self, mark: int) -> None:
+    def _finish_with_log(self, mark: int, name: str) -> None:
         """Say how it ended in the PANEL's own words — the last line the run wrote.
 
         The log line is already a sentence in the panel's language by the time it gets
@@ -308,14 +308,18 @@ class Overlay:
         second wording for it.
         """
         rows = self.door.get("/api/log", since=mark, profile=self.door.profile)
-        lines = [r for r in (rows.get("lines") or [])
-                 if str(r.get("tag") or "") in ("action", "error")]
+        lines = rows.get("lines") or []
         bad = [r for r in lines if str(r.get("sev") or "") in ("error", "warn")]
         if bad:
             self._finish(text=str(bad[-1].get("text") or ""), tone="#f85149")
             return
-        if lines:
-            self._finish(text=str(lines[-1].get("text") or ""), tone="#3fb950")
+        # The run's own closing line — «< action: <name> OK», or HALTED with the reason
+        # the recipe gave. Matched on the SCENARIO's name rather than on a tag: a press
+        # from here is logged under the tag the panel gives a web press, and a bar that
+        # filtered by tag would go on saying «готово» to a run that was refused (#2768).
+        mine = [r for r in lines if ("action: %s" % name) in str(r.get("text") or "")]
+        if mine:
+            self._finish(text=str(mine[-1].get("text") or ""), tone="#3fb950")
             return
         self._finish("overlay.done", "#3fb950")
 
