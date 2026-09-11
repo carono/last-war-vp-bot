@@ -703,5 +703,43 @@ class _Day:
         return self._key
 
 
+
+def test_a_sweeps_tail_does_not_arm_a_second_budget():
+    """#2747, measured live: the run of 09:52:13 said it was about to collect 63 687
+    food and 174 screws; frames kept arriving after it left the register, the hand
+    fallback re-armed off the reading's own `pending`, and the card ended the minute on
+    77 332 food and 219 screws."""
+    book = _book()
+    book.watch()
+    book.rt.interrupts.vars = {"harvest_pending": "14=63687 #|# i7001=174"}
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.rt.interrupts.changed()
+    book.rt.interrupts.names = []
+    book.rt.interrupts.changed()
+    assert book._budget == {"food": 63687, "item:7001": 174}
+
+    # …the run is gone, the cascade is not, and the reading says a fresh pile is standing
+    book.rt.resources.data = {"rows": [{"type": 14, "pending": 99999}],
+                              "items": [{"id": 6001, "pending": 173}]}
+    book._budget_at = book._budget_at - (HAND_LATER := 100.0)
+    book.rt.wire.say("building.production.collect")
+    assert book._budget == {"food": 63687, "item:7001": 174}, (
+        "the tail of one sweep armed a second budget for the same harvest")
+    assert book._claim({"item:6001": 173}) == {}, (
+        "a key the harvest never claimed was credited to the base")
+
+
+def test_a_budget_does_not_outlive_the_harvest():
+    from panel.runtime import resource_book as rb
+
+    book = _book()
+    book.watch()
+    book.rt.interrupts.vars = {"harvest_pending": "14=1000"}
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.rt.interrupts.changed()
+    book._budget_at = book._budget_at - (rb.HARVEST_MAX_SEC + 1)
+    assert book._claim({"food": 1000}) == {}, "an hour-old budget was still spendable"
+
+
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())
