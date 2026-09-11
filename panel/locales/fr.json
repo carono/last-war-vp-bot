@@ -446,7 +446,7 @@
   "log.ghost.spend_failed": "la recette qui dépense la file d'attente n'a pas tourné : {reason}",
   "log.lang.unknown": "il n'y a pas de fichier de traduction pour la langue « {lang} » — j'utilise « {used} ». Place {lang}.json dans panel/locales pour la retrouver.",
   "log.launch_failed": "n'a pas pu être lancé : {error}",
-  "log.macro.listening": "macros clavier activées : 1–4 envoient cette escouade sur la cible cliquée sur la carte, Verr. Maj répète la dernière marche",
+  "log.macro.listening": "macros clavier activées : 1–4 envoient cette escouade sur la cible cliquée sur la carte, Verr. Maj répète la dernière marche, F12 affiche et masque les boutons par-dessus le jeu",
   "log.macro.repeat": "Verr. Maj : je répète la dernière marche — même escouade, même cible",
   "log.macro.send": "touche {squad} : envoi de l'escouade {squad} sur la cible cliquée",
   "log.macro.unavailable": "macros clavier indisponibles — le hook clavier n'a pas pu être installé sur cette machine",
@@ -3152,5 +3152,7 @@
   "log.overlay.starting": "je dessine les boutons du panneau par-dessus la fenêtre du client",
   "log.overlay.stopping": "je retire les boutons de la fenêtre du client",
   "log.overlay.other_session": "le client de ce profil est dans une autre session Windows — les boutons ne peuvent pas encore y être dessinés",
-  "log.overlay.no_door": "impossible de déterminer la porte web du panneau — les boutons n'ont rien à presser"
+  "log.overlay.no_door": "impossible de déterminer la porte web du panneau — les boutons n'ont rien à presser",
+  "log.macro.overlay_on": "F12 : je dessine les boutons du panneau par-dessus la fenêtre du client",
+  "log.macro.overlay_off": "F12 : je retire les boutons de la fenêtre du client"
 }

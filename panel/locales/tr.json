@@ -446,7 +446,7 @@
   "log.ghost.spend_failed": "kuyruğu harcayan tarif çalışmadı: {reason}",
   "log.lang.unknown": "«{lang}» dili için çeviri dosyası yok — «{used}» kullanılıyor. Geri getirmek için {lang}.json dosyasını panel/locales içine koy.",
   "log.launch_failed": "başlatılamadı: {error}",
-  "log.macro.listening": "klavye makroları açık: 1–4 o birliği haritada tıkladığın hedefe gönderir, Caps Lock son yürüyüşü tekrarlar",
+  "log.macro.listening": "klavye makroları açık: 1–4 o birliği haritada tıkladığın hedefe gönderir, Caps Lock son yürüyüşü tekrarlar, F12 oyunun üstündeki düğmeleri gösterir ve gizler",
   "log.macro.repeat": "Caps Lock: son yürüyüşü tekrarlıyorum — aynı birlik, aynı hedef",
   "log.macro.send": "{squad} tuşu: {squad}. birliği tıklanan hedefe gönderiyorum",
   "log.macro.unavailable": "klavye makroları kullanılamıyor — bu makinede klavye kancası kurulamadı",
@@ -3152,5 +3152,7 @@
   "log.overlay.starting": "panelin düğmelerini istemci penceresinin üstüne çiziyorum",
   "log.overlay.stopping": "düğmeleri istemci penceresinden kaldırıyorum",
   "log.overlay.other_session": "bu profilin istemcisi başka bir Windows oturumunda — düğmeler orada henüz çizilemiyor",
-  "log.overlay.no_door": "panelin web kapısı belirlenemedi — düğmelerin basacağı bir şey yok"
+  "log.overlay.no_door": "panelin web kapısı belirlenemedi — düğmelerin basacağı bir şey yok",
+  "log.macro.overlay_on": "F12: panelin düğmelerini istemci penceresinin üstüne çiziyorum",
+  "log.macro.overlay_off": "F12: düğmeleri istemci penceresinden kaldırıyorum"
 }

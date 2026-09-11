@@ -46,6 +46,7 @@ KEYS = (
     "web.ui.overlay", "web.ui.overlay.hint",
     "log.overlay.starting", "log.overlay.stopping",
     "log.overlay.other_session", "log.overlay.no_door",
+    "log.macro.overlay_on", "log.macro.overlay_off",
 )
 
 
@@ -100,6 +101,73 @@ def test_the_result_is_the_runs_own_closing_line_and_not_a_tag_guess():
     source = HELPER.read_text(encoding="utf-8")
     assert '("action: %s" % name)' in source
     assert '("action", "error")' not in source
+
+
+# ---------------------------------------------------------------------------
+# it moves WITH the window, and it asks nobody where the window is
+# ---------------------------------------------------------------------------
+def test_there_is_no_clock_behind_the_bars_position():
+    """The person's words: «оно бегает за окном … хотелось бы, чтобы они двигались
+    неразрывно». A 200 ms timer is a chase; the window manager's own events are not."""
+    import game_overlay
+
+    source = HELPER.read_text(encoding="utf-8")
+    assert not hasattr(game_overlay, "FOLLOW_MS"), "the position clock is back"
+    assert "SetWinEventHook" in source
+    assert "EVENT_OBJECT_LOCATIONCHANGE" in source
+    assert "WINEVENT_OUTOFCONTEXT" in source, "nothing of ours is loaded into the game"
+
+
+def test_the_only_clock_runs_while_there_is_no_client_to_follow():
+    import game_overlay
+
+    assert game_overlay.RESCAN_MS >= 1000
+    source = HELPER.read_text(encoding="utf-8")
+    assert "def look_for_client" in source
+    assert "self.root.after(RESCAN_MS, self.look_for_client)" in source
+
+
+def test_a_machine_that_refuses_the_hooks_says_so_and_still_follows():
+    source = HELPER.read_text(encoding="utf-8")
+    assert "no window events on this machine" in source
+    assert "FALLBACK_MS" in source
+
+
+def test_the_bar_is_not_made_an_owned_window_of_the_clients():
+    """Owned windows are destroyed with their owner, and the watchdog restarts this
+    client several times a day — the bar would go with it, every time (#2768)."""
+    source = HELPER.read_text(encoding="utf-8")
+    assert "def _own(" not in source
+    assert "GWLP_HWNDPARENT," not in source, "nothing may set the owner"
+
+
+# ---------------------------------------------------------------------------
+# F12
+# ---------------------------------------------------------------------------
+def test_f12_toggles_the_bar_through_the_panels_own_table():
+    from panel.runtime import hotkeys
+
+    assert hotkeys._VK_F12 == 0x7B
+    source = (_REPO / "panel" / "runtime" / "hotkeys.py").read_text(encoding="utf-8")
+    assert "overlaymod.HIDE if up else overlaymod.SHOW" in source, (
+        "F12 must press the same two-row table «Состояние» and the phone press")
+    assert "def _overlay(" in source
+
+
+def test_f12_is_swallowed_like_capslock():
+    """A key that toggles the bar AND falls through to the game is doing two things."""
+    from panel.runtime import hotkeys
+
+    listener = hotkeys.HotkeyListener(lambda: None, title="x")
+    assert listener._swallow(hotkeys._VK_F12) is True
+    assert listener._swallow(hotkeys._VK_CAPITAL) is True
+    assert listener._swallow(0x31) is False, "the digits are never taken from the game"
+
+
+def test_f12_only_counts_while_the_game_is_in_front():
+    source = (_REPO / "panel" / "runtime" / "hotkeys.py").read_text(encoding="utf-8")
+    assert "if (vk in _VK_SQUAD or vk in (_VK_CAPITAL, _VK_F12)) \\\n" \
+           "                        and self.game_in_front():" in source
 
 
 def test_the_press_never_takes_the_foreground_away_from_the_client():

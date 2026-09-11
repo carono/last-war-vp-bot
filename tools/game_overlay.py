@@ -50,6 +50,7 @@ bar with no edit here.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import sys
@@ -71,10 +72,18 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #: scenario's own name; its title comes from `/api/actions`, so nothing is spelled twice.
 BUTTONS = ("collect_base_resources",)
 
-#: How often the bar catches up with the game window — its position, its size, whether it
-#: is minimised and whether it is still the window in front. Cheap: two calls into the
-#: window manager, no game and no panel.
-FOLLOW_MS = 200
+#: How often the bar looks for a client to attach to WHILE IT HAS NONE. There is no clock
+#: at all once it is attached: the window manager tells us when the game's window moves,
+#: shows, hides or dies (:meth:`Overlay._listen`), so a bar that is following one is
+#: asking nothing of anybody. This is only «has a client appeared yet», and it is the one
+#: question no event can answer — nothing announces a window that does not exist.
+RESCAN_MS = 3000
+
+#: The fallback when this machine will not give us the events (`SetWinEventHook` refused).
+#: A clock, deliberately slower than the eye: the bar then LAGS visibly behind a dragged
+#: window, which is the honest way to show that the mechanism is not the one intended —
+#: and it says so on stdout, so the panel's log has it.
+FALLBACK_MS = 60
 
 #: How often the panel is asked how a press of OURS is getting on, and for how long. Only
 #: while one is in flight; a bar nobody has pressed asks nothing at all.
@@ -98,8 +107,33 @@ WS_EX_TOOLWINDOW = 0x00000080
 HWND_TOPMOST = -1
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
+SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
 SWP_SHOWWINDOW = 0x0040
+SW_HIDE = 0
+SW_SHOWNOACTIVATE = 4
+
+#: MAKING THE BAR AN OWNED WINDOW OF THE CLIENT'S WAS TRIED AND REJECTED, and the reason
+#: is not the anti-cheat (`GWLP_HWNDPARENT` writes nothing into the game and attaches no
+#: thread). It is the last sentence of the documented behaviour: **when an owner window is
+#: destroyed, its owned windows are destroyed too.** The panel's watchdog restarts this
+#: client several times a day, and every one of those would take the bar's own window —
+#: and with it the process — down, leaving «оверлей выключился сам» with nothing to show
+#: for it. Ownership would also not have moved the bar: an owned window keeps its own
+#: position, so the events below would have been needed anyway. Kept here as a constant
+#: so the next agent can see it was considered rather than missed.
+GWLP_HWNDPARENT = -8
+
+#: The window manager's own account of what a window is doing, which is what replaced the
+#: clock. `OUTOFCONTEXT` is the half that matters: nothing of ours is loaded into the
+#: game's process — the events are queued to OUR thread and delivered when it pumps.
+EVENT_SYSTEM_FOREGROUND = 0x0003
+EVENT_OBJECT_DESTROY = 0x8001
+EVENT_OBJECT_LOCATIONCHANGE = 0x800B
+EVENT_SYSTEM_MINIMIZESTART = 0x0016
+EVENT_SYSTEM_MINIMIZEEND = 0x0017
+WINEVENT_OUTOFCONTEXT = 0x0000
+OBJID_WINDOW = 0
 
 
 # -- the panel's door ---------------------------------------------------------
@@ -157,8 +191,6 @@ class Words:
 
 # -- the client's window ------------------------------------------------------
 def _user32():
-    import ctypes
-
     return ctypes.windll.user32
 
 
@@ -168,8 +200,6 @@ def find_client(titles=None) -> int:
     By title, among the visible top-level windows: another Windows session's windows are
     not enumerable from here, so the answer can only ever be this session's client.
     """
-    import ctypes
-
     wanted = tuple(t.lower() for t in (titles or game_paths.window_titles()))
     user32 = _user32()
     found = []
@@ -196,8 +226,6 @@ def find_client(titles=None) -> int:
 
 def window_rect(hwnd: int) -> "tuple | None":
     """``(left, top, right, bottom)`` of a window, or ``None`` when it is gone."""
-    import ctypes
-
     class RECT(ctypes.Structure):
         _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
                     ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
@@ -224,7 +252,12 @@ class Overlay:
         self.labels = labels or {}
         self.anchor = anchor
         self.hwnd_game = 0
+        self.hwnd_self = 0
         self._had_window = False            # so the first answer either way is said once
+        self._hooks = []                    # the window-manager hooks, while attached
+        self._winevent_proc = None          # the callback, kept alive by hand
+        self._shown = False                 # what the bar is doing right now
+        self._size = (0, 0)                 # settled once, in `run`
         self.watching = None                # the scenario a press of ours is running
         self.said_at = 0.0
         self._buttons = {}
@@ -328,6 +361,9 @@ class Overlay:
             self.watching = None
             self._enable(True)
             self._say(key, tone=tone, text=text)
+            # One shot, not a clock: the only reason anything is timed here is that a
+            # sentence about a finished run should not sit on the bar for ever.
+            self.root.after(int(KEEP_SEC * 1000), self._idle_later)
         self.root.after(0, done)
 
     def _enable(self, on: bool) -> None:
@@ -347,8 +383,6 @@ class Overlay:
         input only, so an overlay that activated itself on every press would be pressing
         buttons into a client that had just lost focus.
         """
-        import ctypes
-
         hwnd = self.root.winfo_id()
         parent = _user32().GetParent(ctypes.c_void_p(hwnd))
         hwnd = int(parent) if parent else int(hwnd)
@@ -358,52 +392,179 @@ class Overlay:
         user32.SetWindowLongW(ctypes.c_void_p(hwnd), GWL_EXSTYLE,
                               style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
 
-    def follow(self) -> None:
-        """One tick of the position clock: where the client is, and whether to be seen."""
-        import ctypes
+    # -- attaching to the client, and being told when it moves ---------------
+    def look_for_client(self) -> None:
+        """«Has a client appeared?» — the ONLY clock, and it runs only while there is none.
 
-        user32 = _user32()
-        if not self.hwnd_game or not user32.IsWindow(ctypes.c_void_p(self.hwnd_game)):
-            self.hwnd_game = find_client()
-        # A BAR THAT CANNOT FIND THE CLIENT SAYS SO ONCE, on stdout, which the panel
-        # streams into its log. Hiding silently for ever is exactly what an hour of #2768
-        # was spent on: the window it was looking for had the wrong name and nothing
-        # anywhere said a word about it.
-        if bool(self.hwnd_game) is not self._had_window:
-            self._had_window = bool(self.hwnd_game)
-            print("game window found" if self.hwnd_game else "no game window on this desktop",
-                  flush=True)
-        rect = window_rect(self.hwnd_game) if self.hwnd_game else None
-        front = int(user32.GetForegroundWindow() or 0)
-        minimised = bool(self.hwnd_game and user32.IsIconic(ctypes.c_void_p(self.hwnd_game)))
-        mine = front in (self.hwnd_game, getattr(self, "hwnd_self", 0))
-        if rect is None or minimised or not mine:
-            # Never a lid over another program: the bar belongs to the game's window and
-            # goes away with it.
-            self.root.withdraw()
+        Nothing announces a window that does not exist yet, so this one question cannot be
+        answered by an event. Everything else — moved, minimised, shown, gone — is told to
+        us by the window manager (:meth:`_listen`), so a bar that has found its client
+        asks nobody anything until that client dies.
+        """
+        if self.hwnd_game and _user32().IsWindow(ctypes.c_void_p(self.hwnd_game)):
+            return
+        hwnd = find_client()
+        if hwnd:
+            self._attach(hwnd)
         else:
-            self._place(rect)
-        if self.said_at and time.monotonic() - self.said_at > KEEP_SEC and not self.watching:
-            self._say("overlay.idle")
-            self.said_at = 0.0
-        self.root.after(FOLLOW_MS, self.follow)
+            self._say_window(False)
+            self.root.after(RESCAN_MS, self.look_for_client)
+
+    def _say_window(self, found: bool) -> None:
+        """Said ONCE on each change, on stdout, which the panel streams into its log.
+
+        Hiding silently for ever is exactly what an hour of #2768 was spent on: the window
+        it was looking for had the wrong name and nothing anywhere said a word about it.
+        """
+        if found is self._had_window:
+            return
+        self._had_window = found
+        print("game window found" if found else "no game window on this desktop",
+              flush=True)
+
+    def _attach(self, hwnd: int) -> None:
+        """Own the client's window, listen to it, and put the bar where it belongs."""
+        self.hwnd_game = int(hwnd)
+        self._say_window(True)
+        self._listen(self.hwnd_game)
+        self._sync()
+
+    def _detach(self) -> None:
+        """The client has gone: stop listening, hide, and start looking for the next one.
+
+        A client is restarted by the panel's own watchdog several times a day, so this is
+        the ordinary path rather than the end of anything.
+        """
+        self._unlisten()
+        self.hwnd_game = 0
+        self._show(False)
+        self._say_window(False)
+        self.root.after(RESCAN_MS, self.look_for_client)
+
+    def _listen(self, hwnd: int) -> None:
+        """Ask the window manager to tell us when THAT window moves, hides or dies.
+
+        Two hooks, narrowed to the client's own thread, `WINEVENT_OUTOFCONTEXT`: nothing
+        of ours is loaded into the game's process and no thread of ours is attached to
+        its input queue — the events are queued to this thread and delivered when Tk
+        pumps, which it does continuously. That is what makes the bar move WITH the
+        window instead of after it, and it is what lets the clock go.
+        """
+        self._unlisten()
+        user32 = _user32()
+        pid = ctypes.c_ulong(0)
+        thread = user32.GetWindowThreadProcessId(ctypes.c_void_p(hwnd), ctypes.byref(pid))
+        proto = ctypes.WINFUNCTYPE(None, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p,
+                                   ctypes.c_long, ctypes.c_long, ctypes.c_ulong,
+                                   ctypes.c_ulong)
+        self._winevent_proc = proto(self._on_window_event)
+        # Two narrowed to the client's own thread — moved, minimised, shown, gone — and
+        # one MACHINE-WIDE for «which window is in front», because the bar has to go away
+        # when something else is brought up over the game and no event of the game's own
+        # says that. It is still an event and not a poll: it fires when a person switches
+        # windows, which is a handful of times a day.
+        wanted = ((EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, pid.value, thread),
+                  (EVENT_OBJECT_DESTROY, EVENT_OBJECT_LOCATIONCHANGE, pid.value, thread),
+                  (EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, 0, 0))
+        for low, high, who, which in wanted:
+            handle = user32.SetWinEventHook(low, high, None, self._winevent_proc,
+                                            who, which, WINEVENT_OUTOFCONTEXT)
+            if handle:
+                self._hooks.append(handle)
+        if not self._hooks:
+            # NEVER SILENTLY STOP FOLLOWING. A clock is the wrong mechanism and says so.
+            print("no window events on this machine — the bar falls back to a clock",
+                  flush=True)
+            self.root.after(FALLBACK_MS, self._tick)
+
+    def _unlisten(self) -> None:
+        user32 = _user32()
+        for handle in self._hooks:
+            try:
+                user32.UnhookWinEvent(handle)
+            except Exception:              # noqa: BLE001 — shutting a hook, never the bar
+                pass
+        self._hooks = []
+
+    def _on_window_event(self, _hook, event, hwnd, id_object, _id_child,
+                         _thread, _time) -> None:
+        """One thing the client's window did. Called on THIS thread, while Tk pumps."""
+        try:
+            if event == EVENT_SYSTEM_FOREGROUND:
+                self._sync()
+                return
+            if int(hwnd or 0) != self.hwnd_game or id_object != OBJID_WINDOW:
+                return
+            if event == EVENT_OBJECT_DESTROY:
+                self._detach()
+                return
+            self._sync()
+        except Exception:                  # noqa: BLE001 — a callback must never raise
+            pass
+
+    def _tick(self) -> None:
+        """The fallback clock — armed only when this machine refused the hooks."""
+        if not self._hooks and self.hwnd_game:
+            if not _user32().IsWindow(ctypes.c_void_p(self.hwnd_game)):
+                self._detach()
+                return
+            self._sync()
+            self.root.after(FALLBACK_MS, self._tick)
+
+    # -- where the bar goes --------------------------------------------------
+    def _sync(self) -> None:
+        """Put the bar where the client's window is now, or take it off the screen."""
+        user32 = _user32()
+        if not self.hwnd_game:
+            self._show(False)
+            return
+        minimised = bool(user32.IsIconic(ctypes.c_void_p(self.hwnd_game)))
+        visible = bool(user32.IsWindowVisible(ctypes.c_void_p(self.hwnd_game)))
+        # Never a lid over another program: the bar is the game's window's and goes away
+        # with it. Told by the foreground hook, not asked on a clock.
+        front = int(user32.GetForegroundWindow() or 0)
+        mine = front in (self.hwnd_game, self.hwnd_self)
+        rect = window_rect(self.hwnd_game)
+        if rect is None or minimised or not visible or not mine:
+            self._show(False)
+            return
+        self._place(rect)
 
     def _place(self, rect) -> None:
-        import ctypes
+        """Move the bar to the client's edge — one `SetWindowPos`, and no z-order change.
 
+        Deliberately not `root.geometry()`: Tk's own move goes through the geometry
+        manager and an idle task, and this is called for every step of a dragged window.
+        The z-order is left alone HERE and settled once by :meth:`_show` — re-asserting
+        «topmost» on every step of a drag is work for nothing and a chance to flicker.
+        """
         left, top, right, _bottom = rect
-        self.root.update_idletasks()
-        width = self.root.winfo_reqwidth()
-        x = (right - width - MARGIN) if self.anchor == "right" else (left + MARGIN)
+        x = (right - self._size[0] - MARGIN) if self.anchor == "right" else (left + MARGIN)
         y = top + MARGIN
-        self.root.geometry(f"+{int(x)}+{int(y)}")
-        if not self.root.winfo_viewable():
-            self.root.deiconify()
-        # Re-asserted every tick without activating: a client that was just brought to
-        # the front would otherwise be drawn over the bar.
-        _user32().SetWindowPos(ctypes.c_void_p(getattr(self, "hwnd_self", 0)),
-                               ctypes.c_void_p(HWND_TOPMOST), 0, 0, 0, 0,
-                               SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        _user32().SetWindowPos(ctypes.c_void_p(self.hwnd_self), None, int(x), int(y),
+                               0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
+        self._show(True)
+
+    def _show(self, on: bool) -> None:
+        """Show or hide the bar itself, WITHOUT activating it and without asking Tk."""
+        if on is self._shown:
+            return
+        self._shown = on
+        user32 = _user32()
+        user32.ShowWindow(ctypes.c_void_p(self.hwnd_self),
+                          SW_SHOWNOACTIVATE if on else SW_HIDE)
+        if on:
+            user32.SetWindowPos(ctypes.c_void_p(self.hwnd_self),
+                                ctypes.c_void_p(HWND_TOPMOST), 0, 0, 0, 0,
+                                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
+
+    def _idle_later(self) -> None:
+        """Put the status line back to «Готов» a while after a run ended."""
+        if self.watching or not self.said_at:
+            return
+        if time.monotonic() - self.said_at >= KEEP_SEC:
+            self._say("overlay.idle")
+            self.said_at = 0.0
 
     def quit(self) -> None:
         try:
@@ -415,8 +576,12 @@ class Overlay:
         self.root.deiconify()
         self.root.update_idletasks()
         self._exstyle()
-        self.root.withdraw()
-        self.follow()
+        # The size is settled ONCE, here: the bar's contents do not change while it runs,
+        # and asking Tk for it on every move of a dragged window is exactly the cost this
+        # pass was about.
+        self._size = (self.root.winfo_reqwidth(), self.root.winfo_reqheight())
+        self._show(False)
+        self.look_for_client()
         self.root.mainloop()
 
 

@@ -446,7 +446,7 @@
   "log.ghost.spend_failed": "la receta que gasta la cola no se ejecutó: {reason}",
   "log.lang.unknown": "no hay fichero de traducción para el idioma «{lang}» — uso «{used}». Pon {lang}.json en panel/locales para recuperarlo.",
   "log.launch_failed": "no se pudo arrancar: {error}",
-  "log.macro.listening": "macros de teclado activadas: 1–4 envían esa escuadra al objetivo que has pulsado en el mapa, Bloq Mayús repite la última marcha",
+  "log.macro.listening": "macros de teclado activadas: 1–4 envían esa escuadra al objetivo que has pulsado en el mapa, Bloq Mayús repite la última marcha, F12 muestra y oculta los botones sobre el juego",
   "log.macro.repeat": "Bloq Mayús: repito la última marcha — la misma escuadra, el mismo objetivo",
   "log.macro.send": "tecla {squad}: envío la escuadra {squad} al objetivo pulsado",
   "log.macro.unavailable": "macros de teclado no disponibles — no se pudo instalar el hook de teclado en esta máquina",
@@ -3152,5 +3152,7 @@
   "log.overlay.starting": "dibujo los botones del panel sobre la ventana del cliente",
   "log.overlay.stopping": "quito los botones de la ventana del cliente",
   "log.overlay.other_session": "el cliente de este perfil está en otra sesión de Windows — allí todavía no se pueden dibujar los botones",
-  "log.overlay.no_door": "no se pudo determinar la puerta web del panel — los botones no tienen qué pulsar"
+  "log.overlay.no_door": "no se pudo determinar la puerta web del panel — los botones no tienen qué pulsar",
+  "log.macro.overlay_on": "F12: dibujo los botones del panel sobre la ventana del cliente",
+  "log.macro.overlay_off": "F12: quito los botones de la ventana del cliente"
 }

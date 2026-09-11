@@ -446,7 +446,7 @@
   "log.ghost.spend_failed": "công thức tiêu thụ hàng đợi đã không chạy: {reason}",
   "log.lang.unknown": "không có tệp dịch cho ngôn ngữ «{lang}» — dùng «{used}». Hãy đặt {lang}.json vào panel/locales để lấy lại.",
   "log.launch_failed": "không khởi động được: {error}",
-  "log.macro.listening": "phím tắt đang bật: 1–4 gửi đội đó tới mục tiêu bạn đã bấm trên bản đồ, Caps Lock lặp lại cuộc hành quân gần nhất",
+  "log.macro.listening": "phím tắt đang bật: 1–4 gửi đội đó tới mục tiêu bạn đã bấm trên bản đồ, Caps Lock lặp lại cuộc hành quân gần nhất, F12 hiện và ẩn các nút trên cửa sổ game",
   "log.macro.repeat": "Caps Lock: lặp lại cuộc hành quân gần nhất — cùng đội, cùng mục tiêu",
   "log.macro.send": "phím {squad}: gửi đội {squad} tới mục tiêu đã bấm",
   "log.macro.unavailable": "không dùng được phím tắt — không cài được hook bàn phím trên máy này",
@@ -3152,5 +3152,7 @@
   "log.overlay.starting": "vẽ các nút của panel lên cửa sổ client",
   "log.overlay.stopping": "gỡ các nút khỏi cửa sổ client",
   "log.overlay.other_session": "client của hồ sơ này ở phiên Windows khác — chưa thể vẽ các nút ở đó",
-  "log.overlay.no_door": "không xác định được cửa web của panel — các nút không có gì để nhấn"
+  "log.overlay.no_door": "không xác định được cửa web của panel — các nút không có gì để nhấn",
+  "log.macro.overlay_on": "F12: vẽ các nút của panel lên cửa sổ client",
+  "log.macro.overlay_off": "F12: gỡ các nút khỏi cửa sổ client"
 }
