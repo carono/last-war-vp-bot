@@ -228,7 +228,23 @@ game's own tables, `ItemTemplateManager:GetName` / the row's `pic`, with
 | 8001 | resource item | «Опыт героя» | `item230001` |
 | 630011 | bag | «Сундук Компонента Дрона 1 ур.» | `icon_suijicheku` |
 | 800003 | bag | «Руководство по тренировкам» | `zyf_zhuzai_jihuashu_daoju_icon_new` |
-| 521050 | bag | «Фиолетовый кристалл» | not extracted on this machine → the name is drawn |
+| 521050 | bag | «Фиолетовый кристалл» | `zyf_jingshiyigou_ziyuan_daoju2` |
+
+THE CRYSTAL'S PICTURE WAS NOT MISSING, IT WAS NOT EXTRACTED YET (#2747). This row read
+«not extracted on this machine → the name is drawn» and that was the SYMPTOM rather than
+the fact. The client names the sprite on the item's own row exactly as it does for the
+other six; `panel/runtime/resources.py::item_icon` answers `""` when the file is not on
+the disk, so a sprite nobody had extracted was indistinguishable from an item the game
+names no picture for.
+
+The sprite is in the index under the ordinary item tree — `Assets/Main/Sprites/ItemIcons`,
+bundle `gameres_dynamic_atlas_sprites_itemicons_42_…`, which WAS already in this machine's
+cache. Nothing had to be downloaded: `tools/extract_item_icons.py` simply had not been
+re-run since the activity that added the sprite shipped, and the re-run brought in 25 new
+pictures. **When a picture is missing, ask the index before concluding the machine has not
+got it** — the three questions in order are: does the game name a sprite at all, is that
+name in `gameres`, and is its bundle in the cache. Only the third is a real absence
+(#2632, where two bundles genuinely were not there).
 
 Two things measured along the way, so nobody re-walks them:
 
