@@ -2470,6 +2470,7 @@
   "secrettasks.checked.hour": "{n} giờ trước",
   "secrettasks.checked.min": "{n} phút trước",
   "secrettasks.checked.never": "chưa lần nào",
+  "secrettasks.checking": "đang kiểm tra…",
   "secrettasks.checked.now": "vừa xong",
   "secrettasks.col.checked": "Đã đối chiếu",
   "panel.quit": "⏻  Tắt bảng điều khiển",

@@ -2470,6 +2470,7 @@
   "secrettasks.checked.hour": "{n} h ago",
   "secrettasks.checked.min": "{n} min ago",
   "secrettasks.checked.never": "never",
+  "secrettasks.checking": "checking…",
   "secrettasks.checked.now": "just now",
   "secrettasks.col.checked": "Verified",
   "panel.quit": "⏻  Shut the panel down",

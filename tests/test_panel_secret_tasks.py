@@ -2184,6 +2184,45 @@ def test_a_tile_missing_from_a_square_that_answered_is_gone_and_a_silent_square_
     assert (fmt["checked"], fmt["gone"], fmt["unconfirmed"]) == (2, 1, 1), fmt
 
 
+def test_the_row_being_checked_wears_a_mark_and_loses_it_with_its_verdict():
+    """«Пусть на время сверки в карточке секретки появляется прелоадер» (#2780).
+
+    THE WHOLE RUN IS MARKED AT ONCE and each warzone's rows are cleared as their verdict
+    lands, so a person watching the list sees it empty of marks as the check progresses —
+    rather than one group lighting up while rows that ARE in the run look untouched.
+
+    It is one flag read by both front-ends: the window's state cell
+    (`grid.state_text`) and the phone's chip and pill (`web_view`). Nothing polls for it —
+    the mark appears on the render the press itself asks for.
+    """
+    near = _row(1, 7, -5_000, 600_000)
+    far = _row(2, 7, -5_000, 600_000)
+    far["x"], far["y"] = 500, 500
+    for row in (near, far):
+        row["ready"] = True
+    tab = _state_tab({"1": near, "2": far})
+    for row in tab._rows.values():
+        row["checking"] = True
+
+    import time as _t
+    cell = gr.state_text(tab._rows["1"], int(_t.time() * 1000),
+                         lambda key, **kw: key)
+    assert "secrettasks.checking" in cell, cell
+
+    # The first warzone is judged while a second is still queued: the judged row loses
+    # the mark, the one still waiting its turn keeps it.
+    tab._verify_queue = [(2, ((500, 500),), ("2",))]
+    tab._verify_apply(1, ("1",), __import__("time").time() - 5,
+                      [_ScanTile(1, loot_count=1)])
+    assert not tab._rows["1"].get("checking"), "the mark outlived the verdict"
+    assert tab._rows["2"].get("checking"), "a row still queued lost its mark early"
+
+    # …and nothing is left wearing it when the run ends, however it ended.
+    tab._verify_finish()
+    assert not any(r.get("checking") for r in tab._rows.values()), \
+        "a row is still saying «проверяется» after the run"
+
+
 def test_a_walk_that_heard_nothing_removes_nothing():
     """A silent walk is «I have nothing to say», never «none of them exists» (#1484)."""
     rows = {"1": _row(1, 7, -5_000, 600_000), "2": _row(2, 7, -5_000, 600_000)}

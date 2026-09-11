@@ -2470,6 +2470,7 @@
   "secrettasks.checked.hour": "{n} sa önce",
   "secrettasks.checked.min": "{n} dk önce",
   "secrettasks.checked.never": "hiç",
+  "secrettasks.checking": "kontrol ediliyor…",
   "secrettasks.checked.now": "az önce",
   "secrettasks.col.checked": "Denetlendi",
   "panel.quit": "⏻  Paneli kapat",

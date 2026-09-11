@@ -2231,8 +2231,21 @@ class SecretTasksTab(PanelTab):
                  servers=len(plan), points=sum(len(p[1]) for p in plan))
         self._verify_was = {str(r["uuid"]): int(r.get("loot_count") or 0)
                             for r in targets}
+        # EVERY ROW IN THE RUN IS MARKED AT ONCE, and that is the honest shape rather
+        # than marking only the warzone being walked this second (#2780). The press
+        # decides the whole set; a row on the third warzone IS in the check, it is
+        # merely not its turn yet, and a person watching a list where one group lights
+        # up and the rest look untouched cannot tell «queued» from «not included». The
+        # mark clears per warzone, the moment that warzone's verdict lands, so the list
+        # empties of marks as the run progresses.
+        for row in targets:
+            row["checking"] = True
         self._verify_queue = plan
         self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+        # Drawn before the first walk starts: the run is now on, and the screen has to
+        # say so before anything blocks. Both front-ends read the same flag — the state
+        # cell in the window, the pill on the phone's card — so neither polls for it.
+        self._render()
         self._verify_next()
 
     def _verify_targets(self) -> list:
@@ -2427,6 +2440,13 @@ class SecretTasksTab(PanelTab):
             self._rows.pop(key, None)
             self._dismiss([key])
             tally["gone"] += 1
+        # …AND THE MARK COMES OFF THIS WARZONE'S ROWS (#2780), whichever of the three
+        # answers each of them got: what the row shows now IS the result — alive with a
+        # fresh «Сверено», removed, or unchanged because nothing was confirmed.
+        for key in keys:
+            row = self._rows.get(key)
+            if row is not None:
+                row.pop("checking", None)
         self._render()
         self._update_status()
         self._persist_rows()
@@ -2437,6 +2457,15 @@ class SecretTasksTab(PanelTab):
         tally = self._verify_tally
         self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
         self._verify_was = {}
+        # NOTHING IS LEFT WEARING THE MARK (#2780). A run whose claim was refused, or one
+        # cut short, never reaches the per-warzone clear above — and a row that says
+        # «проверяется» for ever is worse than one that never said it, because it is the
+        # one state a person cannot act on.
+        left = [r for r in self._rows.values() if r.get("checking")]
+        for row in left:
+            row.pop("checking", None)
+        if left:
+            self._render()
         if not tally["checked"]:
             return
         self.say("secret", "log.secret.state_done", checked=tally["checked"],
@@ -5412,7 +5441,16 @@ class SecretTasksTab(PanelTab):
             # warzone chart's tiles carry. It is what the row IS, in the order the pill
             # already decides: robbed outranks spent outranks ready, and everything with
             # a clock still running is «ещё идёт».
-            tag = ("robbed" if robbed else "spent" if spent
+            # A CHECK IN FLIGHT OUTRANKS EVERY OTHER WORD ON THE ROW (#2780): while it
+            # runs, what the card says about the tile is precisely what is in question,
+            # and «готово к сбору» on a row being checked invites the one press that
+            # should wait a few seconds. It is the same flag the window's state cell
+            # reads, drawn with the chip and the pill the card already has — no new
+            # component, no colour of its own, so both themes paint it as they do the
+            # rest.
+            checking = bool(row.get("checking"))
+            tag = ("checking" if checking
+                   else "robbed" if robbed else "spent" if spent
                    else "ready" if row.get("ready") else "waiting")
             tally[tag] = tally.get(tag, 0) + 1
             items.append({
@@ -5425,7 +5463,8 @@ class SecretTasksTab(PanelTab):
                 # anywhere in here and no second theme over there. Only «готово» is
                 # lifted: a wall in which everything is coloured is a wall in which
                 # nothing is, and ready is the only one of the four that is a decision.
-                **({"tone": "ok"} if tag == "ready" else {}),
+                **({"tone": "ok"} if tag == "ready"
+                   else {"tone": "warn"} if checking else {}),
                 # Ready: how long is left to take it. Not ready: when it becomes one.
                 "until": ((exp if row.get("ready") else done) or 0) / 1000.0 or None,
                 # Robbed outranks both other pills: «готово» on a tile we have taken is
@@ -5434,7 +5473,8 @@ class SecretTasksTab(PanelTab):
                 # …and the ten-second window the window's «Собрать» appears in (#1272).
                 # The pill says a tile is ripe at the same instant the button appears —
                 # and since #2660 the button appears here too (`_star_item_actions`).
-                "pill": ("secrettasks.robbed_mark" if robbed
+                "pill": ("secrettasks.checking" if checking
+                         else "secrettasks.robbed_mark" if robbed
                          else "secrettasks.spent" if spent
                          else "secrettasks.ready" if row.get("ready")
                          else "secrettasks.collect_soon"
@@ -6006,7 +6046,12 @@ class SecretTasksTab(PanelTab):
     #: because it is the only one that is a decision: a ripe tile is a robbery that can be
     #: made now. The rest say what the other rows are, so a short list explains itself
     #: instead of looking broken.
-    STAR_FILTERS = (("ready", "secrettasks.ready"),
+    #: …and «проверяется» goes in FRONT of «готовые» while a check is running (#2780).
+    #: It is empty the rest of the time and a chip with nothing behind it is left out, so
+    #: this costs the card nothing until the press that fills it — and it is what answers
+    #: «сколько ещё осталось сверить» without a second reading anywhere.
+    STAR_FILTERS = (("checking", "secrettasks.checking"),
+                    ("ready", "secrettasks.ready"),
                     ("waiting", "secrettasks.filter.waiting"),
                     ("robbed", "secrettasks.robbed_mark"),
                     ("spent", "secrettasks.spent"))

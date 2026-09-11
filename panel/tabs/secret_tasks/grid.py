@@ -446,6 +446,14 @@ def state_text(row, now: int, t) -> str:
     # (#1245). It is the cell rewritten every second, so a mark that landed since
     # the last full redraw — an alliancemate pressing share in the game — shows
     # within the second without the table being rebuilt.
+    # A CHECK IN FLIGHT SAYS SO, ON THE ROW BEING CHECKED (#2780). «Свериться» is a run
+    # of several seconds per warzone and until now it moved nothing on screen until it
+    # was over, so a person who pressed it had no way to tell a slow check from one that
+    # never started. The mark rides in the state cell — the one thing here redrawn four
+    # times a second — rather than in a widget of its own, so it appears and clears with
+    # the flag and needs no clock of its own.
+    if row.get("checking"):
+        state = "%s · %s" % (t("secrettasks.checking"), state)
     if row.get("shared"):
         state = "%s · %s" % (state, t("secrettasks.shared_mark"))
     # «уже ограбили» rides in the same cell, for the same reason and beside the same
