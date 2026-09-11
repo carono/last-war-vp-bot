@@ -129,6 +129,13 @@ READ_CHAIN = "resources.harvest"
 #: minutes is far longer than any measured harvest and far shorter than an errand round.
 HARVEST_MAX_SEC = 600.0
 
+#: HOW LONG A BUDGET READ OFF A HAND HARVEST STAYS ARMED, in seconds (#2747). A harvest
+#: the panel played states its own size in a variable; one made with a thumb states
+#: nothing at all, so the budget is taken from the last reading's `pending` on the first
+#: collect frame and left alone while the frames keep coming — a sweep of 36 buildings
+#: is one harvest and must arm one budget, not 36.
+HAND_BUDGET_SEC = 45.0
+
 #: HOW LONG A COLLECT MAY WAIT TO BE PRICED, in seconds — and why this is not the same
 #: number (#2743, measured live). A gain is priced by DIFFING the balance the panel has
 #: read, and that reading is served stale on purpose: `BaseResources` answers out of its
@@ -190,6 +197,18 @@ class ResourceBook:
         # When the last gain was credited to the harvest, so a cascade that is still
         # arriving past the claim is still that harvest's — bounded by HARVEST_MAX_SEC.
         self._burst_at = 0.0
+        # WHAT THIS HARVEST SAID IT WAS ABOUT TO PAY, per key, minus what has already
+        # been credited to the base's book (#2747). A window alone cannot tell a
+        # harvest's own cascade from a prize that landed inside it; a budget can, because
+        # the game stated the size before a single building was collected.
+        self._budget: dict = {}
+        # When it was armed, and off which run — so the 36 frames of one sweep arm one
+        # budget and a second harvest arms a fresh one.
+        self._budget_at = 0.0
+        self._budget_seq = None
+        # The run currently doing the harvesting, kept for its `ctx.vars`: the size is
+        # read there, and by the time the run leaves the register the handle is gone.
+        self._collect_run = None
         self._off = None
         # The register's own «a run started or ended» (`panel/runtime/interrupt.py`) —
         # the ONE signal that does not care who pressed. A run started from the phone,
@@ -242,6 +261,10 @@ class ResourceBook:
         self._labels = {}
         self._collect_at = self._burst_at = 0.0
         self._collect_live = False
+        self._budget = {}
+        self._budget_at = 0.0
+        self._budget_seq = None
+        self._collect_run = None
 
     # -- the day, and where a gain came from ---------------------------------
     def day(self) -> "str | None":
@@ -366,6 +389,74 @@ class ResourceBook:
         except Exception:                # noqa: BLE001 — a baseline, never the gain
             self._off_ready = None
 
+    # -- how much of what follows is the harvest's ---------------------------
+    def _arm_budget(self, run=None, now: "float | None" = None) -> None:
+        """State what this harvest is worth, so nothing else can be charged to it.
+
+        TWO SOURCES, and the first is exact (#2747). A harvest the panel played reads
+        `GetBuildingCurrStorage` off every production line BEFORE it presses anything
+        and leaves the sum in :data:`~panel.runtime.reads.HARVEST_VAR`; that is the
+        number the sweep is about to bring in, per resource and per item. A harvest made
+        with a thumb states nothing, so the budget falls back on the last reading's own
+        `pending`, which is the same number however stale the reading was.
+
+        Armed ONCE per harvest: the run's sequence number pins the first, and a hand
+        sweep of 36 frames is held together by :data:`HAND_BUDGET_SEC`. Re-arming on
+        every frame would hand a 36-building sweep 36 budgets, which is the same leak
+        the window had, wearing a budget's clothes.
+        """
+        now = time.time() if now is None else float(now)
+        seq = getattr(run, "seq", None) if run is not None else None
+        if seq is not None:
+            if seq == self._budget_seq:
+                return
+            raw = (getattr(getattr(run, "ctx", None), "vars", None) or {}).get(
+                reads.HARVEST_VAR)
+            if raw in (None, ""):
+                # The read has not landed yet — the sweep is one line further up. The
+                # next collect frame asks again, and the frames are what the sweep makes.
+                return
+            self._budget_seq = seq
+            self._budget = reads.parse_harvest(raw)
+            self._budget_at = now
+            return
+        if self._budget and now - self._budget_at <= HAND_BUDGET_SEC:
+            return                       # the same hand sweep, still arriving
+        self._budget_seq = None
+        self._budget = reads.pending_balance(self.rt)
+        self._budget_at = now
+
+    def _live_collect_run(self):
+        """The harvest on the register right now, or `None`."""
+        try:
+            for run in self.rt.interrupts.running():
+                if getattr(run, "name", "") == COLLECT_ACTION:
+                    return run
+        except Exception:                # noqa: BLE001 — a source, never the gain
+            return None
+        return None
+
+    def _claim(self, gains: dict) -> dict:
+        """What of ``gains`` this harvest still has room for — and spend that room.
+
+        A key the harvest never said it would pay gets nothing, which is the whole point:
+        a chest of drone parts opened a minute after the sweep is not the base's
+        production however close to it it landed.
+        """
+        out: dict = {}
+        for key, amount in (gains or {}).items():
+            try:
+                left = int(self._budget.get(key, 0))
+                amount = int(amount)
+            except (TypeError, ValueError):
+                continue
+            if left <= 0 or amount <= 0:
+                continue
+            take = min(amount, left)
+            self._budget[key] = left - take
+            out[key] = take
+        return out
+
     def _on_collect_wire(self, _command: str = "") -> None:
         """The game says a production building was collected. ANY thread, no game call.
 
@@ -374,16 +465,20 @@ class ResourceBook:
         the burst collapses into the last frame's booking (`panel/runtime/tick.py`).
         """
         self._collect_at = time.time()
+        self._arm_budget(self._collect_run or self._live_collect_run())
         self._post(self._book_reads)
 
     def _runs_changed(self) -> None:
         """A run started or ended. Called on whatever thread reported it."""
         now = time.time()
-        try:
-            names = {getattr(run, "name", "") for run in self.rt.interrupts.running()}
-        except Exception:                # noqa: BLE001 — a source, never the gain
-            return
-        live = COLLECT_ACTION in names
+        run = self._live_collect_run()
+        live = run is not None
+        if live:
+            # KEPT WHILE IT RUNS, and asked again on every frame: the size is read one
+            # line before the sweep presses anything, so the handle has to outlive the
+            # moment the run entered the register (#2747).
+            self._collect_run = run
+            self._arm_budget(run, now)
         if live == self._collect_live:
             return
         self._collect_live = live
@@ -395,6 +490,8 @@ class ResourceBook:
             # is how an hour of trucks and gifts would land on the harvest card.
             self._post(self._flush_baseline)
         else:
+            self._arm_budget(self._collect_run, now)
+            self._collect_run = None
             self._post(self._book_reads)
 
     def _post(self, func) -> None:
@@ -493,8 +590,15 @@ class ResourceBook:
         # was its harvest. Two books rather than one column with a flag: the card of
         # «Сбор ресурсов» asks one question and «Статистика» asks the other, and neither
         # has to filter the other's rows.
-        if self.from_base() if base is None else bool(base):
-            self._base = self.base.add(gains, day)
+        # …CAPPED BY WHAT THE HARVEST SAID IT WAS WORTH (#2747). The window says WHEN a
+        # gain could be the harvest's; the budget says HOW MUCH of it can be, and a key
+        # the harvest never claimed gets nothing at all. The person's report: 34
+        # «Запчастей дрона» on a base that makes about seven a day — two arms-race prizes
+        # of twenty, landing a minute after the sweep, inside the burst chain.
+        mine = self._claim(gains) if (self.from_base() if base is None
+                                      else bool(base)) else {}
+        if mine:
+            self._base = self.base.add(mine, day)
             statsmod.save_stats_to_store(
                 self.rt.store, self._base, statsmod.BASE_BLOB)
         try:
