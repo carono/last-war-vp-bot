@@ -290,3 +290,22 @@ about whether the tile is taken.
 So per-id confirmation is not a supplement to the walk either: the points it can confirm
 are the ones the walk has just loaded, and only while the map is still up.
 
+
+### The row this task was opened about (#2780)
+
+The coordinate the operator named — warzone 8128, X218 Y953 — asked from the base on
+2026-09-11 at 16:35, the link green and the client talking to the game:
+
+```
+READ_LUA state = 'pid=953218 exists=unknown'
+```
+
+`unknown`, which by the rule above says **nothing** about the tile: not that it is gone,
+not that it is there. Nothing else could be compared against it either — by then the ★
+store held **no such row**, on any profile (`secret_tasks_state.rows`: 0 rows on the
+profile that had listed it, 1 row on another, warzone 973). So the honest report on that
+one row is «не знаю», and the only thing that can answer it is the camera walk.
+
+That is the whole finding of this task stated as a cost: **one per-id ask is one round
+trip to the game (~8–10 s of settle) and it can freshen a row the client already holds —
+it can never refresh a list.**
