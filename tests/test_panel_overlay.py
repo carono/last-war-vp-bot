@@ -94,6 +94,14 @@ def test_a_bar_that_cannot_find_the_client_says_so():
     assert "no game window on this desktop" in source
 
 
+def test_the_result_is_the_runs_own_closing_line_and_not_a_tag_guess():
+    """Live: a press from the bar is logged under the panel's WEB tag, so filtering the
+    log by «action» made every run — refused or not — end as «готово» (#2768)."""
+    source = HELPER.read_text(encoding="utf-8")
+    assert '("action: %s" % name)' in source
+    assert '("action", "error")' not in source
+
+
 def test_the_press_never_takes_the_foreground_away_from_the_client():
     """The client takes FOREGROUND input only — an overlay that activated itself on every
     press would be breaking the very thing it sits on."""
