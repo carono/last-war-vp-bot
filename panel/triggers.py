@@ -954,9 +954,11 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         interval_sec=60,
         cooldown_sec=60,
         scenario=("help_ally_training",),
-        # OFF until the person says otherwise: joining spends the day's participation
-        # reward quota, and what is spent on one plea cannot be spent on the next.
-        enabled=False,
+        # ON, and it is the person's own decision once the price was known (#2755):
+        # joining spends no troops and no march, only the day's participation-reward
+        # quota — and an event holds FIVE helpers, which the first live plea had all
+        # taken within two minutes of the card. A person cannot be at the keyboard in
+        # time, so a switch left off is the ability not existing.
         label_key="triggers.item.ally_training_help",
     ),
 )
