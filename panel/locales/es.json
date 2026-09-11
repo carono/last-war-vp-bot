@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Cofres del explorador",
   "triggers.item.explorer_chests": "Abrir los cofres del explorador tras recoger nuestras tareas secretas",
   "triggers.item.explorer_chests.short": "Cofres del explorador",
+  "triggers.item.ally_training_ear": "Seguir atento a las peticiones de ayuda de un aliado en el Entrenamiento de Área Restringida",
+  "triggers.item.ally_training_ear.short": "Escuchar peticiones de ayuda",
   "triggers.item.ally_training_help": "Unirse a un aliado que pide ayuda en el Entrenamiento de Área Restringida",
   "triggers.item.ally_training_help.short": "Petición de ayuda de un aliado",
   "timers.stat.explorer_chests": "cofres por abrir: {n} · llaves: {keys}",

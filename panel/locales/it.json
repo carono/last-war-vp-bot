@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Forzieri dell'esploratore",
   "triggers.item.explorer_chests": "Aprire i forzieri dell'esploratore dopo aver riscosso le nostre missioni segrete",
   "triggers.item.explorer_chests.short": "Forzieri dell'esploratore",
+  "triggers.item.ally_training_ear": "Restare in ascolto delle richieste d'aiuto di un alleato nell'Addestramento Area Limitata",
+  "triggers.item.ally_training_ear.short": "Ascoltare le richieste d'aiuto",
   "triggers.item.ally_training_help": "Unirsi a un alleato che chiede aiuto nell'Addestramento Area Limitata",
   "triggers.item.ally_training_help.short": "Richiesta d'aiuto di un alleato",
   "timers.stat.explorer_chests": "forzieri da aprire: {n} · chiavi: {keys}",

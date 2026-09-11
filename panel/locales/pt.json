@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Baús do explorador",
   "triggers.item.explorer_chests": "Abrir os baús do explorador depois de recolher as nossas tarefas secretas",
   "triggers.item.explorer_chests.short": "Baús do explorador",
+  "triggers.item.ally_training_ear": "Continuar atento aos pedidos de ajuda de um aliado no Treinamento em Área Restrita",
+  "triggers.item.ally_training_ear.short": "Ouvir pedidos de ajuda",
   "triggers.item.ally_training_help": "Entrar no pedido de ajuda de um aliado no Treinamento em Área Restrita",
   "triggers.item.ally_training_help.short": "Pedido de ajuda de um aliado",
   "timers.stat.explorer_chests": "baús a abrir: {n} · chaves: {keys}",

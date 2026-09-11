@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Сундуки исследователя",
   "triggers.item.explorer_chests": "Открывать сундуки исследователя после сбора наших секреток",
   "triggers.item.explorer_chests.short": "Сундуки исследователя",
+  "triggers.item.ally_training_ear": "Держать ухо на просьбах союзников о помощи в событии «Тренировка в запретной зоне»",
+  "triggers.item.ally_training_ear.short": "Слушать просьбы о помощи",
   "triggers.item.ally_training_help": "Вступать в просьбы союзников о помощи в событии «Тренировка в запретной зоне»",
   "triggers.item.ally_training_help.short": "Помощь союзникам",
   "timers.stat.explorer_chests": "сундуков к открытию: {n} · ключей: {keys}",
