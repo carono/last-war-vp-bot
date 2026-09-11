@@ -193,6 +193,8 @@ class _Runs:
     def __init__(self) -> None:
         self.names: list = []
         self.listeners: list = []
+        self.seq = 1
+        self.vars: dict = {}
 
     def listen(self, func):
         self.listeners.append(func)
@@ -203,10 +205,20 @@ class _Runs:
             func()
 
     def running(self) -> list:
+        class _Ctx:
+            def __init__(self, vars):
+                self.vars = vars
+
         class _R:
-            def __init__(self, name):
+            def __init__(self, name, seq, vars):
                 self.name = name
-        return [_R(n) for n in self.names]
+                self.seq = seq
+                self.ctx = _Ctx(vars)
+        # …CARRYING WHAT THE HARVEST SAID IT WAS ABOUT TO COLLECT (#2747). The real
+        # register hands out `Run`s, and the size the sweep read off the game before it
+        # pressed anything lives in `run.ctx.vars` — a fake that leaves it out cannot
+        # tell whether the budget is armed at all.
+        return [_R(n, self.seq, dict(self.vars)) for n in self.names]
 
 
 class _Schedule:
@@ -241,12 +253,13 @@ class _Tick:
 class _Resources:
     def __init__(self) -> None:
         self.asked = 0
+        self.data: dict = {"rows": [], "items": []}
 
     def ask(self) -> None:
         self.asked += 1
 
     def cached(self) -> dict:
-        return {"rows": [], "items": []}
+        return self.data
 
     def state(self) -> dict:
         return self.cached()
@@ -509,6 +522,91 @@ def _run_standalone() -> int:
             print(f"  FAIL {test.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     return 1 if failed else 0
+
+
+# -- how much of what follows is the harvest's (#2747) ------------------------
+def test_the_harvest_states_its_own_size_before_it_presses_anything():
+    """The scenario reads `GetBuildingCurrStorage` BEFORE the sweep and says so.
+
+    Without it the panel only knows WHEN a harvest happened, never how big it was, and
+    every prize that lands in the window is charged to the base.
+    """
+    src = (Path(__file__).resolve().parent.parent / "src" / "lastwar_bot" / "actions"
+           / "collect_base_resources.md").read_text(encoding="utf-8")
+    assert "INTO harvest_pending" in src, "the sweep does not say what it is worth"
+    assert src.index("INTO harvest_pending") < src.index("TAP collect_base_resources"), (
+        "the size has to be read BEFORE a single building is collected")
+    assert "GetBuildingCurrStorage" in src
+
+
+def test_a_prize_landing_inside_the_window_is_not_the_bases():
+    """#2747, measured on the live panel of 2026-09-11: the base's card showed 34
+    «Запчастей дрона» where the base makes about seven a day.
+
+    `collect_base_resources` ended at 08:44:37 and 08:54:07; two arms-race prizes of
+    twenty drone parts each landed at 08:45:44 and 08:55:50 — outside the minute's claim
+    and inside the burst chain behind it, so both were credited to the base.
+    """
+    book = _book()
+    book.watch()
+    book.rt.interrupts.vars = {"harvest_pending": "14=1000 #|# i7038=1"}
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.rt.interrupts.changed()
+    book.rt.interrupts.names = []
+    book.rt.interrupts.changed()
+
+    assert book._budget == {"food": 1000, "item:7038": 1}, "the budget was not armed"
+    assert book._claim({"food": 1000, "item:7038": 1}) == {"food": 1000, "item:7038": 1}
+    # …and the prize that arrives a minute later, inside the window, gets nothing.
+    assert book._claim({"item:7038": 20}) == {}, (
+        "an arms-race prize was charged to the base's production")
+    assert book._claim({"item:630011": 20}) == {}, (
+        "a chest the base never makes has no budget at all")
+
+
+def test_a_harvest_bigger_than_it_said_is_still_capped():
+    """A cascade that keeps arriving cannot pay more than the buildings were holding."""
+    book = _book()
+    book.watch()
+    book.rt.interrupts.vars = {"harvest_pending": "1=500"}
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.rt.interrupts.changed()
+    assert book._claim({"metal": 300}) == {"metal": 300}
+    assert book._claim({"metal": 300}) == {"metal": 200}, "the budget is spent, not reset"
+    assert book._claim({"metal": 300}) == {}
+
+
+def test_one_sweep_arms_one_budget_however_many_frames_it_makes():
+    """36 buildings is 36 `building.production.collect` frames and ONE harvest."""
+    book = _book()
+    book.watch()
+    book.rt.interrupts.vars = {"harvest_pending": "1=500"}
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.rt.interrupts.changed()
+    for _ in range(36):
+        book.rt.wire.say("building.production.collect")
+    assert book._budget == {"metal": 500}, "every frame re-armed the budget"
+
+
+def test_a_harvest_made_by_hand_is_budgeted_off_the_last_reading():
+    """#2746d stands: a thumb on the green bubbles counts. It states no size, so the
+    budget is the last reading's own `pending` — which only ever understates."""
+    book = _book()
+    book.watch()
+    book.rt.resources.data = {
+        "rows": [{"type": 14, "pending": 2600}],
+        "items": [{"id": 7001, "pending": 219}, {"id": 630011, "pending": 0}]}
+    book.rt.wire.say("building.production.collect")
+    assert book._budget == {"food": 2600, "item:7001": 219}
+    assert book._claim({"food": 2600, "item:7001": 219, "item:630011": 20}) == {
+        "food": 2600, "item:7001": 219}
+
+
+def test_the_base_book_is_written_through_the_budget():
+    src = (Path(__file__).resolve().parent.parent
+           / "panel" / "runtime" / "resource_book.py").read_text(encoding="utf-8")
+    assert "self._claim(gains)" in src, "the base book takes the gain uncapped"
+    assert "self._base = self.base.add(mine, day)" in src
 
 
 if __name__ == "__main__":

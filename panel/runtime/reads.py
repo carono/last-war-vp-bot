@@ -116,3 +116,86 @@ def resource_balance(rt, cached: bool = False) -> dict:
         except (TypeError, ValueError):
             continue
     return out
+
+
+#: THE VARIABLE `actions/collect_base_resources.md` LEAVES ITS OWN SIZE IN (#2747).
+#: Read off the game BEFORE the sweep presses anything — `GetBuildingCurrStorage` summed
+#: by what each production line pays — so the panel knows exactly how much of the balance
+#: movement that follows is the harvest's and how much came from somewhere else.
+HARVEST_VAR = "harvest_pending"
+
+#: How that variable is spelled: `type=amount` for a resource, `i<id>=amount` for an
+#: item, « #|# » between them. The scenario's own words; nothing here is derived.
+HARVEST_SEP = "#|#"
+
+
+def parse_harvest(raw) -> dict:
+    """`{tracker key: amount}` from what the harvest said it was about to collect.
+
+    A record this panel has no key for — a season resource, a type the tally does not
+    track — is dropped rather than invented: the budget it would arm is a budget for a
+    column nobody counts.
+    """
+    out: dict = {}
+    for record in str(raw or "").split(HARVEST_SEP):
+        record = record.strip()
+        if not record or "=" not in record:
+            continue
+        name, _, amount = record.partition("=")
+        name = name.strip()
+        try:
+            value = int(float(amount.strip()))
+        except (TypeError, ValueError):
+            continue
+        if value <= 0:
+            continue
+        if name.startswith("i"):
+            try:
+                key = item_key(int(name[1:]))
+            except (TypeError, ValueError):
+                continue
+        else:
+            try:
+                key = TRACKER_KEY.get(int(name))
+            except (TypeError, ValueError):
+                continue
+            if key is None:
+                continue
+        out[key] = out.get(key, 0) + value
+    return out
+
+
+def pending_balance(rt) -> dict:
+    """`{tracker key: amount}` standing uncollected, off the LAST reading — a LOOK.
+
+    The fallback budget for a harvest the panel did not play: a thumb on the green
+    bubbles sends the same frame and leaves no variable anywhere, so the only statement
+    of size available is whatever the last reading happened to say. It is never fresher
+    than that reading and therefore only ever UNDERSTATES, which is the right way for
+    this number to be wrong: a harvest priced short is a number somebody can question,
+    a card three times over is one nobody can.
+    """
+    try:
+        data = rt.resources.cached() or {}
+    except Exception:                    # noqa: BLE001 — no reading, no budget
+        return {}
+    out: dict = {}
+    for row in (data.get("rows") or []):
+        key = TRACKER_KEY.get(row.get("type"))
+        if key is None:
+            continue
+        try:
+            value = int(row.get("pending") or 0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            out[key] = value
+    for row in (data.get("items") or []):
+        try:
+            value = int(row.get("pending") or 0)
+            key = item_key(int(row.get("id")))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            out[key] = value
+    return out
