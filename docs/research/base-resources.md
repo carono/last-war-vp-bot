@@ -246,6 +246,36 @@ got it** — the three questions in order are: does the game name a sprite at al
 name in `gameres`, and is its bundle in the cache. Only the third is a real absence
 (#2632, where two bundles genuinely were not there).
 
+### The census of the base's 44 production lines (#2747)
+
+Asked live — `GetAllBuildUuids()` walked with `GetBuildingCurrStorage` / `GetProductRes` / `GetProductResItem` / `GetProductGoods`, from a throwaway probe under the git-ignored `actions/dev/` — because «пять зданий сделали по 60 000 опыта, а в статистике 180 000» has two
+possible answers and only a census tells them apart. `GetAllBuildUuids()` answered 44, and
+the panel sees every one of them:
+
+| lines | pays | per tick | what `GetBuildingCurrStorage` said |
+|---|---|---|---|
+| 5 | res 2 (gold) | 35 | 9 253 – 10 602 |
+| 5 | res 10 (spore) | 30 | 1 380 – 1 410 |
+| 5 | res 23 (oil) | 35 | 136 |
+| 5 | res 1 (metal) | 55 | 12 275 – 14 145 |
+| 5 | res 14 (food) | 55 | 13 209 – 15 122 |
+| 5 | item 8001 (hero experience) | 432 | 19 872 |
+| 5 | item 6001 (ore) | 34–35 | 0 |
+| 5 | item 7001 (screws) | 42–45 | 0 |
+| 1 | item 7038 (drone parts) | 1 | 0 |
+| 1 | goods 630011 (drone chest) | 1 | 0 |
+| 1 | goods 800003 (training papers) | 35 | 0 |
+| 1 | goods 521050 (purple crystal) | 90 | 0 |
+
+So the enumeration was never the problem: **all five hero-experience lines are there and
+they hold the same number as each other.** Note `GetResourceOutBuildings` is NOT a witness
+of this — it answers «no building» for gold while five lines plainly pay it, which is why
+nothing decides «the base makes this» off the reading's `base` flag.
+
+What WAS the problem is written up in `docs/research/resource-collection.md`: the harvest
+was made BY HAND, no run had read the size, and the budget fell back on a reading taken
+minutes earlier when the same five lines held 36 720 each instead of 60 480.
+
 Two things measured along the way, so nobody re-walks them:
 
 * **The list is not the bag.** Asking «what did the base pay» by looking at everything in

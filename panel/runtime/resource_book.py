@@ -206,6 +206,11 @@ class ResourceBook:
         # budget and a second harvest arms a fresh one.
         self._budget_at = 0.0
         self._budget_seq = None
+        # Whether the budget is the harvest's OWN statement (a run read it off the game
+        # one line before pressing) or a guess off the last reading (a harvest made with
+        # a thumb). An exact budget is a CAP; a guessed one is only a list of the keys
+        # the base was known to be holding — see :meth:`_claim` (#2747).
+        self._budget_exact = False
         # The run currently doing the harvesting, kept for its `ctx.vars`: the size is
         # read there, and by the time the run leaves the register the handle is gone.
         self._collect_run = None
@@ -264,6 +269,7 @@ class ResourceBook:
         self._budget = {}
         self._budget_at = 0.0
         self._budget_seq = None
+        self._budget_exact = False
         self._collect_run = None
 
     def clear_day(self, day: "str | None" = None, whole: bool = False) -> dict:
@@ -468,6 +474,7 @@ class ResourceBook:
                 return
             self._budget_seq = seq
             self._budget = reads.parse_harvest(raw)
+            self._budget_exact = True
             self._budget_at = now
             return
         if self._budget_seq is not None and now - self._budget_at <= HARVEST_MAX_SEC:
@@ -484,6 +491,7 @@ class ResourceBook:
             return                       # the same hand sweep, still arriving
         self._budget_seq = None
         self._budget = reads.pending_balance(self.rt)
+        self._budget_exact = False
         self._budget_at = now
 
     def _live_collect_run(self):
@@ -516,6 +524,23 @@ class ResourceBook:
             except (TypeError, ValueError):
                 continue
             if left <= 0 or amount <= 0:
+                continue
+            if not self._budget_exact:
+                # A HARVEST MADE WITH A THUMB, and the guess is a LIST and not a CAP
+                # (#2747). The person collected five hero-experience lines by hand at
+                # 10:04:56 on 2026-09-11; the game paid 302 400 and the card wrote down
+                # 183 600, because the only statement of size available was a reading
+                # taken minutes earlier, when the same five lines held 36 720 each
+                # instead of 60 480. Capping by a number that is stale BY CONSTRUCTION
+                # loses two fifths of a real harvest, which is far worse than the thing
+                # the cap is for.
+                #
+                # So a guessed budget decides only WHICH keys the base was known to be
+                # holding — which is what actually stops a chest of drone parts or an
+                # arms-race prize being charged to production — and the amount is taken
+                # whole. It is not spent either: one hand sweep answers in several
+                # bursts and each of them is the same harvest.
+                out[key] = amount
                 continue
             take = min(amount, left)
             self._budget[key] = left - take
