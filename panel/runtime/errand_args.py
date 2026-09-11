@@ -244,7 +244,11 @@ SPEC: dict = {
         # reading «Таймеры» can see what the errand may spend without leaving the page,
         # and the value has one home either way.
         _text("caps", "shop.opt.caps", hint_key="shop.opt.caps.hint"),
-        _num("cap", "shop.opt.cap", low=1, high=200,
+        # …AND 0 IS «NO CEILING» (#2778). The knob is the belt for the run NOBODY is
+        # watching, so it keeps its 20 by default and can now be turned all the way off
+        # by somebody who wants the nightly run to take the whole queue too. A person's
+        # own press never asks it: «Купить всё по приоритету» sends `cap = 0` itself.
+        _num("cap", "shop.opt.cap", low=0, high=200,
              hint_key="shop.opt.cap.hint"),
     ),
     # THE HIDDEN TREASURES (#2597). The three knobs were a page of their own until the

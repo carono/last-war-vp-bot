@@ -89,6 +89,13 @@ AUTOBUY_ACTION = "autobuy_shop_goods"
 BUY_ACTION = "buy_shop_goods"
 PLAN_ARG = "plan"
 
+#: What a PERSON'S press sends as the purchases-per-run ceiling: nothing at all (#2778).
+#: The button says «Купить всё по приоритету», and `cap = 0` is how the recipe spells
+#: «no ceiling». The nightly errand keeps its own `cap` — that one is the belt for a run
+#: nobody is watching — but a press somebody made themselves is limited only by the
+#: game's own limits: the row's quota, the purse, and the currency ceiling they typed.
+PRESS_CAP = 0
+
 #: The shelves this panel has a word for, by the number the CLIENT numbers them with
 #: (`docs/research/shops.md`). A shelf that is not here is drawn by its number rather
 #: than by somebody else's name — the set comes from the game, never from this table.
@@ -589,6 +596,18 @@ class ShopTab(PanelTab):
         The queue is per shop by the person's own decision — «меняем магазин, меняется
         очередь» — so the press is too. The SCHEDULE still walks the whole order: that is
         what a nightly errand is for, and each row carries its own shelf, quota and purse.
+
+        AND IT TAKES THE WHOLE QUEUE (#2778, the person's words: «пусть кнопка "Купить по
+        приоритету" будет "Купить всё по приоритету", и соответственно пусть скупает все
+        по правилам в этом магазине»). The press used to inherit the recipe's own default
+        purchases-per-run ceiling of 20, so a shelf with a longer queue was bought in
+        instalments by a button that claimed to buy all of it. It sends `cap = 0` now —
+        «no ceiling» — and nothing of #2670's rules is relaxed by that: the queue is still
+        walked strictly top-down, a row that cannot be paid for still stops the rest of
+        its currency, the row's own quota and `boughtTimes` still decide how many are
+        left, and every cut still names its reason in the log before anything is sent.
+        The ceiling stays where it earns its keep — on the nightly errand, which nobody
+        is watching.
         """
         sched = getattr(self.rt, "schedule", None)
         chosen = pick or self._pick or ""
@@ -596,7 +615,7 @@ class ShopTab(PanelTab):
         mine = [e for e in self.plan()
                 if not chosen or (e["kind"], e["shop"]) == (kind, shop)]
         plan = plan_text(mine)
-        args = {PLAN_ARG: plan}
+        args = {PLAN_ARG: plan, "cap": PRESS_CAP}
         if sched is not None:
             # THE CEILINGS, ONE PER CURRENCY (#2670) — never a ban: every shop is in the
             # order, the diamond ones included, and what limits an irreversible spend is
