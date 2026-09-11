@@ -249,8 +249,22 @@ class _Resources:
         return self.cached()
 
 
+class _Bus:
+    def __init__(self) -> None:
+        self.subs: dict = {}
+
+    def subscribe(self, topic, func):
+        self.subs.setdefault(topic, []).append(func)
+        return lambda: self.subs[topic].remove(func)
+
+    def publish(self, topic, payload=None) -> None:
+        for func in list(self.subs.get(topic, ())):
+            func(payload)
+
+
 class _Rt:
     def __init__(self) -> None:
+        self.bus = _Bus()
         self.interrupts = _Runs()
         self.schedule = _Schedule()
         self.tick = _Tick()
@@ -364,6 +378,22 @@ def test_a_reading_is_ASKED_FOR_when_the_harvest_ends():
     res = (Path(__file__).resolve().parent.parent
            / "panel" / "runtime" / "resources.py").read_text(encoding="utf-8")
     assert "def ask(" in res, "there is no way to ask for a reading"
+
+
+def test_the_baseline_is_taken_when_the_client_gets_into_the_game():
+    """#2746, measured live: the panel came up at 06:41, nothing read the balance until
+    a harvest at 07:02:36 asked for one, and that harvest's own gains BECAME the
+    baseline — a diff cannot price its first reading, so the whole harvest counted zero.
+
+    `CLAUDE.md`, «A STATISTIC IS NOT REFRESHED BY HAND»: the first reading is taken on
+    `bus.GAME_READY` and on nothing else.
+    """
+    from panel.runtime import bus as busmod
+
+    book = _book()
+    book.watch()
+    book.rt.bus.publish(busmod.GAME_READY, None)
+    assert book.rt.resources.asked == 1, "the appearance took no baseline"
 
 
 def test_the_book_does_not_depend_on_the_trigger_staying_alive():

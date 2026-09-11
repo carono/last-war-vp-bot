@@ -151,6 +151,9 @@ class ResourceBook:
         # record of last runs, so a book armed off that record alone credited nothing to
         # the base for any of them.
         self._off_runs = None
+        # …and the first reading of an appearance, which is what a diff needs before it
+        # can price anything at all (`watch`).
+        self._off_ready = None
         # The last set of item labels written down, so an unchanged one costs no write.
         self._labels: dict = {}
 
@@ -284,6 +287,24 @@ class ResourceBook:
             self._off_runs = self.rt.interrupts.listen(self._runs_changed)
         except Exception:                # noqa: BLE001 — a listener, never the gain
             self._off_runs = None
+        # …AND THE BASELINE, taken when the client gets into the game (#2746). A tally
+        # built by DIFFING balances cannot price its first reading — there is nothing to
+        # diff it against — so whatever moved between the panel starting and that first
+        # reading is swallowed whole. Measured live on 2026-09-11: the panel came up at
+        # 06:41, nothing read the balance until a harvest at 07:02:36 asked for one, and
+        # that harvest's own gains became the baseline and were counted as zero.
+        #
+        # `CLAUDE.md` («A STATISTIC IS NOT REFRESHED BY HAND») names the moment for
+        # exactly this: `bus.GAME_READY`, the edge where the client is up and logged in,
+        # heard again when a lost link comes back — which is the other moment everything
+        # this holds may have moved unheard.
+        if self._off_ready is not None:
+            return
+        try:
+            self._off_ready = self.rt.bus.subscribe(
+                busmod.GAME_READY, lambda _p=None: self._ask_read())
+        except Exception:                # noqa: BLE001 — a baseline, never the gain
+            self._off_ready = None
 
     def _runs_changed(self) -> None:
         """A run started or ended. Called on whatever thread reported it."""
@@ -419,6 +440,12 @@ class ResourceBook:
 
     def shutdown(self) -> None:
         """Let the reading and the register go when the profile closes."""
+        if self._off_ready is not None:
+            try:
+                self._off_ready()
+            except Exception:            # noqa: BLE001
+                pass
+            self._off_ready = None
         if self._off_runs is not None:
             try:
                 self._off_runs()
