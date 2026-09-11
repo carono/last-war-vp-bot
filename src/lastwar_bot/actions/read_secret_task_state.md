@@ -1,35 +1,48 @@
-# Say whether one secret-task tile still exists, by its coordinate, without moving the camera.
-# ru: Сказать, существует ли конкретная секретка по координате, не двигая камеру.
+# Say whether one secret-task tile is CONFIRMED to be there, by its coordinate.
+# ru: Сказать, подтверждает ли игра конкретную секретку по координате.
 #
 # READ ONLY. Nothing is pressed, no window opens, no budget is touched and the camera
 # stays where it is — this is one round trip of the request the client itself fires when
 # a finger taps a marker (`world.get.detail.new {pointId, serverId, 0, 17, ""}`), asked
 # about ONE point and answered into `WorldPointDetailManager`.
 #
-# WHAT IT CAN AND CANNOT SAY. The detail carries 45 fields — `uuid`, `uid`, `serverId`,
-# `expireTime`, the owner's name and alliance — and it does NOT carry `stealInfoList`, so
-# **`n/3` is not in this answer** and never will be: the loot count rides on the map tile
-# (`world.get.block`) and on the client's own alliance table, and nowhere else
-# (docs/research/secret-task-state-sources.md). What this answers is the other question a
-# stale row raises: **is the tile still there at all.**
+# **IT CAN ONLY EVER CONFIRM, NEVER DENY** (#2780, and #1484 before it — the first cut of
+# this file got that wrong and it is written out here so nobody arrives at it twice). A
+# point answers only when the CLIENT ALREADY HOLDS IT: its own alliance's tasks, and
+# whatever the camera has loaded. Everything else stays silent however long it is given,
+# and silence is not absence. Measured live on 2026-09-11, warzone 8128, one run each:
 #
-# A NIL IS AMBIGUOUS ON ITS OWN, and that is THE_LIST_RULE clause 2 (#1272): a reply that
-# never arrived looks exactly like «there is nothing there», and reading the first as the
-# second is how a whole list gets deleted for a fault of its own link. So a CONTROL point
-# is asked alongside — an alliance task the client is sure exists and whose detail is NOT
-# already cached, preferring one on the same warzone — and the verdict is only spoken when
-# that control answered:
+#   a point in the client's alliance table            answered
+#   two tiles a camera walk had loaded 25 s earlier   answered
+#   two tiles the walk had not reached                silent, asked twice, 25 s apart
+#   five tiles the ★ list held, no walk               silent — and they were NOT gone
 #
-#   exists=1        the server sent a detail for this point: the tile is there
-#   exists=0        the control answered and this point did not: the tile is gone
-#   exists=unknown  the control did not answer either: nothing may be concluded,
-#                   and no caller may take a row off a list on this run
+# So there are two answers here and no third:
 #
-# COST: one request for the tile, plus one for the control per RUN — so checking N rows
-# of one warzone is N+1 requests, not 2N. Measured live on 2026-09-11 (warzone 8128,
-# five rows in one run): the control answered on all three runs, every one of the five
-# tiles came back nil, and the whole run took about ten seconds of which eight are the
-# settle below.
+#   exists=1        the game confirmed this tile: uuid, owner, alliance, its own warzone
+#   exists=unknown  nothing came back, which says NOTHING about the tile
+#
+# **A caller may never take a row off a list on `unknown`** (THE_LIST_RULE clause 2,
+# #1272). What removes a row is the MAP answering about the ground the tile stands on —
+# `actions/verify_secret_tasks.md` walks the camera and the passive capture decodes what
+# the server sends back — or the robbery being refused at the point of use.
+#
+# WHAT IT IS GOOD FOR: freshening «Сверено» on a row the game does confirm, and telling
+# «the tile is there» from «I cannot tell» for one named coordinate — which is what the
+# robbery already does before it presses.
+#
+# WHAT IT NEVER CARRIES: the loot count. `stealInfoList` is not among the 45 fields, so
+# `n/3` still comes from the map tile and from the client's own alliance table
+# (docs/research/secret-task-state-sources.md). `expireTime` came back 0 on every live
+# tile measured, so the countdown is not here either.
+#
+# `pointId` is `y * 1000 + x`, server-local (docs/research/protocol.md §7), and it is
+# packed here rather than asked for: `SceneUtils.TilePosToIndex` answers 0 while the
+# client stands in its base, which is where a panel reading a list usually is.
+
+# Windowless: it keeps the client only while it is talking to the game, so anything
+# that wants the link outranks it and it parks at the first statement boundary.
+SHARE
 
 ARGS x = 0
 ARGS y = 0
@@ -39,17 +52,17 @@ ARGS server = 0
 # `SceneUtils.TilePosToIndex` answers 0 while the client stands in the base, which is why
 # the packing is done here rather than asked for.
 ARGS pid = 0
-# How long to let the reply land. It is a round trip to the game server, so it is a
-# settle, not a poll — nothing is asked twice.
+# How long to let the reply land. It is a round trip, so it is a settle, not a poll —
+# nothing is asked twice, and asking twice was measured to change nothing (#2780).
 ARGS settle = 8
 
 IF server == 0
     FAIL "read_secret_task_state was given no warzone — name it in `server`"
 
-LUA local M=DataCenter.ActDispatchTaskDataManager local D=DataCenter.WorldPointDetailManager local pid=({pid} > 0) and {pid} or ({y}*1000+{x}) local ctrl=nil local any=nil for _,v in pairs(M.allianceTask or {}) do local d=D:GetDetailByPointId(v.pointId) if not (d and (tonumber(d.uuid) or 0)>0) then if (tonumber(v.targetServer) or 0)=={server} then ctrl={p=v.pointId,s=v.targetServer} break end any=any or {p=v.pointId,s=v.targetServer} end end ctrl=ctrl or any M.__lw_state={pid=pid,ctrl=ctrl} pcall(function() SFSNetwork.SendMessage("world.get.detail.new", pid, {server}, 0, 17, "") end) if ctrl then pcall(function() SFSNetwork.SendMessage("world.get.detail.new", ctrl.p, ctrl.s, 0, 17, "") end) end
+LUA local M=DataCenter.ActDispatchTaskDataManager local pid=({pid} > 0) and {pid} or ({y}*1000+{x}) M.__lw_state={pid=pid} pcall(function() SFSNetwork.SendMessage("world.get.detail.new", pid, {server}, 0, 17, "") end)
 
 WAIT {settle}
 
-READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local D=DataCenter.WorldPointDetailManager local S=M.__lw_state or {} local out={} local function put(k,v) out[#out+1]=k..'='..tostring(v) end local ok,d=pcall(function() return D:GetDetailByPointId(S.pid) end) local got=(ok and d and (tonumber(d.uuid) or 0)>0) and true or false local cok=false if S.ctrl then local c=D:GetDetailByPointId(S.ctrl.p) cok=(c and (tonumber(c.uuid) or 0)>0) and true or false end put('pid',S.pid) put('exists', got and 1 or (cok and 0 or 'unknown')) put('control', cok and 1 or 0) if got then put('uuid',tostring(d.uuid)) put('expire',tostring(d.expireTime or 0)) put('uid',tostring(d.uid or '-')) put('owner',tostring(d.name or '-')) put('alliance',tostring(d.alAbbr or '-')) put('srv',tostring(d.srcServer or d.serverId or '-')) end return table.concat(out,' ') end)() INTO state
+READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local D=DataCenter.WorldPointDetailManager local S=M.__lw_state or {} local out={} local function put(k,v) out[#out+1]=k..'='..tostring(v) end local ok,d=pcall(function() return D:GetDetailByPointId(S.pid) end) local got=(ok and d and (tonumber(d.uuid) or 0)>0) and true or false put('pid',S.pid) put('exists', got and 1 or 'unknown') if got then put('uuid',tostring(d.uuid)) put('expire',tostring(d.expireTime or 0)) put('uid',tostring(d.uid or '-')) put('owner',tostring(d.name or '-')) put('alliance',tostring(d.alAbbr or '-')) put('srv',tostring(d.srcServer or d.serverId or '-')) end return table.concat(out,' ') end)() INTO state
 
 LOG "secret_state x={x} y={y} server={server} {state}"
