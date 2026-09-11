@@ -470,6 +470,16 @@ class ResourceBook:
             self._budget = reads.parse_harvest(raw)
             self._budget_at = now
             return
+        if self._budget_seq is not None and now - self._budget_at <= HARVEST_MAX_SEC:
+            # THE TAIL OF A SWEEP THE PANEL ITSELF PLAYED (#2747), and it must not arm a
+            # second budget for the same harvest. Measured live: the run of 09:52:13 said
+            # it was about to collect 63 687 food and 174 screws; frames kept arriving
+            # after it left the register, the fallback re-armed off the reading's own
+            # `pending`, and the card ended the minute on 77 332 food and 219 screws —
+            # the same over-count the budget exists to stop, let in through the door
+            # meant for a thumb. A run's own statement is authoritative for the whole
+            # window, and the window is bounded by the same ceiling a harvest is.
+            return
         if self._budget and now - self._budget_at <= HAND_BUDGET_SEC:
             return                       # the same hand sweep, still arriving
         self._budget_seq = None
@@ -494,6 +504,11 @@ class ResourceBook:
         production however close to it it landed.
         """
         out: dict = {}
+        # A BUDGET IS A HARVEST'S, AND A HARVEST ENDS (#2747). The window gate already
+        # bounds this, but its clock is moved by every collect frame the ear hears —
+        # including another account's tail — so the budget carries its own ceiling.
+        if not self._budget or time.time() - self._budget_at > HARVEST_MAX_SEC:
+            return out
         for key, amount in (gains or {}).items():
             try:
                 left = int(self._budget.get(key, 0))
