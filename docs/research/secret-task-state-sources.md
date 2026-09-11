@@ -252,8 +252,15 @@ often the reply applier `UpdateAllAllianceTasks` runs, so that «no change» can
 | rows off the home warzone | 1 | **1** |
 
 So the server **answers** — it does not refuse, it does not error — and the answer is the
-same alliance-scoped table. The extra fields are dropped on the floor. That is the fact to
-quote: not «the server said no», but «the server ignored the aim and re-sent its own scope».
+same alliance-scoped table.
+
+**Where the aim is dropped was measured afterwards, and it is EARLIER than this section first
+said (#2784).** `SFSNetwork.SendMessage` looks the name up in a table of message CLASSES
+(`SFSNetwork.GetMsgType`) and hands the arguments to that class, which serialises the fields
+its own `OnCreate` knows about. `hero.dispatch.alliance.list` resolves to a class whose
+request body is empty, so extra fields never reach the wire at all. The honest sentence is
+therefore «the CLIENT has nowhere to put an aim», not «the server ignored it» — and the
+consequence for a caller is the same: there is no way to ask about another warzone.
 
 **The steal gate cannot fetch either — it is arithmetic, not a question.**
 `ActGhostreconManager:GetPointStealType(cfgId, completionTime, stealList)` classifies state
@@ -307,6 +314,52 @@ general gate.
 the budget spent every refusal is the same word, and with budget in hand a refusal that does
 distinguish states costs an attempt to obtain — which is the resource the whole ★ list exists
 to spend carefully. The camera walk stays the only reading.
+
+### Loading a district without the camera — three doors, all shut (#2784)
+
+The last unexplored path, tried with the operator's go-ahead: make the client fetch a region
+it is not looking at. Measured 2026-09-11, 17:29–17:38, client in the WORLD scene
+(`SceneUtils.GetIsInWorld()` true), camera untouched throughout.
+
+**Door 1 — build `world.get.block` in Lua.** It cannot even be addressed:
+
+```
+SFSNetwork.GetMsgType('world.get.block')        -> nil
+SFSNetwork.SendMessage('world.get.block', …)    -> SFSNetwork.lua:27:
+                                                   attempt to index a nil value (local 'msgType')
+```
+
+Both the positional and the table form fail the same way. The map request has **no Lua
+message class at all** — `Net.Msgs.*` holds `WorldGetDetailMessage`, `WorldGetAllianceMarkMessage`
+and three others, and nothing for blocks. The region query lives on the C# side.
+
+**Door 2 — the client's own entry point, `WorldScene.SendViewRequest(Vector2Int, int, int).`**
+It exists, it is reachable through `FindObjectOfType`, and calling it raises nothing:
+
+| | |
+|---|---|
+| `SendViewRequest(<a tile>, 0, <a foreign warzone>)` | returned, no exception |
+| tiles the client held before / after (`WorldPointManager.allViewPoints`) | **445 / 445** |
+| map cells the running capture heard in that window | **0** |
+
+The second row is the one that settles it: a capture child was live throughout (its checkpoint
+was rewritten every tick, and the same file holds cells heard at 17:25 from an ordinary sweep),
+and **not one block reply arrived** while the requests were made. This reproduces #1484 under
+the condition that measurement lacked — in the world scene rather than the city — and the
+verdict is unchanged: `SendViewRequest` puts nothing on the wire.
+
+**Door 3 — the C# message singleton.** `WorldGetBlockMessage` is a `BaseMessage` with a static
+`_instance`, `CSSetData(Object[]) -> IRequest` and `Send(Object[])`. The instance is reachable
+and `Send` ACCEPTS a hand-built `Object[]` of the eleven wire fields without throwing — and
+still nothing reached the wire (`0` cells heard in that window either). `CSSetData` cannot be
+called from Lua at all (`attempt to call a nil value (method 'CSSetData')`) — xLua does not
+expose it — so the request object cannot be built and inspected from here, and `Send` alone
+does not produce one.
+
+**Verdict: the path does not work.** There is no way from Lua to ask the game for a district
+the camera is not in — not by name, not through the scene's own request, not through the
+message class. What loads a region is the world view deciding it needs one, and what moves the
+world view is the camera. The sweep stays the reading, and its cost stays what #1484 measured.
 
 ## How a tile is learned to be GONE — the reply's own rectangle
 
