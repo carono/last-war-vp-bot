@@ -333,6 +333,10 @@ EMPTY_LAST = frozenset({"note"})
 #: What the table opens on before anybody clicks a heading.
 DEFAULT_SORT = ("seen", True)
 
+#: How many starred uids «Только избранные» will name in the SQL itself (#2766). Well
+#: under SQLite's own parameter ceiling, and far above any short list a person keeps.
+_STARS_INLINE = 900
+
 
 def where_of(f: dict, now: float) -> tuple:
     """One filter as `(sql, params)` — the WHERE of every read the page makes.
@@ -461,6 +465,8 @@ class PlayerBook:
         # sources report one player at the same moment.
         self._lock = threading.RLock()
         self._imported = False
+        #: The stars, or None until they have been read (:meth:`favourites`).
+        self._favourites = None
 
     # -- the one-time move out of players.json ---------------------------------------
     def ensure_imported(self) -> int:
@@ -504,6 +510,40 @@ class PlayerBook:
         return [row_of(r) for r in
                 self._ready().read().execute("SELECT * FROM players")]
 
+    def _where(self, f: dict, now: float) -> tuple:
+        """:func:`where_of`, plus the one clause that is not about a row (#2766).
+
+        «Только избранные» cannot live in :func:`where_of` for the same reason it cannot
+        live in `registry.matches`: both of them judge ONE ROW, and whether a player is
+        starred is written in a table beside it (`all_favourites`). Two definitions of
+        one filter are kept honest by a test that runs them over the same rows
+        (`tests/test_players_registry.py`), and a clause only one of them could ever
+        express would make that test unwritable. So it is added HERE, where the SQL is
+        assembled, and the row-walking definition keeps answering about rows.
+        """
+        where, params = where_of(f, now)
+        if f.get("fav"):
+            stars = self.favourites()
+            if not stars:
+                where += " AND 0"
+            elif len(stars) <= _STARS_INLINE:
+                # THE SET, NOT THE TABLE, and that is a decision rather than a shortcut.
+                # The star is written through the writer thread (:meth:`set_favourite`),
+                # so the row reaches the disk a moment AFTER the press — and the page
+                # this chip narrows is fetched in that moment. Reading the table here
+                # would show a person the list they had before they pressed, which is
+                # indistinguishable from a broken filter. The set is moved synchronously
+                # by the same call, so it is the one answer that is never behind.
+                where += " AND uid IN (%s)" % ", ".join("?" * len(stars))
+                params = list(params) + sorted(stars)
+            else:
+                # A list longer than SQLite will take as parameters — nobody has starred
+                # this many, and if they have, the durable copy is asked instead and the
+                # writer is waited for so that it is not behind either.
+                self.store.flush(5.0)
+                where += " AND uid IN (SELECT uid FROM favourites)"
+        return where, params
+
     def search(self, f: dict | None = None, sort=None, limit: int | None = None,
                now: float | None = None, offset: int = 0) -> list:
         """The rows a filter keeps, sorted, at most `limit` of them — **in SQL**.
@@ -517,7 +557,7 @@ class PlayerBook:
         that page 200 could be cut out of it is the cost this method exists to remove.
         An offset with no limit is refused by SQLite, so it brings its own.
         """
-        where, params = where_of(f or {}, time.time() if now is None else now)
+        where, params = self._where(f or {}, time.time() if now is None else now)
         sql = f"SELECT * FROM players WHERE {where} ORDER BY {order_of(sort)}"
         offset = max(int(offset or 0), 0)
         if limit is not None or offset:
@@ -530,7 +570,7 @@ class PlayerBook:
 
     def count(self, f: dict | None = None, now: float | None = None) -> int:
         """How many rows a filter keeps — without building one of them."""
-        where, params = where_of(f or {}, time.time() if now is None else now)
+        where, params = self._where(f or {}, time.time() if now is None else now)
         return int(self._ready().read().execute(
             f"SELECT COUNT(*) c FROM players WHERE {where}", params).fetchone()["c"])
 
@@ -687,7 +727,74 @@ class PlayerBook:
                 cur = conn.execute(
                     "DELETE FROM all_players WHERE profile = ? AND uid = ?",
                     (store.profile, str(uid)))
+                # …and the star with them (#2766): a row that has left cannot be on a
+                # short list of rows, and a star nobody can see is a star nobody can
+                # take off.
+                conn.execute("DELETE FROM all_favourites WHERE profile = ? AND uid = ?",
+                             (store.profile, str(uid)))
+            if self._favourites is not None:
+                self._favourites.discard(str(uid))
             return bool(cur.rowcount)
+
+    # -- the star a person puts on a player (#2766) -----------------------------------
+    def favourites(self) -> set:
+        """Every uid this profile has starred. Read from the database ONCE and kept.
+
+        A page of a thousand cards asks «is this one starred?» a thousand times per
+        fetch, and that question must not be a thousand round trips. The set is this
+        process's copy of a table only this process writes — a profile is held by one
+        panel at a time (`panel/profile.py`) — so it cannot drift behind the file.
+        """
+        with self._lock:
+            if self._favourites is None:
+                self._favourites = {str(r["uid"]) for r in self._ready().read().execute(
+                    "SELECT uid FROM favourites")}
+            return set(self._favourites)
+
+    def is_favourite(self, uid) -> bool:
+        return str(uid) in self.favourites()
+
+    def favourite_count(self) -> int:
+        """How many stars there are — what the chip draws beside its word."""
+        return len(self.favourites())
+
+    def set_favourite(self, uid, on: bool = True) -> bool:
+        """Star a player, or take the star off. Refused for a uid nobody has seen.
+
+        THE WRITE GOES THROUGH THE WRITER THREAD (`store.submit`): this is pressed from
+        the Tk thread as readily as from an HTTP worker, and the rule for both is the
+        same (`CLAUDE.md`, «Game data lives only in the database»). The set above is
+        moved at once, so the very next reading says what the person just pressed while
+        the row is still on its way to the disk.
+        """
+        uid = str(uid)
+        with self._lock:
+            if self.get(uid) is None:
+                return False
+            self.favourites()                      # make sure the set is loaded first
+            if on:
+                self._favourites.add(uid)
+            else:
+                self._favourites.discard(uid)
+            store = self._ready()
+            profile, at = store.profile, int(time.time())
+
+            def job(conn) -> None:
+                if on:
+                    conn.execute(
+                        "INSERT INTO all_favourites(profile, uid, at) VALUES(?, ?, ?) "
+                        "ON CONFLICT(profile, uid) DO UPDATE SET at = excluded.at",
+                        (profile, uid, at))
+                else:
+                    # NOT the one `DELETE` the class's docstring is about: that rule is
+                    # about a PLAYER leaving the register, and taking a star off leaves
+                    # the player exactly where they were.
+                    conn.execute(
+                        "DELETE FROM all_favourites WHERE profile = ? AND uid = ?",
+                        (profile, uid))
+
+            store.submit(job)
+            return True
 
     # -- what the page tells about itself --------------------------------------------
     def alliances(self) -> list:

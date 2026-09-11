@@ -125,11 +125,22 @@ def test_there_is_exactly_one_way_a_row_can_leave():
     be stated where the SQL is written. It is stated as: one `DELETE`, in `forget`, and
     no statement anywhere that could empty or blank the table wholesale. The next person
     to add a «prune the stale rows» does it in a diff a reviewer can see.
+
+    It is about a PLAYER leaving, so it counts the deletes aimed at the register itself
+    (#2766): the star beside a row lives in a table of its own, is taken off by a person
+    exactly as it was put on, and taking it off leaves the player where they were. Every
+    other `DELETE` in the module is therefore required to name that other table and one
+    uid — a wholesale one is still the hole this rule closes.
     """
     source = Path(playersmod.__file__).read_text(encoding="utf-8")
     body = source[source.index("class PlayerBook"):]
+    others = [line.strip() for line in body.splitlines()
+              if "DELETE FROM" in line.upper() and "all_players" not in line]
+    for line in others:
+        assert "all_favourites" in line and "uid = ?" in line, \
+            f"a DELETE that is neither the register's nor one person's star: {line}"
     deletes = [line.strip() for line in body.splitlines()
-               if "DELETE FROM" in line.upper()]
+               if "DELETE FROM ALL_PLAYERS" in line.upper()]
     assert len(deletes) == 1, f"more than one way a row leaves: {deletes}"
     assert "uid = ?" in deletes[0], \
         f"the one DELETE is not aimed at a single row a person named: {deletes[0]}"
@@ -1273,6 +1284,110 @@ def _main() -> int:
                 _OPENED.pop().close()
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     return 1 if failed else 0
+
+
+# ---------------------------------------------------------------------------
+# the star a person puts on a player (#2766)
+# ---------------------------------------------------------------------------
+def test_a_star_is_kept_by_uid_and_outlives_the_panel():
+    """The mark is DATA, so it is in the database and not in this process (#2766).
+
+    By uid and never by name: a name changes, and a star that follows a name follows
+    whoever takes it next.
+    """
+    with _tmpdir() as tmp:
+        book = _store(tmp)
+        _swept_into(book, [_swept()], now=NOW)
+        assert book.set_favourite("1000000000000001") is True
+        assert book.favourites() == {"1000000000000001"}
+        book.store.flush()
+
+        again = reg.PlayerBook(Store(str(Path(tmp) / "panel.db"), "Player1"))
+        _OPENED.append(again.store)
+        assert again.favourites() == {"1000000000000001"}, \
+            "the star did not survive the panel being restarted"
+        # …and it comes off the same way it went on.
+        assert again.set_favourite("1000000000000001", False) is True
+        again.store.flush()
+        assert again.favourites() == set()
+
+
+def test_a_star_on_a_player_nobody_has_seen_is_refused():
+    with _tmpdir() as tmp:
+        book = _store(tmp)
+        assert book.set_favourite("1000000000000002") is False
+        assert book.favourites() == set()
+
+
+def test_only_favourites_narrows_the_register_and_ands_with_the_rest():
+    with _tmpdir() as tmp:
+        book = _store(tmp)
+        _swept_into(book, [_swept(), _swept(uid="1000000000000002", name="Player2",
+                                            level=10)], now=NOW)
+        book.set_favourite("1000000000000002")
+        book.store.flush()
+        assert {r["uid"] for r in book.search({"fav": True}, now=NOW)} == \
+            {"1000000000000002"}
+        assert book.count({"fav": True}, now=NOW) == 1
+        # …and it is an AND with everything else, exactly like every other clause.
+        assert book.search({"fav": True, "level_min": 30}, now=NOW) == []
+        # …and with no chip down, the register is whole again.
+        assert book.count({}, now=NOW) == 2
+
+
+def test_forgetting_a_player_takes_their_star_with_them():
+    """A star on a row that is gone is a star nobody can see and nobody can remove."""
+    with _tmpdir() as tmp:
+        book = _store(tmp)
+        _swept_into(book, [_swept()], now=NOW)
+        book.set_favourite("1000000000000001")
+        book.store.flush()
+        assert book.forget("1000000000000001") is True
+        assert book.favourites() == set()
+        # …and the row does not come back starred when the map meets them again.
+        _swept_into(book, [_swept()], now=NOW)
+        assert book.is_favourite("1000000000000001") is False
+
+
+def test_the_quick_filter_is_a_chip_the_page_itself_narrows_by():
+    """The chip, the press behind it, and the star on the card (#2766).
+
+    The chip is SCREEN STATE — nothing is stored in the panel — so what is pinned here
+    is the other half: the panel offers the chip with the register's own count, answers
+    `only=fav` with the starred rows alone, and draws the star on the card of a player
+    who has one.
+    """
+    with _tmpdir() as tmp:
+        tab = _bare_tab(tmp)
+        _swept_into(tab._registry, [_swept(), _swept(uid="1000000000000002",
+                                                     name="Player2")], now=time.time())
+        # A CHIP WITH NOTHING BEHIND IT IS NOT OFFERED, so «Избранные» arrives with the
+        # first star rather than standing there emptying the card.
+        chips = tab.web_view()["cards"][0]["filters"]
+        assert [c["id"] for c in chips] == [""], chips
+
+        assert tab.web_press("fav", {"uid": "1000000000000001"}) == \
+            {"ok": True, "on": True}
+        chips = tab.web_view()["cards"][0]["filters"]
+        assert [c["id"] for c in chips] == ["", "fav"], chips
+        assert [c["count"] for c in chips] == [2, 1], chips
+
+        page = tab.web_data("page", {"only": "fav"})
+        assert page["total"] == 1 and len(page["items"]) == 1
+        assert page["items"][0]["text"] == "Player1"
+        assert page["items"][0]["pill"] == "players.fav.pill", page["items"][0]
+        # …and with no chip down the page is the whole register again.
+        assert tab.web_data("page", {})["total"] == 2
+
+        # THE SHEET SAYS WHAT THE PRESS WILL DO, not what the row is.
+        sheet = tab.web_data("details", {"uid": "1000000000000001"})
+        assert sheet["actions"][0] == {"id": "fav", "label": "players.fav.off",
+                                       "args": {"uid": "1000000000000001"}}
+        # …and the second press takes it off.
+        assert tab.web_press("fav", {"uid": "1000000000000001"}) == \
+            {"ok": True, "on": False}
+        assert tab.web_data("page", {"only": "fav"})["total"] == 0
+        assert tab.web_press("fav", {"uid": "9"})["ok"] is False
 
 
 if __name__ == "__main__":

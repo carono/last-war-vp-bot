@@ -963,6 +963,33 @@ function Card({
   screen: string
   after: () => void
 }) {
+  /* WHICH FILTER CHIP IS DOWN (#2737) — screen state, held here and nowhere else: the
+     panel is not told and nothing is written to it. An id of `""` is «все», which is also
+     what a card with no filters has.
+     …AND IT SURVIVES LEAVING THE PAGE (#2740), which is what the person asked for: «при
+     смене вкладки фильтры должны сохраняться». A card is unmounted when the screen
+     changes, so `useState` alone forgot the choice the moment somebody looked at
+     anything else and came back to find the whole list again. The value lives in ONE
+     place — `chipHeld`, keyed by screen and card — and the state below only draws it, so
+     there is no second copy to disagree with. It is deliberately not stored in the panel:
+     which chip a thumb pressed is about this session's screen, not about the account.
+     …AND ON A PAGED CARD IT TRAVELS WITH THE FETCH (#2766), which is why it is declared
+     above it. A chip ordinarily narrows the items already in hand; a paged card holds
+     ONE PAGE of a register of three hundred thousand, so narrowing here would hide every
+     starred player who is not on the page and leave the pager counting the wrong rows.
+     The panel narrows it in SQL instead — still no press, still nothing stored there. */
+  const chipKey = screen + '/' + (card.title || card.head || '')
+  const [only, setOnlyState] = useState(() => chipHeld.get(chipKey) || '')
+  const setOnly = useCallback(
+    (id: string) => {
+      chipHeld.set(chipKey, id)
+      setOnlyState(id)
+    },
+    [chipKey],
+  )
+  /* A card redrawn under a different key — the screen changed while this component was
+     reused — takes that key's own chip rather than keeping the last one's. */
+  useEffect(() => setOnlyState(chipHeld.get(chipKey) || ''), [chipKey])
   /* A CARD WHOSE ROWS COME OFF `/api/screen/data` (#2133) — see `ViewCard.paged`. The
      fetch is what puts a lap of the map back on the screen: the register grows by
      hundreds of players a minute, and a page of a thousand cannot ride the poll. */
@@ -984,7 +1011,9 @@ function Card({
               encodeURIComponent(screen) +
               '&kind=' +
               encodeURIComponent(kind) +
-              (needle ? '&needle=' + encodeURIComponent(needle) : ''),
+              (needle ? '&needle=' + encodeURIComponent(needle) : '') +
+              /* WHICH CHIP IS DOWN (#2766) — narrowed where the paging is, in SQL. */
+              (only ? '&only=' + encodeURIComponent(only) : ''),
           )
           if (alive) setPaging(answer)
         } catch {
@@ -996,32 +1025,10 @@ function Card({
       alive = false
       window.clearTimeout(timer)
     }
-  }, [screen, kind, stamp, needle])
+  }, [screen, kind, stamp, needle, only])
   /* A card sends its items or it is `paged` — never both. What the panel narrowed in SQL
      is not narrowed a second time here, or the search box would search the page it was
      given instead of the register it asked about. */
-  /* WHICH FILTER CHIP IS DOWN (#2737) — screen state, held here and nowhere else: the
-     panel is not told and nothing is written to it. An id of `""` is «все», which is also
-     what a card with no filters has.
-     …AND IT SURVIVES LEAVING THE PAGE (#2740), which is what the person asked for: «при
-     смене вкладки фильтры должны сохраняться». A card is unmounted when the screen
-     changes, so `useState` alone forgot the choice the moment somebody looked at
-     anything else and came back to find the whole list again. The value lives in ONE
-     place — `chipHeld`, keyed by screen and card — and the state below only draws it, so
-     there is no second copy to disagree with. It is deliberately not stored in the panel:
-     which chip a thumb pressed is about this session's screen, not about the account. */
-  const chipKey = screen + '/' + (card.title || card.head || '')
-  const [only, setOnlyState] = useState(() => chipHeld.get(chipKey) || '')
-  const setOnly = useCallback(
-    (id: string) => {
-      chipHeld.set(chipKey, id)
-      setOnlyState(id)
-    },
-    [chipKey],
-  )
-  /* A card redrawn under a different key — the screen changed while this component was
-     reused — takes that key's own chip rather than keeping the last one's. */
-  useEffect(() => setOnlyState(chipHeld.get(chipKey) || ''), [chipKey])
   const filters = card.filters || []
   const items = (
     paged
@@ -1031,7 +1038,10 @@ function Card({
           const hay = ((item.text || '') + ' ' + (item.detail || '') + ' ' + (item.note || '')).toLowerCase()
           return hay.includes(needle)
         })
-  ).filter((item) => !only || (item.tags || []).includes(only))
+    /* …AND A PAGED CARD IS ALREADY NARROWED (#2766): the chip went with the fetch, so
+       filtering by `tags` here would narrow a second time, by a word those items were
+       never given. */
+  ).filter((item) => paged || !only || (item.tags || []).includes(only))
   // A card of PLACES draws them as small buttons (#1999); a card of THINGS WITH A FACE
   // draws them as the card an errand is (#2119). `layout` is the tab's own word for it,
   // so nothing here guesses from a title or a count.

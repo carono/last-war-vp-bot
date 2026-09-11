@@ -570,7 +570,11 @@ export interface ViewCard {
      `id` of `""` is «все»; an item is kept when its `tags` hold the chosen id. It is
      SCREEN STATE and nothing else: the chip lives in this front-end, the panel keeps no
      copy of it and no press is sent when one is tapped. `count` is drawn beside the word
-     the way the card strip counts its cards. */
+     the way the card strip counts its cards.
+     ON A `paged` CARD the chosen id travels with the page's own fetch instead (#2766) —
+     `/api/screen/data?only=<id>` — because a card that holds one page of three hundred
+     thousand rows cannot narrow what it was not given. Still no press, still nothing kept
+     in the panel; only the place the narrowing happens is different. */
   filters?: { id: string; label: string; count?: number }[]
   /* THIS CARD'S ITEMS ARE DRAWN WHOLE (#2737) — no «Показать ещё» under them. For a card
      whose items are SMALL and whose whole point is the wall of them: the four hundred
