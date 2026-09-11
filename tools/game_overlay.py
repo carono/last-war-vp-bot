@@ -212,14 +212,19 @@ def window_rect(hwnd: int) -> "tuple | None":
 class Overlay:
     """The bar itself: a Tk window that follows the client's and presses scenarios."""
 
-    def __init__(self, door: Door, words: Words, titles=None, anchor: str = "right") -> None:
+    def __init__(self, door: Door, words: Words, labels=None, anchor: str = "right") -> None:
         import tkinter as tk
 
         self.door = door
         self.words = words
-        self.titles = titles
+        # WHAT EACH BUTTON IS CALLED — the SCENARIOS' own titles, keyed by name. Never
+        # confused with the window titles `find_client` matches on: they were one
+        # attribute for an hour, and the bar then looked for a window called
+        # «collect_base_resources» and hid itself for ever without a word (#2768).
+        self.labels = labels or {}
         self.anchor = anchor
         self.hwnd_game = 0
+        self._had_window = False            # so the first answer either way is said once
         self.watching = None                # the scenario a press of ours is running
         self.said_at = 0.0
         self._buttons = {}
@@ -254,7 +259,7 @@ class Overlay:
     # -- what a button is called -------------------------------------------
     def _title(self, name: str) -> str:
         """The SCENARIO's own title, off the panel — never a word written here."""
-        return self.titles.get(name) or name if self.titles else name
+        return self.labels.get(name) or name
 
     # -- the press ----------------------------------------------------------
     def press(self, name: str) -> None:
@@ -355,7 +360,15 @@ class Overlay:
 
         user32 = _user32()
         if not self.hwnd_game or not user32.IsWindow(ctypes.c_void_p(self.hwnd_game)):
-            self.hwnd_game = find_client(self.titles)
+            self.hwnd_game = find_client()
+        # A BAR THAT CANNOT FIND THE CLIENT SAYS SO ONCE, on stdout, which the panel
+        # streams into its log. Hiding silently for ever is exactly what an hour of #2768
+        # was spent on: the window it was looking for had the wrong name and nothing
+        # anywhere said a word about it.
+        if bool(self.hwnd_game) is not self._had_window:
+            self._had_window = bool(self.hwnd_game)
+            print("game window found" if self.hwnd_game else "no game window on this desktop",
+                  flush=True)
         rect = window_rect(self.hwnd_game) if self.hwnd_game else None
         front = int(user32.GetForegroundWindow() or 0)
         minimised = bool(self.hwnd_game and user32.IsIconic(ctypes.c_void_p(self.hwnd_game)))
@@ -456,7 +469,7 @@ def main(argv=None) -> int:
         return 2
     door = Door(url, token, args.profile)
     words = Words(door.get("/api/i18n", profile=args.profile).get("words") or {})
-    overlay = Overlay(door, words, titles=titles_of(door, set(BUTTONS)),
+    overlay = Overlay(door, words, labels=titles_of(door, set(BUTTONS)),
                       anchor=args.anchor)
     overlay.run()
     return 0
