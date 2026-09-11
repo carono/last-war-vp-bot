@@ -211,6 +211,52 @@ Since #1087 it skips the not-ready ones, so the harvest no longer trails a queue
 It does, however, make the client stutter while it runs — diagnosed in #1189 above, not
 yet fixed.
 
+## What the harvest is worth, stated before it presses anything (#2747)
+
+The day's card «Сбор ресурсов» is built by DIFFING balances, and a balance push says only
+that a number moved. Attributing a gain to the base by TIME alone therefore charges the
+harvest with whatever else happened to land near it. Measured on the live panel of
+2026-09-11, profile `default`:
+
+| item | whole-day tally | base's card | what the base makes |
+|---|---|---|---|
+| «Запчасти дрона» (7038) | 56 | 34 | about 7 a day |
+| «Сундук Компонента Дрона» (630011) | 46 | 21 | none — the base has no line for it |
+| «Фиолетовый кристалл» (521050) | 90 | 90 | none |
+
+The 34 is `20 + 9 + 2 + 2 + 1`: `collect_base_resources` ended at 08:44:37 and 08:54:07
+and two arms-race prizes of twenty drone parts each landed at 08:45:44 and 08:55:50 —
+outside the minute's claim (#2746e) and inside the burst chain behind it, which exists to
+hold a harvest's own cascade together and therefore held those too. On the four
+resources the same error is invisible: it is a percent of eleven million.
+
+So the harvest states its own size. `actions/collect_base_resources.md` sums
+`GetBuildingCurrStorage` over `GetAllBuildUuids` by what each line pays
+(`GetProductRes` / `GetProductResItem` / `GetProductGoods`) BEFORE it presses anything —
+the same number `read_base_resources.md` reports as `pending` — and leaves it in
+`harvest_pending`. `panel/runtime/resource_book.py` arms that as a per-key BUDGET and
+credits the base up to it and no further; a key the harvest never claimed gets nothing.
+
+A harvest made with a thumb states nothing, so its budget is the last reading's own
+`pending`. That only ever understates, which is the right way for this number to be
+wrong.
+
+### Verified live, 2026-09-11 09:28
+
+```
+the sweep is about to collect: 1=34129 #|# 2=25166 #|# 14=35862 #|# 10=3750 #|# 23=455 #|# i8001=54000
+получено ресурсов: item:8001 +54000, metal +34129, food +36529, oil +455, gold +25594
+```
+
+The base's book moved by `metal +34129, gold +25166, food +35862, oil +455,
+item:8001 +54000` — each exactly the stated size, with the 667 food and 428 gold that
+arrived from somewhere else in the same window left in the whole-day tally alone. In the
+same window the tally took `item:630011 +22` and `item:7038 +20`; the base's book took
+neither.
+
+The reading is exact rather than inferred: the reading of 23:55 on 2026-09-10 said 219
+screws were standing, and the harvest a minute later paid exactly 219.
+
 ## Notes for the next session
 
 - Reading values back from the daemon uses `CS.UnityEngine.Debug.LogError("MARK|"..x)`
