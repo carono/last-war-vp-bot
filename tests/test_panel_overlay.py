@@ -79,6 +79,21 @@ def test_a_button_is_named_by_the_scenario_and_never_by_a_literal_here():
     assert "/api/i18n" in source, "the words come out of the panel's locale table"
 
 
+def test_the_window_is_found_by_the_GAMES_title_and_not_by_a_scenarios():
+    """An hour of #2768: the scenario titles and the window titles were one attribute,
+    so the bar looked for a window called «collect_base_resources», found none, and hid
+    itself for ever with nothing said anywhere."""
+    source = HELPER.read_text(encoding="utf-8")
+    assert "find_client()" in source, "the follower must not pass the button labels in"
+    assert "self.labels" in source, "the scenario titles live under their own name"
+    assert "self.titles" not in source
+
+
+def test_a_bar_that_cannot_find_the_client_says_so():
+    source = HELPER.read_text(encoding="utf-8")
+    assert "no game window on this desktop" in source
+
+
 def test_the_press_never_takes_the_foreground_away_from_the_client():
     """The client takes FOREGROUND input only — an overlay that activated itself on every
     press would be breaking the very thing it sits on."""
