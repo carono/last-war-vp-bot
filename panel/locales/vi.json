@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Rương nhà thám hiểm",
   "triggers.item.explorer_chests": "Mở rương nhà thám hiểm sau khi nhận thưởng nhiệm vụ bí mật của ta",
   "triggers.item.explorer_chests.short": "Rương nhà thám hiểm",
+  "triggers.item.ally_training_help": "Tham gia giúp đồng minh đang cần trợ giúp trong Đặc Huấn Khu Cấm",
+  "triggers.item.ally_training_help.short": "Lời cầu cứu của đồng minh",
   "timers.stat.explorer_chests": "rương chờ mở: {n} · chìa khoá: {keys}",
   "timers.stat.hidden": "la bàn: {n}/{all} · lượt đào còn lại: {digs} · còn khoảng {left} lượt đến mục tiêu · hôm nay: {today}",
   "timers.stat.hidden_closed": "tuần đã kết thúc",

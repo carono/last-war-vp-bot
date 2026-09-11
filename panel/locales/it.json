@@ -2931,6 +2931,8 @@
   "timers.item.open_explorer_chests.short": "Forzieri dell'esploratore",
   "triggers.item.explorer_chests": "Aprire i forzieri dell'esploratore dopo aver riscosso le nostre missioni segrete",
   "triggers.item.explorer_chests.short": "Forzieri dell'esploratore",
+  "triggers.item.ally_training_help": "Unirsi a un alleato che chiede aiuto nell'Addestramento Area Limitata",
+  "triggers.item.ally_training_help.short": "Richiesta d'aiuto di un alleato",
   "timers.stat.explorer_chests": "forzieri da aprire: {n} · chiavi: {keys}",
   "timers.stat.hidden": "bussole: {n} su {all} · scavi in riserva: {digs} · ancora circa {left} all'obiettivo · oggi: {today}",
   "timers.stat.hidden_closed": "settimana finita",
