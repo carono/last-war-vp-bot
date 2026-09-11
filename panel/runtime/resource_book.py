@@ -417,11 +417,25 @@ class ResourceBook:
         # exactly this: `bus.GAME_READY`, the edge where the client is up and logged in,
         # heard again when a lost link comes back — which is the other moment everything
         # this holds may have moved unheard.
+        # THREE CHANCES AND NOT ONE (#2747), and it is booked HERE as well as on the
+        # edge. Measured on the live panel of 2026-09-11: the panel was restarted at
+        # 09:46:38, the first reading of the session did not land until 09:49:02, and
+        # the harvest at 09:48:38 — 332K metal, 352K food, 512K hero experience — became
+        # the baseline and was counted as zero. A single `ask` at the busiest moment a
+        # panel ever has is refused by the link and never asked again, so the baseline
+        # rides the same one-shot chain a harvest uses: 2 s, 20 s and 45 s.
+        #
+        # …and `watch()` books it too, because a panel that comes up to a client ALREADY
+        # in the game may have missed the edge entirely — the book subscribes when the
+        # schedule is built, and `GAME_READY` is published by a poll that may have run
+        # first. The chain is idempotent: three armings of the same names are three
+        # readings, not nine.
+        self._post(self._book_reads)
         if self._off_ready is not None:
             return
         try:
             self._off_ready = self.rt.bus.subscribe(
-                busmod.GAME_READY, lambda _p=None: self._ask_read())
+                busmod.GAME_READY, lambda _p=None: self._book_reads())
         except Exception:                # noqa: BLE001 — a baseline, never the gain
             self._off_ready = None
 

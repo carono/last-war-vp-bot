@@ -430,20 +430,45 @@ def test_a_harvest_made_BY_HAND_in_the_game_is_counted_too():
     assert len(book.rt.tick.armed) == len(rb.HARVEST_READS)
 
 
+def test_the_baseline_is_booked_at_START_UP_and_not_only_on_the_edge():
+    """#2747, measured live: the panel was restarted at 09:46:38, the first reading did
+    not land until 09:49:02, and the harvest at 09:48:38 became the baseline.
+
+    One `ask` at the busiest moment a panel ever has is refused by the link and never
+    asked again, so the baseline rides the same one-shot chain a harvest uses."""
+    from panel.runtime import resource_book as rb
+
+    book = _book()
+    book.watch()
+    assert len(book.rt.tick.armed) == len(rb.HARVEST_READS), (
+        "the panel came up and booked no reading to diff against")
+    for _name, (_delay, func) in sorted(book.rt.tick.armed.items()):
+        func()
+    assert book.rt.resources.asked == len(rb.HARVEST_READS)
+
+
 def test_the_baseline_is_taken_when_the_client_gets_into_the_game():
     """#2746, measured live: the panel came up at 06:41, nothing read the balance until
     a harvest at 07:02:36 asked for one, and that harvest's own gains BECAME the
     baseline — a diff cannot price its first reading, so the whole harvest counted zero.
 
     `CLAUDE.md`, «A STATISTIC IS NOT REFRESHED BY HAND»: the first reading is taken on
-    `bus.GAME_READY` and on nothing else.
+    `bus.GAME_READY` and on a link that came back, never on a clock. Since #2747 it
+    books the one-shot chain rather than a single `ask`, because one ask at the busiest
+    moment a panel ever has is refused by the link and never asked again.
     """
     from panel.runtime import bus as busmod
+    from panel.runtime import resource_book as rb
 
     book = _book()
     book.watch()
+    book.rt.tick.armed.clear()                 # the start-up booking, already proved
     book.rt.bus.publish(busmod.GAME_READY, None)
-    assert book.rt.resources.asked == 1, "the appearance took no baseline"
+    assert len(book.rt.tick.armed) == len(rb.HARVEST_READS), (
+        "the appearance took no baseline")
+    for _name, (_delay, func) in sorted(book.rt.tick.armed.items()):
+        func()
+    assert book.rt.resources.asked == len(rb.HARVEST_READS)
 
 
 def test_the_book_does_not_depend_on_the_trigger_staying_alive():
