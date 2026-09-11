@@ -164,6 +164,36 @@ handed the scenario TITLES where the window titles belong (so it looked for a wi
 called «collect_base_resources» and hid itself for ever, silently), and the outcome was
 read out of log lines tagged «action» while a press from here is tagged «web».
 
+## 8a. The second pass, measured live (2026-09-11)
+
+The events of §3a were proven on the running panel (head `0f74165f`), against its own
+client, by moving the game's window 40 steps of 25 px sideways and 3 px up and down and
+reading both windows' rectangles after each step:
+
+* **read in the same instant the move returns: 28 px out** — one whole step, which is the
+  event still sitting in the queue;
+* **read 16 ms later: 0 px out, on all 40 steps** — worst and median both zero. The bar is
+  where it belongs within one frame, against the 200 ms the first pass's clock could not
+  beat.
+
+Three more things the same session showed:
+
+* **F12 toggles it**, twice, with the game in front: `[overlay] убираю кнопки с окна
+  клиента` / `рисую кнопки панели поверх окна клиента` in the profile's log, and
+  `state.overlay.running` following each press. With another window in front the key is
+  not ours and nothing happens, which is the rule the squad keys already obey.
+* **A client that is replaced is picked up again.** The watchdog relaunched the client
+  mid-session; the bar found the new window by itself and placed itself on its edge —
+  game `(252, 102)-(1804, 1103)`, bar at `(1472, 114)-(1792, 217)`, the same 12 px.
+* **A press still runs the ability and still costs no focus**: a click on the button gave
+  `[web] > action: collect_base_resources` … `< action: collect_base_resources OK`, and
+  the foreground was the game both before the click and after it.
+
+The bar does NOT follow while it is hidden — a client whose window is not in front is not
+one the bar is drawn over, so `_sync` hides and returns without placing. The foreground
+hook brings it back and places it in the same call, so what a person sees is a bar that
+was never in the wrong place.
+
 ## 9. What is deliberately not here yet
 
 * **More buttons.** One is the trial. The set is the next conversation.
