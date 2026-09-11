@@ -192,3 +192,37 @@ gone by 12:23 — the client had restarted in between and taken the Lua VM with 
 said in that half hour would have been lost for good, because the server does not replay
 them. The joining order (`ally_training_help`) stays **off**: listening spends nothing,
 joining spends the day's participation-reward quota.
+
+
+## 8. The first live plea, end to end (2026-09-11 14:29)
+
+An alliancemate's card landed at 14:29:38 and the ear parked it whole:
+
+```
+post=730
+attachmentId = {"eventId":200319, "questId":"9400319",
+                "eventPlayerUuid":"<the sharer's uid>",
+                "eventUuid":1414875506681036983}
+isProxy=1  userLang=ru  seqId=2411
+```
+
+So the payload IS in `extra`, under **`attachmentId`**, as a JSON string — the same key
+the map shares use — and it names the owner itself (`eventPlayerUuid`), the event
+(`eventUuid`), its kind (`eventId`) and its quest (`questId`). The dig read all three out
+of the real card unchanged, which is what §6.2 was written blind against.
+
+Three things the join taught, in the order they cost us:
+
+1. **`SFSNetwork.SendMessage('idle.game.event.help', {…})` does not work.** The client's
+   serialiser refuses a table, the `pcall` swallowed the throw and the run reported
+   `sent=0 unusable=1`. The door is the manager's own method, and it takes its three
+   values positionally: `SendIdleGameEventHelpMessage(uid, eventUuid, eventId)`. The
+   other orders are refused by the serialiser, which is how the order was pinned.
+2. **An event holds FIVE helpers.** `SendIdleGameEventGetMessage(uid, eventUuid, 0)` then
+   `GetInvitePlayerInfoList(eventUuid)` is the «места» reading: a list of player cards
+   (`uid`, `name`, `abbr`, `level`, `power`, `serverId`, …). `InvitePlayersDict` is
+   filled by that fetch, keyed by the event's uuid.
+3. **Two minutes is too late.** Read at 14:31, that event already had its five and we were
+   not among them — the game's own «Это событие завершено» (`t11_idle_game_desc_84`) in
+   numbers. A join has to happen within seconds of the card, which is exactly what the
+   standing order does and a person at a keyboard cannot.
