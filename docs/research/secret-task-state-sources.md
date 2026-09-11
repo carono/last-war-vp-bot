@@ -254,3 +254,39 @@ its base, measured on every run.
 (§«Where the number lives at all»), and «is it still there» is only answered by the ground
 the tile stands on — `actions/verify_secret_tasks.md` walking the camera with the capture
 listening. The per-id read is a confirmation, not a check.
+
+### The cache is what answers, and a walk does not fill it (#2780, second run)
+
+Asked again on a list the operator had just refilled, so that «the camera has been over
+these a minute ago» was true of most of it. The counts are the point:
+
+| | |
+|---|---|
+| rows asked, one `world.get.detail.new` each | **20** |
+| of them walked over 1–2 min earlier (warzone 8128) | 17 — **0 answered** |
+| of them last confirmed 9 min earlier (warzone 940) | 3 — answered, **out of the cache** |
+| detail cache before the burst / after | **19 → 20** |
+| what the one new entry was | the CONTROL — an alliance task |
+
+`GetDetailByPointId` is a lookup in `worldPointDetailList`, which keeps every point the
+client has ever had a detail for. So «it answered» has two meanings, and the cache size is
+the only way to tell them apart: **twenty requests for the list's own tiles produced ONE
+new entry, and that one was the alliance control.** The three that answered were already
+in the cache from some earlier fetch; nothing on the wire came back for them now.
+
+The client was in the CITY for this run (`cur_server` 8128, `scene` city), which is where
+a panel reading a list normally sits. An hour earlier, *while the map was up right after a
+walk*, two tiles the walk had just heard did answer — so what makes a stranger's point
+answerable is the world being loaded around it, and it does not survive going back to the
+base. How long it lasts WHILE the map is up has not been measured.
+
+**And there is still no state in the answer.** The full 45 fields dumped from two live
+replies: `expireTime=0`, no `stealInfoList`, no `stealList`, `stage=0`, `currAssistance=0`,
+`maxAssistance=0`, `maxProgress=0`, `donateProgress=0`, `remainRes=0`, `initRes=0`. What
+it does carry is identity — `uuid`, `uid`, owner name, `allianceId`, `srcServer`,
+`pointId`, career type and level. Nothing about `n/3`, nothing about the expiry, nothing
+about whether the tile is taken.
+
+So per-id confirmation is not a supplement to the walk either: the points it can confirm
+are the ones the walk has just loaded, and only while the map is still up.
+
