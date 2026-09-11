@@ -16,12 +16,21 @@ nothing.
 
 TWO BOOKS, ONE PUSH. Everything that raises a balance lands in the whole-day tally —
 a truck coming home, a gift, a chest, a robbery. The card of «Сбор ресурсов» asks the
-narrower question «сколько собрано С БАЗЫ сегодня», and there is no field on the wire
-saying where a gain came from: the balance push says a number moved. So the source is
-the panel's own knowledge of what it was DOING — `collect_base_resources` running now,
-or having run within :data:`COLLECT_CLAIM_SEC` of the moment the gain could first be
-priced. A harvest made by a thumb in the game is therefore in the whole-day tally alone,
-which is a gap and not a lie.
+narrower question «сколько собрано С БАЗЫ сегодня», and the balance push does not answer
+it: it says a number moved.
+
+WHAT DOES ANSWER IT IS THE GAME'S OWN FRAME (#2746b). Collecting one production building
+is `building.production.collect`, one per building — the same frame whether a person taps
+the green bubble or the panel plays the sweep — so the ear
+(`panel/runtime/wire.py`) hears a harvest WHOEVER made it, and a gain priced inside
+:data:`COLLECT_CLAIM_SEC` of one is the base's production. A truck, a gift, a chest and
+a robbery are other commands entirely.
+
+This replaces the claim the book was built on and which was wrong in principle — «our
+run was playing», which can only ever count the harvests the panel itself made. The
+person's words: «Ищи пуши, я могу и в игре руками собрать ресурсы, они должны
+учитываться». The run register is kept as the FALLBACK for a profile with no ear: no
+capture on this machine, or traffic that could not be narrowed to this account.
 
 NOTHING HERE RUNS ON A CLOCK. Three things fill the book, and every one of them is an
 EVENT (`CLAUDE.md`, «Read once, then LISTEN»): the game's own «your balance changed»
@@ -59,7 +68,27 @@ from . import reads
 INTAKE_GAINS = "stats.gains"
 
 #: The scenario whose run means a gain came off the base's own production buildings.
+#: A FALLBACK since #2746b: what actually says «this came off the base» is the GAME, on
+#: the wire (:data:`COLLECT_COMMAND`). This is what is left when there is no ear — no
+#: capture on this machine, traffic that could not be narrowed to this profile.
 COLLECT_ACTION = "collect_base_resources"
+
+#: WHAT THE GAME ITSELF SAYS WHEN A PRODUCTION BUILDING IS COLLECTED (#2746b). The
+#: person's words: «Ищи пуши, я могу и в игре руками собрать ресурсы, они должны
+#: учитываться». They are right, and the claim this book was built on was wrong in
+#: principle: «our run was playing» can only ever count the harvests the PANEL made.
+#:
+#: Collecting one building is one frame — `building.production.collect`, one per
+#: building, upstream, and the server answers on the same name
+#: (`docs/research/protocol.md`, trapped live while a person tapped the green bubbles by
+#: hand). So the ear hears a harvest whoever made it: a thumb on the base screen and the
+#: panel's own sweep are the same frame, which is exactly the distinction the card needs
+#: and the one the run register cannot make.
+#:
+#: It is also what makes the SOURCE the game's word rather than the panel's guess: a
+#: truck coming home, a gift, a chest and a robbery are other commands entirely, so a
+#: gain priced inside this window is the base's production and nothing else's.
+COLLECT_COMMAND = "building.production.collect"
 
 #: HOW LONG A HARVEST'S GAINS GO ON ARRIVING once the first of them has been priced, in
 #: seconds. One press sends a collect per ready building — 36 of them, live — and the
@@ -154,6 +183,8 @@ class ResourceBook:
         # …and the first reading of an appearance, which is what a diff needs before it
         # can price anything at all (`watch`).
         self._off_ready = None
+        # …and the ear that hears the GAME say a building was collected, by whoever.
+        self._off_wire = None
         # The last set of item labels written down, so an unchanged one costs no write.
         self._labels: dict = {}
 
@@ -241,9 +272,10 @@ class ResourceBook:
 
         Nothing on the wire says where a gain came from, so the only honest answer is
         what the panel was DOING: a gain priced while `collect_base_resources` is on the
-        client, or within :data:`COLLECT_CLAIM_SEC` of the last moment it was, is that
-        harvest's. A harvest made by a thumb in the game arms nothing and is in the
-        whole-day tally alone — a gap, not a lie.
+        client, or within :data:`COLLECT_CLAIM_SEC` of the last moment the GAME said a
+        production building was collected (:data:`COLLECT_COMMAND`) — which is the same
+        frame for a thumb on the base screen and for the panel's own sweep, so a harvest
+        made by hand is counted exactly like one the panel made (#2746b).
 
         NO CLAIM IS SPENT ANY MORE (#2746). The first gain used to take the arm and
         everything after it fell outside; a harvest arrives in several bursts, so that
@@ -287,6 +319,17 @@ class ResourceBook:
             self._off_runs = self.rt.interrupts.listen(self._runs_changed)
         except Exception:                # noqa: BLE001 — a listener, never the gain
             self._off_runs = None
+        # …AND THE GAME'S OWN WORD FOR A HARVEST (#2746b), which is what makes a collect
+        # made BY HAND in the game count exactly as the panel's own does. The ear is one
+        # capture per profile and this profile already subscribes to
+        # `push.resource.item.update` through the `resource_tracker` trigger, so the
+        # pattern costs no second child (`panel/runtime/wire.py`).
+        if self._off_wire is None:
+            try:
+                self._off_wire = self.rt.wire.subscribe(COLLECT_COMMAND,
+                                                        self._on_collect_wire)
+            except Exception:            # noqa: BLE001 — no ear leaves the run register
+                self._off_wire = None    #   as the fallback, which is what it is for
         # …AND THE BASELINE, taken when the client gets into the game (#2746). A tally
         # built by DIFFING balances cannot price its first reading — there is nothing to
         # diff it against — so whatever moved between the panel starting and that first
@@ -305,6 +348,16 @@ class ResourceBook:
                 busmod.GAME_READY, lambda _p=None: self._ask_read())
         except Exception:                # noqa: BLE001 — a baseline, never the gain
             self._off_ready = None
+
+    def _on_collect_wire(self, _command: str = "") -> None:
+        """The game says a production building was collected. ANY thread, no game call.
+
+        One frame per building, so a sweep of 36 says this many times — which costs
+        nothing: the arm is a timestamp and the readings are re-armed one-shot chains, so
+        the burst collapses into the last frame's booking (`panel/runtime/tick.py`).
+        """
+        self._collect_at = time.time()
+        self._post(self._book_reads)
 
     def _runs_changed(self) -> None:
         """A run started or ended. Called on whatever thread reported it."""
@@ -439,7 +492,13 @@ class ResourceBook:
         return gains
 
     def shutdown(self) -> None:
-        """Let the reading and the register go when the profile closes."""
+        """Let the reading, the ear and the register go when the profile closes."""
+        if self._off_wire is not None:
+            try:
+                self._off_wire()
+            except Exception:            # noqa: BLE001
+                pass
+            self._off_wire = None
         if self._off_ready is not None:
             try:
                 self._off_ready()
