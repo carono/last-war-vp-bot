@@ -55,6 +55,50 @@ break the thing it sits on top of. Two measures:
 It hides itself when the game is minimised, and when the window in front is neither the
 game nor the bar — so it is never a lid over another program.
 
+## 3a. It moves WITH the window, and asks nobody where the window is (second pass)
+
+The first pass followed the client on a 200 ms clock, and the owner saw exactly what that
+is: «оно бегает за окном, если игру перемещать, хотелось бы, чтобы они двигались
+неразрывно». A clock cannot do better than its period, and it is also the polling this
+repository forbids.
+
+So there is no position clock. `SetWinEventHook` with `WINEVENT_OUTOFCONTEXT` asks the
+window manager to tell us what the client's window does — three hooks:
+
+* `EVENT_OBJECT_DESTROY … EVENT_OBJECT_LOCATIONCHANGE`, narrowed to the client's own
+  thread: every step of a drag or a resize, and the window's death;
+* `EVENT_SYSTEM_MINIMIZESTART/END`, same thread;
+* `EVENT_SYSTEM_FOREGROUND`, machine-wide — the one thing no event of the game's own can
+  say is that something else has been brought up over it.
+
+`OUTOFCONTEXT` is the half that matters for the anti-cheat: nothing of ours is loaded into
+the game's process, no thread is attached to its input queue, the events are queued to OUR
+thread and delivered when Tk pumps. A move is then one `SetWindowPos` — deliberately not
+`root.geometry()`, which goes through Tk's geometry manager and an idle task.
+
+**Ownership was tried and rejected, and not because of ACE.** `GWLP_HWNDPARENT` writes
+nothing into the game, but the documented behaviour ends with: when an owner window is
+destroyed, its owned windows are destroyed too. The watchdog restarts this client several
+times a day, and each restart would take the bar's window — and with it the helper
+process — down. Ownership would not have moved the bar either: an owned window keeps its
+own position, so the events above were needed regardless.
+
+The only clock left runs while there is NO client to follow (`RESCAN_MS`, 3 s): nothing
+announces a window that does not exist yet. A machine that refuses the hooks falls back to
+a clock and SAYS so on stdout, which the panel's log keeps — never a silent chase.
+
+## 3b. F12
+
+F12 shows the bar and hides it, through the keyboard listener that already exists
+(`panel/runtime/hotkeys.py`, the one #2767 moved into the windowless panel — there is no
+second listener). It presses the panel's own two-row table, exactly as the button on
+«Состояние» and the phone's do, so the three can never come to mean different things.
+
+It is SWALLOWED, like CapsLock and unlike the digits: F12 means nothing in this game, and
+a key that toggles the bar and also falls through is a key doing two things. It counts
+only while the game is the window in front, and which profile it belongs to is answered by
+`ForegroundProfile` — the same answer the squad keys get.
+
 ## 4. Whose client, and nothing asked in the background
 
 The game window is found BY TITLE among the visible top-level windows of this session
@@ -67,9 +111,8 @@ wrong desktop; starting a window there needs that session's own token
 (`tools/session_launch.py`) and SYSTEM to use it, which is a separate piece of work.
 
 The panel is polled ONLY while a press this bar made is still running, and not at all
-otherwise (`CLAUDE.md`, «Read once, then LISTEN»). The single clock is the position
-follower, which reads the game window's rectangle from the window manager and asks the
-game and the panel nothing.
+otherwise (`CLAUDE.md`, «Read once, then LISTEN»). Since the second pass there is no
+position clock either (§3a): the bar is TOLD where its window went.
 
 ## 5. The result of a press, in the panel's own words
 

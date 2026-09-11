@@ -1,5 +1,12 @@
 """The keyboard macros: 1..4 send a squad, CapsLock repeats the last march (#1283).
 
+…and F12 shows or hides the bar of buttons drawn over the client's window (#2768). That
+one is not a scenario and does not pretend to be: it is the same press «Состояние» and
+the phone make (`panel/runtime/overlay.py`), reached from the keyboard because the person
+it is for is sitting at the game with both hands on it. It is SWALLOWED, like CapsLock —
+F12 belongs to the debugger and to nothing in this game, and a key that both toggles the
+bar and falls through is a key that does two things.
+
 The panel listens for five keys while the GAME's window is in front, and each one plays
 a scenario. That is the whole of it — the abilities live in
 `src/lastwar_bot/actions/march_selected_squad.md` and `march_repeat_last.md`, and this
@@ -66,6 +73,10 @@ REPEAT_ACTION = "march_repeat_last"
 #: The tag every line of this lands under in the panel's log.
 TAG = "macro"
 
+#: What F12 does — «show it if it is not up, take it away if it is». One key for both,
+#: because a person watching the bar appear and disappear does not need two.
+OVERLAY_KEY = "overlay"
+
 #: How long a queued press waits for the client to come free before it is offered anyway
 #: (and refused, honestly, if it still cannot have it). Two runs of the macro back to back
 #: is the case this exists for; a person's second key must not be thrown away because the
@@ -78,6 +89,7 @@ TURN_POLL_SEC = 0.05
 _VK_SQUAD = {0x31: 1, 0x32: 2, 0x33: 3, 0x34: 4,      # '1'..'4'
              0x61: 1, 0x62: 2, 0x63: 3, 0x64: 4}      # numpad 1..4
 _VK_CAPITAL = 0x14
+_VK_F12 = 0x7B
 
 _WH_KEYBOARD_LL = 13
 _WM_KEYDOWN = 0x0100
@@ -220,8 +232,8 @@ class HotkeyListener:
         return self._title in _foreground_title().casefold()
 
     def _swallow(self, vk: int) -> bool:
-        """Whether this key is taken away from the game — CapsLock only, see the module."""
-        return vk == _VK_CAPITAL
+        """Whether this key is taken away from the game — see the module docstring."""
+        return vk in (_VK_CAPITAL, _VK_F12)
 
     # -- the hook -----------------------------------------------------------
     def start(self) -> bool:
@@ -309,7 +321,8 @@ class HotkeyListener:
         try:
             if code == 0 and wparam in (_WM_KEYDOWN, _WM_SYSKEYDOWN):
                 vk = int(lparam[0].vkCode)
-                if (vk in _VK_SQUAD or vk == _VK_CAPITAL) and self.game_in_front():
+                if (vk in _VK_SQUAD or vk in (_VK_CAPITAL, _VK_F12)) \
+                        and self.game_in_front():
                     self._queue.put(vk)
                     swallow = self._swallow(vk)
         except Exception:                 # noqa: BLE001 — never break the keyboard
@@ -357,9 +370,12 @@ class HotkeyListener:
             time.sleep(TURN_POLL_SEC)
 
     def _press(self, vk: int) -> None:
-        """One key, one scenario, and a line in the log whatever happens."""
+        """One key, one press, and a line in the log whatever happens."""
         rt = self._resolve()
         if rt is None:
+            return
+        if vk == _VK_F12:
+            self._overlay(rt)
             return
         if vk == _VK_CAPITAL:
             rt.say(TAG, "log.macro.repeat")
@@ -370,3 +386,16 @@ class HotkeyListener:
         rt.say(TAG, "log.macro.send", squad=squad)
         self._wait_its_turn(rt)
         rt.play_async(SEND_ACTION, {"squad": squad}, tag=TAG, human=True)
+
+    def _overlay(self, rt) -> None:
+        """F12: put the bar over the client's window, or take it away (#2768).
+
+        The only key here that plays no scenario, and it must not grow into one: what it
+        presses is the panel's own two-row table, exactly as the button on «Состояние»
+        and the one on the phone do, so all three can never come to mean different things.
+        """
+        from . import overlay as overlaymod          # noqa: PLC0415 — Windows, and a cycle
+
+        up = overlaymod.running(rt)
+        rt.say(TAG, "log.macro.overlay_off" if up else "log.macro.overlay_on")
+        overlaymod.play(rt, overlaymod.HIDE if up else overlaymod.SHOW)
