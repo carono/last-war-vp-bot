@@ -2724,10 +2724,13 @@ def test_the_client_and_the_link_are_one_card_and_nothing_of_either_was_lost():
     state = (_APP_SRC / "views" / "StateView.tsx").read_text(encoding="utf-8")
     assert "'web.ui.gamelink'" in state, "the merged card has no heading of its own"
     assert "'web.ui.link'" not in state,         "the old «Связь» heading is still drawn — the two cards were not merged"
-    # Four cards left on the page and in this file: the merged one, «Занят»,
-    # «Таймеры», and the panel's own version card (`PanelCard`, drawn last).
+    # Five cards on the page and in this file: the merged one, «Занят», «Таймеры»,
+    # the overlay's own card (#2768 — the buttons drawn over the client's window) and
+    # the panel's version card (`PanelCard`, drawn last). The number is pinned so that
+    # a card SILENTLY appearing is noticed; adding one deliberately means changing it
+    # here and saying which it is.
     drawn = state.count('<div className="card">')
-    assert drawn == 4, (
+    assert drawn == 5, (
         "«Состояние» draws a different number of cards than the merge left it with "
         f"({drawn}) — a card was added or the two were not merged after all")
     for fact in ("state.game.text", "'web.ui.port'", "'web.ui.link.user'",

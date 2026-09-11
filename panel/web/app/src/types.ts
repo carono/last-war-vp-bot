@@ -130,6 +130,11 @@ export interface State {
   watchdog?: boolean
   gate?: { held?: boolean; for_sec?: number; reason?: string }
   panel?: { version?: string; controls?: Control[] }
+  /* THE PANEL'S BUTTONS DRAWN OVER THE CLIENT'S OWN WINDOW (#2768). `running` is whether
+     the bar is up for this profile, `supported` whether this machine has a desktop to
+     draw one on, and `controls` the two presses — both front-ends read the same table
+     (`panel/runtime/overlay.py`). */
+  overlay?: { running?: boolean; supported?: boolean; controls?: Control[] }
 }
 
 /* ONE LIVE LINE UNDER AN ERRAND'S BLOCK (#2019) — «+377 023 ждёт сбора» under «Сбор

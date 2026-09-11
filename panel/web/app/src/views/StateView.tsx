@@ -104,6 +104,68 @@ function ControlRow({
   )
 }
 
+/* THE PANEL'S BUTTONS OVER THE CLIENT'S OWN WINDOW (#2768). The press starts and stops a
+ * helper process in the session the client lives in; what the bar then does when a thumb
+ * lands on it is the same `/api/actions/run` this page uses, so the ability stays one
+ * scenario and the overlay stays a front-end (`panel/runtime/overlay.py`).
+ *
+ * Nothing is decided here: which of the two presses applies comes off /api/state, exactly
+ * as the client's three do, and a refusal is shown with the REASON the panel gave — «не
+ * получилось» on its own is the one answer nobody can act on. */
+/* WHY a press did not happen, as KEYS rather than as a key built out of the answer: a
+ * literal assembled at run time is invisible to the locale test, which is how a language
+ * ends up silently showing an English sentence nobody knew was there (`CLAUDE.md`). */
+const OVERLAY_WHY: Record<string, string> = {
+  unsupported: 'overlay.reason.unsupported',
+  other_session: 'overlay.reason.other_session',
+  no_door: 'overlay.reason.no_door',
+  failed: 'overlay.reason.failed',
+}
+
+function OverlayCard({ state, onDone }: { state: State; onDone: () => void }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState('')
+  const overlay = state.overlay || {}
+  const controls = overlay.controls || []
+  if (!controls.length || overlay.supported === false) return null
+  return (
+    <div className="card">
+      <div className="row">
+        <span>{t('web.ui.overlay')}</span>
+        <Pill tone={overlay.running ? 'ok' : undefined}>
+          {t(overlay.running ? 'web.ui.on' : 'web.ui.off')}
+        </Pill>
+      </div>
+      <p className="muted small">{t('web.ui.overlay.hint')}</p>
+      <div className="controls">
+        {controls.map((control) => (
+          <button
+            key={control.id}
+            className="go"
+            disabled={control.enabled === false || busy === control.id}
+            onClick={async () => {
+              setBusy(control.id)
+              try {
+                const answer = await post<PressAnswer>('/api/overlay', { action: control.id })
+                if (answer.ok) toast(t('web.ui.started', { name: t(control.label) }))
+                else toast(t(OVERLAY_WHY[answer.reason || ''] || 'overlay.reason.failed'))
+              } catch {
+                toast(t('web.ui.refused'))
+              } finally {
+                setBusy('')
+                onDone()
+              }
+            }}
+          >
+            {t(control.label)}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+
 /* The panel itself, last on the page: which version is running and the press that puts
  * it back on the code that is now on disk (`panel/runtime/panel_control.py`). Not drawn
  * at all where there is no panel to restart — the same route answers for a tab launched
@@ -382,6 +444,8 @@ export function StateView({
             : t('web.ui.timers.none')}
         </p>
       </div>
+
+      <OverlayCard state={state} onDone={refresh} />
 
       <PanelCard state={state} onGone={onGone} />
     </>

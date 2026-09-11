@@ -12,6 +12,7 @@ this file is what keeps it honest. Every route below is one call onto a
     /api/game       start / close / restart the client       rt.play_async, via
                                                              runtime/game_control.py
     /api/panel      put the PANEL back on the code on disk   runtime/panel_control.py
+    /api/overlay    the buttons drawn over the client's window runtime/overlay.py
     /api/interrupt  end whatever scenario is playing          runtime/interrupt.py
     /api/timers     the errands, their switches, when next   rt.schedule
     /api/triggers   the listeners, their switches, their ear  rt.schedule
@@ -59,7 +60,8 @@ from .. import triggers as triggersmod
 from ..runtime import autostart as autostartmod
 from ..runtime import errand_stats as statsmod
 from ..runtime import errand_art as artmod
-from ..runtime import game_control, game_process, panel_control, provision
+from ..runtime import game_control, game_process, overlay as overlaymod
+from ..runtime import panel_control, provision
 from ..runtime import updates
 from ..runtime import interrupt as interruptmod
 from ..runtime import opt_switch as optswitch
@@ -529,6 +531,11 @@ class WebApi:
             # sentences. `None` when nothing has been pressed lately, and a finished run
             # stays readable for `progress.KEEP_SEC` so a person who put the phone down
             # still finds the answer.
+            # THE BUTTONS DRAWN OVER THE CLIENT'S OWN WINDOW (#2768) — is the bar up,
+            # and which press applies. A front-end of the panel like this page is, so
+            # both of them offer the same two presses off the same table
+            # (`panel/runtime/overlay.py`).
+            "overlay": overlaymod.state(rt),
             "progress": self._progress(rt),
             "activity": ({"key": step.key,
                           "name": str(step.fmt.get("name") or ""),
@@ -1551,6 +1558,21 @@ class WebApi:
             return {"error": "unknown"}
         return panel_control.request(rt, action)
 
+    # -- the buttons over the game ---------------------------------------------
+    def overlay(self, action: str, profile: str | None = None) -> dict:
+        """Draw the panel's buttons over the client's window, or take them away (#2768).
+
+        The press starts and stops a HELPER PROCESS and nothing else: what the bar then
+        does when a thumb lands on it is `/api/actions/run`, the same route this page
+        uses. A refusal always says why — there is no desktop, this profile's client is
+        in another Windows session, or the door could not be named — because «ничего не
+        произошло» is the one answer nobody can act on.
+        """
+        rt = self._runtime(profile)
+        if overlaymod.get(action) is None:
+            return {"error": "unknown"}
+        return overlaymod.play(rt, action)
+
     # -- the tabs' own screens ------------------------------------------------
     def screens(self, profile: str | None = None) -> dict:
         """Which of this profile's tabs offer a phone screen, in the window's order.
@@ -2455,6 +2477,8 @@ class WebApi:
                 return _answer(self.game(str(body.get("action") or ""), who))
             if path == "/api/panel":
                 return _answer(self.panel(str(body.get("action") or ""), who))
+            if path == "/api/overlay":
+                return _answer(self.overlay(str(body.get("action") or ""), who))
             # …and the one press that names no profile (#2061): the palette is the
             # PANEL's, so `who` is deliberately not passed on.
             if path == "/api/theme":
