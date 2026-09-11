@@ -161,6 +161,8 @@ def test_only_a_harvest_the_panel_made_is_credited_to_the_base():
     assert 10.0 <= window <= 90.0, "the window is a burst, not a minute of trading"
     claim = float(re.search(r"COLLECT_CLAIM_SEC = ([0-9.]+)", src).group(1))
     assert window < claim <= 600.0, "a stale reading needs longer than a burst"
+    cap = float(re.search(r"HARVEST_MAX_SEC = ([0-9.]+)", src).group(1))
+    assert claim < cap <= 3600.0, "a harvest that never ends is the account's trading"
 
 
 
@@ -187,6 +189,15 @@ def test_the_tracker_belongs_to_no_tab():
 class _Runs:
     def __init__(self) -> None:
         self.names: list = []
+        self.listeners: list = []
+
+    def listen(self, func):
+        self.listeners.append(func)
+        return lambda: self.listeners.remove(func)
+
+    def changed(self) -> None:
+        for func in list(self.listeners):
+            func()
 
     def running(self) -> list:
         class _R:
@@ -206,10 +217,44 @@ class _Schedule:
         return float(self.runs.get(name, 0.0))
 
 
+class _Tick:
+    """`panel/runtime/tick.py` as far as the book uses it: post and one-shot chains."""
+
+    def __init__(self) -> None:
+        self.armed: dict = {}
+        self.posted: list = []
+
+    def post(self, func) -> None:
+        self.posted.append(func)
+        func()
+
+    def arm(self, name: str, delay_ms: int, func) -> None:
+        self.armed[name] = (delay_ms, func)
+
+    def disarm(self, name: str) -> None:
+        self.armed.pop(name, None)
+
+
+class _Resources:
+    def __init__(self) -> None:
+        self.asked = 0
+
+    def ask(self) -> None:
+        self.asked += 1
+
+    def cached(self) -> dict:
+        return {"rows": [], "items": []}
+
+    def state(self) -> dict:
+        return self.cached()
+
+
 class _Rt:
     def __init__(self) -> None:
         self.interrupts = _Runs()
         self.schedule = _Schedule()
+        self.tick = _Tick()
+        self.resources = _Resources()
 
 
 def _book():
@@ -217,13 +262,13 @@ def _book():
     return ResourceBook(_Rt())
 
 
-def test_a_harvest_is_claimed_by_the_first_gain_priced_after_it():
-    """#2743, measured live: the reading a gain is diffed from is served STALE.
+def test_every_gain_of_a_harvest_is_counted_and_not_only_the_first():
+    """#2746: the claim used to be SPENT by the first gain priced after a run.
 
-    The run finished at 22:32:47, the tracker read at 22:32:53 and still saw the
-    pre-harvest numbers, and the fresh reading landed some fifteen seconds later. So the
-    run ARMS a claim and the first gain priced within `COLLECT_CLAIM_SEC` spends it —
-    a window measured from the run itself threw the harvest away.
+    A harvest answers in several bursts, so that counted one of them and left the rest
+    in the whole-day tally alone. Measured on the live panel of 2026-09-11: `sooperj`
+    collected fifteen times and its base book held 7.66M food where the log's own gain
+    lines beside those runs sum to over 11M.
     """
     from panel.runtime import resource_book as rb
 
@@ -235,16 +280,18 @@ def test_a_harvest_is_claimed_by_the_first_gain_priced_after_it():
     late.rt.interrupts.names = ["collect_base_resources"]
     late.note_running(now=1000.0)        # a push arrives while it runs and prices nothing
     late.rt.interrupts.names = []
-    assert late.from_base(now=1000.0 + 100.0) is True, \
-        "a gain priced a minute and a half later is still that harvest's"
-
-    # …and the rest of the burst rides the window the claim opened.
-    assert late.from_base(now=1000.0 + 100.0 + rb.COLLECT_WINDOW_SEC - 1) is True
+    assert late.from_base(now=1000.0 + 100.0) is True, (
+        "a gain priced a minute and a half later is still that harvest's")
+    # …and so is the one after it, which is the whole of the fix.
+    assert late.from_base(now=1000.0 + 150.0) is True, (
+        "the second burst of one harvest was dropped")
+    assert late.from_base(now=1000.0 + 150.0 + rb.COLLECT_WINDOW_SEC - 1) is True, (
+        "a cascade still arriving past the claim is still the harvest's")
 
 
 def test_a_gain_with_no_harvest_behind_it_is_not_the_bases():
     """A truck, a gift, a chest: the whole-day tally has them and the base's book does
-    not. And a claim expires — three minutes after the run, nothing is credited."""
+    not. And the window closes — nothing is credited to a harvest that is over."""
     from panel.runtime import resource_book as rb
 
     book = _book()
@@ -254,16 +301,79 @@ def test_a_gain_with_no_harvest_behind_it_is_not_the_bases():
     stale.rt.interrupts.names = ["collect_base_resources"]
     stale.note_running(now=1000.0)
     stale.rt.interrupts.names = []
-    assert stale.from_base(now=1000.0 + rb.COLLECT_CLAIM_SEC + 1) is False
+    assert stale.from_base(now=1000.0 + rb.HARVEST_MAX_SEC + 1) is False
 
-    spent = _book()
-    spent.rt.interrupts.names = ["collect_base_resources"]
-    spent.note_running(now=1000.0)
-    spent.rt.interrupts.names = []
-    spent.from_base(now=1010.0)                         # the claim is spent here
-    assert spent.from_base(now=1010.0 + rb.COLLECT_WINDOW_SEC + 1) is False, \
-        "the burst window closes and nothing else is credited to that harvest"
+    quiet = _book()
+    quiet.rt.interrupts.names = ["collect_base_resources"]
+    quiet.note_running(now=1000.0)
+    quiet.rt.interrupts.names = []
+    quiet.from_base(now=1010.0)                         # one burst, and then silence
+    assert quiet.from_base(now=1000.0 + rb.COLLECT_CLAIM_SEC
+                           + rb.COLLECT_WINDOW_SEC + 1) is False, (
+        "the burst window closes and nothing else is credited to that harvest")
 
+
+def test_a_harvest_that_never_stops_arriving_is_the_accounts_own_trading():
+    """The window is held open by the gains themselves, so it needs a ceiling."""
+    from panel.runtime import resource_book as rb
+
+    book = _book()
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.note_running(now=1000.0)
+    book.rt.interrupts.names = []
+    now = 1000.0
+    while now < 1000.0 + rb.HARVEST_MAX_SEC - rb.COLLECT_WINDOW_SEC:
+        now += rb.COLLECT_WINDOW_SEC - 1
+        assert book.from_base(now=now) is True
+    assert book.from_base(now=1000.0 + rb.HARVEST_MAX_SEC + 1) is False, (
+        "an hour of trading would be credited to the base's card")
+
+
+def test_a_run_nobody_scheduled_still_arms_the_claim():
+    """#2746: `/api/actions/run` and a person's press never touch the schedule's record
+    of last runs, so a book armed off that record alone credited them nothing. The RUN
+    REGISTER is the one signal that does not care who pressed."""
+    book = _book()
+    book.watch()
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.rt.interrupts.changed()
+    book.rt.interrupts.names = []
+    book.rt.interrupts.changed()
+    assert book._collect_at > 0.0, "the register said nothing to the book"
+    assert book.from_base() is True
+
+
+def test_a_reading_is_ASKED_FOR_when_the_harvest_ends():
+    """#2746, measured live: `default` harvested six times between 01:03 and 06:06 on
+    2026-09-11 and priced NOT ONE of them — nobody had the page open, so the card's ear
+    was down and no reading was ever taken to diff against."""
+    from panel.runtime import resource_book as rb
+
+    book = _book()
+    book.watch()
+    book.rt.interrupts.names = ["collect_base_resources"]
+    book.rt.interrupts.changed()
+    book.rt.interrupts.names = []
+    book.rt.interrupts.changed()
+    assert len(book.rt.tick.armed) == len(rb.HARVEST_READS), (
+        "the harvest ended and no reading was booked")
+    for _name, (_delay, func) in sorted(book.rt.tick.armed.items()):
+        func()
+    assert book.rt.resources.asked == len(rb.HARVEST_READS)
+
+    res = (Path(__file__).resolve().parent.parent
+           / "panel" / "runtime" / "resources.py").read_text(encoding="utf-8")
+    assert "def ask(" in res, "there is no way to ask for a reading"
+
+
+def test_the_book_does_not_depend_on_the_trigger_staying_alive():
+    """#2746, measured live: `default`'s `resource_tracker` listener died at 00:42 and
+    the tally stopped dead. The register and the reading are the runtime's own."""
+    src = (Path(__file__).resolve().parent.parent
+           / "panel" / "runtime" / "resource_book.py").read_text(encoding="utf-8")
+    assert "book.watch()" in src and "book.listen()" in src, (
+        "the book is armed only by the trigger again")
+    assert "self.rt.interrupts.listen(" in src
 
 
 def test_the_gain_is_priced_when_the_READING_lands_and_not_when_the_push_does():
