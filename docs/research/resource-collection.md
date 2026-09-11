@@ -302,6 +302,24 @@ fraction of a second later — 1 food, 267 metal, 197 gold here, **0.0015 % to 0
 is left on the floor deliberately: closing it means letting a gain exceed the stated size
 by some margin, and a margin is exactly the door the budget was put in to shut.
 
+### The same sweep at FULL size, measured (#2747)
+
+The spike that started this — five experience lines at about 60 000 each — was then played
+through the panel itself, twelve minutes of accumulation behind it:
+
+```
+10:38:21 the sweep is about to collect: 1=190288 #|# 2=142537 #|# 14=205173 #|# 10=20400 #|# 23=2500 #|# i8001=293760 #|# i630011=1
+10:39:10 получено ресурсов: food +8224455, metal +8209569, gold +5245537, item:8001 +293760, oil +2500, item:630011 +1
+```
+
+`item:8001` — 293 760, five lines of 58 752 — is stated, arrives and is written
+identically: a harvest of the size that lost two fifths of itself under the stale cap is
+now recorded whole. The base's book took `food 205173, metal 190288, gold 142537,
+oil 2500, item:630011 1` — each exactly the stated size — while the whole-day tally took
+the full 8.2M of food and metal that the same eight-minute window brought in from
+elsewhere. That is the two books doing their separate jobs: the cap holds the base's
+column to what the base paid, and nothing is lost from the day's total.
+
 ## Notes for the next session
 
 - Reading values back from the daemon uses `CS.UnityEngine.Debug.LogError("MARK|"..x)`
