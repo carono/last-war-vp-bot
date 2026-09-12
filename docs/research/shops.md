@@ -79,12 +79,26 @@ but changes nothing in those tables.
 **A SHELF IS PAID FOUR DIFFERENT WAYS, and two of them are not in the resource table at
 all** (#2670). Measured live:
 
-| currency | where the balance is | read |
-|---|---|---|
-| `5` (diamonds) | `LuaEntry.Player.gold` | 32093 |
-| `1004` (alliance points) | `LuaEntry.Resource:GetCntByResType` | 90630 |
-| `7` (expedition) | the row's `currencyId` as a BAG ITEM (`900002`) | 49881 |
-| `40` (honour) | the row's `resourceitem_id` (`7016`) via `ResourceItemDataManager` | 11 |
+| currency | where the balance is |
+|---|---|
+| `5` (the diamonds) | `LuaEntry.Player.gold` — the resource table calls the same thing type `15` («Бриллианты»), which is where its name and picture come from |
+| `7` (an ITEM) | the row's own `currencyId`, counted in the bag |
+| `40` (honour) | `LuaEntry.Resource:GetHonorScore()` |
+| anything else | `LuaEntry.Resource:GetCntByResType` (alliance points `1004`, and the rest) |
+
+**The `40` line said `resourceitem_id` until #2830 and it was wrong.** That field is the
+resource item a row HANDS OVER when `itemId` is empty — measured live on 2026-09-12 the
+honour shelf's rows carry 7016, 7015, 7038 and 7005 there, four things it SELLS — so the
+gate priced the shelf against the player's own goods and honour itself (7700) was never
+read. `read_shops`, `autobuy_shop_goods` and `buy_shop_goods` all read the purse the same
+way now.
+
+**And `currencyType` is not the currency.** `7` means «paid with an item» and six shelves
+spend six different items under it, measured on the same account: the crystal shelf
+(`shopType` 11) wants **two** — `521050` «Фиолетовый кристалл» and `521052`
+«Кристаллическая руда» — while 9 wants gift coins `999900`, 10 a coupon `999901`, 100 the
+expedition medal `900002`, 150 decoration coins `654122` and 200 the season medal
+`640025`.
 
 The last two are the EXCHANGE shelves — their success line is «обмен успешен» — and both
 answer 0 through `GetCntByResType`. A gate that only knew that table saw «cannot see» and
@@ -178,13 +192,11 @@ format the collect card uses) and the whole number in the title.
   `currencyType`): two item currencies of one type therefore share a ceiling, while
   their balances are drawn apart. The recipe's own per-row purse is per ITEM and correct;
   it is only its per-run tallies that lump a type together.
-* **The balance is read the four ways a price is** (the table above): the diamonds off
-  `LuaEntry.Player.gold`, a resource through `Resource:GetCntByResType`, and the exchange
-  shelves out of the bag by the row's own `currencyId` / `resourceitem_id`. A currency the
+* **The balance is read the four ways a price is** (the table above). A currency the
   client will not show answers **-1**, which is drawn as «не видно» and never as a zero.
-* **The picture** is `ResourceManager:GetResourceIconByType(currencyType)` where the game
-  names one, else the currency item's own icon (`ItemTemplateManager` /
-  `ResourceItemDataManager:GetIconPath`). The sprite is served over `/api/itemicon?name=`
+* **The picture** is `ResourceManager:GetResourceIconByType` where the game names one
+  (type `5` asking as type `15`), else the currency ITEM's own icon
+  (`ItemTemplateManager` / `ResourceItemDataManager:GetIconPath`). The sprite is served over `/api/itemicon?name=`
   only when THIS machine extracted it; nothing stands in for a missing picture.
 * **It rides the shelves' own reading** (`read_shops.md` → `purses`,
   `shops_live.parse_purses`): at `GAME_READY`, on the balance push and after a purchase of
