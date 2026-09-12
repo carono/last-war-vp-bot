@@ -101,5 +101,9 @@ of the day's turnover. The offset moves the moment and nothing else: «has it ru
 day» is still asked about the day's own start, so an errand that ran at the boundary
 before the offset existed is not offered a second time a minute later.
 
-The errand ships **switched off**, which is the exception `CLAUDE.md` names to «a new
-ability ships switched on»: a shield leaves the bag and cannot be earned back.
+The errand ships **switched on**, like any other new ability. It shipped off for a day
+as «an irreversible spend» — the exception `CLAUDE.md` names — and the person withdrew
+that in their own words, «Включи карточку по умолчанию» (#2822). What protects the item
+is the recipe's gates rather than the switch: a live shield is never covered with a
+second one, an empty bag is a reason and not a send, and any day but Saturday does
+nothing at all.

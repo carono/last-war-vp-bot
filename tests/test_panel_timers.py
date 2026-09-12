@@ -2076,10 +2076,14 @@ def test_a_weekly_errand_may_be_due_a_minute_after_the_day_opens():
     assert again - start == 7 * timersmod.DAY_SEC + 60, (start, again)
 
 
-def test_the_saturday_shield_ships_off_and_names_its_day():
-    """The one errand that spends something that cannot be earned back (#2822)."""
+def test_the_saturday_shield_ships_on_and_names_its_day():
+    """Switched ON by the person's own word, with the gates doing the protecting (#2822).
+
+    It shipped off as «an irreversible spend»; «Включи карточку по умолчанию» withdrew
+    that exception, so the row is an ordinary new ability again.
+    """
     timer = {t.name: t for t in timersmod.DEFAULT_TIMERS}["raise_peace_shield"]
-    assert timer.enabled is False, timer
+    assert timer.enabled is True, timer
     assert timer.weekdays == (6,), timer
     assert timer.offset_sec == 60, timer
     assert timer.args.get("weekday") == 6, timer

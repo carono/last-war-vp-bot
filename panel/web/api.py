@@ -1080,6 +1080,10 @@ class WebApi:
             immediate=timer.immediate,
             weekdays=(tuple(timer.weekdays) if weekdays is None
                       else timersmod._as_weekdays(weekdays, timer.weekdays)),
+            # Carried, never edited: the offset after the game's own reset is a property
+            # of the ABILITY rather than a preference (`Timer.offset_sec`), and an edit
+            # that dropped it would quietly move the Saturday shield to the boundary.
+            offset_sec=timer.offset_sec,
             args=dict(timer.args), title=timer.title, label_key=timer.label_key)
         schedule = rt.schedule
         schedule.timer_catalogue = schedule.timer_catalogue.replace(edited)
