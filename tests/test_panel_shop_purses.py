@@ -208,6 +208,26 @@ def test_the_shelf_card_sends_its_currencies():
         "counts by — two item currencies of one type share it")
 
 
+def test_no_recipe_prices_a_shelf_against_what_it_sells():
+    """`resourceitem_id` is the item a row HANDS OVER, and no purse may count it (#2830)."""
+    actions = _REPO / "src" / "lastwar_bot" / "actions"
+    for name in ("read_shops.md", "autobuy_shop_goods.md", "buy_shop_goods.md"):
+        text = (actions / name).read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if not (line.startswith("READ_LUA ") or line.startswith("LUA ")):
+                continue        # prose may name the field; only the CODE may not use it
+            assert "resourceitem_id" not in line, (
+                name + " still reads resourceitem_id as a currency — it is what the row "
+                "sells (the honour shelf carries four different ones)")
+
+
+def test_the_honour_purse_and_the_diamond_one_are_where_the_game_keeps_them():
+    recipe = (_REPO / "src" / "lastwar_bot" / "actions" / "read_shops.md").read_text(
+        encoding="utf-8")
+    assert "GetHonorScore" in recipe, "honour is its own reading, not a resource type"
+    assert "LuaEntry.Player.gold" in recipe, "the diamonds are the player's gold"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
