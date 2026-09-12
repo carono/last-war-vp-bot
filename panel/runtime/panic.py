@@ -1,4 +1,4 @@
-"""The two acts a profile's switch causes: close the client, stop this profile's daemon.
+"""The one act a profile's switch causes: let this profile's game link go.
 
 WHO PRESSES THIS. Nobody, directly, any more (#1882). «Стоп всё» and «Включить обратно»
 were buttons; what there is now is one checkbox per profile — «Профиль работает» — and
@@ -7,11 +7,24 @@ moves, and it is a file of its own for the same reason it always was: two acts w
 down twice is how the window and the phone end up stopping different amounts of the same
 profile.
 
-TWO ACTS AND ONLY TWO (#1393): **close the client, stop this profile's daemon.** That is
-the whole of the press. It used to stop the schedule, every plugin tab's monitors, every
-child, the scenario in flight and the activity strip as well — five different things to
-keep in step with, each of which had to be put back by hand afterwards, and none of which
-stopped the panel doing the one thing that mattered: it went on putting the client back.
+ONE ACT AND ONLY ONE (#2824): **let this profile's game link go.** It used to stop the
+schedule, every plugin tab's monitors, every child, the scenario in flight and the
+activity strip as well — five different things to keep in step with, each of which had to
+be put back by hand afterwards, and none of which stopped the panel doing the one thing
+that mattered: it went on putting the client back. #1393 cut those five down to two —
+close the client, then let the link go — and #2824 cut the first of those two as well.
+
+THE CLIENT IS NOT CLOSED ANY MORE, and it is the person's decision, in their words:
+«Кнопка Профиль работает не должна вырубать клиент, а только работу панели выключать для
+этого профиля». The switch answers «does the PANEL work on this account», and a person
+who stops the panel is usually a person who wants to play that account by hand — the old
+press took the game away from them to prove it had stopped. Stopping the panel is now
+exactly that and no more: no errand, no trigger, no reading, no watchdog, no relaunch,
+and a client left running for whoever wants to play it.
+
+CLOSING THE CLIENT IS STILL A PRESS — «Состояние» has had it all along
+(`panel/runtime/game_control.py`, the `quit_game` scenario). What changed is that it is a
+press somebody makes on purpose rather than a side effect of a switch about the panel.
 
 What replaced the other four is a consequence rather than an act. With no daemon there is
 nothing for a timer, a trigger, the watchdog or the recovery to press THROUGH, and
@@ -47,63 +60,48 @@ from __future__ import annotations
 import threading
 
 
-# -- the two acts -------------------------------------------------------------
+# -- the acts ------------------------------------------------------------------
 #
 # Here rather than in the shell because both front-ends press them and a standalone tab
-# has no shell at all — and because two acts written down twice is how the window and
-# the phone end up stopping different amounts of the same profile.
+# has no shell at all — and because an act written down twice is how the window and the
+# phone end up stopping different amounts of the same profile.
 
 
 def stop(rt) -> None:
-    """The switch going OFF for ONE profile: close its client, then stop its daemon.
+    """The switch going OFF for ONE profile: let its game link go, and nothing else.
 
-    In that order, and the order is not cosmetic: closing the client is done through the
-    `quit_game` scenario (`CLAUDE.md` — the panel plays abilities, it does not write
-    them), which asks the daemon for the pid it is holding. Stopping the daemon first
-    would take away the one thing that knows WHICH client belongs to this profile, and
-    on a machine with two accounts «the LastWar.exe» is the other person's session.
+    THE CLIENT IS LEFT ALONE (#2824). This used to play `quit_game` first and let the
+    link go after it, on the reasoning that «выключен» had to mean the account was not
+    playing. It means the PANEL is not playing it: the person who switches a profile off
+    is usually the person who wants to sit down at that account by hand, and closing
+    their client to prove the panel had stopped is the opposite of what the switch is
+    for. What stops is everything automatic — with the link let go there is nothing for a
+    timer, a trigger, the watchdog or the recovery to press THROUGH, and
+    `panel/runtime/gate.py` shuts on the flag rather than on the port, so a link somebody
+    takes by hand opens nothing either.
 
-    Both acts happen on a worker: the scenario takes the game claim and the daemon's
-    shutdown waits for a port to come free, and neither may be done on the Tk thread.
-    The mark is set here, on the way in, so the window says «ВСЁ ОСТАНОВЛЕНО» from the
-    moment of the press rather than a minute later when the client has finished closing.
+    On a worker: letting a link go waits for a port to come free, and that may not be
+    done on the Tk thread. The line is said on the way in so the window says «ВЫКЛЮЧЕНО»
+    from the moment of the press, and again when the act is done.
 
     THE FLAG IS ALREADY WRITTEN when this runs: the switch is persisted by
     `panel/runtime/power.py::set_on`, which then calls this. Nothing here reads or writes
     it — an act that decided for itself whether it was allowed is an act that can
     disagree with the switch drawn on screen.
-
-    A client that is already gone is not a failure — `quit_game` is a no-op then — and a
-    claim refused is not a reason to leave the daemon running: the press is what somebody
-    reaches for when things have gone wrong, so the second act happens whatever the first
-    one managed. Ending the daemon under a scenario in flight is not collateral damage
-    either; it is the point. The run fails, says so, and nothing starts another.
     """
     rt.say("panel", "panic.log")
 
-    def second() -> None:
+    def work() -> None:
         let_link_go(rt)
-        # Said when both acts are DONE rather than when they were asked for: the whole
-        # value of the line is that it names the state the panel is now in, and a client
-        # takes seconds to close.
+        # Said when the act is DONE rather than when it was asked for: the whole value of
+        # the line is that it names the state the panel is now in.
         rt.say("panel", "panic.done")
 
-    def then() -> None:
-        # On a thread of its own: `on_done` is delivered on the Tk thread, and stopping a
-        # daemon blocks for as long as it takes a port to come free.
-        threading.Thread(target=second, name="panel-panic", daemon=True).start()
-
-    # A PRESS, and it has to be (#1910): this IS the switch being flipped off, and a
-    # gate that held it would leave the client running for ever in a profile somebody
-    # had just switched off — the gate holding its own cure.
-    if not rt.play_async("quit_game", tag="game", on_done=then, human=True):
-        # Nothing was played — something more urgent holds the client. The daemon still
-        # goes, and with it everything that was going to press anything else.
-        then()
+    threading.Thread(target=work, name="panel-panic", daemon=True).start()
 
 
 def let_link_go(rt) -> bool:
-    """The second act on its own — and the gate is told, in the same breath.
+    """Letting the link go on its own — and the gate is told, in the same breath.
 
     Whoever lets a link go has to say so (`panel/runtime/gate.py::changed`), or the
     schedule spends up to eight seconds — the status poll's period — believing the last
