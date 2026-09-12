@@ -5,7 +5,7 @@
 <!-- progress:start -->
 🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 83 of 209
 
-🟩 83 done · 🟨 97 partly · 🟥 29 not automated
+🟩 83 done · 🟨 98 partly · 🟥 28 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what is
@@ -131,7 +131,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - ❌ Researching technology
 - ❌ Upgrading and constructing buildings
 - 🟡 Raising the drone's level — one press buys as many levels as the account can pay for, reading the price from the game each time
-- ❌ Raising the shield
+- 🟡 Raising the shield — a 24-hour shield every Saturday a minute after the game's reset, off by default; nothing is spent if a shield is already up or the bag is empty
 - ❌ Expedition
 - ❌ Levelling survivors
 - ✅ Upgrading a decoration — finds every decoration that can be upgraded and sends each to the top of what its spares will buy, no window opened
@@ -357,8 +357,8 @@ The routine as it is actually played, against what the bot covers.
 
 Everything tied to a particular weekday, and every recurring event, is ❌.
 
-The one exception is the weekly hidden-treasure board above: it reads the week's
-own opening and closing out of the game.
+Two exceptions: the weekly hidden-treasure board above, which reads the week's own
+opening and closing out of the game, and the Saturday 24-hour shield.
 
 ---
 
