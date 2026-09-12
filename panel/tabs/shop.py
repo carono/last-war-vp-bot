@@ -578,11 +578,15 @@ class ShopTab(PanelTab):
         take the first row's and call it «the shop's currency», so a shelf priced in two
         showed one balance and offered one ceiling — and the second currency was
         invisible from the page that spends it.
+
+        A CURRENCY IS A PAIR (#2830). `currencyType` 7 means «paid with an item» and
+        nothing more, so six shelves answered «валюта №7» with one balance between them
+        until the item was made part of the key (`shops_live.money_key`).
         """
         out: list = []
         for row in rows or ():
-            money = str(row.get("cost_id") or "")
-            if money and money != "0" and money not in out:
+            money = shops_live.money_key(row)
+            if money and money not in out:
                 out.append(money)
         return out
 
@@ -792,13 +796,23 @@ class ShopTab(PanelTab):
         # …AND ONE PER CURRENCY THE SHELF WANTS (#2830), not one per shelf: a shelf
         # priced in two had a ceiling for the first of them and nothing at all for the
         # second, which is a spend nobody could limit from the page that makes it.
-        caps = [{"key": "cap:" + each, "label": "shop.cap",
-                 "label_fmt": {"currency": self.money_name(each)
-                               or self.t("shop.money.other", money=each)},
-                 "hint": "shop.cap.hint", "kind": "number",
-                 "min": self.NO_CAP, "max": 1000000,
-                 "value": self.cap_of(each)}
-                for each in moneys]
+        # A CEILING IS THE RECIPE'S, AND THE RECIPE COUNTS BY TYPE (#2830): the autobuy
+        # tallies what it has spent per `currencyType`, so a ceiling is written per type
+        # and two item currencies of the same type share one. The PILLS above still show
+        # each of them apart, because a balance is a fact and a ceiling is a rule.
+        seen: list = []
+        caps = []
+        for each in moneys:
+            kind_of = each.partition(":")[0]
+            if kind_of in seen:
+                continue
+            seen.append(kind_of)
+            caps.append({"key": "cap:" + kind_of, "label": "shop.cap",
+                         "label_fmt": {"currency": self.money_name(each)
+                                       or self.t("shop.money.other", money=kind_of)},
+                         "hint": "shop.cap.hint", "kind": "number",
+                         "min": self.NO_CAP, "max": 1000000,
+                         "value": self.cap_of(kind_of)})
         return [{"title": "shop.shelves",
                  "head": self.t("shop.age", age=int(age)) if age is not None else "",
                  "note": "shop.shelves.hint",
@@ -859,10 +873,10 @@ class ShopTab(PanelTab):
         The purse reading names them too (#2830), and it is asked second: a currency
         only the exchange shelves spend has no priced row on the shelf being drawn.
         """
-        said = self._money.get(str(currency)) or ""
+        said = str((self.purses().get(str(currency)) or {}).get("name") or "")
         if said:
             return said
-        return str((self.purses().get(str(currency)) or {}).get("name") or "")
+        return self._money.get(str(currency).partition(":")[0]) or ""
 
     def good(self, kind: str, shop: str, row: dict, *, group: str = "",
              drag: bool = False) -> dict:
@@ -879,7 +893,7 @@ class ShopTab(PanelTab):
         # answers with an unresolved key gives the panel nothing to draw, and a number
         # invented for it would be a name this panel made up — so the amount stands
         # alone, on the shelf that is already named after the currency it spends.
-        word = self.money_name(str(row.get("cost_id") or ""))
+        word = self.money_name(shops_live.money_key(row))
         # THE PRICE IS THE TILE'S OWN LINE (#2670) and not one fact among several: the
         # game draws a shop as a picture with a price under it, and that is what the
         # person asked for — «карточки меньше и квадратные, ближе к игровому виду».

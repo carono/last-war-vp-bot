@@ -68,15 +68,21 @@ CHAIN_FIRST = "shops_first_read"
 RECORD_SEP = " #|# "
 FIELD_SEP = ";;"
 
-#: The fields of one row, in the order `read_shops.md` writes them.
+#: The fields of one row, in the order `read_shops.md` writes them. `cost_item` came
+#: last (#2830) so a reading written before it is short by one field and pads to empty
+#: rather than shifting every name one column along.
 FIELDS = ("kind", "shop", "id", "item", "icon", "colour", "count",
           "cost_id", "cost", "limit", "bought", "reset", "afford",
-          "cost_name", "name")
+          "cost_name", "name", "cost_item")
 
 #: …and the fields of one PURSE (#2830), which is a record per CURRENCY rather than per
 #: row: what the shelves are paid in, how much of it there is, its own picture and the
 #: game's own word for it. `have` of -1 is «the client will not show it» and is never
 #: drawn as a zero — the same honesty the price line keeps.
+#:
+#: `cost_id` here is the currency's KEY and it may be a PAIR — `7:900002` — because
+#: `currencyType` 7 means «an item» and six shelves spend six different items under it
+#: (#2830). :func:`money_key` builds the same key out of a goods row.
 PURSE_FIELDS = ("cost_id", "have", "icon", "name")
 
 
@@ -120,6 +126,20 @@ def parse_rows(raw) -> list:
                 row[key] = 0
         out.append(row)
     return out
+
+
+def money_key(row) -> str:
+    """The currency one goods row is priced in, as a key the purses answer to (#2830).
+
+    `«5»` for the diamonds, `«1004»` for a resource, `«7:900002»` for an item — because
+    the TYPE is not the currency: 7 says «paid with an item» and says nothing about
+    which one.
+    """
+    money = str((row or {}).get("cost_id") or "").strip()
+    if not money or money == "0":
+        return ""
+    item = str((row or {}).get("cost_item") or "").strip()
+    return (money + ":" + item) if item else money
 
 
 def parse_purses(raw) -> list:
