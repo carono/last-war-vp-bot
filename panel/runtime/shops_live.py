@@ -20,7 +20,7 @@ a whole panel of its own»).
 WHAT IS STORED is what the scenario handed over, plus the moment it landed::
 
     {"shops": "<the packed line>", "money": "<the money shelves, packed>",
-     "at": 1788859000.0}
+     "purses": "<one record per currency>", "at": 1788859000.0}
 
 The raw lines rather than a parsed structure, for the reason `market_live` keeps what the
 game said: a panel that learns to read one more field of it tomorrow reads that field out
@@ -40,7 +40,7 @@ BLOB = "shops_live"
 
 #: The scenario that does the reading, and the variables it leaves the lines in.
 ACTION = "read_shops"
-VARIABLES = ("shops", "money")
+VARIABLES = ("shops", "money", "purses")
 
 #: The push that says a balance moved. A shelf's own counters (what is left of a quota)
 #: move only when WE buy something, and a purchase re-reads on its own way out — so this
@@ -72,6 +72,12 @@ FIELD_SEP = ";;"
 FIELDS = ("kind", "shop", "id", "item", "icon", "colour", "count",
           "cost_id", "cost", "limit", "bought", "reset", "afford",
           "cost_name", "name")
+
+#: …and the fields of one PURSE (#2830), which is a record per CURRENCY rather than per
+#: row: what the shelves are paid in, how much of it there is, its own picture and the
+#: game's own word for it. `have` of -1 is «the client will not show it» and is never
+#: drawn as a zero — the same honesty the price line keeps.
+PURSE_FIELDS = ("cost_id", "have", "icon", "name")
 
 
 def record(rt, values: dict) -> None:
@@ -113,6 +119,40 @@ def parse_rows(raw) -> list:
             except (TypeError, ValueError):
                 row[key] = 0
         out.append(row)
+    return out
+
+
+def parse_purses(raw) -> list:
+    """The packed purse line into records. Same discipline as :func:`parse_rows`."""
+    out: list = []
+    for chunk in str(raw or "").split(RECORD_SEP):
+        if not chunk.strip():
+            continue
+        parts = chunk.split(FIELD_SEP)
+        if len(parts) < len(PURSE_FIELDS):
+            parts = parts + [""] * (len(PURSE_FIELDS) - len(parts))
+        row = dict(zip(PURSE_FIELDS, parts))
+        try:
+            row["have"] = int(str(row["have"]).strip() or 0)
+        except (TypeError, ValueError):
+            row["have"] = -1
+        if str(row.get("cost_id") or "").strip():
+            out.append(row)
+    return out
+
+
+def purses(rt) -> dict:
+    """`{currency: {"have": int, "icon": str, "name": str}}` — the last reading (#2830).
+
+    Empty until something has been read, which is the honest answer: a balance nobody
+    has read is not a zero.
+    """
+    out: dict = {}
+    for row in parse_purses(read(rt).get("purses")):
+        out[str(row.get("cost_id") or "")] = {
+            "have": int(row.get("have") or 0),
+            "icon": str(row.get("icon") or ""),
+            "name": str(row.get("name") or "")}
     return out
 
 
@@ -240,7 +280,7 @@ class ShopWatch:
             return
         ctx = getattr(outcome, "ctx", None)
         values = getattr(ctx, "vars", {}) or {}
-        if values.get("shops") or values.get("money"):
+        if values.get("shops") or values.get("money") or values.get("purses"):
             record(self._rt, values)
             self._read_once = True
 

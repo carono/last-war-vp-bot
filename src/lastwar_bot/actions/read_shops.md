@@ -11,6 +11,8 @@
 #   shops   — the shelves that are spent with a currency the account EARNS, packed
 #   money   — the storefronts that want money, packed the same way, drawn and never
 #             pressed: no message buys one of those, so the panel offers no button
+#   purses  — one record per CURRENCY the shelves want: what it is called, its own
+#             picture and how much of it the account has (#2830)
 #   rows    — how many goods were read in all
 #
 # HOW A ROW IS PACKED. Records are separated by « #|# », and one record is fifteen fields
@@ -66,6 +68,24 @@ READ_LUA (function() local function num(v) local ok, n = pcall(function() return
 # same reason: what a pack costs is the store's own number in the player's own money,
 # and this side of the client never sees it.
 READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local function flat(s) local out = tostring(s or '') out = out:gsub('%s+', ' ') out = out:gsub(';;', ' ') out = out:gsub('#|#', ' ') return out end local T = DataCenter.ItemTemplateManager local out = {} local M = DataCenter.WeekCardManager local list = nil pcall(function() list = M:GetWeekCardList() end) for _, c in pairs(list or {}) do local item, give = 0, 1 pcall(function() for _, r in pairs(c.showReward or c.reward or {}) do item = num(r.itemId) give = num(r.count) end end) local nm, ic, co = '', '', 0 pcall(function() nm = tostring(T:GetName(item) or '') end) pcall(function() local tpl = T:GetItemTemplate(item) ic = tostring(tpl.icon or '') co = num(tpl.color) end) out[#out + 1] = table.concat({'money', '1', tostring(c.id), tostring(item), ic, tostring(co), tostring(give), '0', '0', '0', '0', tostring(math.floor(num(c.endTime) / 1000)), '0', '', flat(nm)}, ';;') end return table.concat(out, ' #|# ') end)() INTO money
+
+# THE PURSES — what every currency the shelves want is CALLED, what it LOOKS like and how
+# much of it the account has (#2830). One record per currency, never per row:
+#
+#   cost_id;;have;;icon;;name
+#
+#   have  — the balance, and **-1 means «the client will not show it»**, which is not
+#           zero: a shelf paid in something this side of the client cannot count is
+#           drawn without a number rather than with a wrong one (`docs/research/shops.md`).
+#   icon  — the currency's own sprite, named the way every other picture here is named
+#           (the file's stem, no path and no extension); empty when the client has no
+#           picture for it, and the panel then draws the name alone. Never a stand-in.
+#
+# A CURRENCY IS READ FOUR WAYS, exactly as a row's price is: the diamonds off
+# `LuaEntry.Player.gold`, a resource through `Resource:GetCntByResType`, and the two
+# EXCHANGE shelves out of the bag by the row's own `currencyId` / `resourceitem_id`. A
+# shelf may want SEVERAL currencies at once, so nothing here assumes one per shop.
+READ_LUA (function() local function num(v) local ok, n = pcall(function() return v + 0 end) if ok and n ~= nil then return math.floor(n) end return 0 end local function flat(s) local out = tostring(s or '') out = out:gsub('%s+', ' ') out = out:gsub(';;', ' ') out = out:gsub('#|#', ' ') return out end local function base(path) local out = tostring(path or '') out = out:gsub('.*/', '') out = out:gsub('%.png$', '') return out end local C = DataCenter.CommonShopManager local R = DataCenter.ResourceManager local T = DataCenter.ItemTemplateManager local I = DataCenter.ResourceItemDataManager local function bag(id) local n = 0 pcall(function() for _, v in pairs(DataCenter.ItemData.ItemInfos or {}) do if tostring(v.itemId) == tostring(id) then n = n + math.floor((v.count or 0) + 0) + math.floor((v.num or 0) + 0) end end end) if n == 0 then pcall(function() n = math.floor((I:GetCountByItemId(math.floor(id + 0)) or 0) + 0) end) end return n end local function purse(P) local cur = num(P.currencyType) local have = 0 if cur == 5 then pcall(function() have = math.floor((LuaEntry.Player.gold or 0) + 0) end) return have end pcall(function() have = math.floor((LuaEntry.Resource:GetCntByResType(cur) or 0) + 0) end) if have > 0 then return have end local cid = tonumber(tostring(P.currencyId or '')) if cid ~= nil then local n = bag(cid) if n > 0 then return n end end local rid = tonumber(tostring(P.resourceitem_id or '')) if rid ~= nil then return bag(rid) end return -1 end local function money_name(t) local said = '' pcall(function() said = tostring(R:GetResourceNameByType(t) or '') end) if said:sub(1, 1) == '<' then said = '' end return said end local function money_icon(cur, P) local ic = '' pcall(function() ic = base(R:GetResourceIconByType(cur)) end) if ic ~= '' then return ic end local cid = tonumber(tostring(P.currencyId or '')) if cid ~= nil then pcall(function() ic = base((T:GetItemTemplate(cid) or {}).icon) end) if ic == '' then pcall(function() ic = base(I:GetIconPath(cid)) end) end end if ic ~= '' then return ic end local rid = tonumber(tostring(P.resourceitem_id or '')) if rid ~= nil then pcall(function() ic = base(I:GetIconPath(rid)) end) if ic == '' then pcall(function() ic = base((T:GetItemTemplate(rid) or {}).icon) end) end end return ic end local order, held = {}, {} local function keep(key, have, icon, name) local was = held[key] if was == nil then order[#order + 1] = key held[key] = {have, icon, name} return end if was[1] < 0 and have >= 0 then was[1] = have end if was[2] == '' then was[2] = icon end if was[3] == '' then was[3] = name end end if type(C) == 'table' then for _, rows in pairs(C.goodsShopDic or {}) do for _, p in pairs(rows or {}) do local cur = num(p.currencyType) keep(tostring(cur), purse(p), money_icon(cur, p), money_name(cur)) end end end local D = DataCenter.LWTitaniumBlueStoreManager if type(D) == 'table' and D.activityId ~= nil then local nm, ic = '', '' pcall(function() nm = tostring(T:GetName(654001) or '') end) pcall(function() ic = base((T:GetItemTemplate(654001) or {}).icon) end) keep('654001', bag(654001), ic, nm) end local out = {} for _, key in ipairs(order) do local v = held[key] out[#out + 1] = table.concat({key, tostring(v[1]), v[2], flat(v[3])}, ';;') end return table.concat(out, ' #|# ') end)() INTO purses
 
 READ_LUA (function() local n = 0 local C = DataCenter.CommonShopManager for _, rows in pairs((C or {}).goodsShopDic or {}) do for _ in pairs(rows or {}) do n = n + 1 end end local D = DataCenter.LWTitaniumBlueStoreManager if type(D) == 'table' and D.activityId ~= nil then for _ in pairs(D.productList or {}) do n = n + 1 end end return n end)() INTO rows
 LOG "магазины: прочитано товаров — {rows}"

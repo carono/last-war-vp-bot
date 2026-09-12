@@ -1080,6 +1080,8 @@
   "shop.cap": "Tetto di spesa: {currency}",
   "shop.cap.hint": "Quanto della valuta propria di questo negozio può spendere un ciclo di acquisto automatico. −1: nessun tetto; 0: niente.",
   "shop.money.other": "valuta n. {money}",
+  "shop.purse.unread": "non ancora letto",
+  "shop.purse.hidden": "il client non mostra questo saldo",
   "shop.caps.title": "Impostazioni del negozio",
   "shop.opt.caps": "Tetti di spesa per valuta",
   "shop.opt.caps.hint": "«valuta:limite», separati da virgole — lo stesso valore che scrive l'ingranaggio di ogni negozio. Una valuta non nominata non ha tetto: si guadagna giocando e il limite dell'articolo la limita già. 5 sono i diamanti.",
