@@ -219,16 +219,41 @@ format the collect card uses) and the whole number in the title.
   picture — and the answer is a whole blob read out of the profile's database: twenty
   tiles cost forty reads of the same few hundred kilobytes, on the Tk thread.
 
-**THE ONE CURRENCY THE CLIENT WILL NOT NAME is honour, `40`** (#2830, probed live on
-2026-09-12). `ResourceManager:GetResourceNameByType(40)` and `GetResourceIconByType(40)`
-both answer empty — as do the same two asked about `16` — and `GetResourceIconByType` is
-the only icon method the manager has at all. `LocalController` names no `resource` /
-`currency` / `money` table, and the honour row of shelf 8 carries `currencyId=` empty, so
-there is no item to fall back on either. The pill therefore draws «валюта №40» with its
-balance and no picture, which is the honest answer: a word this panel invented and a
-sprite belonging to something else are both worse than a number
-(`CLAUDE.md`). It is the only such currency across the twelve shelves — the other eleven
-answer with a name and a sprite the panel serves.
+**THE ONE CURRENCY THE RESOURCE MANAGER WILL NOT NAME is honour, `40`** (#2830), **and
+the game names it somewhere else entirely** (#2832, probed live on 2026-09-12).
+`ResourceManager:GetResourceNameByType(40)` and `GetResourceIconByType(40)` both answer
+empty — as do the same two asked about `16` — and `GetResourceIconByType` is the only icon
+method the manager has at all. The manager is simply not where a currency of this kind is
+described:
+
+* **`LocalController` DOES have the table, under a name none of #2830's guesses tried:
+  `aps_resources`**, 32 rows, columns reached by name (`inst:getValue('aps_resources',
+  <row>, 'icon'/'name', '')`). The small ids ARE resource types (`15` the diamonds,
+  `23` the oil); the honour is not among them — it is **row `1005`**, with
+  `icon = zyf_xunzhang_icon` and `name = 457008`.
+* **`457008` is the game's own key for «Очки чести» / «Honor Points»** (`tools/game_locale.py
+  --term "Honor Points"`, the row now in `docs/game-glossary.md`), so the panel copies the
+  wording out of the game's eleven tables into `shop.money.honor` rather than inventing
+  one. Its description is `458288`.
+* **The sprite is `Assets/Main/Sprites/ItemIcons/zyf_xunzhang_icon.png`** — inside the tree
+  `tools/extract_item_icons.py` already sweeps, so a machine that has run the extractor
+  serves it over `/api/itemicon?name=zyf_xunzhang_icon` with no new extractor and no new
+  route. The recipe reads the sprite's NAME out of the config row above
+  (`read_shops.md`, the `APS` map), so the panel never spells a sprite out for itself.
+* **What is still not there: a mapping from `currencyType` 40 to row `1005` in any game
+  table.** Everything dumped was searched — `aps_resources` has no column holding 40,
+  `hasTable` says there is no `resource` / `money` / `currency` / `honor` table, and no
+  `DataCenter` or `_G` key contains «honor» at all. The one-entry map in the recipe is
+  therefore the panel's, and it is the only part of this that is: both the word and the
+  picture come out of the client's own data.
+
+What was probed and came back empty, so that nobody repeats it: the manager's whole method
+list (`GetResourceNameByType`, `GetResourceIconByType`, `GetResourceDescByType` — the last
+is empty for 40 too), `LuaEntry.Resource` (`GetHonorScore` is the balance and the only
+honour-shaped thing on it), `DataCenter` and `_G` scanned for «honor»/«shop»/«store», the
+`shop` and `lw_resource_item` config tables, and the three localisation entry points a
+chunk might have (`LanguageUtil.GetText`, `GetLangStr`, `LuaEntry.Language:GetText`) —
+none of which exist in this build's Lua.
 
 ## 2. What a purchase puts on the wire
 

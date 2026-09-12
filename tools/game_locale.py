@@ -73,6 +73,7 @@ PANEL_TERMS = (
     ("resource: metal",                           "Metal", "resource_name002"),
     ("resource: oil",                             "Oil", "resource_name_23"),
     ("resource: gold",                            "Gold", "ghost_parkour_gold"),
+    ("the honour a shop is paid in",               "Honor Points", "457008"),
 )
 
 #: Rows whose cells the game itself got wrong in some language, so a translator does

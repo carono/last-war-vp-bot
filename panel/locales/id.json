@@ -1080,6 +1080,7 @@
   "shop.cap": "Batas belanja: {currency}",
   "shop.cap.hint": "Berapa banyak mata uang toko ini yang boleh dihabiskan satu putaran pembelian otomatis. −1: tanpa batas; 0: tidak sama sekali.",
   "shop.money.other": "mata uang No. {money}",
+  "shop.money.honor": "Poin Honor",
   "shop.purse.unread": "belum dibaca",
   "shop.purse.hidden": "klien tidak menampilkan saldo ini",
   "shop.caps.title": "Pengaturan toko",

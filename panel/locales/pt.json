@@ -1080,6 +1080,7 @@
   "shop.cap": "Teto de gasto: {currency}",
   "shop.cap.hint": "Quanto da moeda própria desta loja uma passagem de compra automática pode gastar. −1: sem teto; 0: nada.",
   "shop.money.other": "moeda n.º {money}",
+  "shop.money.honor": "Pontos de Honra",
   "shop.purse.unread": "ainda não lido",
   "shop.purse.hidden": "o cliente não mostra este saldo",
   "shop.caps.title": "Definições da loja",

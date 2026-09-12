@@ -142,6 +142,16 @@ def order_shelves(keys) -> list:
 MONEY_KEY = "shop.kind.money"
 OTHER_KEY = "shop.kind.other"
 
+#: THE ONE CURRENCY THE CLIENT'S RESOURCE MANAGER WILL NOT NAME (#2830, named #2832).
+#: `GetResourceNameByType(40)` is empty, so the pill said «валюта №40». The GAME has a
+#: word for it all the same — `aps_resources` row 1005 points at locale key `457008`,
+#: «Очки чести» / «Honor Points» — so the panel copies that wording out of the game's
+#: own tables into all eleven locales (`docs/game-glossary.md`) instead of inventing one.
+#: The picture comes the ordinary way, off the reading: the recipe reads the same config
+#: row for it (`read_shops.md`).
+HONOUR_TYPE = "40"
+HONOUR_KEY = "shop.money.honor"
+
 #: How many goods one card draws. A shelf is thirty-odd rows; this is the ceiling that
 #: keeps a screen re-read small when a client ever answers with more.
 SHELF_MAX = 120
@@ -924,7 +934,12 @@ class ShopTab(PanelTab):
         said = str((self.purses().get(str(currency)) or {}).get("name") or "")
         if said:
             return said
-        return self._money.get(str(currency).partition(":")[0]) or ""
+        kind = str(currency).partition(":")[0]
+        word = self._money.get(kind) or ""
+        if not word and kind == HONOUR_TYPE:
+            # The game named it, this panel did not: see `HONOUR_KEY` above.
+            return self.t(HONOUR_KEY)
+        return word
 
     def good(self, kind: str, shop: str, row: dict, *, group: str = "",
              drag: bool = False) -> dict:

@@ -1080,6 +1080,7 @@
   "shop.cap": "Spending cap: {currency}",
   "shop.cap.hint": "The most of this shop's own currency one autobuy run may spend. −1 means no cap at all; 0 means none of it may be spent.",
   "shop.money.other": "currency #{money}",
+  "shop.money.honor": "Honor Points",
   "shop.purse.unread": "not read yet",
   "shop.purse.hidden": "the client does not show this balance",
   "shop.caps.title": "Shop settings",

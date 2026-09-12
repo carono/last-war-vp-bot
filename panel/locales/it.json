@@ -1080,6 +1080,7 @@
   "shop.cap": "Tetto di spesa: {currency}",
   "shop.cap.hint": "Quanto della valuta propria di questo negozio può spendere un ciclo di acquisto automatico. −1: nessun tetto; 0: niente.",
   "shop.money.other": "valuta n. {money}",
+  "shop.money.honor": "Punti dell'onore",
   "shop.purse.unread": "non ancora letto",
   "shop.purse.hidden": "il client non mostra questo saldo",
   "shop.caps.title": "Impostazioni del negozio",
