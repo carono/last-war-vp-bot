@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "bu profilin istemcisi başka bir Windows oturumunda — düğmeler orada henüz çizilemiyor",
   "log.overlay.no_door": "panelin web kapısı belirlenemedi — düğmelerin basacağı bir şey yok",
   "log.macro.overlay_on": "F12: panelin düğmelerini istemci penceresinin üstüne çiziyorum",
-  "log.macro.overlay_off": "F12: düğmeleri istemci penceresinden kaldırıyorum"
+  "log.macro.overlay_off": "F12: düğmeleri istemci penceresinden kaldırıyorum",
+  "timers.item.raise_peace_shield": "Cumartesi 24 saatlik kalkan",
+  "timers.stat.shield": "kalkan: {h} sa {m} dk kaldı · çantada {n}",
+  "timers.stat.shield.none": "kalkan yok · çantada {n}",
+  "profile.shield": "Üs kalkanı",
+  "profile.shield.state": "Durum",
+  "profile.shield.until": "Bitiş",
+  "profile.shield.have24": "24 saatlik kalkanlar",
+  "profile.shield.have12": "12 saatlik kalkanlar",
+  "profile.shield.next": "Sonraki kurulum",
+  "profile.shield.up": "{h} sa {m} dk kaldı",
+  "profile.shield.down": "korumasız",
+  "profile.shield.raise": "24 saatlik kalkan kur",
+  "profile.shield.confirm": "Çantadan bir 24 saatlik kalkan harcansın mı?",
+  "profile.shield.off": "görev kapalı",
+  "profile.shield.soon": "şimdi"
 }

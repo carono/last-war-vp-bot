@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "this profile's client is in another Windows session — the buttons cannot be drawn there yet",
   "log.overlay.no_door": "the panel's web door could not be named — the buttons have nothing to press",
   "log.macro.overlay_on": "F12: drawing the panel's buttons over the client's window",
-  "log.macro.overlay_off": "F12: taking the buttons off the client's window"
+  "log.macro.overlay_off": "F12: taking the buttons off the client's window",
+  "timers.item.raise_peace_shield": "24-hour shield on Saturday",
+  "timers.stat.shield": "shield: {h} h {m} min left · {n} in the bag",
+  "timers.stat.shield.none": "no shield · {n} in the bag",
+  "profile.shield": "Base shield",
+  "profile.shield.state": "State",
+  "profile.shield.until": "Until",
+  "profile.shield.have24": "24-hour shields",
+  "profile.shield.have12": "12-hour shields",
+  "profile.shield.next": "Next raise",
+  "profile.shield.up": "{h} h {m} min left",
+  "profile.shield.down": "not protected",
+  "profile.shield.raise": "Raise a 24-hour shield",
+  "profile.shield.confirm": "Spend one 24-hour shield out of the bag?",
+  "profile.shield.off": "the errand is switched off",
+  "profile.shield.soon": "now"
 }

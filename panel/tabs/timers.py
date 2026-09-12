@@ -769,7 +769,7 @@ class TimersTab(PanelTab):
             # The days travel with the copy exactly as the period does: a duplicate of
             # the Sunday errand that lost them would fire every seven days from whenever
             # it was copied, which is the drift `weekdays` exists to stop.
-            weekdays=tuple(timer.weekdays),
+            weekdays=tuple(timer.weekdays), offset_sec=timer.offset_sec,
             enabled=False,          # a copy starts off: two clocks on one errand is
                                     # rarely what a duplicate was for
             args=dict(timer.args),

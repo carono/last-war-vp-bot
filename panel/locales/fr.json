@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "le client de ce profil est dans une autre session Windows — les boutons ne peuvent pas encore y être dessinés",
   "log.overlay.no_door": "impossible de déterminer la porte web du panneau — les boutons n'ont rien à presser",
   "log.macro.overlay_on": "F12 : je dessine les boutons du panneau par-dessus la fenêtre du client",
-  "log.macro.overlay_off": "F12 : je retire les boutons de la fenêtre du client"
+  "log.macro.overlay_off": "F12 : je retire les boutons de la fenêtre du client",
+  "timers.item.raise_peace_shield": "Bouclier de 24 heures le samedi",
+  "timers.stat.shield": "bouclier : encore {h} h {m} min · {n} dans le sac",
+  "timers.stat.shield.none": "pas de bouclier · {n} dans le sac",
+  "profile.shield": "Bouclier de la base",
+  "profile.shield.state": "État",
+  "profile.shield.until": "Jusqu'à",
+  "profile.shield.have24": "Boucliers de 24 heures",
+  "profile.shield.have12": "Boucliers de 12 heures",
+  "profile.shield.next": "Prochaine activation",
+  "profile.shield.up": "encore {h} h {m} min",
+  "profile.shield.down": "non protégée",
+  "profile.shield.raise": "Activer un bouclier de 24 heures",
+  "profile.shield.confirm": "Dépenser un bouclier de 24 heures du sac ?",
+  "profile.shield.off": "la tâche est désactivée",
+  "profile.shield.soon": "maintenant"
 }

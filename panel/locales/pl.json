@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "klient tego profilu jest w innej sesji Windows — tam nie można jeszcze narysować przycisków",
   "log.overlay.no_door": "nie udało się ustalić drzwi webowych panelu — przyciski nie mają czego naciskać",
   "log.macro.overlay_on": "F12: rysuję przyciski panelu na oknie klienta",
-  "log.macro.overlay_off": "F12: zdejmuję przyciski z okna klienta"
+  "log.macro.overlay_off": "F12: zdejmuję przyciski z okna klienta",
+  "timers.item.raise_peace_shield": "24-godzinna tarcza w soboty",
+  "timers.stat.shield": "tarcza: jeszcze {h} godz. {m} min · {n} w torbie",
+  "timers.stat.shield.none": "brak tarczy · {n} w torbie",
+  "profile.shield": "Tarcza bazy",
+  "profile.shield.state": "Stan",
+  "profile.shield.until": "Do",
+  "profile.shield.have24": "Tarcze 24-godzinne",
+  "profile.shield.have12": "Tarcze 12-godzinne",
+  "profile.shield.next": "Następne postawienie",
+  "profile.shield.up": "jeszcze {h} godz. {m} min",
+  "profile.shield.down": "brak ochrony",
+  "profile.shield.raise": "Postaw 24-godzinną tarczę",
+  "profile.shield.confirm": "Zużyć jedną 24-godzinną tarczę z torby?",
+  "profile.shield.off": "zadanie jest wyłączone",
+  "profile.shield.soon": "teraz"
 }

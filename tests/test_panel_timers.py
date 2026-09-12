@@ -38,6 +38,7 @@ from __future__ import annotations
 
 TIER = "ui"        # Tk and a display — see tools/run_tests.py
 
+import calendar
 import json
 import sys
 import tempfile
@@ -2055,6 +2056,34 @@ def test_the_arena_row_stops_playing_the_scenario_it_was_saved_with():
         assert other is not None and other.scenario == ("storm_arena_battles",), other
     finally:
         timersmod.TEMPLATE_FILE = kept
+
+def test_a_weekly_errand_may_be_due_a_minute_after_the_day_opens():
+    """`Timer.offset_sec` moves the MOMENT, never the day (#2822).
+
+    The Saturday shield is asked for «через минуту после сброса сервера», and a run that
+    already happened at the boundary must not be offered again a minute later.
+    """
+    # No `DayReset`: the plain UTC day is the fallback, which is all this is about.
+    saturday = calendar.timegm((2026, 9, 12, 12, 0, 0, 0, 0, 0))   # a Saturday, midday
+    day = None
+    start = timersmod.next_weekly(0.0, (6,), day, saturday)
+    late = timersmod.next_weekly(0.0, (6,), day, saturday, 60)
+    assert late - start == 60, (start, late)
+    # …and a row that ran after the day opened is next due on the FOLLOWING Saturday,
+    # offset included, rather than sixty seconds after its own run.
+    ran = start + 300
+    again = timersmod.next_weekly(ran, (6,), day, saturday, 60)
+    assert again - start == 7 * timersmod.DAY_SEC + 60, (start, again)
+
+
+def test_the_saturday_shield_ships_off_and_names_its_day():
+    """The one errand that spends something that cannot be earned back (#2822)."""
+    timer = {t.name: t for t in timersmod.DEFAULT_TIMERS}["raise_peace_shield"]
+    assert timer.enabled is False, timer
+    assert timer.weekdays == (6,), timer
+    assert timer.offset_sec == 60, timer
+    assert timer.args.get("weekday") == 6, timer
+
 
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())

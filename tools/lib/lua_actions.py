@@ -18143,3 +18143,102 @@ def recover_pools_sent(kind: str) -> str:
     return ("(function() " + _RECOVER_M +
             "if not M then return 0 end "
             "return tonumber(M.__lw_rec_" + kind + "_sent) or 0 end)()")
+
+
+# ---------------------------------------------------------------------------
+# THE PEACE SHIELD (#2822)
+# ---------------------------------------------------------------------------
+#: The bag's shield stacks, by how long they last. Read off the live bag by name — the
+#: game calls them «24-часовой щит» and «12-часовой щит» — because an item id is the
+#: GAME's answer and the same on every machine, unlike anything in `game_paths.py`.
+#: Only the 24-hour one is ever spent by an ability here; the 12-hour one is read so a
+#: card can say what else the bag is holding.
+SHIELD_ITEM_24H = 200411
+SHIELD_ITEM_12H = 200406
+
+
+def shield_state() -> str:
+    """Lua *expression* -> the base's protection, in one line.
+
+    ``up=<0|1> ends=<ms> have24=<n> have12=<n> now=<ms>`` — everything a card needs to
+    say «стоит ли щит, сколько осталось, сколько в сумке» without a second question.
+
+    WHERE IT COMES FROM. `DataCenter.DefenceWallDataManager` is the client's own record
+    of the wall: `IsInShield()` is the game's own answer to «защищена ли база», and
+    `GetDefenceWallData().protectEndTime` is the moment the protection runs out, on the
+    GAME's clock in milliseconds (`tools/lib/game_clock.py` — never this PC's). `now` is
+    the same clock, so a reader can work out what is left without mixing the two.
+    """
+    return (
+        "(function() local M=DataCenter.DefenceWallDataManager local up,ends=0,0 "
+        "if M~=nil then pcall(function() if M:IsInShield() then up=1 end end) "
+        "pcall(function() ends=math.floor((M:GetDefenceWallData().protectEndTime or 0)+0) "
+        "end) end "
+        "local function _c(id) local n=0 pcall(function() "
+        "for _,v in pairs(DataCenter.ItemData.ItemInfos or {}) do "
+        "if math.floor((v.itemId or 0)+0)==id then n=n+math.floor((v.count or 0)+0) end "
+        "end end) return n end "
+        "local now=0 pcall(function() "
+        "now=math.floor(UITimeManager:GetInstance():GetServerTime()+0) end) "
+        "return 'up='..up..' ends='..ends..' have24='.._c(%(id24)d)"
+        "..' have12='.._c(%(id12)d)..' now='..now end)()"
+        % {"id24": SHIELD_ITEM_24H, "id12": SHIELD_ITEM_12H})
+
+
+def game_weekday() -> str:
+    """Lua *expression* -> which weekday the GAME is on, 1 = Monday … 7 = Sunday, 0 = no
+    answer.
+
+    The GAME's, never the machine's: the warzone's day turns at its own 00:00 — measured
+    at 02:00 UTC — so for two hours out of every twenty-four this PC already calls it
+    Sunday while the game is still handing out Saturday.
+
+    The arithmetic is done on the MIDDLE of the current game day rather than on either
+    end of it. `GetTomorrowZero()` answers when the day ENDS, which for a Saturday that
+    runs Sat 02:00 → Sun 02:00 UTC is a Sunday timestamp; half a day back from it lands
+    at Sat 14:00 UTC, which is a Saturday whatever the warzone's offset turns out to be.
+    """
+    return ("(function() local z=0 pcall(function() "
+            "z=math.floor(UITimeManager:GetInstance():GetTomorrowZero()+0) end) "
+            "if z<=0 then return 0 end "
+            "local d=math.floor((z-43200000)/86400000) return ((d+3)%7)+1 end)()")
+
+
+def use_peace_shield() -> str:
+    """Spend ONE 24-hour shield out of the bag — the press, and only the press.
+
+    The send is the bag's own `item.use` with the STACK's uuid and `num = 1`, the shape
+    this client will serialise (docs/research/inventory.md). Which stack does not matter
+    — a shield is a shield — so the first one holding any is taken.
+
+    **No gate lives here.** Whether a shield is already up, whether today is the day and
+    whether the person meant it are the recipe's (`actions/raise_peace_shield.md`) —
+    `CLAUDE.md`, «a primitive presses one thing». What it will not do is send into an
+    empty bag: `why=none-in-bag` and nothing on the wire.
+    """
+    return (
+        "local id=%(id)d local D=DataCenter.ItemData local used,why=0,'' "
+        "local uuid=nil "
+        "if D==nil then why='no-bag' else "
+        "pcall(function() for _,v in pairs(D.ItemInfos or {}) do "
+        "if uuid==nil and math.floor((v.itemId or 0)+0)==id "
+        "and math.floor((v.count or 0)+0)>0 then uuid=v.uuid end end end) "
+        "if uuid==nil then why='none-in-bag' else "
+        "if pcall(function() SFSNetwork.SendMessage(MsgDefines.ItemUse, "
+        "{uuid=uuid, num=1}) end) then used=1 else why='send-failed' end end end "
+        "DataCenter.__lw_shield={id=id, used=used, why=why} "
+        'CS.UnityEngine.Debug.LogError("ACT peace_shield id="..tostring(id)'
+        '.." used="..tostring(used).." why="..tostring(why))'
+        % {"id": SHIELD_ITEM_24H})
+
+
+def peace_shield_used() -> str:
+    """Lua *expression* -> 1 when the last :func:`use_peace_shield` put one on the wire."""
+    return ("(function() local r=DataCenter.__lw_shield or {} "
+            "return math.floor((r.used or 0)+0) end)()")
+
+
+def peace_shield_why() -> str:
+    """Lua *expression* -> why the last :func:`use_peace_shield` sent nothing, in a word."""
+    return ("(function() local r=DataCenter.__lw_shield or {} "
+            "return tostring(r.why or '') end)()")

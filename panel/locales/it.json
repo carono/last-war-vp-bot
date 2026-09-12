@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "il client di questo profilo è in un'altra sessione di Windows — lì i pulsanti non possono ancora essere disegnati",
   "log.overlay.no_door": "non è stato possibile determinare la porta web del pannello — i pulsanti non hanno nulla da premere",
   "log.macro.overlay_on": "F12: disegno i pulsanti del pannello sopra la finestra del client",
-  "log.macro.overlay_off": "F12: tolgo i pulsanti dalla finestra del client"
+  "log.macro.overlay_off": "F12: tolgo i pulsanti dalla finestra del client",
+  "timers.item.raise_peace_shield": "Scudo da 24 ore il sabato",
+  "timers.stat.shield": "scudo: ancora {h} h {m} min · {n} nella borsa",
+  "timers.stat.shield.none": "nessuno scudo · {n} nella borsa",
+  "profile.shield": "Scudo della base",
+  "profile.shield.state": "Stato",
+  "profile.shield.until": "Fino a",
+  "profile.shield.have24": "Scudi da 24 ore",
+  "profile.shield.have12": "Scudi da 12 ore",
+  "profile.shield.next": "Prossima attivazione",
+  "profile.shield.up": "ancora {h} h {m} min",
+  "profile.shield.down": "non protetta",
+  "profile.shield.raise": "Attiva uno scudo da 24 ore",
+  "profile.shield.confirm": "Spendere uno scudo da 24 ore dalla borsa?",
+  "profile.shield.off": "l'incarico è disattivato",
+  "profile.shield.soon": "adesso"
 }

@@ -1014,8 +1014,45 @@ def _market_coins(rt) -> "dict | None":
                     "n": _int(fields.get("priced_rows"))}, "age": age}
 
 
+#: WHAT «Профиль» LEFT BEHIND after it read the base's protection (#2822) — the blob
+#: `panel/tabs/profile.py` writes on every shield reading, so the line under the errand
+#: costs a `SELECT` and never a question to the game.
+SHIELD_BLOB = "shield_state"
+
+
+def _peace_shield(rt) -> "dict | None":
+    """«Щит: ещё 23 ч 41 мин · в сумке 1» — the base's protection and the reserve.
+
+    Every figure is the game's own, read once by the tab that owns the reading and kept
+    in this profile's database; what is worked out here is only how much of a KNOWN
+    moment is left, on the GAME's clock (`tools/lib/game_clock.py`) rather than on this
+    machine's, which is minutes away from it.
+    """
+    saved = _blob(rt, SHIELD_BLOB)
+    if not isinstance(saved, dict):
+        return None
+    have = _int(saved.get("have24"))
+    at = float(saved.get("at") or 0.0)
+    age = max(0.0, time.time() - at) if at else None
+    try:
+        import game_clock                   # lazy: tools/lib is on the panel's path
+        now_ms = float(game_clock.now_ms() or 0.0)
+    except Exception:                       # noqa: BLE001 — one line, never the page
+        now_ms = 0.0
+    ends = float(saved.get("ends") or 0.0)
+    left = (ends - now_ms) / 1000.0 if (ends and now_ms) else 0.0
+    if not _int(saved.get("up")) or left <= 0:
+        return {"key": "timers.stat.shield.none", "fmt": {"n": have}, "age": age}
+    return {"key": "timers.stat.shield",
+            "fmt": {"h": int(left // 3600), "m": int((left % 3600) // 60), "n": have},
+            "age": age}
+
+
 PROVIDERS: dict = {
     "collect_base_resources": _collect_base,
+    # …and the Saturday shield (#2822): is one up, how much of it is left, and
+    # how many are still in the bag — off the blob «Профиль» keeps, never a read.
+    "raise_peace_shield": _peace_shield,
     "rally_auto_join": _rally_joins,
     "rally_monitor": _rally_joins,
     "firework_collect": _fireworks_taken,

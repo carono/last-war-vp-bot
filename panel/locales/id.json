@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "client profil ini ada di sesi Windows lain — tombol belum bisa digambar di sana",
   "log.overlay.no_door": "pintu web panel tidak dapat ditentukan — tombol tidak punya apa-apa untuk ditekan",
   "log.macro.overlay_on": "F12: menggambar tombol panel di atas jendela client",
-  "log.macro.overlay_off": "F12: melepas tombol dari jendela client"
+  "log.macro.overlay_off": "F12: melepas tombol dari jendela client",
+  "timers.item.raise_peace_shield": "Perisai 24 jam tiap Sabtu",
+  "timers.stat.shield": "perisai: sisa {h} jam {m} mnt · {n} di tas",
+  "timers.stat.shield.none": "tidak ada perisai · {n} di tas",
+  "profile.shield": "Perisai markas",
+  "profile.shield.state": "Status",
+  "profile.shield.until": "Sampai",
+  "profile.shield.have24": "Perisai 24 jam",
+  "profile.shield.have12": "Perisai 12 jam",
+  "profile.shield.next": "Pemasangan berikutnya",
+  "profile.shield.up": "sisa {h} jam {m} mnt",
+  "profile.shield.down": "tidak terlindungi",
+  "profile.shield.raise": "Pasang perisai 24 jam",
+  "profile.shield.confirm": "Pakai satu perisai 24 jam dari tas?",
+  "profile.shield.off": "tugas dimatikan",
+  "profile.shield.soon": "sekarang"
 }

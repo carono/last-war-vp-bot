@@ -1646,6 +1646,13 @@ BUTTONS["buy_stamina_refill"] = Button(
     lua=_lua_actions.buy_stamina_refill(),
     wait=0.8, label="buy the day's march energy refill for diamonds",
 )
+BUTTONS["use_peace_shield_24h"] = Button(
+    # ONE 24-hour peace shield out of the bag (#2822). A SPEND that cannot be taken
+    # back, so every gate — is one already up, is today the day, did a person ask —
+    # lives in `actions/raise_peace_shield.md` and none of it here.
+    lua=_lua_actions.use_peace_shield(),
+    wait=1.2, label="use a 24-hour peace shield from the bag",
+)
 BUTTONS["golden_arm"] = Button(
     # Not a press: the run's setup. Which squad, what the game charges for one attack,
     # and how much energy there is to charge it against.
