@@ -420,6 +420,14 @@ export interface ViewItem {
      the panel in the game's own words. Data, never a key. It is a field of its own and
      not one fact among several because on a shop tile it is the line the eye goes to. */
   price?: string
+  /* THE CURRENCY'S OWN PICTURE, BESIDE THE PRICE (#2830) — a `/api/itemicon` link, and
+     only where THIS machine extracted that sprite. When it is here the panel has already
+     taken the currency's WORD off `price` and put the whole line in `price_note`: the
+     picture says it in the width of a digit, which is what a 320 px tile has. */
+  price_icon?: string
+  /* The price in full words — what the tile's title says when the line itself is a
+     picture and a number. */
+  price_note?: string
   icon?: string
   pill?: string
   facts?: Fact[]

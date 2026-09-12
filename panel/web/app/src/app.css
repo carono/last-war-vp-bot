@@ -2423,6 +2423,16 @@ button.good-tap:disabled { opacity: 0.6; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* THE CURRENCY'S COIN, BEFORE THE NUMBER (#2830). Sized to the line rather than to a
+   grid of its own, so the price line is the same height it was and the tile does not
+   grow — which is the whole reason the word came off it on a narrow phone. */
+.good .gprice img {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+  margin-right: 3px;
+  object-fit: contain;
+}
 .good .bits {
   display: flex;
   flex-wrap: wrap;

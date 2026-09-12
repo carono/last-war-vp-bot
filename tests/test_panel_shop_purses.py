@@ -261,6 +261,54 @@ def test_nothing_is_ordered_by_a_translated_name():
     assert "common:1" in head
 
 
+# ---------------------------------------------------------------------------
+# the balance keeps up by itself (#2830)
+# ---------------------------------------------------------------------------
+def test_the_ear_hears_BOTH_halves_of_the_balance_news():
+    """A subscription is a CONTAINS match, so one pattern has to cover both pushes.
+
+    The item currencies move on `push.resource.item.update`; the diamonds and the honour
+    are not items and move on `push.resource.info`. Hearing only the first is what left
+    the honour pill saying 7 700 while the client held 16 200.
+    """
+    assert shops_live.PUSH == "push.resource."
+    for command in ("push.resource.item.update", "push.resource.info"):
+        assert shops_live.PUSH in command
+
+
+def test_one_burst_still_costs_one_reading():
+    """The wider pattern may not buy a second clock: the debounce is one per watch."""
+    assert shops_live.DEBOUNCE_SEC >= 120.0
+
+
+# ---------------------------------------------------------------------------
+# the currency beside the PRICE, on the goods tile (#2830)
+# ---------------------------------------------------------------------------
+def test_the_price_carries_the_currency_s_own_picture():
+    """With a picture the word leaves the line and stays in the title — see `good`."""
+    shop = (_REPO / "panel" / "tabs" / "shop.py").read_text(encoding="utf-8")
+    assert '"price_icon"' in shop and '"price_note"' in shop
+    view = (_APP / "views" / "ScreenView.tsx").read_text(encoding="utf-8")
+    assert "item.price_note || item.price" in view, "the full price must be the title"
+    assert "item.price_icon ?" in view
+
+
+def test_a_currency_with_no_sprite_keeps_its_word_on_the_line():
+    """Nothing stands in for a missing picture, and the line may not go blank either."""
+    tab = _Tab({"40": {"have": 7700, "icon": "", "name": ""}})
+    pills = tab.purse_pills(["40"])
+    assert pills and "icon" not in pills[0]
+    assert pills[0]["short"] and pills[0]["text"]
+
+
+def test_the_purse_reading_is_held_for_one_drawing_only():
+    """Forty blob reads a shelf is what the memo exists to stop — and it is DROPPED."""
+    shop = (_REPO / "panel" / "tabs" / "shop.py").read_text(encoding="utf-8")
+    assert "_purse_memo" in shop and "def forget_purses" in shop
+    body = shop.partition("def shelf_cards")[2]
+    assert "self.forget_purses()" in body.partition("def ")[0]
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

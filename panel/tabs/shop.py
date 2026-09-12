@@ -206,6 +206,9 @@ class ShopTab(PanelTab):
         #: filled from the reading. A currency the reading did not name is drawn by its
         #: number, never by a word this panel invented for it.
         self._money: dict = {}
+        #: The purse reading, held for the length of one drawing only — see
+        #: :meth:`purses`. `None` means «not read during this drawing yet».
+        self._purse_memo: "dict | None" = None
 
     # -- drawing -------------------------------------------------------------
     def build(self) -> None:
@@ -630,11 +633,27 @@ class ShopTab(PanelTab):
     # on a balance push, and after a purchase of ours. There is no «Обновить» for them
     # and the card says how old the reading is.
     def purses(self) -> dict:
-        """`{currency: {"have", "icon", "name"}}` — the last reading, or `{}`."""
+        """`{currency: {"have", "icon", "name"}}` — the last reading, or `{}`.
+
+        HELD FOR THE LENGTH OF ONE DRAWING (#2830). Every goods tile asks this twice —
+        for the currency's word and for its picture — and the answer is a whole blob
+        read out of this profile's database and parsed; twenty tiles a shelf therefore
+        paid for forty reads of the same few hundred kilobytes, on the Tk thread. The
+        memo is dropped at the top of each drawing (:meth:`forget_purses`), so what a
+        page shows is still the reading as it stood when that page was built.
+        """
+        if self._purse_memo is not None:
+            return self._purse_memo
         try:
-            return shops_live.purses(self.rt)
+            held = shops_live.purses(self.rt)
         except Exception:                # noqa: BLE001 — a reading, never the page
-            return {}
+            held = {}
+        self._purse_memo = held
+        return held
+
+    def forget_purses(self) -> None:
+        """Drop the memo above — called where a drawing STARTS, never on a clock."""
+        self._purse_memo = None
 
     def purse_icon(self, stem: str) -> str:
         """The currency's own picture, or `""` — never somebody else's (`CLAUDE.md`).
@@ -793,6 +812,7 @@ class ShopTab(PanelTab):
         all of them: two hundred rows with a picture, a price and a gear each is eighty
         kilobytes every two and a half seconds, and a person reads one shelf at a time.
         """
+        self.forget_purses()
         shelves, age = self.shelves()
         if not shelves:
             return [{"title": "shop.shelves", "empty": "shop.unread"}]
@@ -929,6 +949,17 @@ class ShopTab(PanelTab):
                  else self.t("shop.cost", amount=row.get("cost"),
                              currency=word).strip()
                  if word else str(row.get("cost")))
+        # …AND THE CURRENCY'S OWN PICTURE BESIDE IT (#2830), which is the same sprite the
+        # shelf's pill draws and comes down the same route — one picture per currency,
+        # asked for once here. A tile that HAS the picture drops the word from the line
+        # and keeps it in the title: on a 320 px phone «200 Медаль Экспедиции» wrapped
+        # the smallest line on the tile and pushed the quota off it, while the picture
+        # says the same thing in the width of a digit. A currency with no extracted
+        # sprite is unchanged — the word stays on the line, because nothing stands in
+        # for a missing picture (`CLAUDE.md`).
+        money = shops_live.money_key(row)
+        coin = (self.purse_icon((self.purses().get(money) or {}).get("icon"))
+                if row.get("cost") else "")
         # SOLD OUT (#2670, the person's words: «Сери иконку предмета, если всё
         # выкуплено»). A row with a quota that has none of it left is finished for this
         # reset: the game greys it, so the panel does too — and says «выкуплено» in
@@ -957,8 +988,11 @@ class ShopTab(PanelTab):
                 "detail": (self.t("shop.count", count=row.get("count"))
                            if int(row.get("count") or 0) > 1 else ""),
                 "facts": facts,
-                "price": price,
+                "price": (str(row.get("cost")) if coin else price),
                 "shape": "picture"}
+        if coin:
+            item["price_icon"] = coin
+            item["price_note"] = price
         if spent:
             # THE TILE IS GREY AND IT DOES NOT PRESS. Both halves matter: a picture that
             # only LOOKS spent while its press still sends `user.shop.buy.new` is a

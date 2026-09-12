@@ -46,7 +46,18 @@ VARIABLES = ("shops", "money", "purses")
 #: move only when WE buy something, and a purchase re-reads on its own way out — so this
 #: is here for the currency a player earned while the panel was watching, and it is
 #: debounced hard because a harvest emits 25 of them.
-PUSH = "push.resource.item.update"
+#:
+#: IT IS THE WHOLE FAMILY AND NOT ONE OF ITS TWO MEMBERS (#2830). A subscription is a
+#: CONTAINS match (`panel/runtime/wire.py`), so this hears both halves of the game's
+#: balance news: `push.resource.item.update` for the item currencies — the expedition
+#: medal, the season medal, the two crystal ores — and `push.resource.info` for the ones
+#: that are not items at all: the diamonds and the honour. It used to hear only the
+#: first, and a shelf paid in one of the others kept the balance it had at the moment
+#: the client got into the game: measured live on 2026-09-12 the honour pill said
+#: 7 700 while the client held 16 200, because nothing between those two moments was an
+#: ITEM. Hearing both costs no extra reading — the debounce below is one per watch, and
+#: in a farming hour the item push already spends it.
+PUSH = "push.resource."
 
 #: The shortest gap between two readings, in seconds. A burst of one push must cost ONE
 #: reading — the rule every wire subscriber in this panel obeys. Longer than the market's
