@@ -478,8 +478,66 @@ def local_images() -> str:
 
 
 def gameres() -> str:
-    """The text index of the shipped asset bundles."""
-    return _env("LW_GAMERES", os.path.join(game_dir(), GAMERES_SUBPATH))
+    """The text index of the asset bundles — **the newest one on the machine**.
+
+    THE INSTALL'S COPY GOES STALE AND THAT COSTS PICTURES (#2830). There are two: the
+    one shipped inside the install (`StreamingAssets`), and the one the client downloads
+    beside its bundle cache when the game updates. They are two different builds — on
+    the machine this was found on the install said build 1 and the cache said 874 — and
+    the SHAS DIFFER, so a bundle looked up in the old index is a bundle that is not in
+    the cache under that name. Extraction then reports «not in the cache» about art the
+    machine has had all along: that is exactly what «иконки алмазов нет» was.
+
+    So both are asked and the newest wins, the same way :func:`locale_dirs` picks a
+    build. `LW_GAMERES` still names one outright and is then the whole answer.
+    """
+    forced = (os.environ.get("LW_GAMERES") or "").strip()
+    if forced:
+        return forced
+    best, best_at = "", None
+    for path in gameres_candidates():
+        at = _gameres_build(path)
+        if at is None:
+            continue
+        if best_at is None or at > best_at:
+            best, best_at = path, at
+    return best or os.path.join(game_dir(), GAMERES_SUBPATH)
+
+
+def gameres_candidates() -> "tuple[str, ...]":
+    """Every asset index this machine might have, in no particular order.
+
+    The downloaded one lives beside the bundles it describes; the shipped one is in the
+    install. A machine with no cache simply has the one.
+    """
+    out = [os.path.join(game_dir(), GAMERES_SUBPATH)]
+    try:
+        out.insert(0, os.path.join(asset_cache(), "gameres"))
+    except Exception:                    # noqa: BLE001 — no cache is one candidate less
+        pass
+    return tuple(out)
+
+
+def _gameres_build(path: str):
+    """How new an index is: its own build number, else its age. `None` = not there.
+
+    The `.version` file beside it starts with the build («874,18529798,…»); a copy with
+    no version file at all is judged by its modification time, which cannot be compared
+    with a build number — so a build always beats a bare file, and two bare files are
+    compared with each other.
+    """
+    if not os.path.isfile(path):
+        return None
+    try:
+        head = open(path + ".version", encoding="latin-1").read(64).strip()
+        build = int(head.split(",")[0])
+        return (1, build)
+    except Exception:                    # noqa: BLE001 — then the file's own age
+        pass
+    try:
+        return (0, os.path.getmtime(path))
+    except OSError:
+        return None
 
 
 def bundle_root() -> str:
@@ -769,7 +827,8 @@ def describe() -> list:
         "LW_LAUNCHER_JSON" if os.environ.get("LW_LAUNCHER_JSON") else "beside the launcher",
         "LW_LAUNCHER_JSON")
     row("asset index", gameres(),
-        "LW_GAMERES" if os.environ.get("LW_GAMERES") else "install", "LW_GAMERES")
+        "LW_GAMERES" if os.environ.get("LW_GAMERES") else "newest of %d" % (
+            len(gameres_candidates()),), "LW_GAMERES")
     row("download tree", *_resolve(_data_candidates()), "LW_GAME_DATA_DIR")
     row("bundle root", *_resolve(_bundle_candidates()), "LW_BUNDLE_ROOT")
     row("bundle cache", *_resolve(_asset_cache_candidates()), "LW_ASSET_CACHE")
