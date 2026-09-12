@@ -33,6 +33,11 @@ WHAT THE SHELVES ARE. Whatever the client is holding: the tabs of the game's own
 all. The SET is never written down here: `actions/read_shops.md` reports what the account
 has and a shelf this panel has no word for is drawn by its number.
 
+THE CHIPS STAND IN THE PERSON'S OWN ORDER (#2830) — diamonds, VIP, alliance, honour,
+expedition, season, decoration, coupons, then whatever else the account has, in the
+game's own order. By the shelf's NUMBER (`SHELF_ORDER`), never by its name: the names
+are translated into eleven languages and the order would differ in each of them.
+
 NOTHING IS READ ON A CLOCK AND THERE IS NO «ОБНОВИТЬ» FOR THE SHELVES (#2633). They are
 read when the client gets into the game and when a balance push says something moved
 (`panel/runtime/shops_live.py`), a purchase re-reads on its own way out, and the age of
@@ -108,6 +113,29 @@ SHELF_KEYS = {"common:1": "shop.kind.diamond",
               "common:150": "shop.kind.decoration",
               "common:200": "shop.kind.season",
               "market:0": "shop.kind.market"}
+
+#: THE ORDER THE CHIPS STAND IN (#2830), and it is the person's own list: «магаз
+#: бриллиантов, VIP, альянса, чести, экспедиции, сезона, обликов, купонов, а дальше
+#: остальные». By the shelf's own number and never by its name — a name is translated
+#: into eleven languages and the order would be a different one in each.
+#:
+#: A shelf the account has not got simply is not there and nothing after it moves; a
+#: shelf nobody has named yet keeps the game's own place among the rest, at the TAIL,
+#: which is where the money storefronts and «Сверкающий рынок» stay too.
+SHELF_ORDER = ("common:1", "common:2", "common:7", "common:8",
+               "common:100", "common:200", "common:150", "common:10")
+
+
+def order_shelves(keys) -> list:
+    """The shelves in the order the person asked for, then the rest as the game said.
+
+    Stable in both halves: what is named keeps this file's order, what is not keeps the
+    client's, and nothing is dropped or invented.
+    """
+    place = {key: n for n, key in enumerate(SHELF_ORDER)}
+    tail = len(place)
+    return sorted(keys, key=lambda key: place.get(key, tail))
+
 
 #: …and the two families that are not one shelf: what a money storefront is called, and
 #: what any other numbered shelf is called.
@@ -352,7 +380,7 @@ class ShopTab(PanelTab):
                 order.append(key)
             held[key].append(row)
         out = []
-        for key in order:
+        for key in order_shelves(order):
             title = SHELF_KEYS.get(key)
             if title is None:
                 title = MONEY_KEY if key.startswith("money:") else OTHER_KEY

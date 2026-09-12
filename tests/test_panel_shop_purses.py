@@ -67,7 +67,7 @@ def _stub_tk() -> None:
 _stub_tk()
 
 from panel.runtime import shops_live                  # noqa: E402
-from panel.tabs.shop import ShopTab                   # noqa: E402
+from panel.tabs.shop import ShopTab, order_shelves    # noqa: E402
 
 _APP = _REPO / "panel" / "web" / "app" / "src"
 
@@ -226,6 +226,39 @@ def test_the_honour_purse_and_the_diamond_one_are_where_the_game_keeps_them():
         encoding="utf-8")
     assert "GetHonorScore" in recipe, "honour is its own reading, not a resource type"
     assert "LuaEntry.Player.gold" in recipe, "the diamonds are the player's gold"
+
+
+# ---------------------------------------------------------------------------
+# the order the chips stand in (#2830)
+# ---------------------------------------------------------------------------
+def test_the_chips_stand_in_the_order_the_person_asked_for():
+    """Diamonds, VIP, alliance, honour, expedition, season, decoration, coupons."""
+    game = ["common:9", "common:1", "money:1", "common:200", "market:0",
+            "common:10", "common:2", "common:7", "common:11", "common:8",
+            "common:100", "common:150"]
+    assert order_shelves(game)[:8] == ["common:1", "common:2", "common:7", "common:8",
+                                       "common:100", "common:200", "common:150",
+                                       "common:10"]
+
+
+def test_the_rest_keep_the_game_s_own_order_at_the_tail():
+    """A shelf nobody has named, and the money storefronts, stay behind — in place."""
+    game = ["common:9", "common:1", "money:1", "market:0", "common:11"]
+    assert order_shelves(game) == ["common:1", "common:9", "money:1", "market:0",
+                                   "common:11"]
+
+
+def test_a_shelf_the_account_has_not_got_moves_nothing():
+    assert order_shelves(["common:8", "common:1"]) == ["common:1", "common:8"]
+    assert order_shelves([]) == []
+
+
+def test_nothing_is_ordered_by_a_translated_name():
+    """The order is the shelf's own number — a name is eleven different orders."""
+    shop = (_REPO / "panel" / "tabs" / "shop.py").read_text(encoding="utf-8")
+    head = shop.partition("SHELF_ORDER = ")[2].partition(")")[0]
+    assert "shop.kind" not in head, "the order must not be written in locale keys"
+    assert "common:1" in head
 
 
 def _run_standalone() -> int:
