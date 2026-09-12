@@ -570,6 +570,11 @@ export interface ViewCard {
   options_title?: string
   /* HOW THE GRID IS ORDERED, as small buttons drawn directly over the rows (#2308). */
   sorts?: SortButton[]
+  /* WHAT THIS CARD IS PAID IN, over the things it sells (#2830) — the shop shelf's own
+     currencies: an icon, the balance short («12.34M») and the whole number in the title.
+     Drawn by the same pill the `pills` layout is made of, so there is one such control
+     and not two. A card that sends none draws nothing. */
+  pills?: ViewItem[]
   /* WHAT NARROWS THIS CARD, as chips over its items (#2737) — the person's words: «сделай
      кнопки-фильтры, только звездные дни секреток». One chip is chosen at a time and an
      `id` of `""` is «все»; an item is kept when its `tags` hold the chosen id. It is

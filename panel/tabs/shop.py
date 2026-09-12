@@ -570,18 +570,90 @@ class ShopTab(PanelTab):
                                 ",".join("%s:%d" % (money, limit)
                                          for money, limit in held.items()))
 
-    def shelf_money(self, rows) -> str:
-        """Which currency this shelf spends — the one its rows are priced in.
+    def shelf_moneys(self, rows) -> list:
+        """EVERY currency this shelf is paid in, in the order its own rows name them.
 
-        A shelf whose rows disagree (none does today) is named by the first row's: the
-        ceiling is per currency, so a mixed shelf simply shows the one it mostly spends
-        and the other keeps its own ceiling wherever it IS drawn.
+        A SHELF IS NOT ONE CURRENCY (#2830, the person's words: «обрати внимание, что в
+        кристаллическом магазине сразу 2 валюты используются»). The code here used to
+        take the first row's and call it «the shop's currency», so a shelf priced in two
+        showed one balance and offered one ceiling — and the second currency was
+        invisible from the page that spends it.
         """
+        out: list = []
         for row in rows or ():
             money = str(row.get("cost_id") or "")
-            if money:
-                return money
-        return ""
+            if money and money != "0" and money not in out:
+                out.append(money)
+        return out
+
+    def shelf_money(self, rows) -> str:
+        """The first currency of the shelf — what a single-currency shelf is named by."""
+        moneys = self.shelf_moneys(rows)
+        return moneys[0] if moneys else ""
+
+    # -- what is in the purse, per currency (#2830) --------------------------------
+    #
+    # NOTHING HERE ASKS THE GAME EITHER. The balances ride the same reading the shelves
+    # do (`actions/read_shops.md` → `purses`): once when the client gets into the game,
+    # on a balance push, and after a purchase of ours. There is no «Обновить» for them
+    # and the card says how old the reading is.
+    def purses(self) -> dict:
+        """`{currency: {"have", "icon", "name"}}` — the last reading, or `{}`."""
+        try:
+            return shops_live.purses(self.rt)
+        except Exception:                # noqa: BLE001 — a reading, never the page
+            return {}
+
+    def purse_icon(self, stem: str) -> str:
+        """The currency's own picture, or `""` — never somebody else's (`CLAUDE.md`).
+
+        Two things have to be true, exactly as they do for a resource chip: the game
+        names a sprite for it, and this machine actually extracted that sprite.
+        """
+        from urllib.parse import quote
+
+        from ..runtime import resources as live
+        stem = str(stem or "")
+        if not stem:
+            return ""
+        try:
+            ok = bool(live.item_icon(stem))
+        except Exception:                # noqa: BLE001 — nothing extracted, no picture
+            ok = False
+        return ("/api/itemicon?name=" + quote(stem)) if ok else ""
+
+    def purse_pills(self, moneys) -> list:
+        """ЧЕМ ПЛАТИМ И СКОЛЬКО ЕСТЬ — one pill per currency of the shelf (#2830).
+
+        The picture, the balance short («12.34M», the same format the collect card
+        writes, `errand_stats.short_amount`), and the number in full where a thumb
+        rests. A balance the client will not show says so instead of drawing a zero, and
+        a currency read before anything was read says «—».
+        """
+        from ..runtime.errand_stats import short_amount
+
+        held = self.purses()
+        out = []
+        for money in moneys:
+            purse = held.get(money) or {}
+            name = (str(purse.get("name") or "") or self.money_name(money)
+                    or self.t("shop.money.other", money=money))
+            have = purse.get("have")
+            pill = {"id": "purse:" + money, "text": name}
+            if not purse:
+                pill["short"] = UNREAD
+                pill["detail"] = self.t("shop.purse.unread")
+            elif int(have or 0) < 0:
+                pill["short"] = UNREAD
+                pill["detail"] = self.t("shop.purse.hidden")
+            else:
+                pill["short"] = short_amount(int(have))
+                pill["detail"] = "{:,}".format(int(have)).replace(",", "\u00a0")
+            picture = self.purse_icon(purse.get("icon"))
+            if picture:
+                pill["icon"] = picture
+            out.append(pill)
+        return out
 
     def autobuy_now(self, pick: str = "") -> bool:
         """Play the autobuy once by hand — over THIS SHELF'S order and no other.
@@ -712,19 +784,21 @@ class ShopTab(PanelTab):
         # shop's own heading, named after the currency this shop takes. A shelf whose
         # currency the game has no word for shows its number — the same honesty the
         # price line keeps.
-        money = self.shelf_money(rows)
-        word = self.money_name(money)
+        moneys = self.shelf_moneys(rows) if kind != "money" else []
         # A CURRENCY THE CLIENT HAS NO WORD FOR IS ITS NUMBER, said as one (#2670): the
         # game answers an unresolved key for the diamonds themselves, and «Потолок
         # трат: 5» is not a sentence. «валюта №5» is the same honesty the unnamed
         # shelves keep — a number, spelled as a number, never a name invented here.
-        caps = ([{"key": "cap:" + money, "label": "shop.cap",
-                  "label_fmt": {"currency": word or self.t("shop.money.other",
-                                                           money=money)},
-                  "hint": "shop.cap.hint", "kind": "number",
-                  "min": self.NO_CAP, "max": 1000000,
-                  "value": self.cap_of(money)}]
-                if money and kind != "money" else [])
+        # …AND ONE PER CURRENCY THE SHELF WANTS (#2830), not one per shelf: a shelf
+        # priced in two had a ceiling for the first of them and nothing at all for the
+        # second, which is a spend nobody could limit from the page that makes it.
+        caps = [{"key": "cap:" + each, "label": "shop.cap",
+                 "label_fmt": {"currency": self.money_name(each)
+                               or self.t("shop.money.other", money=each)},
+                 "hint": "shop.cap.hint", "kind": "number",
+                 "min": self.NO_CAP, "max": 1000000,
+                 "value": self.cap_of(each)}
+                for each in moneys]
         return [{"title": "shop.shelves",
                  "head": self.t("shop.age", age=int(age)) if age is not None else "",
                  "note": "shop.shelves.hint",
@@ -732,6 +806,10 @@ class ShopTab(PanelTab):
                  "empty": "shop.shelf.empty",
                  "options": caps,
                  "options_title": "shop.caps.title",
+                 # WHAT THIS SHELF IS PAID IN, AND HOW MUCH OF IT THERE IS (#2830) —
+                 # over the goods, where the prices under them are read. Every currency
+                 # of the shelf, because a shelf may want two.
+                 "pills": self.purse_pills(moneys),
                  "fields": [{"key": "pick", "label": "shop.pick", "kind": "chips",
                              "value": chosen, "options": choices}],
                  # THE PRESS CARRIES THE SHELF THE SCREEN IS SHOWING (#2670). Which
@@ -776,8 +854,15 @@ class ShopTab(PanelTab):
 
     def money_name(self, currency: str) -> str:
         """What a currency is called. The game's own name when the reading carried one,
-        and its number when it did not — never somebody else's word for it."""
-        return self._money.get(str(currency)) or ""
+        and its number when it did not — never somebody else's word for it.
+
+        The purse reading names them too (#2830), and it is asked second: a currency
+        only the exchange shelves spend has no priced row on the shelf being drawn.
+        """
+        said = self._money.get(str(currency)) or ""
+        if said:
+            return said
+        return str((self.purses().get(str(currency)) or {}).get("name") or "")
 
     def good(self, kind: str, shop: str, row: dict, *, group: str = "",
              drag: bool = False) -> dict:

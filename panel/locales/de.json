@@ -1080,6 +1080,8 @@
   "shop.cap": "Ausgabengrenze: {currency}",
   "shop.cap.hint": "Wie viel der eigenen Währung dieses Shops ein Autokauf-Lauf ausgeben darf. −1 heißt keine Grenze, 0 heißt gar nichts.",
   "shop.money.other": "Währung Nr. {money}",
+  "shop.purse.unread": "noch nicht gelesen",
+  "shop.purse.hidden": "der Client zeigt diesen Kontostand nicht an",
   "shop.caps.title": "Shop-Einstellungen",
   "shop.opt.caps": "Ausgabengrenzen je Währung",
   "shop.opt.caps.hint": "«Währung:Grenze», kommagetrennt — derselbe Wert, den das Zahnrad jedes Shops schreibt. Eine nicht genannte Währung hat keine Grenze: sie wird erspielt, das Limit der Ware begrenzt sie schon. 5 sind Diamanten.",

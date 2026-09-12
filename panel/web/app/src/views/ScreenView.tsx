@@ -797,6 +797,24 @@ function GoodsGrid({ items, screen, after }: { items: ViewItem[]; screen: string
  * emulated iPhone against the live ★ list, which has four readings and wrapped at three. */
 const TILE_FACTS = 2
 
+/* ONE SMALL ROUND READING — a picture, a short number, the whole of it in the title.
+ * Written for the resource strip and reused for a shop's currencies (#2830): both are
+ * «this is what it is, and this is how much of it there is», and one shape means a thumb
+ * learns it once. A pill with no picture draws the first letter of its name and never
+ * somebody else's art. */
+function ResPill({ item }: { item: ViewItem }) {
+  return (
+    <span className="pill-res" title={item.text + ' ' + (item.detail || '')}>
+      {item.icon ? (
+        <img src={item.icon} alt="" />
+      ) : (
+        <b className="letter">{(item.text || '?').slice(0, 1)}</b>
+      )}
+      <b>{item.short || item.detail}</b>
+    </span>
+  )
+}
+
 function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; screen: string; after: () => void }) {
   const jump = useJump()
   const gear = useItemGear(item, screen, after)
@@ -1116,6 +1134,17 @@ function Card({
           carries three switches above a table of sixty-eight budget lines — a control
           under that table is a control nobody scrolls to. Readings explain a card;
           knobs are what a person opened it to move. */}
+      {/* WHAT THIS CARD IS PAID IN, over the things it sells (#2830) — the shop's own
+          currencies, each an icon and a short balance, the full number in the title.
+          The SAME pill the `pills` layout draws: one component, never a second one
+          (`CLAUDE.md`, «A control that exists twice is written once»). */}
+      {(card.pills || []).length ? (
+        <div className="pills">
+          {(card.pills || []).map((pill, i) => (
+            <ResPill key={pill.id || i} item={pill} />
+          ))}
+        </div>
+      ) : null}
       {(card.fields || []).map((field) => (
         <ScreenField key={field.key} field={field} screen={screen} after={after} />
       ))}
@@ -1162,14 +1191,7 @@ function Card({
       {pilled ? (
         <div className="pills">
           {drawing.map((item, i) => (
-            <span className="pill-res" key={i} title={item.text + ' ' + (item.detail || '')}>
-              {item.icon ? (
-                <img src={item.icon} alt="" />
-              ) : (
-                <b className="letter">{(item.text || '?').slice(0, 1)}</b>
-              )}
-              <b>{item.short || item.detail}</b>
-            </span>
+            <ResPill key={i} item={item} />
           ))}
         </div>
       ) : gridded ? (

@@ -157,6 +157,27 @@ PROOF that a purchase landed is **what the bag holds, before and after** — a p
 read the counter reported every working purchase as a failed one, which is exactly what it
 did until this was found.
 
+### The purse, drawn on the page (#2830)
+
+The panel shows WHAT a shelf is paid in and HOW MUCH of it there is: one pill per
+currency over the goods — the currency's own sprite, the balance short («12.34M», the
+format the collect card uses) and the whole number in the title.
+
+* **A shelf may want SEVERAL currencies**, and the crystal shelf wants two. Nothing
+  assumes one per shop any more: `ShopTab.shelf_moneys` reports every currency its rows
+  are priced in, the pills draw all of them and each gets a spending ceiling of its own.
+* **The balance is read the four ways a price is** (the table above): the diamonds off
+  `LuaEntry.Player.gold`, a resource through `Resource:GetCntByResType`, and the exchange
+  shelves out of the bag by the row's own `currencyId` / `resourceitem_id`. A currency the
+  client will not show answers **-1**, which is drawn as «не видно» and never as a zero.
+* **The picture** is `ResourceManager:GetResourceIconByType(currencyType)` where the game
+  names one, else the currency item's own icon (`ItemTemplateManager` /
+  `ResourceItemDataManager:GetIconPath`). The sprite is served over `/api/itemicon?name=`
+  only when THIS machine extracted it; nothing stands in for a missing picture.
+* **It rides the shelves' own reading** (`read_shops.md` → `purses`,
+  `shops_live.parse_purses`): at `GAME_READY`, on the balance push and after a purchase of
+  ours. There is no clock and no «Обновить», and the card says how old the reading is.
+
 ## 2. What a purchase puts on the wire
 
 `MsgDefines.BuyCommonShopGoods` → **`user.shop.buy.new`**, and its body was read WITHOUT
