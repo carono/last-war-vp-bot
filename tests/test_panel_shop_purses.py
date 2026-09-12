@@ -9,6 +9,8 @@ What is pinned here:
   survives the trip as itself rather than as a zero;
 * a shelf reports EVERY currency its rows are priced in, in the order they name them —
   the code it replaced took the first one and called it «the shop's currency»;
+* a currency is the PAIR (type, item) where the type does not name it: `currencyType` 7
+  means «paid with an item», and six shelves spend six different items under it;
 * the balance is drawn short («12.34M», the format the collect card already uses) with
   the whole number in the title, and a currency with no picture draws no picture;
 * there is ONE pill component on the front-end and the shelf card uses that one.
@@ -128,6 +130,27 @@ def test_a_shelf_reports_every_currency_its_rows_are_priced_in():
     assert _Tab({}).shelf_moneys(rows) == ["5", "1004"]
 
 
+def test_a_currency_is_the_pair_when_the_type_does_not_name_it():
+    """`currencyType` 7 is «an item», not a currency — the item id is part of the key."""
+    assert shops_live.money_key({"cost_id": "7", "cost_item": "900002"}) == "7:900002"
+    assert shops_live.money_key({"cost_id": "5", "cost_item": ""}) == "5"
+    assert shops_live.money_key({"cost_id": "0", "cost_item": "1"}) == ""
+
+
+def test_two_items_of_one_type_are_two_currencies():
+    """Measured live: six shelves all answered type 7 and spent six different items."""
+    rows = [{"cost_id": "7", "cost_item": "900002"},
+            {"cost_id": "7", "cost_item": "900010"},
+            {"cost_id": "7", "cost_item": "900002"}]
+    assert _Tab({}).shelf_moneys(rows) == ["7:900002", "7:900010"]
+
+
+def test_the_pair_is_named_by_the_item_the_reading_named():
+    tab = _Tab({"7:900002": {"have": 3242, "icon": "", "name": "Жетон"}})
+    pill = tab.purse_pills(["7:900002"])[0]
+    assert pill["text"] == "Жетон" and pill["short"] == "3.24K"
+
+
 def test_a_row_with_no_price_names_no_currency():
     """A money storefront prices nothing, and `0` is not a currency."""
     assert _Tab({}).shelf_moneys([{"cost_id": "0"}, {"cost_id": ""}]) == []
@@ -179,7 +202,10 @@ def test_the_front_end_has_exactly_one_pill_component():
 def test_the_shelf_card_sends_its_currencies():
     shop = (_REPO / "panel" / "tabs" / "shop.py").read_text(encoding="utf-8")
     assert '"pills": self.purse_pills(moneys)' in shop
-    assert 'for each in moneys' in shop, "one ceiling per currency, not one per shelf"
+    assert "for each in moneys" in shop, "one ceiling per currency, not one per shelf"
+    assert 'caps.append({"key": "cap:" + kind_of' in shop, (
+        "the ceiling is written per currency TYPE, which is what the autobuy recipe "
+        "counts by — two item currencies of one type share it")
 
 
 def _run_standalone() -> int:

@@ -165,7 +165,19 @@ format the collect card uses) and the whole number in the title.
 
 * **A shelf may want SEVERAL currencies**, and the crystal shelf wants two. Nothing
   assumes one per shop any more: `ShopTab.shelf_moneys` reports every currency its rows
-  are priced in, the pills draw all of them and each gets a spending ceiling of its own.
+  are priced in and the pills draw all of them.
+* **`currencyType` IS NOT THE CURRENCY, and 7 means «an item»** (#2830, measured live on
+  2026-09-12): the coupon, decoration, season, expedition and two unnamed shelves all
+  answer `7` and spend six different items. So a currency is the PAIR
+  (`currencyType`, `currencyId`/`resourceitem_id`) — `«7:900002»`,
+  `shops_live.money_key` — and the row's `cost_item` field carries the second half. Read
+  by the type alone the six shelves shared one balance, one name and one picture, which
+  is what the page showed before this.
+* **A spending ceiling is still written per TYPE**, because that is what the autobuy
+  recipe counts by (`autobuy_shop_goods.md` keys `caps`, `spent` and `paid` on
+  `currencyType`): two item currencies of one type therefore share a ceiling, while
+  their balances are drawn apart. The recipe's own per-row purse is per ITEM and correct;
+  it is only its per-run tallies that lump a type together.
 * **The balance is read the four ways a price is** (the table above): the diamonds off
   `LuaEntry.Player.gold`, a resource through `Resource:GetCntByResType`, and the exchange
   shelves out of the bag by the row's own `currencyId` / `resourceitem_id`. A currency the
