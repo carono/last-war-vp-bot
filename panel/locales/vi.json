@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "client của hồ sơ này ở phiên Windows khác — chưa thể vẽ các nút ở đó",
   "log.overlay.no_door": "không xác định được cửa web của panel — các nút không có gì để nhấn",
   "log.macro.overlay_on": "F12: vẽ các nút của panel lên cửa sổ client",
-  "log.macro.overlay_off": "F12: gỡ các nút khỏi cửa sổ client"
+  "log.macro.overlay_off": "F12: gỡ các nút khỏi cửa sổ client",
+  "timers.item.raise_peace_shield": "Khiên 24 giờ vào thứ Bảy",
+  "timers.stat.shield": "khiên: còn {h} giờ {m} phút · {n} trong túi",
+  "timers.stat.shield.none": "không có khiên · {n} trong túi",
+  "profile.shield": "Khiên căn cứ",
+  "profile.shield.state": "Trạng thái",
+  "profile.shield.until": "Đến",
+  "profile.shield.have24": "Khiên 24 giờ",
+  "profile.shield.have12": "Khiên 12 giờ",
+  "profile.shield.next": "Lần dựng kế tiếp",
+  "profile.shield.up": "còn {h} giờ {m} phút",
+  "profile.shield.down": "không được bảo vệ",
+  "profile.shield.raise": "Dựng khiên 24 giờ",
+  "profile.shield.confirm": "Dùng một khiên 24 giờ trong túi?",
+  "profile.shield.off": "nhiệm vụ đang tắt",
+  "profile.shield.soon": "bây giờ"
 }

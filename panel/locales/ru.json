@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "клиент этого профиля в другой сессии Windows — нарисовать там кнопки пока нельзя",
   "log.overlay.no_door": "не удалось определить веб-дверь панели — кнопкам нечего нажимать",
   "log.macro.overlay_on": "F12: рисую кнопки панели поверх окна клиента",
-  "log.macro.overlay_off": "F12: убираю кнопки с окна клиента"
+  "log.macro.overlay_off": "F12: убираю кнопки с окна клиента",
+  "timers.item.raise_peace_shield": "24-часовой щит по субботам",
+  "timers.stat.shield": "щит: ещё {h} ч {m} мин · в сумке {n}",
+  "timers.stat.shield.none": "щита нет · в сумке {n}",
+  "profile.shield": "Щит базы",
+  "profile.shield.state": "Состояние",
+  "profile.shield.until": "До",
+  "profile.shield.have24": "24-часовых щитов",
+  "profile.shield.have12": "12-часовых щитов",
+  "profile.shield.next": "Следующая постановка",
+  "profile.shield.up": "ещё {h} ч {m} мин",
+  "profile.shield.down": "база не защищена",
+  "profile.shield.raise": "Поставить 24-часовой щит",
+  "profile.shield.confirm": "Потратить один 24-часовой щит из сумки?",
+  "profile.shield.off": "поручение выключено",
+  "profile.shield.soon": "сейчас"
 }

@@ -27,7 +27,7 @@ from __future__ import annotations
 import time
 from tkinter import ttk
 
-from ..runtime import reads
+from ..runtime import bus, reads
 from ..widgets import ScrollableFrame, font as ui_font
 from urllib.parse import quote
 
@@ -49,6 +49,36 @@ CARD_VARIABLE = "player_card"
 #: the window is being retired, new goes only into the web).
 CARD_FIELDS = ("nick", "level", "power", "alliance",
                "stamina", "stamina_full_ms", "reg_ms")
+
+#: The scenario that answers «is the base protected, until when, and what is in the
+#: bag» — one file, one ability (`CLAUDE.md`) — and the variable it lands in.
+SHIELD_ACTION = "read_shield_state"
+SHIELD_VARIABLE = "shield"
+
+#: What the reading is filed under in this profile's database, so the errand's own card
+#: on «Таймеры» can say the same thing without asking the game
+#: (`panel/runtime/errand_stats.py`).
+SHIELD_BLOB = "shield_state"
+
+#: The ability behind the card's one press, and the argument that says «any day». The
+#: errand plays it with `weekday = 6`; a person pressing it has already decided which
+#: day they mean, so their press passes 0 and the recipe's day gate stands aside.
+SHIELD_ACTION_RAISE = "raise_peace_shield"
+
+
+def _shield_fields(line: str) -> dict:
+    """`read_shield_state.md`'s `k=v k=v …` line as a dict of ints. Junk is left out."""
+    out = {}
+    for chunk in str(line or "").split():
+        key, sep, value = chunk.partition("=")
+        if not sep:
+            continue
+        try:
+            out[key] = int(float(value))
+        except (TypeError, ValueError):
+            continue
+    return out
+
 
 #: The rows of the warzone card, in the order they are drawn: the locale key of the
 #: label, and the field of the scenario's line it shows.
@@ -102,6 +132,39 @@ class ProfileTab(DataTab):
         #: Which warzone the card is about: 0 is «the one this character plays in»,
         #: which is the only one the client can answer without asking the server.
         self._warzone_ask = 0
+        #: The last shield reading and when it was taken, so the card can say how old
+        #: it is. Made here rather than in `build()` — a tab nobody has opened still
+        #: answers the phone (`PanelTab.LAZY`).
+        self._shield: dict = {}
+        self._shield_at = 0.0
+        self._ready_off = None
+
+    def ensure_loaded(self) -> None:
+        """The first look reads, and the client getting INTO the game reads again.
+
+        `bus.GAME_READY` is an edge, not a clock: it fires when the client is in the
+        game and again after a link that was lost came back — the two moments the
+        protection may have moved without anybody hearing. Nothing here polls anything,
+        and the shield's own end is a KNOWN moment, so «сколько осталось» is arithmetic
+        on the reading rather than a second question (`CLAUDE.md`, «Read once, then
+        LISTEN»).
+        """
+        if self._ready_off is None:
+            try:
+                self._ready_off = self.rt.bus.subscribe(
+                    bus.GAME_READY, lambda _p=None: self.refresh_live())
+            except Exception:               # noqa: BLE001 — a card, never the panel
+                self._ready_off = None
+        super().ensure_loaded()
+
+    def shutdown(self) -> None:
+        if self._ready_off is not None:
+            try:
+                self._ready_off()
+            except Exception:               # noqa: BLE001
+                pass
+            self._ready_off = None
+        super().shutdown()
 
     def build(self) -> None:
         body = self._header("tab.profile")
@@ -232,10 +295,111 @@ class ProfileTab(DataTab):
             return {}
         return {name: parts[i].strip() for i, name in enumerate(CARD_FIELDS)}
 
+    def _read_shield(self) -> dict:
+        """Play the shield scenario, keep its answer, and file it for the errand's card.
+
+        Off the Tk thread, like every other read here. The reading is written into this
+        profile's own database as well as held in memory: «Таймеры» draws the same
+        figures under the errand, and a card that had to ask the game for them would be
+        the background question the panel is not allowed to make.
+        """
+        outcome = self.rt.actions.play(SHIELD_ACTION, human=True, tag="profile")
+        if outcome is None or not getattr(outcome, "ok", False):
+            return {}
+        ctx = getattr(outcome, "ctx", None)
+        fields = _shield_fields((getattr(ctx, "vars", {}) or {}).get(SHIELD_VARIABLE))
+        if not fields:
+            return {}
+        self._shield, self._shield_at = fields, time.time()
+        saved = dict(fields)
+        saved["at"] = self._shield_at
+        try:
+            store = self.rt.store
+            if store is not None:
+                store.blob_set(SHIELD_BLOB, saved)
+        except Exception:                   # noqa: BLE001 — a card, never the reading
+            pass
+        return fields
+
+    def _shield_card(self) -> "dict | None":
+        """WHAT IS PROTECTING THE BASE — and what is left in the bag to protect it with.
+
+        There is no «Обновить» on it: the reading is taken when this screen is opened
+        and when the client gets into the game, and what is left of the shield is worked
+        out from the moment the game itself named. The age is drawn beside it, because a
+        number with no age on it cannot be told from one that stopped moving.
+
+        The one press RAISES a shield, which is a spend that cannot be taken back — so
+        it asks first, and it is offered only while the game says there is no shield up
+        and the bag holds one.
+        """
+        fields = self._shield or {}
+        if not fields:
+            return None
+        have24, have12 = fields.get("have24", 0), fields.get("have12", 0)
+        left = self._shield_left()
+        if left > 0:
+            state = self.t("profile.shield.up", h=int(left // 3600),
+                           m=int((left % 3600) // 60))
+        else:
+            state = self.t("profile.shield.down")
+        rows = [{"label": "profile.shield.state", "value": state},
+                {"label": "profile.shield.until",
+                 "value": _stamp(fields.get("ends")) if left > 0 else "—"},
+                {"label": "profile.shield.have24", "value": str(have24)},
+                {"label": "profile.shield.have12", "value": str(have12)},
+                {"label": "profile.shield.next", "value": self._shield_next()}]
+        age = max(0, int(round(time.time() - self._shield_at))) if self._shield_at else 0
+        card = {"title": "profile.shield", "rows": rows,
+                "flow": {"key": "web.ui.res.age", "fmt": {"sec": age}}}
+        if left <= 0 and have24 > 0:
+            card["actions"] = [{"id": "shield", "label": "profile.shield.raise",
+                                "confirm": "profile.shield.confirm"}]
+        return card
+
+    def _shield_left(self) -> float:
+        """Seconds of protection left, on the GAME's clock. Zero when there is none."""
+        fields = self._shield or {}
+        if not fields.get("up"):
+            return 0.0
+        try:
+            import game_clock                # lazy: tools/lib is on the panel's path
+            now_ms = float(game_clock.now_ms() or 0.0)
+        except Exception:                    # noqa: BLE001
+            return 0.0
+        ends = float(fields.get("ends") or 0.0)
+        if not ends or not now_ms:
+            return 0.0
+        return max(0.0, (ends - now_ms) / 1000.0)
+
+    def _shield_next(self) -> str:
+        """When the errand next raises one — or that nobody has switched it on.
+
+        Read off the schedule the panel already keeps, never worked out here: the day,
+        the offset after the game's own reset and the «has it run today» are all the
+        scheduler's answer (`panel/timers.py`).
+        """
+        try:
+            schedule = self.rt.schedule
+            catalogue = schedule.timer_catalogue
+            timer = catalogue.by_name(SHIELD_ACTION_RAISE)
+            if timer is None:
+                return "—"
+            when = catalogue.next_due(timer, schedule.timer_config(),
+                                      schedule.store.records(), self.rt.day)
+        except Exception:                    # noqa: BLE001
+            return "—"
+        if when is None:
+            return self.t("profile.shield.off")
+        if when <= 0:
+            return self.t("profile.shield.soon")
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(when))
+
     def fetch(self):
         data = {"resources": reads.resource_balance(self.rt)}
         data.update(self._read_card())
         data["warzone"] = self._read_warzone()
+        data["shield"] = self._read_shield()
         return data
 
     @staticmethod
@@ -378,6 +542,9 @@ class ProfileTab(DataTab):
             stock = self._stock_card()
             if stock is not None:
                 view["cards"] = [stock] + list(view.get("cards") or [])
+            shield = self._shield_card()
+            if shield is not None:
+                view["cards"] = list(view.get("cards") or []) + [shield]
             view.setdefault("actions", []).append(
                 {"id": "warzone", "label": "profile.warzone.go",
                  "prompt": "profile.warzone.ask",
@@ -385,7 +552,20 @@ class ProfileTab(DataTab):
         return view
 
     def web_press(self, action: str, args: dict) -> dict:
-        """«Обновить», and the warzone question the window has beside its card."""
+        """«Обновить», the warzone question, and the one press that spends something.
+
+        THE SHIELD PRESS IS A SPEND, so it is answered the long way round: the ability
+        is one recipe and the press plays it and nothing else (`CLAUDE.md`), the recipe
+        keeps its own gates — a shield already up, an empty bag — and the day gate is
+        stood aside with `weekday = 0`, because a person pressing it has already decided
+        which day they mean. The reading is taken again when the run finishes, so the
+        card says what the game says rather than what the press hoped for.
+        """
+        if action == "shield":
+            started = self.rt.play_async(
+                SHIELD_ACTION_RAISE, {"weekday": 0}, tag="profile",
+                on_done=lambda *_a: self.refresh_live())
+            return {"ok": bool(started), "busy": bool(started)}
         if action != "warzone":
             return super().web_press(action, args)
         if not self.ask_warzone((args or {}).get("text")):

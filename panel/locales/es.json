@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "el cliente de este perfil está en otra sesión de Windows — allí todavía no se pueden dibujar los botones",
   "log.overlay.no_door": "no se pudo determinar la puerta web del panel — los botones no tienen qué pulsar",
   "log.macro.overlay_on": "F12: dibujo los botones del panel sobre la ventana del cliente",
-  "log.macro.overlay_off": "F12: quito los botones de la ventana del cliente"
+  "log.macro.overlay_off": "F12: quito los botones de la ventana del cliente",
+  "timers.item.raise_peace_shield": "Escudo de 24 horas los sábados",
+  "timers.stat.shield": "escudo: quedan {h} h {m} min · {n} en la bolsa",
+  "timers.stat.shield.none": "sin escudo · {n} en la bolsa",
+  "profile.shield": "Escudo de la base",
+  "profile.shield.state": "Estado",
+  "profile.shield.until": "Hasta",
+  "profile.shield.have24": "Escudos de 24 horas",
+  "profile.shield.have12": "Escudos de 12 horas",
+  "profile.shield.next": "Próxima activación",
+  "profile.shield.up": "quedan {h} h {m} min",
+  "profile.shield.down": "sin protección",
+  "profile.shield.raise": "Activar un escudo de 24 horas",
+  "profile.shield.confirm": "¿Gastar un escudo de 24 horas de la bolsa?",
+  "profile.shield.off": "la tarea está desactivada",
+  "profile.shield.soon": "ahora"
 }

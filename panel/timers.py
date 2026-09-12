@@ -302,6 +302,19 @@ class Timer:
     # Monday while the game is still handing out Sunday's event. The boundary comes from
     # the profile's own `DayReset`, exactly as a daily errand's does.
     weekdays: tuple[int, ...] = ()
+    # HOW LONG AFTER THE GAME DAY OPENS a weekday-bound errand is due (#2822). Zero for
+    # «at the boundary», which is what every weekly errand written before this said.
+    #
+    # It exists because «через минуту после сброса» is a real requirement and «at the
+    # reset» is not the same instant: the quotas, the day's counters and the server's own
+    # bookkeeping all move at the boundary, and an errand that fires INTO that moment is
+    # asking the game a question while the game is answering itself. A minute costs a
+    # weekly errand nothing and puts it on the far side of the turnover.
+    #
+    # It shifts WHEN the day's run is due and nothing else — the day it belongs to, the
+    # «once a day» and the «three missed Saturdays cost one run» are all unchanged
+    # (:func:`next_weekly`), and it is ignored by an errand with no weekday at all.
+    offset_sec: int = 0
     args: dict = field(default_factory=dict)
     title: str | None = None        # row label straight from the config
     label_key: str | None = None    # …or a locale key, for the built-in entries
@@ -322,6 +335,8 @@ class Timer:
             out["resume"] = True
         if self.weekdays:
             out["weekdays"] = list(self.weekdays)
+        if self.offset_sec:
+            out["offset_sec"] = int(self.offset_sec)
         if self.args:
             out["args"] = dict(self.args)
         if self.title:
@@ -900,6 +915,35 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.work_alliance_star",
     ),
     Timer(
+        name="raise_peace_shield",
+        scenario=("raise_peace_shield",),
+        # SATURDAY, and named as a weekday rather than as a period for the same reason
+        # the two above are: a shield put up «every seven days from the last run» drifts
+        # by however long the panel was shut and lands on a Wednesday for good.
+        weekdays=(6,),
+        # ONE MINUTE AFTER THE GAME DAY OPENS (`Timer.offset_sec`) — the person's own
+        # instruction, «через минуту после сброса сервера». The reset is when the game
+        # turns its own day over; a minute puts the request on the far side of it and
+        # costs a 24-hour shield nothing.
+        offset_sec=60,
+        # What the row falls back to if its days are ever cleared, and never consulted
+        # while they are set.
+        interval_sec=7 * DAY_SEC,
+        # Ten minutes. A run FAILS when the client is not answering — «уже стоит щит»
+        # and «щита нет в сумке» are clean successes that spent nothing — so the retry
+        # is for a dead client on a Saturday morning, and it has all day to catch one.
+        retry_sec=600,
+        # SWITCHED OFF, and this is the exception the «new ability ships on» rule names
+        # (#2390): a shield leaves the bag and cannot be earned back, so the person
+        # turns it on themselves knowing what it spends.
+        enabled=False,
+        # The GAME's weekday the shield belongs to, handed to the recipe as its own
+        # gate — the schedule already fires on a Saturday, and the recipe asking the
+        # game the same question is what keeps a hand-pressed run honest.
+        args={"weekday": 6},
+        label_key="timers.item.raise_peace_shield",
+    ),
+    Timer(
         name="work_alert_tower",
         scenario=("work_alert_tower",),
         # AN HOUR, and the row rarely uses it: the training march is four hours long and
@@ -1180,6 +1224,15 @@ def _as_weekdays(raw, fallback=()) -> tuple:
     return tuple(sorted(days))
 
 
+def _as_offset(raw, fallback: int = 0) -> int:
+    """Coerce an ``offset_sec`` field into 0…a day. Junk falls back, negatives are 0."""
+    try:
+        value = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return int(fallback)
+    return max(0, min(int(DAY_SEC) - 1, value))
+
+
 def _weekday_of(day, when: float) -> int:
     """Which weekday the GAME is on at ``when`` — 1 = Monday … 7 = Sunday.
 
@@ -1206,7 +1259,7 @@ def _day_start(day, when: float) -> float:
     return when - (when % DAY_SEC)
 
 
-def next_weekly(last: float, weekdays, day, now: float) -> float:
+def next_weekly(last: float, weekdays, day, now: float, offset_sec: float = 0.0) -> float:
     """When a weekday-bound errand is due, in local ``time.time()`` seconds.
 
     The rule is one sentence: **the errand is due at the start of a matching GAME day
@@ -1222,15 +1275,22 @@ def next_weekly(last: float, weekdays, day, now: float) -> float:
     weekdays = tuple(weekdays)
     if not weekdays:
         return now
+    try:
+        offset = max(0.0, float(offset_sec or 0.0))
+    except (TypeError, ValueError):
+        offset = 0.0
     start = _day_start(day, now)
+    # The offset moves the MOMENT, never the day: «has it run in this day» is still asked
+    # about the day's own start, so an errand that ran at the boundary before the offset
+    # was added is not offered a second time an hour later.
     if _weekday_of(day, now) in weekdays and float(last) < start:
-        return start
+        return start + offset
     step = start
     for _ in range(7):
         step += DAY_SEC
         if _weekday_of(day, step) in weekdays:
-            return step
-    return start + 7 * DAY_SEC
+            return step + offset
+    return start + 7 * DAY_SEC + offset
 
 
 def _as_interval(raw, fallback: int) -> int:
@@ -1263,6 +1323,10 @@ def with_fields(base: Timer, *, name=None, title=None, interval=None, retry=None
         enabled=(base.enabled if enabled is None else bool(enabled)),
         immediate=(base.immediate if immediate is None else bool(immediate)),
         weekdays=(tuple(base.weekdays) if weekdays is None else _as_weekdays(weekdays)),
+        # Not editable from either front-end: it is a property of the ABILITY (one
+        # minute after the reset, because that is when the game has finished turning
+        # the day over), not a preference. Carried through so a Save does not drop it.
+        offset_sec=int(base.offset_sec),
         args=(dict(base.args) if args is None else dict(args)),
         title=(base.title if title is None else (str(title).strip() or None)),
         # The locale key belongs to the BUILT-IN entry of that name; a renamed row is no
@@ -1357,7 +1421,7 @@ class Catalogue:
                 retry_sec=timer.retry_sec,
                 enabled=bool(item["enabled"]),
                 immediate=bool(item["immediate"]),
-                weekdays=tuple(timer.weekdays),
+                weekdays=tuple(timer.weekdays), offset_sec=timer.offset_sec,
                 args=dict(timer.args), title=timer.title,
                 label_key=timer.label_key))
         return Catalogue(updated, self.path, self.errors)
@@ -1441,7 +1505,8 @@ class Catalogue:
                 # A NAMED WEEKDAY IS NOT A PERIOD (`Timer.weekdays`): the row is due at
                 # the start of a matching game day it has not run in, and never on any
                 # other day, whatever its period says.
-                overdue = now - next_weekly(last, timer.weekdays, day, now)
+                overdue = now - next_weekly(last, timer.weekdays, day, now,
+                                            timer.offset_sec)
             else:
                 period = _as_interval(item.get("interval_sec"), timer.interval_sec)
                 overdue = now - next_after(last, period, day)
@@ -1477,7 +1542,8 @@ class Catalogue:
             # Asked the same way the scheduler asks it, so the countdown a person reads
             # is the moment the row will actually fire on — including «never ran», which
             # for a weekly errand is «its next day», not «now».
-            return max(next_weekly(last, timer.weekdays, day, time.time()),
+            return max(next_weekly(last, timer.weekdays, day, time.time(),
+                                   timer.offset_sec),
                        after_failure)
         if not last:
             return max(0.0, after_failure)
@@ -1597,6 +1663,8 @@ def parse_catalogue(data, path: str | None = None,
             resume=bool(raw.get("resume", base.resume if base else False)),
             weekdays=_as_weekdays(raw.get("weekdays"),
                                   base.weekdays if base else ()),
+            offset_sec=_as_offset(raw.get("offset_sec"),
+                                  base.offset_sec if base else 0),
             args=dict(args) if isinstance(args, dict) else {},
             title=(str(raw["title"]).strip() or None) if raw.get("title") else None,
             label_key=base.label_key if base else None,
@@ -1848,7 +1916,7 @@ def split_legacy_errands(catalogue: Catalogue, offered: Catalogue,
             out.append(Timer(
                 name=base.name, scenario=base.scenario,
                 interval_sec=base.interval_sec, retry_sec=base.retry_sec,
-                weekdays=tuple(base.weekdays),
+                weekdays=tuple(base.weekdays), offset_sec=base.offset_sec,
                 # The one thing carried across the split: the operator's decision.
                 enabled=timer.enabled,
                 args=dict(base.args), title=base.title, label_key=base.label_key))

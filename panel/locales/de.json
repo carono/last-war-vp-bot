@@ -3155,5 +3155,20 @@
   "log.overlay.other_session": "der Client dieses Profils läuft in einer anderen Windows-Sitzung — dort können die Schaltflächen noch nicht gezeichnet werden",
   "log.overlay.no_door": "die Web-Tür des Panels konnte nicht bestimmt werden — die Schaltflächen haben nichts zu drücken",
   "log.macro.overlay_on": "F12: zeichne die Schaltflächen des Panels über das Client-Fenster",
-  "log.macro.overlay_off": "F12: nehme die Schaltflächen vom Client-Fenster"
+  "log.macro.overlay_off": "F12: nehme die Schaltflächen vom Client-Fenster",
+  "timers.item.raise_peace_shield": "24-Stunden-Schild am Samstag",
+  "timers.stat.shield": "Schild: noch {h} Std. {m} Min. · {n} im Beutel",
+  "timers.stat.shield.none": "kein Schild · {n} im Beutel",
+  "profile.shield": "Basisschild",
+  "profile.shield.state": "Zustand",
+  "profile.shield.until": "Bis",
+  "profile.shield.have24": "24-Stunden-Schilde",
+  "profile.shield.have12": "12-Stunden-Schilde",
+  "profile.shield.next": "Nächste Aktivierung",
+  "profile.shield.up": "noch {h} Std. {m} Min.",
+  "profile.shield.down": "nicht geschützt",
+  "profile.shield.raise": "24-Stunden-Schild aktivieren",
+  "profile.shield.confirm": "Einen 24-Stunden-Schild aus dem Beutel verbrauchen?",
+  "profile.shield.off": "der Auftrag ist ausgeschaltet",
+  "profile.shield.soon": "jetzt"
 }
