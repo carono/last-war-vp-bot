@@ -131,7 +131,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - ❌ Researching technology
 - ❌ Upgrading and constructing buildings
 - 🟡 Raising the drone's level — one press buys as many levels as the account can pay for, reading the price from the game each time
-- 🟡 Raising the shield — a 24-hour shield every Saturday a minute after the game's reset, off by default; nothing is spent if a shield is already up or the bag is empty
+- 🟡 Raising the shield — a 24-hour shield every Saturday a minute after the game's reset; nothing is spent if a shield is already up or the bag is empty
 - ❌ Expedition
 - ❌ Levelling survivors
 - ✅ Upgrading a decoration — finds every decoration that can be upgraded and sends each to the top of what its spares will buy, no window opened

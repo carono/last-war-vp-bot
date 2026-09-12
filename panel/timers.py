@@ -933,10 +933,13 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # and «щита нет в сумке» are clean successes that spent nothing — so the retry
         # is for a dead client on a Saturday morning, and it has all day to catch one.
         retry_sec=600,
-        # SWITCHED OFF, and this is the exception the «new ability ships on» rule names
-        # (#2390): a shield leaves the bag and cannot be earned back, so the person
-        # turns it on themselves knowing what it spends.
-        enabled=False,
+        # NO `enabled=` — SWITCHED ON, like any other new ability (#2390). It shipped
+        # off for one day as «an irreversible spend», and the person ended that in their
+        # own words: «Включи карточку по умолчанию» (#2822). The exception is theirs to
+        # make and theirs to withdraw, and they have said which they want; what protects
+        # the item now is the recipe's own gates — a shield already up is never covered
+        # with a second one, an empty bag is a reason rather than a send, and any day
+        # but the named one does nothing at all.
         # The GAME's weekday the shield belongs to, handed to the recipe as its own
         # gate — the schedule already fires on a Saturday, and the recipe asking the
         # game the same question is what keeps a hand-pressed run honest.
