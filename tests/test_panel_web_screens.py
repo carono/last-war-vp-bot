@@ -34,6 +34,7 @@ if str(_REPO) not in sys.path:
 
 from panel import i18n as i18nmod          # noqa: E402
 from panel import tabs as tabsreg          # noqa: E402
+from panel.runtime import provision        # noqa: E402
 from panel.tabs.base import PanelTab       # noqa: E402
 
 #: A locale key: dotted, lower-case, no spaces — the same shape the i18n test pins.
@@ -154,25 +155,121 @@ def test_the_recording_pair_is_pressed_by_ITS_OWN_ids_and_no_others():
         "ok": False, "reason": "develop.web.not_running"}
 
 
-def test_the_settings_screen_refuses_what_decides_which_client_is_driven():
-    """What decides WHICH CLIENT a profile drives is a reading, never a field (#1976).
+def test_the_settings_screen_refuses_what_the_machine_answers_for_itself():
+    """The paths and the port are readings, never fields (#1976, narrowed by #2823).
 
-    A thumb-slip on the daemon port or the Windows session points a profile at somebody
-    else's account or at nothing at all — and the panel's three statuses go on saying
-    everything is fine, because from the panel's side it IS. The machine paths are not
-    even a person's answer to give (`tools/lib/game_paths.py`).
+    The machine paths are not a person's answer to give at all
+    (`tools/lib/game_paths.py`), and the daemon port is handed out by
+    `provision.free_port` behind the session tick — a number typed by hand is the one
+    of the four with no list to be checked against.
+
+    WHAT IS NO LONGER HERE: `rdp_session` and `rdp_user`. They were refused for the
+    same reason until the person ended it — «У нас только одна панель у правления, все
+    должно быть там» (#2823) — and the live panel has no window, so a login that only
+    Tk could type was a login NOBODY could type. The guard is the window's own instead:
+    the login is picked from the accounts Windows lists, and one this machine does not
+    have is refused (`test_the_session_login_is_picked_and_a_stranger_is_refused`).
 
     Asked of the PRESS rather than of the view, because the press is the half that
     matters: a field that is not drawn cannot be tapped, but a request can still be
     made by hand, and «unknown» is the answer that keeps the reasoning true either way.
     """
     tab = BY_ID["settings"].load().__new__(BY_ID["settings"].load())
-    for never in ("win_python", "launcher", "game_exe", "daemon_port", "rdp_session",
-                  "rdp_user"):
+    for never in ("win_python", "launcher", "game_exe", "daemon_port"):
         answer = tab.web_press("set", {"key": never, "value": 1})
         assert answer == {"error": "unknown"}, (
-            f"«{never}» can be set from the phone — that is the one part of the old "
+            f"«{never}» can be set from the phone — that is the part of the old "
             f"«Настройки» divergence that still holds (#1976): {answer}")
+
+
+class _SessionProfiles:
+    """A profile store that keeps the dict it is handed and nothing else."""
+
+    active = "test"
+
+    def __init__(self) -> None:
+        self.saved: dict = {}
+
+    def save(self, values: dict) -> None:
+        self.saved = dict(values)
+
+    def list(self) -> list:
+        return [self.active]
+
+    def load(self, name: str | None = None) -> dict:
+        return dict(self.saved)
+
+
+class _SessionRuntime:
+    """Just enough runtime for the login press: a binder, a translator, a log."""
+
+    def __init__(self) -> None:
+        import panel.__main__ as pm
+        from panel import runtime as rtmod
+
+        self.profiles = _SessionProfiles()
+        self.settings = rtmod.SettingsBinder(profiles=self.profiles,
+                                             defaults=pm.SETTINGS_DEFAULTS)
+        self.settings.values = {}
+        self.lines: list = []
+
+    def t(self, key: str, **fmt) -> str:
+        return key
+
+    def say(self, tag: str, key: str, **fmt) -> None:
+        self.lines.append((tag, key))
+
+
+def test_the_session_login_is_picked_and_a_stranger_is_refused():
+    """The login of a profile's Windows session, set from the phone (#2823).
+
+    Two halves, and the second is what replaces the window as the guard: a login the
+    machine actually has is stored, and one it does not is refused rather than saved —
+    a misspelt login looks configured and sends the bring-up after a session that
+    cannot exist (#1263). What is already saved is always allowed back in, and so is
+    the empty string, which is how a login is cleared.
+    """
+    cls = BY_ID["settings"].load()
+    tab = cls.__new__(cls)
+    tab.rt = _SessionRuntime()
+    tab._web_users_seen = (["Player1", "Player2"], "")
+    tab.rt.settings.values = {"rdp_user": "Player1"}
+
+    assert tab.web_press("set", {"key": "rdp_user", "value": "Player2"}) == {
+        "ok": True, "reason": "session.user.saved"}
+    assert tab.rt.settings.opt("rdp_user") == "Player2"
+
+    answer = tab.web_press("set", {"key": "rdp_user", "value": "Playr2"})
+    assert answer == {"ok": False, "reason": "session.user.unknown"}, answer
+    assert tab.rt.settings.opt("rdp_user") == "Player2", "a stranger was stored anyway"
+
+    assert tab.web_press("set", {"key": "rdp_user", "value": ""})["ok"] is True
+    assert tab.rt.settings.opt("rdp_user") == ""
+
+
+def test_the_session_tick_hands_out_a_port_with_no_window_open():
+    """Moving the tick from the phone does what the window's callback does (#2823).
+
+    It used to read the Tk variable for the port and give up when there was none, so on
+    a panel with no window — the only kind the live machine runs — the press could not
+    have been offered at all. The port is not a question: it follows the tick, and
+    `provision` hands out one nobody else uses.
+    """
+    cls = BY_ID["settings"].load()
+    tab = cls.__new__(cls)
+    tab.rt = _SessionRuntime()
+    tab._web_users_seen = (["Player1"], "")
+    tab.rt.settings.values = {"rdp_session": False,
+                              "daemon_port": provision.CONSOLE_PORT}
+
+    assert tab.web_press("set", {"key": "rdp_session", "value": True}) == {"ok": True}
+    assert tab.rt.settings.opt("rdp_session") is True
+    port = tab.rt.settings.opt_int("daemon_port", low=1, high=65535)
+    assert port != provision.CONSOLE_PORT, "the session got the console's own port"
+
+    assert tab.web_press("set", {"key": "rdp_session", "value": False}) == {"ok": True}
+    assert tab.rt.settings.opt_int("daemon_port", low=1,
+                                   high=65535) == provision.CONSOLE_PORT
 
 
 def test_the_remote_controls_own_settings_are_reachable_from_the_window_only():

@@ -177,11 +177,18 @@ class SettingsTab(PanelTab):
     # WHAT IS STILL NOT A FIELD, and it is the same reasoning kept where it applies: the
     # things a wrong value makes UNREACHABLE. Where the game is installed and which
     # Python drives the children are the machine's answer and were never typed here
-    # (`runtime.settings.MACHINE_KEYS`); the daemon port and the Windows session decide
-    # WHICH CLIENT this profile drives, and a thumb-slip there points a profile at
-    # somebody else's account or at nothing. Those four are READINGS on the phone, with
-    # the window's own sentence under them, until the window is gone and they are given
-    # a screen that cannot be pressed by accident.
+    # (`runtime.settings.MACHINE_KEYS`), and the daemon port is handed out by
+    # `provision.free_port` rather than chosen — it follows the session tick, so a number
+    # typed by hand is the one of the four with no list to check it against. Those three
+    # stay READINGS on the phone, with the window's own sentence under them.
+    #
+    # THE OTHER TWO ARE FIELDS SINCE #2823, and it is the person's decision: «У нас
+    # только одна панель у правления, все должно быть там». The login of a profile's
+    # Windows session could be set in the Tk window and nowhere else, and the live panel
+    # has no window — so it could not be set or corrected ANYWHERE, which is worse than
+    # a value somebody can get wrong. The guard that replaces the window is the window's
+    # own: the login is PICKED from the accounts Windows itself lists, and a press
+    # naming one this machine does not have is refused (:meth:`_web_session_fields`).
 
     def web_view(self) -> "dict | None":
         """The page as data: what the machine answered, and the knobs that are knobs."""
@@ -313,10 +320,73 @@ class SettingsTab(PanelTab):
                  getattr(self, "_session_shared_line", ""),
                  getattr(self, "_session_verdict_text", ""),
                  getattr(self, "_session_cred_text", "")]
+        error = self._web_users()[1]
+        if error:
+            lines.append(self.t("session.users.failed", error=error))
         return {"title": "session.frame",
                 "items": [{"text": line} for line in lines if line],
+                "options_title": "session.frame",
+                "options": self._web_session_fields(),
                 "actions": [{"id": "session_check", "label": "session.check"},
                             {"id": "session_up", "label": "session.bring_up"}]}
+
+    #: This machine's own accounts, read ONCE and kept — the login picker's list
+    #: (`_web_session_fields`). `game_process.local_users` asks Windows, and `web_view`
+    #: runs on every poll of every phone with the screen open, so the enumeration may
+    #: not live on that path — the rule this card's own docstring states. «Проверить»
+    #: is already the button that asks live Windows, so it is what refreshes it.
+    _web_users_seen: "tuple | None" = None
+
+    def _web_users(self, refresh: bool = False) -> tuple:
+        """``(logins, error)`` for the phone — the cached half of `local_users`."""
+        if refresh or self._web_users_seen is None:
+            try:
+                self._web_users_seen = runtime.game_process.local_users()
+            except Exception as exc:         # noqa: BLE001 — a field, never the page
+                self._web_users_seen = ([], str(exc) or type(exc).__name__)
+        return self._web_users_seen
+
+    def _web_session_fields(self) -> list:
+        """The two knobs as FIELDS rather than readings (#2823).
+
+        THE DIVERGENCE ENDS FOR THESE TWO, and it is the person's decision, in their
+        words: «У нас только одна панель у правления, все должно быть там». The
+        reasoning that kept them readings — a thumb-slip points a profile at somebody
+        else's account — was written while there were two front-ends and the window was
+        the safe one. The live panel has no window, so «readable but not editable»
+        meant the login of a profile's Windows session could not be set or corrected
+        ANYWHERE, which is worse than a value somebody can get wrong.
+
+        What the guard is instead of a window: the login is PICKED from the accounts
+        Windows itself lists (`_web_users`), exactly as the window's combo picks it, so
+        it cannot be misspelt; a press naming a login this machine does not have is
+        refused rather than stored. A machine that cannot be asked falls back to a typed
+        box and says why on the card — the same two answers `local_users` separates.
+
+        THE PORT IS STILL NOT A FIELD. It follows the tick and is handed out by
+        `provision.free_port`; a number typed by hand is the one of the four that has no
+        list to be checked against.
+        """
+        settings = self.rt.settings
+        saved = str(settings.opt("rdp_user") or "").strip()
+        users, error = self._web_users()
+        login = {"key": "rdp_user", "label": "opt.rdp_user",
+                 "hint": "opt.rdp_user.hint", "value": saved}
+        if users:
+            listed = list(users)
+            if saved and saved not in listed:
+                # A profile set up against an account since renamed, or a domain one the
+                # enumeration does not return, keeps what it has — the window's own rule.
+                listed = sorted([*listed, saved], key=str.casefold)
+            login["kind"] = opt_value.CHOICE
+            login["options"] = [{"value": "", "text": self.t("opt.value.unknown")}]
+            login["options"] += [{"value": name, "text": name} for name in listed]
+        else:
+            login["kind"] = opt_value.TEXT
+        return [{"key": "rdp_session", "label": "opt.rdp_session",
+                 "hint": "opt.rdp_session.hint", "kind": opt_value.SWITCH,
+                 "value": bool(settings.opt("rdp_session"))},
+                login]
 
     def _web_machine_row(self, key: str) -> dict:
         """A path the MACHINE answered, worded exactly as the window words it."""
@@ -403,9 +473,16 @@ class SettingsTab(PanelTab):
             opt_value.set(self.rt, key, mode)
             self._apply_graphics(mode)
             return {"ok": True}
-        if key in runtime.settings.MACHINE_KEYS or key in ("daemon_port", "rdp_session",
-                                                           "rdp_user"):
+        if key == "rdp_session":
+            return self._press_session_toggle(
+                value if isinstance(value, bool)
+                else str(value).strip().lower() in ("1", "true", "yes", "on"))
+        if key == "rdp_user":
+            return self._press_session_user(str(value or ""))
+        if key in runtime.settings.MACHINE_KEYS or key == "daemon_port":
             # Not a field on this screen, so a press naming one did not come from it.
+            # The two that decide the SESSION are fields since #2823 (`_web_session_fields`);
+            # the port follows the tick and the paths are the machine's own answer.
             return {"error": "unknown"}
         if key not in self.rt.settings.defaults:
             return {"error": "unknown"}
@@ -784,47 +861,100 @@ class SettingsTab(PanelTab):
                 "opt.rdp_user.hint").grid(row=row, column=2, sticky="w", padx=(10, 0))
         return widget
 
-    def _on_session_toggle(self) -> None:
-        """A person moved the tick: give this profile the client it now asks for.
+    def _apply_session_choice(self, want: bool) -> dict:
+        """Give this profile the client the tick now asks for — for BOTH front-ends.
 
         The port is not a question, so it is not asked — it is handed out here and shown
-        on «Общие» as a reading (:meth:`_port_text`). Setting the bound variable is what
-        persists it and re-points the link: the shell traces `daemon_port` and rebinds
-        the daemon on a change, which is exactly what has to happen.
+        on «Общие» as a reading (:meth:`_port_text`). Writing it through `opt_value` is
+        what persists it and re-points the link: the shell traces `daemon_port` and
+        rebinds the daemon on a change, which is exactly what has to happen — and, with
+        no window open, the same call writes the profile instead (#2823). It used to
+        read the Tk variable directly and gave up when there was none, which is why the
+        phone could not be given this press at all.
+
+        It ANSWERS rather than raising a message box: a panel with no window has nobody
+        to show one to. `reason` is a locale key and `fmt` its arguments; `error` is a
+        refusal already worded by `provision` (`panel/i18n.Message`).
         """
         prov = runtime.provision
         profiles = self.rt.profiles
         name = profiles.active
-        want_session = bool(self.rt.settings.opt_bool("rdp_session"))
-        port_var = self.rt.settings.vars.get("daemon_port")
-        if port_var is None:
-            return
-        if not want_session:
+        if not want:
             owner = prov.console_owner(profiles, exclude=name)
             if owner:
-                # One desktop, one console profile. Put the tick back rather than let a
-                # second profile drive the first one's client (#1250).
-                self.rt.settings.vars["rdp_session"].set(True)
-                messagebox.showinfo(self.t("session.frame"),
-                                    self.t("session.console_taken", owner=owner))
-                self._refresh_session_user_state()
-                return
-            port_var.set(prov.CONSOLE_PORT)
+                # One desktop, one console profile. Refused rather than letting a second
+                # profile drive the first one's client (#1250).
+                return {"ok": False, "reason": "session.console_taken",
+                        "fmt": {"owner": owner}}
+            opt_value.set(self.rt, "daemon_port", prov.CONSOLE_PORT)
             self.say("session", "log.session.client.console", port=prov.CONSOLE_PORT)
-        else:
-            current = self.rt.settings.opt_int("daemon_port", low=1, high=65535)
-            if current == prov.CONSOLE_PORT:
-                try:
-                    port = prov.free_port(profiles, exclude=name)
-                except ValueError as exc:
-                    messagebox.showerror(self.t("session.frame"),
-                                         i18nmod.translated(self.t, exc))
-                    self.rt.settings.vars["rdp_session"].set(False)
-                    self._refresh_session_user_state()
-                    return
-                port_var.set(port)
-                self.say("session", "log.session.client.own_port", port=port)
+            return {"ok": True}
+        current = self.rt.settings.opt_int("daemon_port", low=1, high=65535)
+        if current == prov.CONSOLE_PORT:
+            try:
+                port = prov.free_port(profiles, exclude=name)
+            except ValueError as exc:
+                return {"ok": False, "error": exc}
+            opt_value.set(self.rt, "daemon_port", port)
+            self.say("session", "log.session.client.own_port", port=port)
+        return {"ok": True}
+
+    def _on_session_toggle(self) -> None:
+        """A person moved the tick in the WINDOW: apply it, or put it back and say why."""
+        want = bool(self.rt.settings.opt_bool("rdp_session"))
+        said = self._apply_session_choice(want)
+        if not said.get("ok"):
+            box = self.rt.settings.vars.get("rdp_session")
+            if box is not None:
+                box.set(not want)
+            if said.get("error") is not None:
+                messagebox.showerror(self.t("session.frame"),
+                                     i18nmod.translated(self.t, said["error"]))
+            else:
+                messagebox.showinfo(self.t("session.frame"),
+                                    self.t(said["reason"], **said.get("fmt", {})))
         self._refresh_session_user_state()
+
+    def _press_session_toggle(self, want: bool) -> dict:
+        """The same tick, moved from the phone (#2823).
+
+        The knob is written FIRST and put back when the choice is refused, so the value
+        the screen re-reads a moment later is the one that actually applies — a switch
+        that stayed where a thumb left it while the port said otherwise is exactly the
+        half-applied state this card exists to make readable.
+        """
+        opt_value.set(self.rt, "rdp_session", want)
+        said = self._apply_session_choice(want)
+        if not said.get("ok"):
+            opt_value.set(self.rt, "rdp_session", not want)
+            if said.get("error") is not None:
+                return {"ok": False, "reason": "web.ui.refused"}
+            return {"ok": False, "reason": said.get("reason"),
+                    "fmt": said.get("fmt") or {}}
+        self._refresh_session_user_state()
+        return {"ok": True}
+
+    def _press_session_user(self, want: str) -> dict:
+        """The login of this profile's Windows session, typed or picked on the phone.
+
+        The one guard the window had that a screen has to keep: a login this machine
+        does not have is REFUSED. A typed login looks configured and is not — the
+        bring-up goes looking for a session of an account that does not exist and
+        reports the ordinary «клиент не запущен» (#1263). What is already saved is
+        always allowed back in, so a profile set up against an account the enumeration
+        no longer returns can still be read and re-saved; so is the empty string, which
+        is how a login is cleared.
+        """
+        want = want.strip()
+        users, _error = self._web_users()
+        saved = str(self.rt.settings.opt("rdp_user") or "").strip()
+        if want and users and want not in users and want != saved:
+            return {"ok": False, "reason": "session.user.unknown"}
+        opt_value.set(self.rt, "rdp_user", want)
+        self.say("session", "log.session.user",
+                 user=want or self.t("opt.value.unknown"))
+        self._refresh_session_user_state()
+        return {"ok": True, "reason": "session.user.saved"}
 
     def _live_client(self):
         """The client the WIDGETS name — the truth one save ahead of the files.
@@ -959,6 +1089,9 @@ class SettingsTab(PanelTab):
         except (AttributeError, tk.TclError):
             pass
         self._paint_credential()
+        # …and the list the phone's login picker offers. It is the button that already
+        # asks live Windows, so an account added five minutes ago arrives here.
+        self._web_users(refresh=True)
         self._refresh_session_user_state()
 
     def _paint_credential(self) -> None:
