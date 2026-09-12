@@ -120,12 +120,18 @@ def test_a_saved_string_reads_as_a_boolean():
 
 
 # --- what the flip causes ----------------------------------------------------
-def test_the_two_acts_are_the_runtimes_and_not_written_here_again():
+def test_the_act_is_the_runtimes_and_not_written_here_again():
     src = (ROOT / "panel" / "runtime" / "power.py").read_text(encoding="utf-8")
-    assert "panicmod.stop(rt)" in src, "switching off does not close the client"
+    assert "panicmod.stop(rt)" in src, "switching off does not let the link go"
     assert "panicmod.resume(rt)" in src, "switching on does not take the link back"
     acts = (ROOT / "panel" / "runtime" / "panic.py").read_text(encoding="utf-8")
-    assert "quit_game" in acts and "let_link_go" in acts, acts[:400]
+    assert "let_link_go" in acts, acts[:400]
+    # AND THE CLIENT IS NEVER CLOSED BY IT (#2824). The switch is about the PANEL —
+    # «только работу панели выключать для этого профиля» — so somebody who stops it in
+    # order to play that account by hand keeps their game. Closing a client is a press
+    # of its own on «Состояние» (`panel/runtime/game_control.py`).
+    body = acts[acts.index("def stop(rt)"):acts.index("def let_link_go(rt)")]
+    assert "play_async" not in body, f"switching a profile off plays a scenario: {body}"
 
 
 def test_the_boot_asks_the_switch_before_it_takes_the_link():

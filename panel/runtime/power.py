@@ -1,10 +1,16 @@
 """«Профиль работает» — one switch per profile, and everything automatic asks it.
 
 WHAT IT IS. A checkbox on «Главная» and its counterpart on the phone's «Состояние»
-card. Ticked, the profile lives: its daemon comes up, its client is put back when it
-dies, its timers and triggers run. Unticked, NOTHING of that happens — the client is
-closed, the daemon is stopped, and nothing brings either of them back until somebody
-ticks it again.
+card. Ticked, the panel works on this account: it takes the game link, its client is put
+back when it dies, its timers and triggers run. Unticked, NOTHING of that happens — the
+link is let go and nothing takes it again until somebody ticks it back.
+
+IT IS ABOUT THE PANEL, NEVER ABOUT THE CLIENT (#2824), and it is the person's decision:
+«Кнопка Профиль работает не должна вырубать клиент, а только работу панели выключать для
+этого профиля». Switching a profile off used to CLOSE its client — so somebody stopping
+the panel in order to play that account by hand had the game taken away from them by the
+very press that was supposed to get out of their way. The client is left running now;
+closing one is a press of its own on «Состояние» (`panel/runtime/game_control.py`).
 
 IT REPLACED TWO BUTTONS (#1882). «Стоп всё» and «Включить обратно» were the same two
 acts (`panel/runtime/panic.py`) behind a state nothing remembered: the mark lived in
@@ -202,15 +208,15 @@ def set_on(rt, on: bool, *, written: bool = False) -> bool:
     is not «nothing happened»: the flip is perfectly real, its write simply landed
     somewhere else, and the two acts below are exactly what it is for (#1910).
 
-    Ticked: the daemon comes back, and whatever puts the client back — the six-hourly
-    errand, the watchdog, the recovery — does it by itself, once. Unticked: the client is
-    closed and the daemon stopped, HERE AND NOW rather than merely forbidden from being
-    started again, because «выключен» has to mean the account is not playing, not that it
-    will stop the next time something notices.
+    Ticked: the link comes back, and whatever puts the client back — the six-hourly
+    errand, the watchdog, the recovery — does it by itself, once, and only if the client
+    is actually gone. Unticked: the link is let go HERE AND NOW rather than the panel
+    merely being forbidden to start anything, because «выключено» has to mean the panel
+    has stopped, not that it will stop the next time something notices. THE CLIENT IS NOT
+    TOUCHED either way (#2824) — see the note at the top of this file.
 
-    Both directions go through `panel/runtime/panic.py`, which is where the two acts and
-    their order live — and which puts them on a worker, since neither may be done on the
-    Tk thread.
+    Both directions go through `panel/runtime/panic.py`, which is where the act lives —
+    and which puts it on a worker, since it may not be done on the Tk thread.
     """
     on = bool(on)
     if not rt.power.set(on):

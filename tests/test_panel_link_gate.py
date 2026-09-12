@@ -194,22 +194,28 @@ def _cfg(**seconds) -> dict:
 
 # --- switching a profile off is two acts ------------------------------------
 
-def test_switching_off_closes_the_client_and_lets_the_link_go_and_nothing_else():
-    """The whole flip, in two lines — and the four things it must NOT touch.
+def test_switching_off_lets_the_link_go_and_leaves_the_client_alone():
+    """The whole flip, in one act — and the five things it must NOT touch.
 
     The old one stopped the schedule, every tab, every child and the run in flight. Each
     of those was a switch somebody then had to find again, and none of them stopped the
-    watchdog putting the client straight back. Anything this press grows a third act for
-    is a state that has to be undone by hand, which is what «Включить обратно» kept
-    failing to do.
+    watchdog putting the client straight back.
+
+    AND IT NO LONGER CLOSES THE CLIENT (#2824). The person's words: «Кнопка Профиль
+    работает не должна вырубать клиент, а только работу панели выключать для этого
+    профиля». Somebody switching a profile off is usually somebody who wants to play
+    that account by hand, and the press used to take the game away from them to prove it
+    had stopped. Anything this press grows a second act for is a state that has to be
+    undone by hand, which is what «Включить обратно» kept failing to do.
     """
     rt = _RT()
     for forbidden in ("schedule", "children", "interrupts", "activity", "tabs"):
         setattr(rt, forbidden, _Tripwire(forbidden))
 
     assert powermod.set_on(rt, False) is True
+    _settle(lambda: rt.game.stopped == 1)
 
-    assert rt.played == ["quit_game"], rt.played
+    assert rt.played == [], f"the client was closed by a switch about the panel: {rt.played}"
     assert rt.game.stopped == 1, "the link was not let go"
     assert rt.power.off, "the switch was not written"
     # …and the gate was told, or the schedule would spend up to a poll's period acting
@@ -218,17 +224,19 @@ def test_switching_off_closes_the_client_and_lets_the_link_go_and_nothing_else()
     assert rt.game.forgot >= 1, "the gate was not told the daemon had gone"
 
 
-def test_the_link_still_goes_when_the_client_will_not_close():
-    """A claim refused is not a reason to leave the daemon running.
+def test_the_link_goes_even_when_the_game_claim_is_held():
+    """Nothing the game is busy with may keep the panel working on a profile.
 
     The press is what somebody reaches for when things have gone wrong, and «the client
-    is busy» is one of the ways they have gone wrong. The second act happens whatever
-    the first one managed.
+    is busy» is one of the ways they have gone wrong. The act happens whatever a
+    scenario in flight is doing — the run fails, says so, and nothing starts another.
     """
     rt = _RT()
     rt.play_async = lambda *a, **kw: False          # something more urgent holds it
     panicmod.stop(rt)                               # the act itself, flag already written
-    assert rt.game.stopped == 1, "the link survived a refused quit"
+    _settle(lambda: rt.game.stopped == 1)
+    assert rt.game.stopped == 1, "the link survived a busy client"
+    assert rt.played == [], f"a scenario was played anyway: {rt.played}"
 
 
 def test_switching_back_on_brings_the_daemon_back_and_starts_no_client():
