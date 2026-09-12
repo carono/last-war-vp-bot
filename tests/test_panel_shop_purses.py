@@ -174,6 +174,19 @@ def test_a_currency_the_client_will_not_show_says_so_instead_of_zero():
     assert pill["detail"] == "shop.purse.hidden"
 
 
+def test_the_honour_is_called_what_the_game_calls_it():
+    """#2832: the client's resource manager will not name type 40, the game's own
+    config does — `aps_resources` row 1005 → locale key 457008 — so the panel says
+    «Очки чести» out of its own table and never «валюта №40»."""
+    import json
+
+    pill = _Tab({"40": {"have": 17_600, "icon": "", "name": ""}}).purse_pills(["40"])[0]
+    assert pill["text"] == "shop.money.honor", pill
+    for path in sorted((_REPO / "panel" / "locales").glob("*.json")):
+        said = json.loads(path.read_text(encoding="utf-8"))
+        assert said.get("shop.money.honor"), path.name
+
+
 def test_a_currency_nothing_has_read_yet_is_not_a_zero_either():
     pill = _Tab({}).purse_pills(["7"])[0]
     assert pill["short"] == "—"

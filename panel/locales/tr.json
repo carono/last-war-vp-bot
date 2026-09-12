@@ -1080,6 +1080,7 @@
   "shop.cap": "Harcama tavanı: {currency}",
   "shop.cap.hint": "Bir otomatik alım turunun bu mağazanın kendi para biriminden ne kadar harcayabileceği. −1: tavan yok; 0: hiç.",
   "shop.money.other": "para birimi {money}",
+  "shop.money.honor": "Onur Puanı",
   "shop.purse.unread": "henüz okunmadı",
   "shop.purse.hidden": "istemci bu bakiyeyi göstermiyor",
   "shop.caps.title": "Mağaza ayarları",

@@ -55,6 +55,7 @@ them all anyway when a question needs answering.
 | resource: metal | **Metal** | `resource_name002` | Metal | Металл | Eisen | Métal | Metal | Metallo | Metal | Metal | Metal | Logam | Sắt |
 | resource: oil | **Oil** | `resource_name_23` | Oil | Нефть | Öl | Pétrole | Petróleo | Petrolio | Petróleo | Ropa | Petrol | Minyak | Dầu Mỏ |
 | resource: gold | **Gold** | `ghost_parkour_gold` | Gold | Золото | Gold | Or | Oro | Oro | Ouro | Złoto | Altın | Emas | Vàng |
+| the honour a shop is paid in | **Honor Points** | `457008` | Honor Points | Очки чести | Ehrenpunkte | Points d'honneur | Puntos de Honor | Punti dell'onore | Pontos de Honra | Punkty honoru | Onur Puanı | Poin Honor | Điểm Vinh Quang |
 
 ### ⚠ Where the game contradicts itself
 

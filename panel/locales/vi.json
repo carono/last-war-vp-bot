@@ -1080,6 +1080,7 @@
   "shop.cap": "Trần chi tiêu: {currency}",
   "shop.cap.hint": "Một lượt mua tự động được tiêu bao nhiêu đơn vị tiền riêng của cửa hàng này. −1: không có trần; 0: không tiêu gì.",
   "shop.money.other": "tiền số {money}",
+  "shop.money.honor": "Điểm Vinh Quang",
   "shop.purse.unread": "chưa đọc",
   "shop.purse.hidden": "ứng dụng không hiển thị số dư này",
   "shop.caps.title": "Cài đặt cửa hàng",

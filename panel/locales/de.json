@@ -1080,6 +1080,7 @@
   "shop.cap": "Ausgabengrenze: {currency}",
   "shop.cap.hint": "Wie viel der eigenen Währung dieses Shops ein Autokauf-Lauf ausgeben darf. −1 heißt keine Grenze, 0 heißt gar nichts.",
   "shop.money.other": "Währung Nr. {money}",
+  "shop.money.honor": "Ehrenpunkte",
   "shop.purse.unread": "noch nicht gelesen",
   "shop.purse.hidden": "der Client zeigt diesen Kontostand nicht an",
   "shop.caps.title": "Shop-Einstellungen",

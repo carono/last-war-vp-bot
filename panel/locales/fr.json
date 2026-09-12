@@ -1080,6 +1080,7 @@
   "shop.cap": "Plafond de dépense : {currency}",
   "shop.cap.hint": "Ce qu'un cycle d'achat automatique peut dépenser dans la monnaie propre à cette boutique. −1 : aucun plafond ; 0 : rien du tout.",
   "shop.money.other": "monnaie n° {money}",
+  "shop.money.honor": "Points d'honneur",
   "shop.purse.unread": "pas encore lu",
   "shop.purse.hidden": "le client n'affiche pas ce solde",
   "shop.caps.title": "Réglages de la boutique",
