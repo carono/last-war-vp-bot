@@ -201,6 +201,34 @@ format the collect card uses) and the whole number in the title.
 * **It rides the shelves' own reading** (`read_shops.md` → `purses`,
   `shops_live.parse_purses`): at `GAME_READY`, on the balance push and after a purchase of
   ours. There is no clock and no «Обновить», and the card says how old the reading is.
+* **«THE BALANCE PUSH» IS A FAMILY OF TWO, and hearing one of them is a stale pill**
+  (#2830, measured live on 2026-09-12). `shops_live.PUSH` was `push.resource.item.update`,
+  which is the news about ITEMS; the diamonds and the honour are not items and travel on
+  `push.resource.info`. The honour pill therefore showed 7 700 — what the account had
+  when the client got into the game — while the client held 16 200 (`GetHonorScore`),
+  and nothing in between had been an item. A subscription is a CONTAINS match
+  (`panel/runtime/wire.py`), so the pattern is **`push.resource.`** and covers both. It
+  buys no extra traffic: the 120-second debounce is one per watch, and in a farming hour
+  the item push has already spent it.
+* **The price on a goods tile carries the same picture** (#2830): where the sprite exists
+  the currency's WORD comes off the line and into the tile's title, because «200 Медаль
+  Экспедиции» wrapped the smallest line on a 320 px tile and pushed the quota off it.
+  A currency with no extracted sprite keeps its word, unchanged.
+* **The purse reading is held for the length of ONE drawing** (`ShopTab.purses` /
+  `forget_purses`). Each goods tile asks for it twice — the currency's word and its
+  picture — and the answer is a whole blob read out of the profile's database: twenty
+  tiles cost forty reads of the same few hundred kilobytes, on the Tk thread.
+
+**THE ONE CURRENCY THE CLIENT WILL NOT NAME is honour, `40`** (#2830, probed live on
+2026-09-12). `ResourceManager:GetResourceNameByType(40)` and `GetResourceIconByType(40)`
+both answer empty — as do the same two asked about `16` — and `GetResourceIconByType` is
+the only icon method the manager has at all. `LocalController` names no `resource` /
+`currency` / `money` table, and the honour row of shelf 8 carries `currencyId=` empty, so
+there is no item to fall back on either. The pill therefore draws «валюта №40» with its
+balance and no picture, which is the honest answer: a word this panel invented and a
+sprite belonging to something else are both worse than a number
+(`CLAUDE.md`). It is the only such currency across the twelve shelves — the other eleven
+answer with a name and a sprite the panel serves.
 
 ## 2. What a purchase puts on the wire
 

@@ -630,7 +630,12 @@ function GoodItem({
       </span>
       <span className="gname">{item.label ? t(item.label) : item.text}</span>
       {item.price ? (
-        <span className="gprice" title={item.price}>
+        /* THE PRICE, AND THE CURRENCY'S PICTURE WHERE THERE IS ONE (#2830). The word it
+           replaces is in the title, so nothing is lost to a thumb that rests — and a
+           currency this machine has no sprite for keeps the word on the line, because
+           nothing stands in for a missing picture. */
+        <span className="gprice" title={item.price_note || item.price}>
+          {item.price_icon ? <img src={item.price_icon} alt="" aria-hidden="true" /> : null}
           {item.price}
         </span>
       ) : null}
