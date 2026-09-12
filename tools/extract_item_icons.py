@@ -65,7 +65,13 @@ FRAME_STEM = "cfm_tongyong_daojukuang_"
 #:
 #: Named one at a time on purpose: that directory holds several thousand sprites and
 #: this is a list of the ones the panel has a use for, not a second wildcard.
-COMMON_ITEM_SPRITES = ("Common_icon_electricity",)
+COMMON_ITEM_SPRITES = ("Common_icon_electricity",
+                       # THE SHOP CURRENCIES THAT ARE NOT ITEMS (#2830). A shelf
+                       # priced in an item takes that item's own icon; the
+                       # diamonds and the alliance points are RESOURCES, and the
+                       # game names their sprites in this same atlas.
+                       "Common_icon_gold",
+                       "zyf_lianmengkejijuanxian_jifen")
 
 
 def _wanted(category: str, stem: str) -> bool:
