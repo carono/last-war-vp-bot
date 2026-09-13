@@ -1000,6 +1000,28 @@ def _market(rt) -> "dict | None":
     return {"key": "timers.stat.market.done", "fmt": {}, "age": age}
 
 
+def _doomsday(rt) -> "dict | None":
+    """«Судный день»: what the event still owes, off the last reading (#2842).
+
+    The reading is `panel/runtime/doomsday_live.py` — taken when the client got into the
+    game and on the event's own push, never on a clock — so this line costs nothing and
+    carries its own AGE, which is what makes a stale number honest rather than wrong.
+    """
+    from . import doomsday_live
+
+    fields, age = doomsday_live.state(rt)
+    if age is None:
+        return None
+    if not fields.get("open"):
+        return {"key": "timers.stat.doomsday.closed", "fmt": {}, "age": age}
+    pending = _int(fields.get("pending"))
+    if pending:
+        return {"key": "timers.stat.doomsday.pending",
+                "fmt": {"n": pending}, "age": age}
+    return {"key": "timers.stat.doomsday.done",
+            "fmt": {"n": _int(fields.get("taken"))}, "age": age}
+
+
 def _market_coins(rt) -> "dict | None":
     """«Сверкающий рынок»: the coins in the bag and how many rows are still on sale."""
     from . import market_live
@@ -1090,6 +1112,8 @@ PROVIDERS: dict = {
     # `panel/runtime/market_live.py`, which is taken on the client entering the game and
     # on the event's own push — no clock, and no «Обновить» anywhere.
     "collect_glittering_market": _market,
+    # «Судный день» — what the event still owes, off its own ear (#2842).
+    "collect_doomsday_gifts": _doomsday,
     # …and the free diamonds the arenas pay for a like, on the card the person asked for
     # them on (#2689). Same reading as the arena card, no question of its own.
     "collect_shop_freebies": _shop_likes,

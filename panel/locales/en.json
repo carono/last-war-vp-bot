@@ -3176,5 +3176,22 @@
   "profile.shield.raise": "Raise a 24-hour shield",
   "profile.shield.confirm": "Spend one 24-hour shield out of the bag?",
   "profile.shield.off": "the errand is switched off",
-  "profile.shield.soon": "now"
+  "profile.shield.soon": "now",
+  "events.group.doomsday": "Doomsday",
+  "events.doomsday.until": "Time left",
+  "events.doomsday.ends": "Runs until",
+  "events.doomsday.gifts": "Gifts taken",
+  "events.doomsday.pending": "Still owed",
+  "events.doomsday.read": "Read",
+  "events.doomsday.collect": "Collect",
+  "events.doomsday.log.collected": "Doomsday: collecting the gifts",
+  "events.doomsday.log.failed": "Doomsday: the gifts could not be collected",
+  "events.doomsday.log.busy": "Doomsday: something else is running — try again in a moment",
+  "timers.item.collect_doomsday_gifts": "Doomsday: collect the gifts the event's achievements have earned",
+  "timers.item.collect_doomsday_gifts.short": "Doomsday: gifts",
+  "triggers.item.doomsday_gifts": "Collect a Doomsday gift the moment the event announces one",
+  "triggers.item.doomsday_gifts.short": "Doomsday gifts",
+  "timers.stat.doomsday.closed": "the event is not running",
+  "timers.stat.doomsday.pending": "gifts to take: {n}",
+  "timers.stat.doomsday.done": "all {n} gifts are taken"
 }

@@ -3176,5 +3176,22 @@
   "profile.shield.raise": "Поставить 24-часовой щит",
   "profile.shield.confirm": "Потратить один 24-часовой щит из сумки?",
   "profile.shield.off": "поручение выключено",
-  "profile.shield.soon": "сейчас"
+  "profile.shield.soon": "сейчас",
+  "events.group.doomsday": "Судный день",
+  "events.doomsday.until": "Осталось",
+  "events.doomsday.ends": "Идёт до",
+  "events.doomsday.gifts": "Подарков забрано",
+  "events.doomsday.pending": "Ещё не выдано",
+  "events.doomsday.read": "Прочитано",
+  "events.doomsday.collect": "Собрать",
+  "events.doomsday.log.collected": "Судный день: собираю подарки",
+  "events.doomsday.log.failed": "Судный день: подарки собрать не удалось",
+  "events.doomsday.log.busy": "Судный день: сейчас идёт другое действие — попробуй через минуту",
+  "timers.item.collect_doomsday_gifts": "Судный день: забирать подарки за достижения события",
+  "timers.item.collect_doomsday_gifts.short": "Судный день: подарки",
+  "triggers.item.doomsday_gifts": "Забирать подарок Судного дня, как только игра объявит о нём",
+  "triggers.item.doomsday_gifts.short": "Подарки Судного дня",
+  "timers.stat.doomsday.closed": "событие не идёт",
+  "timers.stat.doomsday.pending": "подарков к получению: {n}",
+  "timers.stat.doomsday.done": "все {n} подарков забраны"
 }

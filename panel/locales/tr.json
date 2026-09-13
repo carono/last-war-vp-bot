@@ -3176,5 +3176,22 @@
   "profile.shield.raise": "24 saatlik kalkan kur",
   "profile.shield.confirm": "Çantadan bir 24 saatlik kalkan harcansın mı?",
   "profile.shield.off": "görev kapalı",
-  "profile.shield.soon": "şimdi"
+  "profile.shield.soon": "şimdi",
+  "events.group.doomsday": "Kıyamet Günü",
+  "events.doomsday.until": "Kalan süre",
+  "events.doomsday.ends": "Şu ana kadar sürüyor",
+  "events.doomsday.gifts": "Alınan hediyeler",
+  "events.doomsday.pending": "Hâlâ bekleyen",
+  "events.doomsday.read": "Okundu",
+  "events.doomsday.collect": "Topla",
+  "events.doomsday.log.collected": "Kıyamet Günü: hediyeler toplanıyor",
+  "events.doomsday.log.failed": "Kıyamet Günü: hediyeler toplanamadı",
+  "events.doomsday.log.busy": "Kıyamet Günü: şu anda başka bir iş sürüyor — birazdan tekrar dene",
+  "timers.item.collect_doomsday_gifts": "Kıyamet Günü: etkinliğin başarımlarından kazanılan hediyeleri topla",
+  "timers.item.collect_doomsday_gifts.short": "Kıyamet Günü: hediyeler",
+  "triggers.item.doomsday_gifts": "Etkinlik duyurur duyurmaz Kıyamet Günü hediyesini topla",
+  "triggers.item.doomsday_gifts.short": "Kıyamet Günü hediyeleri",
+  "timers.stat.doomsday.closed": "etkinlik sürmüyor",
+  "timers.stat.doomsday.pending": "alınacak hediye: {n}",
+  "timers.stat.doomsday.done": "{n} hediyenin hepsi alındı"
 }

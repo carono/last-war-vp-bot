@@ -838,6 +838,114 @@ def ago(seconds) -> str:
     return "%d:%02d" % (seconds // 60, seconds % 60)
 
 
+#: «Судный день» — the event that runs for one game day at a time and pays out in
+#: ACHIEVEMENTS: the server does something (a boss of the day falls), the achievement is
+#: earned, and its gift waits until somebody claims it. The reading is
+#: `actions/read_doomsday.md`, the collection `collect_doomsday_gifts.md`, and the
+#: reverse-engineering is docs/research/doomsday.md.
+#:
+#: THE CARD READS NOTHING ITSELF. Its numbers come off the profile's own ear
+#: (`panel/runtime/doomsday_live.py`) — one reading when the client gets into the game,
+#: one per the event's own push, and no clock and no «Обновить» (`CLAUDE.md`).
+DOOMSDAY = "doomsday"
+
+#: The scenario one press of «Собрать» plays. Every gate of the ability is inside it.
+DOOMSDAY_COLLECT = "collect_doomsday_gifts"
+
+
+class DoomsdayState:
+    """What «Судный день» says right now — the whole card, in one object.
+
+    ``quests`` is how many achievements the event has, ``taken`` how many have already
+    paid out and ``pending`` how many have not. ``ends`` / ``starts`` are the window the
+    game itself named, in unix seconds, and ``age`` is how old the reading is — a card
+    that cannot be refreshed by hand has to say how stale it is instead. ``None``
+    anywhere is «the game would not say», and it is never drawn as a zero.
+    """
+
+    __slots__ = ("state", "quests", "taken", "pending", "starts", "ends", "age")
+
+    def __init__(self, state: str, quests=None, taken=None, pending=None,
+                 starts=None, ends=None, age=None) -> None:
+        self.state = state
+        self.quests = quests
+        self.taken = taken
+        self.pending = pending
+        self.starts = starts
+        self.ends = ends
+        self.age = age
+
+    @property
+    def open(self) -> bool:
+        return self.state == OPEN
+
+    @property
+    def can_collect(self) -> bool:
+        """May «Собрать» be pressed? Only a SHUT event kills it.
+
+        The same rule the attack buttons on this board go by: the ability holds its own
+        gates (`CLAUDE.md`), so a run over an event with nothing waiting costs one line
+        in the log, while a button that is dead over a reading a few minutes old costs
+        the gifts that appeared since.
+        """
+        return self.state != CLOSED
+
+    def __repr__(self) -> str:
+        return (f"<doomsday {self.state} {self.taken}/{self.quests} "
+                f"pending={self.pending}>")
+
+
+def doomsday_state(fields, age=None) -> "DoomsdayState":
+    """The card against the ear's last reading. No reading at all is `unknown`.
+
+    `fields` is what `panel/runtime/doomsday_live.parse` made of the line, so a panel
+    that has never read the event, one whose client is at the login screen and one whose
+    reading failed all arrive here as an empty dict — and all three are «nobody knows»,
+    never «not on today».
+    """
+    fields = fields or {}
+    if "open" not in fields:
+        return DoomsdayState(UNKNOWN, age=age)
+    quests = fields.get("quests")
+    taken = fields.get("taken")
+    pending = fields.get("pending")
+    return DoomsdayState(
+        OPEN if fields.get("open") else CLOSED,
+        quests=quests,
+        taken=taken,
+        pending=pending,
+        starts=fields.get("starts") or None,
+        ends=fields.get("ends") or None,
+        age=age,
+    )
+
+
+def doomsday_gifts(state) -> str:
+    """`38 / 41` — achievements already paid out against the ones the event has."""
+    if state.taken is None or state.quests is None:
+        return "—"
+    return "%d / %d" % (state.taken, state.quests)
+
+
+def doomsday_pending(state) -> str:
+    """`3` — achievements the event has not paid out yet, or `—`."""
+    return "—" if state.pending is None else str(state.pending)
+
+
+def doomsday_until(state, now=None) -> str:
+    """How long the run still has, as `ч:мм`, or `—` outside it."""
+    if not state.open or not state.ends:
+        return "—"
+    import time as _time                                # noqa: PLC0415 — one clock read
+    now = _time.time() if now is None else now
+    return hhmm(max(0, int(state.ends - now)))
+
+
+def doomsday_age(state) -> str:
+    """How old the reading is, or `—` when there has never been one."""
+    return "—" if state.age is None else ago(state.age)
+
+
 class GoldenState:
     """What the golden-zombie hunt has to work with right now — the whole group.
 

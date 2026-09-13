@@ -3176,5 +3176,22 @@
   "profile.shield.raise": "Dựng khiên 24 giờ",
   "profile.shield.confirm": "Dùng một khiên 24 giờ trong túi?",
   "profile.shield.off": "nhiệm vụ đang tắt",
-  "profile.shield.soon": "bây giờ"
+  "profile.shield.soon": "bây giờ",
+  "events.group.doomsday": "Ngày Tận Thế",
+  "events.doomsday.until": "Còn lại",
+  "events.doomsday.ends": "Diễn ra đến",
+  "events.doomsday.gifts": "Quà đã nhận",
+  "events.doomsday.pending": "Vẫn còn chờ",
+  "events.doomsday.read": "Đã đọc",
+  "events.doomsday.collect": "Nhận",
+  "events.doomsday.log.collected": "Ngày Tận Thế: đang nhận quà",
+  "events.doomsday.log.failed": "Ngày Tận Thế: không nhận được quà",
+  "events.doomsday.log.busy": "Ngày Tận Thế: đang chạy việc khác — thử lại sau giây lát",
+  "timers.item.collect_doomsday_gifts": "Ngày Tận Thế: nhận quà từ các thành tựu của sự kiện",
+  "timers.item.collect_doomsday_gifts.short": "Ngày Tận Thế: quà",
+  "triggers.item.doomsday_gifts": "Nhận quà Ngày Tận Thế ngay khi sự kiện thông báo",
+  "triggers.item.doomsday_gifts.short": "Quà Ngày Tận Thế",
+  "timers.stat.doomsday.closed": "sự kiện không diễn ra",
+  "timers.stat.doomsday.pending": "quà có thể nhận: {n}",
+  "timers.stat.doomsday.done": "đã nhận tất cả {n} quà"
 }

@@ -3176,5 +3176,22 @@
   "profile.shield.raise": "Ativar um escudo de 24 horas",
   "profile.shield.confirm": "Gastar um escudo de 24 horas da bolsa?",
   "profile.shield.off": "a tarefa está desligada",
-  "profile.shield.soon": "agora"
+  "profile.shield.soon": "agora",
+  "events.group.doomsday": "Dia do Juízo",
+  "events.doomsday.until": "Tempo restante",
+  "events.doomsday.ends": "A decorrer até",
+  "events.doomsday.gifts": "Presentes recolhidos",
+  "events.doomsday.pending": "Ainda por dar",
+  "events.doomsday.read": "Lido",
+  "events.doomsday.collect": "Recolher",
+  "events.doomsday.log.collected": "Dia do Juízo: a recolher os presentes",
+  "events.doomsday.log.failed": "Dia do Juízo: não foi possível recolher os presentes",
+  "events.doomsday.log.busy": "Dia do Juízo: está a decorrer outra coisa — tenta daqui a pouco",
+  "timers.item.collect_doomsday_gifts": "Dia do Juízo: recolher os presentes ganhos pelas proezas do evento",
+  "timers.item.collect_doomsday_gifts.short": "Dia do Juízo: presentes",
+  "triggers.item.doomsday_gifts": "Recolher um presente do Dia do Juízo assim que o evento o anunciar",
+  "triggers.item.doomsday_gifts.short": "Presentes Dia do Juízo",
+  "timers.stat.doomsday.closed": "o evento não está a decorrer",
+  "timers.stat.doomsday.pending": "presentes por recolher: {n}",
+  "timers.stat.doomsday.done": "os {n} presentes estão recolhidos"
 }

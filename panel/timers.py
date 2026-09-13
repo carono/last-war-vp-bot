@@ -484,6 +484,30 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.collect_glittering_market",
     ),
     Timer(
+        name="collect_doomsday_gifts",
+        scenario=("collect_doomsday_gifts",),
+        # AN HOUR, and the period only decides how soon a gift that has appeared is
+        # picked up. «Судный день» runs for one game day at a time — the game names its
+        # own window, and the one this was written against was a Sunday, 00:00 to 23:59
+        # of the warzone's day (docs/research/doomsday.md) — so most runs land outside it
+        # and cost NOTHING ON THE WIRE: the reading asks the server for the achievement
+        # list only while the event is on, and a closed event is answered by the client's
+        # own manager in one VM round trip. The same shape «Сверкающий рынок» has (#2636)
+        # and the same reason `collect_vip_gifts` looks hourly.
+        #
+        # The promptness comes from the trigger beside it and not from this period: the
+        # event's own `push.doomsday.quest` plays the same recipe the moment an
+        # achievement moves (panel/triggers.py), so the hour is the safety net rather
+        # than the mechanism.
+        interval_sec=3600,
+        # A failure here is a client that was not answering; a few minutes is soon enough.
+        retry_sec=300,
+        # SWITCHED ON, with no `enabled=` at all (#2390): it can spend nothing. Every
+        # gift it asks for is an achievement the account has already earned, and one it
+        # has not is answered with an empty reward and nothing else.
+        label_key="timers.item.collect_doomsday_gifts",
+    ),
+    Timer(
         name="buy_glitter_market_goods",
         scenario=("buy_glitter_market_goods",),
         # A DAY, and the period is nearly beside the point: this row is OFF and is meant

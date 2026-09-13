@@ -3176,5 +3176,22 @@
   "profile.shield.raise": "Activar un escudo de 24 horas",
   "profile.shield.confirm": "¿Gastar un escudo de 24 horas de la bolsa?",
   "profile.shield.off": "la tarea está desactivada",
-  "profile.shield.soon": "ahora"
+  "profile.shield.soon": "ahora",
+  "events.group.doomsday": "Día del Juicio",
+  "events.doomsday.until": "Tiempo restante",
+  "events.doomsday.ends": "Activo hasta",
+  "events.doomsday.gifts": "Regalos recogidos",
+  "events.doomsday.pending": "Aún pendientes",
+  "events.doomsday.read": "Leído",
+  "events.doomsday.collect": "Recoger",
+  "events.doomsday.log.collected": "Día del Juicio: recogiendo los regalos",
+  "events.doomsday.log.failed": "Día del Juicio: no se pudieron recoger los regalos",
+  "events.doomsday.log.busy": "Día del Juicio: ahora se ejecuta otra cosa — inténtalo en un momento",
+  "timers.item.collect_doomsday_gifts": "Día del Juicio: recoger los regalos ganados por los logros del evento",
+  "timers.item.collect_doomsday_gifts.short": "Día del Juicio: regalos",
+  "triggers.item.doomsday_gifts": "Recoger un regalo del Día del Juicio en cuanto el evento lo anuncie",
+  "triggers.item.doomsday_gifts.short": "Regalos Día del Juicio",
+  "timers.stat.doomsday.closed": "el evento no está activo",
+  "timers.stat.doomsday.pending": "regalos por recoger: {n}",
+  "timers.stat.doomsday.done": "los {n} regalos están recogidos"
 }
