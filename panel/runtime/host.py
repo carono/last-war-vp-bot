@@ -353,6 +353,7 @@ class PanelRuntime:
         self._fireworks = None          # …and about the fireworks going off (#1677)
         self._rewards = None            # …and the reward popups it shut (#2027)
         self._market = None             # …and the Glittering Market's own ear (#2636)
+        self._doomsday = None           # …and «Судный день»'s own ear (#2842)
         self._shops = None              # …and the shelves of every shop (#2666)
         self._invasion = None           # …and «Вторжение зомби»'s (#2647)
         self._arena = None              # …and the arena building's (#2688)
@@ -420,6 +421,15 @@ class PanelRuntime:
             self.market.start()
         except Exception:                 # noqa: BLE001 — the panel still works
             self.dbg("market").error("could not start the market watch", exc_info=True)
+        # …AND «СУДНЫЙ ДЕНЬ»'s EAR (#2842), for the same reason again: the event runs on
+        # a Sunday and its gifts appear while it runs, so the one moment a reading goes
+        # out of date by itself is the event's own push. One reading when the client gets
+        # into the game, one per push, and no clock (panel/runtime/doomsday_live.py).
+        try:
+            self.doomsday.start()
+        except Exception:                 # noqa: BLE001 — the panel still works
+            self.dbg("doomsday").error("could not start the doomsday watch",
+                                       exc_info=True)
         # …AND THE SHOPS' EAR (#2666). «Магазин» has a page, but the AUTOBUY errand
         # spends the same reading and must work in a profile whose page is switched off
         # — so the ear is the profile's, not the tab's. One reading when the client gets
@@ -569,6 +579,21 @@ class PanelRuntime:
             from .market_live import MarketWatch
             self._market = MarketWatch(self)
         return self._market
+
+    @property
+    def doomsday(self):
+        """This profile's ear for «Судный день» (#2842).
+
+        On the runtime rather than on a page for the reason the market's is: the event
+        is read by a card the phone draws and by the errand that collects its gifts, and
+        both must work in a profile whose «События» page is switched off. One reading
+        when the client gets into the game, one on the event's own quest push, and no
+        clock anywhere (panel/runtime/doomsday_live.py).
+        """
+        if self._doomsday is None:
+            from .doomsday_live import DoomsdayWatch
+            self._doomsday = DoomsdayWatch(self)
+        return self._doomsday
 
     @property
     def shops(self):

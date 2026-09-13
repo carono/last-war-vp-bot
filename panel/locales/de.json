@@ -3176,5 +3176,22 @@
   "profile.shield.raise": "24-Stunden-Schild aktivieren",
   "profile.shield.confirm": "Einen 24-Stunden-Schild aus dem Beutel verbrauchen?",
   "profile.shield.off": "der Auftrag ist ausgeschaltet",
-  "profile.shield.soon": "jetzt"
+  "profile.shield.soon": "jetzt",
+  "events.group.doomsday": "Jüngster Tag",
+  "events.doomsday.until": "Verbleibend",
+  "events.doomsday.ends": "Läuft bis",
+  "events.doomsday.gifts": "Geschenke erhalten",
+  "events.doomsday.pending": "Noch offen",
+  "events.doomsday.read": "Gelesen",
+  "events.doomsday.collect": "Einsammeln",
+  "events.doomsday.log.collected": "Jüngster Tag: Geschenke werden eingesammelt",
+  "events.doomsday.log.failed": "Jüngster Tag: Geschenke konnten nicht eingesammelt werden",
+  "events.doomsday.log.busy": "Jüngster Tag: gerade läuft etwas anderes — gleich noch einmal versuchen",
+  "timers.item.collect_doomsday_gifts": "Jüngster Tag: Geschenke für die Erfolge des Events einsammeln",
+  "timers.item.collect_doomsday_gifts.short": "Jüngster Tag: Geschenke",
+  "triggers.item.doomsday_gifts": "Ein Geschenk des Jüngsten Tages einsammeln, sobald das Event es ankündigt",
+  "triggers.item.doomsday_gifts.short": "Geschenke Jüngster Tag",
+  "timers.stat.doomsday.closed": "das Event läuft nicht",
+  "timers.stat.doomsday.pending": "abzuholende Geschenke: {n}",
+  "timers.stat.doomsday.done": "alle {n} Geschenke sind abgeholt"
 }

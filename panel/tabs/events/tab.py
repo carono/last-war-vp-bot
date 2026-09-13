@@ -1111,6 +1111,54 @@ class EventsTab(PanelTab):
                           busy_key="events.crystal.log.busy",
                           after=self.refresh_crystal)
 
+    def doomsday(self):
+        """The «Судный день» card against the profile's own ear — never a read.
+
+        The tab asks nothing of the game for this: the reading is taken by
+        `panel/runtime/doomsday_live.py` when the client gets into the game and on the
+        event's own push, and this only draws what is written down, with its AGE beside
+        it (`CLAUDE.md` — read once, then listen; a statistic is never refreshed by
+        hand).
+        """
+        from panel.runtime import doomsday_live
+        fields, age = doomsday_live.state(self.rt)
+        return modelmod.doomsday_state(fields, age)
+
+    def collect_doomsday(self) -> bool:
+        """Take the event's gifts — one recipe, every gate inside it.
+
+        The run ends with a reading of its own, and what it leaves is handed to the ear
+        so the card moves the moment the press does rather than waiting for a push.
+        """
+        if self._attacking:
+            return False
+        self._attacking = True
+        self._sent_key = "events.doomsday.log.collected"
+        self._failed_key = "events.doomsday.log.failed"
+        self._after_press = None
+        self._paint_attack_button()
+        started = self.rt.play_async(
+            modelmod.DOOMSDAY_COLLECT, tag="events", human=True,
+            on_result=self._doomsday_back, on_done=self._attack_done)
+        if not started:
+            self._attacking = False
+            self._sent_key = None
+            self.say("events", "events.doomsday.log.busy")
+            self._paint_attack_button()
+        return started
+
+    def _doomsday_back(self, outcome) -> None:
+        """Keep what the collector read on its way out, then report as any press does."""
+        try:
+            ctx = getattr(outcome, "ctx", None)
+            raw = (getattr(ctx, "vars", {}) or {}).get("doomsday")
+            if raw:
+                from panel.runtime import doomsday_live
+                doomsday_live.record(self.rt, raw)
+        except Exception:                  # noqa: BLE001 — a reading, never the press
+            pass
+        self._attack_back(outcome)
+
     def collect_crystal(self) -> bool:
         """Take the event's chests — the week's damage rewards and the achievement ones.
 
@@ -2561,6 +2609,30 @@ class EventsTab(PanelTab):
                 rpcard["actions"].append({"id": "red_watch",
                                           "label": "events.red.watch"})
 
+        # …and «Судный день» (#2842): the event that runs for one game day at a time
+        # and pays out in achievements. Its numbers come off the profile's own ear and
+        # never off a read made here — one reading when the client gets into the game,
+        # one per the event's own push — so the card carries the AGE of what it is
+        # showing and has no «Обновить» of its own (`CLAUDE.md`). It is drawn on the
+        # phone only, like the crystal boss beside it: new work goes to the web while
+        # the window is being retired (#1976).
+        dd = self.doomsday()
+        dcard = {"title": "events.group." + modelmod.DOOMSDAY, "rows": [
+            {"label": "events.state", "value": self._state_words(dd)},
+            {"label": "events.doomsday.until", "value": modelmod.doomsday_until(dd)},
+            {"label": "events.doomsday.ends",
+             "value": modelmod.when(dd.ends) if dd.ends else "—"},
+            {"label": "events.doomsday.gifts", "value": modelmod.doomsday_gifts(dd)},
+            {"label": "events.doomsday.pending", "value": modelmod.doomsday_pending(dd)},
+            {"label": "events.doomsday.read", "value": modelmod.doomsday_age(dd)},
+        ]}
+        if dd.can_collect and not self._attacking:
+            dcard["actions"] = [{"id": "collect_doomsday",
+                                 "label": "events.doomsday.collect"}]
+        else:
+            dcard["items"] = [{"label": "events.doomsday.collect",
+                               "pill": "events.codename.attack.off"}]
+
         return {"cards": [
             {"title": None, "rows": [
                 {"label": "events.web.read",
@@ -2568,6 +2640,7 @@ class EventsTab(PanelTab):
                            and not self._reading.error else "—")}]},
             card,
             ccard,
+            dcard,
             gsteps,
             tcard,
             fcard,
@@ -2702,6 +2775,12 @@ class EventsTab(PanelTab):
                 return {"error": "closed"}
             return {"ok": (self.attack_crystal() if action == "attack_crystal"
                            else self.daily_crystal())}
+        if action == "collect_doomsday":
+            # The same gate the card draws by: only a SHUT event refuses the press. What
+            # is waiting is the recipe's own question, asked of the server.
+            if not self.doomsday().can_collect:
+                return {"error": "closed"}
+            return {"ok": self.collect_doomsday()}
         if action == "collect_crystal":
             # A chest the game has counted, or nothing to press: unlike the attack, a
             # claim over a list nobody could read would send nothing at all.

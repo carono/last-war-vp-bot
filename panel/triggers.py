@@ -435,6 +435,20 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.alliance_help",
     ),
     Trigger(
+        name="doomsday_gifts",
+        # «Судный день» announces an achievement of its own moving on the wire
+        # (`push.doomsday.quest`), and that is the one moment a gift can appear: the
+        # event pays an achievement out when it is claimed, and nothing else about it
+        # changes by itself (docs/research/doomsday.md). So the collection rides the
+        # push rather than a clock — the errand beside it is only the hourly safety net.
+        kind=KIND_WIRE,
+        event_pattern="push.doomsday.quest",
+        scenario=("collect_doomsday_gifts",),
+        # SWITCHED ON, with no `enabled=` at all (#2390): the run is free — it claims
+        # what the account has already earned and sends nothing where the event is shut.
+        label_key="triggers.item.doomsday_gifts",
+    ),
+    Trigger(
         name="rally_monitor",
         # An alliance banner (стяг) going out is announced on the wire
         # (push.alliance.march.*); the watcher reads the rally off the game the

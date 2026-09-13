@@ -3176,5 +3176,22 @@
   "profile.shield.raise": "Pasang perisai 24 jam",
   "profile.shield.confirm": "Pakai satu perisai 24 jam dari tas?",
   "profile.shield.off": "tugas dimatikan",
-  "profile.shield.soon": "sekarang"
+  "profile.shield.soon": "sekarang",
+  "events.group.doomsday": "Hari Kiamat",
+  "events.doomsday.until": "Sisa waktu",
+  "events.doomsday.ends": "Berlangsung hingga",
+  "events.doomsday.gifts": "Hadiah diambil",
+  "events.doomsday.pending": "Masih tertunda",
+  "events.doomsday.read": "Dibaca",
+  "events.doomsday.collect": "Ambil",
+  "events.doomsday.log.collected": "Hari Kiamat: mengambil hadiah",
+  "events.doomsday.log.failed": "Hari Kiamat: hadiah tidak bisa diambil",
+  "events.doomsday.log.busy": "Hari Kiamat: ada pekerjaan lain yang sedang berjalan — coba lagi sebentar",
+  "timers.item.collect_doomsday_gifts": "Hari Kiamat: ambil hadiah dari pencapaian event",
+  "timers.item.collect_doomsday_gifts.short": "Hari Kiamat: hadiah",
+  "triggers.item.doomsday_gifts": "Ambil hadiah Hari Kiamat begitu event mengumumkannya",
+  "triggers.item.doomsday_gifts.short": "Hadiah Hari Kiamat",
+  "timers.stat.doomsday.closed": "event tidak berjalan",
+  "timers.stat.doomsday.pending": "hadiah yang bisa diambil: {n}",
+  "timers.stat.doomsday.done": "semua {n} hadiah sudah diambil"
 }

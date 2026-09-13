@@ -3176,5 +3176,22 @@
   "profile.shield.raise": "Attiva uno scudo da 24 ore",
   "profile.shield.confirm": "Spendere uno scudo da 24 ore dalla borsa?",
   "profile.shield.off": "l'incarico è disattivato",
-  "profile.shield.soon": "adesso"
+  "profile.shield.soon": "adesso",
+  "events.group.doomsday": "Giorno del Giudizio",
+  "events.doomsday.until": "Tempo rimasto",
+  "events.doomsday.ends": "In corso fino a",
+  "events.doomsday.gifts": "Regali ritirati",
+  "events.doomsday.pending": "Ancora dovuti",
+  "events.doomsday.read": "Letto",
+  "events.doomsday.collect": "Ritira",
+  "events.doomsday.log.collected": "Giorno del Giudizio: ritiro dei regali",
+  "events.doomsday.log.failed": "Giorno del Giudizio: non è stato possibile ritirare i regali",
+  "events.doomsday.log.busy": "Giorno del Giudizio: è in corso altro — riprova tra un momento",
+  "timers.item.collect_doomsday_gifts": "Giorno del Giudizio: ritirare i regali guadagnati dalle imprese dell'evento",
+  "timers.item.collect_doomsday_gifts.short": "Giorno del Giudizio: regali",
+  "triggers.item.doomsday_gifts": "Ritirare un regalo del Giorno del Giudizio appena l'evento lo annuncia",
+  "triggers.item.doomsday_gifts.short": "Regali Giorno del Giudizio",
+  "timers.stat.doomsday.closed": "l'evento non è in corso",
+  "timers.stat.doomsday.pending": "regali da ritirare: {n}",
+  "timers.stat.doomsday.done": "tutti i {n} regali sono ritirati"
 }
