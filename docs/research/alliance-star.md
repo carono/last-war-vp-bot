@@ -92,3 +92,37 @@ the recipe pays one round trip for the lot.
 | the card's line | `panel/runtime/errand_stats.py::_alliance_star` |
 | the ear | the `alliance_star_ceremony` trigger on `push.alliance.star.ceremony.info` |
 | the errand | «Таймеры» → `work_alliance_star`, Sunday only (`Timer.weekdays`) |
+
+## Why it did nothing for six hours on 2026-09-13 (#2846)
+
+The ability was sound; its SCHEDULING was not. The errand runs weekly on Sundays
+(`interval_sec = 604800`, `weekdays = [7]`), and the recipe used to answer «there is no
+ceremony» with `STOP` — which the DSL defines as a deliberate SUCCESS. So a turn that
+found nothing counted as the week's turn:
+
+```
+2026-09-13 07:14:32 [timer] work_alliance_star: прошло 9244 мин с прошлого запуска — стартую
+2026-09-13 07:14:35 [timer]   READ_LUA ceremony = 0
+2026-09-13 07:14:35 [timer]   STOP -> halt requested (no ceremony)
+```
+
+`next` moved to the following Sunday. Edition 70 opened at **12:42**, six and a half
+hours after the schedule had spent its turn, and the likes were only made at **13:13**
+because the `push.alliance.star.ceremony.info` listener fired the same recipe by itself —
+and that ear had been dead between 09:46 and 12:42. On the account whose client was down
+(`elenita`) nothing ran at all.
+
+Two changes, both in `actions/work_alliance_star.md`:
+
+* **«no ceremony» is a `FAIL`, not a `STOP`.** The errand then spends its `retry_sec`
+  (an hour) instead of its week, so the schedule catches the ceremony on its own without
+  depending on the push listener being alive. An empty board goes the same way.
+* **`hasCeremony` is asked twice before it is believed.** It is `nil` until the reply
+  lands and a `nil` reads exactly like a «no», so one slow answer used to be worth a week.
+
+Read live on 2026-09-13 after the fix, on three accounts, all identical:
+`stars=14 liked=14 emoji.count=14 emoji.claimedIndex=3 canReward=false participateReceive=true`
+— the fourteen likes and both chests were in fact taken; what had been broken was WHEN.
+
+`scratchClaimed=false` on all three, as expected: the scratch card is still deliberately
+not claimed (see «What was NOT done» above).
