@@ -2622,7 +2622,8 @@ class EventsTab(PanelTab):
             {"label": "events.doomsday.until", "value": modelmod.doomsday_until(dd)},
             {"label": "events.doomsday.ends",
              "value": modelmod.when(dd.ends) if dd.ends else "—"},
-            {"label": "events.doomsday.gifts", "value": modelmod.doomsday_gifts(dd)},
+            {"label": "events.doomsday.gifts",
+             "value": modelmod.doomsday_gifts(dd, self.t)},
             {"label": "events.doomsday.pending", "value": modelmod.doomsday_pending(dd)},
             {"label": "events.doomsday.read", "value": modelmod.doomsday_age(dd)},
         ]}

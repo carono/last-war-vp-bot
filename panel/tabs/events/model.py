@@ -920,11 +920,20 @@ def doomsday_state(fields, age=None) -> "DoomsdayState":
     )
 
 
-def doomsday_gifts(state) -> str:
-    """`38 / 41` — achievements already paid out against the ones the event has."""
+def doomsday_gifts(state, t=None) -> str:
+    """`38 из 41` — achievements already paid out against the ones the event has.
+
+    IT IS NOT WRITTEN `38 / 41`, and that is not a matter of taste: a value of that shape
+    is read by the panel's own coordinate parser (`tools/lib/coords.py`) as the map square
+    @[38,41] and drawn as a jump link, so a card about gifts offered a ride to a tile.
+    The word between the two numbers is a KEY like every other word here, so it is said in
+    whatever language the panel is set to (`CLAUDE.md`).
+    """
     if state.taken is None or state.quests is None:
         return "—"
-    return "%d / %d" % (state.taken, state.quests)
+    if t is None:
+        return "%d · %d" % (state.taken, state.quests)
+    return t("events.doomsday.gifts.value", taken=state.taken, quests=state.quests)
 
 
 def doomsday_pending(state) -> str:

@@ -3193,5 +3193,6 @@
   "triggers.item.doomsday_gifts.short": "Geschenke Jüngster Tag",
   "timers.stat.doomsday.closed": "das Event läuft nicht",
   "timers.stat.doomsday.pending": "abzuholende Geschenke: {n}",
-  "timers.stat.doomsday.done": "alle {n} Geschenke sind abgeholt"
+  "timers.stat.doomsday.done": "alle {n} Geschenke sind abgeholt",
+  "events.doomsday.gifts.value": "{taken} von {quests}"
 }

@@ -3193,5 +3193,6 @@
   "triggers.item.doomsday_gifts.short": "Hadiah Hari Kiamat",
   "timers.stat.doomsday.closed": "event tidak berjalan",
   "timers.stat.doomsday.pending": "hadiah yang bisa diambil: {n}",
-  "timers.stat.doomsday.done": "semua {n} hadiah sudah diambil"
+  "timers.stat.doomsday.done": "semua {n} hadiah sudah diambil",
+  "events.doomsday.gifts.value": "{taken} dari {quests}"
 }

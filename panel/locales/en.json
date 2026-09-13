@@ -3193,5 +3193,6 @@
   "triggers.item.doomsday_gifts.short": "Doomsday gifts",
   "timers.stat.doomsday.closed": "the event is not running",
   "timers.stat.doomsday.pending": "gifts to take: {n}",
-  "timers.stat.doomsday.done": "all {n} gifts are taken"
+  "timers.stat.doomsday.done": "all {n} gifts are taken",
+  "events.doomsday.gifts.value": "{taken} of {quests}"
 }

@@ -3193,5 +3193,6 @@
   "triggers.item.doomsday_gifts.short": "Подарки Судного дня",
   "timers.stat.doomsday.closed": "событие не идёт",
   "timers.stat.doomsday.pending": "подарков к получению: {n}",
-  "timers.stat.doomsday.done": "все {n} подарков забраны"
+  "timers.stat.doomsday.done": "все {n} подарков забраны",
+  "events.doomsday.gifts.value": "{taken} из {quests}"
 }

@@ -3193,5 +3193,6 @@
   "triggers.item.doomsday_gifts.short": "Kıyamet Günü hediyeleri",
   "timers.stat.doomsday.closed": "etkinlik sürmüyor",
   "timers.stat.doomsday.pending": "alınacak hediye: {n}",
-  "timers.stat.doomsday.done": "{n} hediyenin hepsi alındı"
+  "timers.stat.doomsday.done": "{n} hediyenin hepsi alındı",
+  "events.doomsday.gifts.value": "{quests} içinden {taken}"
 }
