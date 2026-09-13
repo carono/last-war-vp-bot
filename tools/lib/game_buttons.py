@@ -48,6 +48,16 @@ class Button:
     count_lua: str | None = None
     # Safety cap on `xall` iterations, so a miscounting expression can't spin forever.
     max_taps: int = 60
+    # Optional: a Lua expression returning "how many presses are on their WAY" — things
+    # the gate is right to refuse this second and will accept by itself shortly. It is
+    # what `TAP <button> xall WITHIN Ns` waits on: a round that presses nothing asks
+    # this, and holds on only while it answers above zero, so an empty queue costs no
+    # waiting at all and a queue that is merely not ready yet is not mistaken for one.
+    #
+    # #2843 is what it is for: city visitors walk up to the base over about fifteen
+    # seconds after the client enters it, and every errand run that had to switch scene
+    # first read a count of zero and collected nothing.
+    soon_lua: str | None = None
     # Optional: the same press written to fire `n` times inside ONE game-VM call, where
     # `n` is a Lua local the caller prepends. A call into the VM costs ~0.15 s and the
     # loop inside it is free, so a button with a batch form empties a 30-press quota in
@@ -168,7 +178,13 @@ BUTTONS: dict[str, Button] = {
         # applies, so `xall` recruits them one message at a time and re-reads to let
         # the server's push.user.visitor.change drain the queue instead of guessing.
         count_lua=_lua_actions.visitor_recruit_pending(),
-        max_taps=10,
+        # …and how many are still WALKING UP: a run that has just entered the base sees
+        # nobody arrived for about fifteen seconds (#2843), so `xall WITHIN` holds on
+        # while this is above zero instead of reporting an empty queue.
+        soon_lua=_lua_actions.visitor_recruit_coming(),
+        # A queue that has been ignored for a day is longer than ten (#2843 found eight
+        # standing on one base), and a cap reached is a queue that keeps growing.
+        max_taps=30,
     ),
     # --- Base -> collect a gift-bearing survivor ("Собрать подарки выжившего") -
     "collect_visitor_gifts": Button(
@@ -185,7 +201,9 @@ BUTTONS: dict[str, Button] = {
         # applies, so `xall` collects them one message at a time and re-reads to let
         # the server's push.user.visitor.change drain the queue instead of guessing.
         count_lua=_lua_actions.visitor_gift_pending(),
-        max_taps=10,
+        # …and how many are still WALKING UP — see recruit_survivor above (#2843).
+        soon_lua=_lua_actions.visitor_gift_coming(),
+        max_taps=30,   # see recruit_survivor above (#2843)
     ),
     # --- Alliance -> gifts: open the section, then claim each tab -------------
     # The "Подарки альянса" window has two "collect all" buttons — ordinary gifts

@@ -124,6 +124,12 @@ WAIT_STEP_MAX = 1.5
 WAIT_STEP_GROWTH = 1.5
 WAIT_STEP_QUICK_SEC = 3.0
 
+#: How often `TAP … xall WITHIN Ns` re-offers a press while the button's `soon_lua`
+#: says the gate is about to open. Three seconds is short against the fifteen a city
+#: visitor spends walking up to the base (#2843) and cheap against a run that holds
+#: the game link while it waits.
+TAP_SOON_POLL_SEC = 3.0
+
 #: The same, for a `TAP`'s own «did the value move» poll. It watches for a change the
 #: SERVER makes, which does not arrive sooner for being asked about more often — and it
 #: used to ask every 0.05 s, i.e. as fast as the link could answer, for the whole of the
@@ -329,7 +335,11 @@ _VISIT_OPT_RE = re.compile(
 # optionally N times (`TAP donate_1000 x30`) or `xall` — press as many times as the
 # button reports it still can (its count_lua), re-reading until that reaches zero.
 # This is the high-level, human-readable layer — engine calls stay in the catalogue.
-_TAP_RE = re.compile(r"^TAP\s+([A-Za-z_]\w*)(?:\s+x\s*(\d+|all))?\s*$", re.IGNORECASE)
+# A trailing `WITHIN N s` gives a gate that is about to open time to open: see
+# `Interpreter._tap_all` and the `soon_lua` note in tools/lib/game_buttons.py (#2843).
+_TAP_RE = re.compile(
+    r"^TAP\s+([A-Za-z_]\w*)(?:\s+x\s*(\d+|all))?"
+    r"(?:\s+WITHIN\s+(\d+(?:\.\d+)?)\s*s?)?\s*$", re.IGNORECASE)
 # LUA takes the rest of the line as a raw Lua chunk (no quotes — Lua is quote-heavy).
 # READ_LUA <expr> INTO <var> captures a value; the `INTO <var>` tail is anchored at
 # the end so the expression itself may contain anything up to it.
@@ -559,6 +569,10 @@ class TapStmt(_Stmt):
     """Press a named button `count` times. count=None means `xall` (spend all)."""
     name: str
     count: int | None = 1
+    #: `xall` only: how long to keep offering the press while the button's own
+    #: `soon_lua` says the gate is about to open. 0 = today's behaviour, stop the
+    #: moment a round presses nothing.
+    within: float = 0.0
 
 
 @dataclass(slots=True)
@@ -1225,7 +1239,9 @@ def _parse_one(lines, i, indent):
             count = None
         else:
             count = int(raw)
-        return TapStmt(text=text, line_no=ln, name=m.group(1), count=count), i + 1
+        within = float(m.group(3)) if m.group(3) else 0.0
+        return TapStmt(text=text, line_no=ln, name=m.group(1),
+                       count=count, within=within), i + 1
 
     m = _CHAT_SEND_RE.match(text)
     if m:
@@ -2482,6 +2498,11 @@ class Interpreter:
                 f"line {stmt.line_no}: unknown button {stmt.name!r} "
                 f"(known: {', '.join(game_buttons.names())})"
             )
+        if stmt.within and stmt.count is not None:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: TAP {stmt.name} WITHIN is for 'xall' only "
+                "(a counted press has no gate to wait for)"
+            )
         if stmt.count is None:                      # xall
             self._tap_all(stmt, btn)
             return
@@ -2679,6 +2700,12 @@ class Interpreter:
                 f"line {stmt.line_no}: button {stmt.name!r} does not support 'xall' "
                 "(no count defined in the catalogue)"
             )
+        if stmt.within and not btn.soon_lua:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: button {stmt.name!r} does not support 'WITHIN' "
+                "(no soon_lua defined in the catalogue)"
+            )
+        deadline = time.monotonic() + stmt.within
         pressed = 0
         while pressed < btn.max_taps:
             self._check_cancel()
@@ -2687,6 +2714,8 @@ class Interpreter:
                 self._log(f"TAP {btn.label} xall — count unavailable, stopping")
                 break
             if remaining <= 0 or not fired:
+                if self._tap_hold_on(stmt, btn, deadline):
+                    continue
                 break
             pressed += fired
             if btn.batch_lua:
@@ -2697,6 +2726,37 @@ class Interpreter:
         self.ctx.taps_tried += 1
         self.ctx.taps_fired += pressed
         self._log(f"TAP {btn.label} xall -> {pressed} press(es)")
+
+    def _tap_hold_on(self, stmt: TapStmt, btn, deadline: float) -> bool:
+        """`TAP … xall WITHIN Ns`: is this gate merely not open YET? -> wait and retry.
+
+        A zero gate means two different things and `xall` used to read both as «nothing
+        to do». City visitors are the case that proves it (#2843): they walk up to the
+        base over about fifteen seconds after the client enters it, so an errand that had
+        to switch scene first always read an empty queue — twelve runs in one day
+        collected nothing, while the three that happened to start in the base pressed.
+
+        So a button may declare `soon_lua` — how many presses are on their WAY — and this
+        asks it. Above zero, the run naps a poll interval and offers the press again;
+        zero (or unreadable, or the deadline spent) ends the loop exactly as before, so an
+        empty queue costs no waiting at all. The nap is interruptible, so a Stop or a more
+        urgent errand lands during it like any other wait.
+        """
+        if not stmt.within or not btn.soon_lua:
+            return False
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return False
+        raw = self._eval_lua_value(btn.soon_lua)
+        try:
+            coming = float(raw)
+        except (TypeError, ValueError):
+            return False
+        if coming <= 0:
+            return False
+        self._log(f"TAP {btn.label} — {int(coming)} on the way, waiting up to {left:.0f}s")
+        self._nap(min(TAP_SOON_POLL_SEC, left))
+        return True
 
     def _eval_lua_value(self, expr: str) -> str | None:
         """Evaluate a Lua expression, returning its `tostring()` value.

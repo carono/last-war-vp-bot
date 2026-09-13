@@ -1588,6 +1588,27 @@ def _visitor_kind_ready(kind: str, fallback: int) -> str:
             "and m.isArrival and not m.isFinish" % (kind, fallback))
 
 
+# A visitor that is STILL WALKING UP: queued, spawned, not finished — and not yet
+# `isArrival`. It is not pressable and the gate above is right to refuse it; what it
+# tells the caller is that the gate WILL open on its own in a few seconds, so a run
+# that has just walked into the base should hold on rather than report an empty queue.
+#
+# Measured live 2026-09-13 (#2843), a base with eight visitors queued, entering the
+# city from the world map: at the moment `scene == city` the models answer
+# `isArrival == nil`, five seconds later `false`, and at about fifteen seconds all
+# eight are `true`. Every errand run that had to switch scene first therefore read a
+# count of zero and pressed nothing — twelve runs in one day, against three presses
+# from the three runs that happened to start in the base already.
+def _visitor_kind_coming(kind: str, fallback: int) -> str:
+    """Lua condition snippet: `d` is a visitor of `kind` still walking up to the base."""
+    return ("d and m and d.eventType == ((VisitorType and VisitorType.%s) or %d) "
+            "and not m.isArrival and not m.isFinish" % (kind, fallback))
+
+
+_VISITOR_GIFT_COMING = ("d and m and __K[d.eventType] "
+                        "and not m.isArrival and not m.isFinish")
+
+
 # A gift-bearing visitor is not ONE kind, and the set grows with every season: the
 # enum ships GIFT, SeasonDayGift, SURVIVOR_PACK_GiFT and SystemGift, and a season
 # that adds another would leave a hardcoded list quietly collecting half of them.
@@ -1649,6 +1670,28 @@ def visitor_recruit_pending() -> str:
     return _visitor_count(_visitor_kind_ready("RECRUITMENT", 3))
 
 
+def _visitor_kind_waiting(kind: str, fallback: int) -> str:
+    """Lua condition snippet: `d` is a visitor of `kind` queued and not yet served.
+
+    Arrived or still walking — what a person looking at the base would call «ждёт».
+    """
+    return ("d and m and d.eventType == ((VisitorType and VisitorType.%s) or %d) "
+            "and not m.isFinish" % (kind, fallback))
+
+
+_VISITOR_GIFT_WAITING = "d and m and __K[d.eventType] and not m.isFinish"
+
+
+def visitor_recruit_waiting() -> str:
+    """Lua *expression* -> recruitable survivors queued, arrived or still walking up."""
+    return _visitor_count(_visitor_kind_waiting("RECRUITMENT", 3))
+
+
+def visitor_recruit_coming() -> str:
+    """Lua *expression* -> how many recruitable survivors are still walking up."""
+    return _visitor_count(_visitor_kind_coming("RECRUITMENT", 3))
+
+
 def visitor_recruit_survivor() -> str:
     """Recruit the first waiting survivor visitor (`visitor.operate {uid, operate=1}`)."""
     return _visitor_operate_first(_visitor_kind_ready("RECRUITMENT", 3))
@@ -1683,6 +1726,16 @@ def visitor_recruit_survivor() -> str:
 def visitor_gift_pending() -> str:
     """Lua *expression* -> how many queued visitors are gift-bearing survivors."""
     return _visitor_count(_VISITOR_GIFT_READY, _VISITOR_GIFT_SET)
+
+
+def visitor_gift_waiting() -> str:
+    """Lua *expression* -> gift-bearing survivors queued, arrived or still walking up."""
+    return _visitor_count(_VISITOR_GIFT_WAITING, _VISITOR_GIFT_SET)
+
+
+def visitor_gift_coming() -> str:
+    """Lua *expression* -> how many gift-bearing survivors are still walking up."""
+    return _visitor_count(_VISITOR_GIFT_COMING, _VISITOR_GIFT_SET)
 
 
 def visitor_gift_collect() -> str:

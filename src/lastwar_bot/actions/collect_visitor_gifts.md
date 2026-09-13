@@ -50,8 +50,19 @@
 # somebody else owes us, it is one call. So the run RETURNS to the base and only gives
 # up when the client will not go.
 
+# ENTERING THE BASE IS NOT ARRIVING (#2843). A visitor's model is re-created every time
+# the client walks into the city and then WALKS to the gate: measured live on a base with
+# eight queued, `isArrival` was nil at the moment `scene == city`, false five seconds
+# later and true for all eight at about fifteen. The gate below is right to refuse a
+# visitor that has not arrived — but a run that reads it two seconds after the scene
+# switch reads an empty queue and reports «nothing to do». That is what it did: twelve
+# runs in one day, every one of them after a scene switch, pressed nothing, while the
+# three that happened to start in the base already pressed. So `WITHIN` gives the walk
+# time to finish — and only while somebody is actually walking, so an empty base still
+# costs nothing.
+
 IF scene != city
     GAME CITY
     WAIT scene == city WITHIN 30s
 
-TAP collect_visitor_gifts xall   # collect until no gift-bearing survivor is left
+TAP collect_visitor_gifts xall WITHIN 45s   # collect until no gift-bearing survivor is left
