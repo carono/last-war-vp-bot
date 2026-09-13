@@ -109,7 +109,31 @@ ELSE
     WAIT 3
     READ_LUA (function() local M=DataCenter.AllianceStarManager local fd=M.ceremonyFullData if type(fd)~='table' then return 0 end return (fd.participateReceive and 1 or 0) end)() INTO taken_part
 
-# 7. What the run did, in the two numbers the card draws.
+# 7. THE SCRATCH CARD — the ceremony's third reward, and free like the other two.
+# It was deliberately left alone in #2584 because the client reaches it through a panel
+# and a blind send had not been proven; the owner asked for it in #2847 and the wire was
+# read before anything was sent. It is ONE message with NO fields at all — recorded off
+# the client's own message class by aborting in `ToBinary`, the same way the likes and
+# the chests were — and no window is needed: `TryOpenScratchCardPanel` is the client's
+# own way of DRAWING the card, not of claiming it, and the scratching is an animation
+# over a reward the server has already decided.
+#
+# THE GATE IS THE SERVER'S FLAG, as everywhere else here: `ceremonyFullData.scratchClaimed`
+# is true once the card has been taken, so a second run on the same Sunday sends nothing.
+# The flag is read back from a fresh ceremony reading rather than assumed.
+READ_LUA (function() local M=DataCenter.AllianceStarManager local fd=M.ceremonyFullData if type(fd)~='table' then return 0 end return (fd.scratchClaimed and 1 or 0) end)() INTO scratch
+
+IF scratch == 1
+    LOG "alliance star: the scratch card was already claimed"
+ELSE
+    LUA pcall(function() SFSNetwork.SendMessage('alliance.star.gain.scratch.reward') end)
+    WAIT 3
+    LUA pcall(function() SFSNetwork.SendMessage('alliance.star.gain.ceremony.info.new') end)
+    WAIT 3
+    READ_LUA (function() local M=DataCenter.AllianceStarManager local fd=M.ceremonyFullData if type(fd)~='table' then return 0 end return (fd.scratchClaimed and 1 or 0) end)() INTO scratch
+    LOG "alliance star: scratch card claimed = {scratch}"
+
+# 8. What the run did, in the two numbers the card draws.
 # `liked` was read by this run, so it is PARKED rather than interpolated: a `{name}` is
 # filled when the file is parsed, and `{liked}>0` reached the game as a table constructor
 # compared with a number — an error in the one branch that used it (#2649).
@@ -117,4 +141,4 @@ PARK liked INTO DataCenter.__lw_star_liked
 
 READ_LUA (function() local M=DataCenter.AllianceStarManager local n=0 local ok,e=pcall(function() return M:GetEmojiThumbsRewardInfo() end) local claimed=0 if ok and type(e)=='table' then claimed=tonumber(e.claimedIndex) or 0 end if claimed>0 then n=n+1 elseif (not ok or type(e)~='table') and (tonumber(DataCenter.__lw_star_liked) or 0)>0 then n=n+1 end local fd=M.ceremonyFullData if type(fd)=='table' and fd.participateReceive then n=n+1 end return n end)() INTO chests
 
-LOG "alliance_star_done — likes {liked}/{stars}, chests {chests}/2"
+LOG "alliance_star_done — likes {liked}/{stars}, chests {chests}/2, scratch {scratch}"

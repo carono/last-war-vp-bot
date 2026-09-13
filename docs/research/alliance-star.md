@@ -47,6 +47,7 @@ its `SFSObject` and aborting in `ToBinary`, so nothing was ever sent to find thi
 | `alliance.star.thumbs.up.new` | `PutInt configId`, `PutUtfString targetUid`, `PutInt thumbsIndexId`, `PutInt type` — **A LIKE** |
 | `alliance.star.ceremony.quest.emoji.reward.new` | none — the chest the likes earned |
 | `alliance.star.ceremony.quest.reward.new` | none — the chest for taking part |
+| `alliance.star.gain.scratch.reward` | none — the scratch card (#2847) |
 | `push.alliance.star.ceremony.info` | the announcement the panel listens on |
 | `push.alliance.star.thumbs.up.info.change.new` | somebody's like landed, ours included |
 
@@ -74,14 +75,48 @@ the recipe pays one round trip for the lot.
 
 ## What was NOT done, and why it is written down
 
-* **`alliance.star.gain.scratch.reward`** — a scratch card, `ceremonyFullData.scratchClaimed`
-  beside it and `TryOpenScratchCardPanel` / `MarkScratchClaimed` around it. It looks free,
-  it is a third reward rather than one of the two the person asked for, and the client
-  reaches it through a panel — so it was left alone rather than sent blind.
+* **`alliance.star.gain.scratch.reward`** — the scratch card. It was left alone here and
+  is taken since #2847; the section «The scratch card» below says what it is on the wire.
 * **`alliance.star.request.enter` / `EnterCeremonyScene`** — attending the ceremony as a
   scene. Not needed for either chest: the taking-part one was claimed with no scene at all.
 * **The score chest** (`GetScoreRewardByScore(allianceDuelWeekScore)`) pays out of the
   duel's own week and has no claim of its own on this route.
+
+## The scratch card, and why it is no longer «not done» (#2847)
+
+The person's decision, in their words: «Скретч карту тоже забирай». What #2584 left alone
+was sent blind by nobody — the wire was read first, the same way the likes and the chests
+were.
+
+| what | answer |
+|---|---|
+| the command | `alliance.star.gain.scratch.reward` |
+| its fields | **none** — the recorded `ToBinary` handed back an empty key list |
+| the gate | `ceremonyFullData.scratchClaimed`, the server's own flag |
+| a window | **not needed** — the claim is the send |
+| «scratching» | an animation. `TryOpenScratchCardPanel` DRAWS the card; it does not claim it |
+
+`GetScratchCardRewardDetailInfo()` answers `nil` before and after the claim, with or
+without an argument, and the manager holds no field of its own for it — the detail belongs
+to the ceremony panel while it is on screen. `MarkScratchClaimed` is the client's own local
+note, not a second step.
+
+Taken live on 2026-09-13, on three accounts of edition 70, one send each:
+
+```
+scratch before: false   ->   scratch after: true      (three accounts, independently)
+```
+
+The claim is instant and needs nothing opened. **What it pays was not visible in the bag**:
+a per-item-id snapshot of `DataCenter.ItemData.ItemInfos` taken before the send and again
+six seconds and four minutes after it showed no change at all, and the newest mail on that
+account predates the claim by twenty minutes. So the card is not an item and does not come
+by post; what the server actually credits is still unnamed here, and the next account to
+take one (a client that was down on the day) is the chance to name it.
+
+The recipe's step 7 does the whole of it: read the flag, send once when it is false, ask
+for the ceremony again and read the flag back. A second run on the same Sunday sends
+nothing and says so.
 
 ## What the panel does with it
 
@@ -124,5 +159,5 @@ Read live on 2026-09-13 after the fix, on three accounts, all identical:
 `stars=14 liked=14 emoji.count=14 emoji.claimedIndex=3 canReward=false participateReceive=true`
 — the fourteen likes and both chests were in fact taken; what had been broken was WHEN.
 
-`scratchClaimed=false` on all three, as expected: the scratch card is still deliberately
-not claimed (see «What was NOT done» above).
+`scratchClaimed=false` on all three at the time — the card was still deliberately not
+claimed. It is claimed since #2847 (see «The scratch card» above).
