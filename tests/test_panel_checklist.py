@@ -299,9 +299,25 @@ def test_every_count_on_the_board_is_the_one_the_press_is_gated_on():
     none is the one bug this whole design is meant to make impossible.
     """
     text = SCENARIO.read_text(encoding="utf-8")
+    # The two visitor counts are the WAITING ones and not the press's own gate, and that
+    # is not a drift (#2843): a visitor is re-created and walks to the gate again every
+    # time the client enters the base, so the gate refuses it for about fifteen seconds
+    # while the person looking at the base sees it standing there. The board says what is
+    # waiting; the press waits the walk out (`TAP … xall WITHIN`). The invariant below
+    # keeps the two halves of that one set — the gate plus who is coming IS the waiting
+    # count, so a kind cannot be added to one and forgotten in the other.
+    for kind in ("recruit", "gift"):
+        gate = getattr(lua_actions, f"visitor_{kind}_pending")()
+        coming = getattr(lua_actions, f"visitor_{kind}_coming")()
+        waiting = getattr(lua_actions, f"visitor_{kind}_waiting")()
+        for one in (gate, coming, waiting):
+            assert "not m.isFinish" in one, f"visitor_{kind}: a served visitor is not waiting"
+        assert "m.isArrival and not" in gate, f"visitor_{kind}: the gate must want an arrival"
+        assert "not m.isArrival" in coming, f"visitor_{kind}: the walk-up count is the walk"
+        assert "isArrival" not in waiting, f"visitor_{kind}: waiting is both of them"
     for name in ("base_collect_ready_count", "trucks_ready_count",
                  "alliance_donate_rest", "alliance_help_waiting",
-                 "visitor_recruit_pending", "visitor_gift_pending",
+                 "visitor_recruit_waiting", "visitor_gift_waiting",
                  "occupation_skills_ready_count", "hospital_wounded_count",
                  "hospital_healed_ready", "queues_needing_help",
                  "decoration_upgrade_ready_count", "secret_task_steals_left",

@@ -717,7 +717,7 @@ recipe:
 
 It is read once per run, not once per press, so a `TAP … xall` costs one reading.
 
-### `TAP <button> [xN | xall]`
+### `TAP <button> [xN | xall] [WITHIN N s]`
 
 Press a named button from the catalogue — once (default), `N` times, or `xall`. This
 is the human-facing primitive: the recipe names *what* to press, the catalogue knows
@@ -755,6 +755,27 @@ Pressing more times than there is anything to do is harmless when the action
 self-gates (`donate_1000` no-ops once the quota is spent). An unknown button name is a
 runtime error listing the ones that exist.
 
+**A gate that is not open YET — `xall WITHIN N s`.** A count of zero means two
+different things, and `xall` used to read both as «nothing to do»: there is nothing to
+press, or there is and the client is not ready to be asked. City visitors are the case
+that proved it (#2843) — they walk up to the base over about fifteen seconds after the
+client enters it, so an errand that switched scene first always read an empty queue and
+collected nothing, twelve runs in one day.
+
+```
+TAP collect_visitor_gifts xall WITHIN 45s
+```
+
+The button declares a second expression, `soon_lua` — how many presses are on their WAY.
+A round that presses nothing asks it: above zero the run naps a few seconds
+(`script_engine.TAP_SOON_POLL_SEC`) and offers the press again, until the gate opens or
+the cap runs out; zero ends the loop exactly as before, so an EMPTY queue costs no
+waiting at all. The nap is interruptible like every other wait, so a Stop or a more
+urgent errand lands during it.
+
+`WITHIN` is for `xall` only (a counted press has no gate to wait for) and needs a button
+with `soon_lua`; either mistake is a clear runtime error.
+
 **A press can prove it did something — `verify_lua`.** By default a `TAP` reports
 success from «the Lua did not raise», which says the call ran and nothing more: 32 of
 the 44 `TAP` lines in the shipped recipes cannot tell «pressed» from «did anything», and
@@ -787,7 +808,7 @@ The expression must be cheap and stable between presses — a clock or a frame c
 the right verifier: it is the number the press is supposed to spend.
 
 **Adding a button** = one entry in `tools/lib/game_buttons.py` (`name -> {lua, wait,
-label, count_lua?, batch_lua?, verify_lua?}`). Use `READ_LUA`/`LUA` while working it
+label, count_lua?, soon_lua?, batch_lua?, verify_lua?}`). Use `READ_LUA`/`LUA` while working it
 out, then fold the call into a button so recipes can just `TAP` it.
 
 ### `LUA <chunk>`
