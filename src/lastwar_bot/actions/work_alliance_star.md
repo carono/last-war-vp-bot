@@ -28,13 +28,31 @@ ARGS emoji = 1
 
 # 1. Is there a ceremony this week at all? The one question that is asked whatever the
 #    day is, and the one that costs nothing when the answer is «no».
+#
+#    ASKED TWICE BEFORE IT IS BELIEVED. `hasCeremony` is `nil` until the reply lands, and
+#    a `nil` reads exactly like a «no» — so one slow answer used to be indistinguishable
+#    from a week with no ceremony in it.
 LUA pcall(function() DataCenter.AllianceStarManager:RequestActivityInfo() end)
 WAIT 2
 READ_LUA (function() local M=DataCenter.AllianceStarManager if M==nil then return 0 end return (M.hasCeremony and 1 or 0) end)() INTO ceremony
 
 IF ceremony == 0
-    LOG "alliance star: no ceremony right now — nothing to like"
-    STOP "no ceremony"
+    LUA pcall(function() DataCenter.AllianceStarManager:RequestActivityInfo() end)
+    WAIT 4
+    READ_LUA (function() local M=DataCenter.AllianceStarManager if M==nil then return 0 end return (M.hasCeremony and 1 or 0) end)() INTO ceremony
+
+# NOT A SUCCESS — A RUN TO BE MADE AGAIN (#2846). This used to `STOP`, which is «the
+# scenario decided it is done»: the errand's turn was counted as taken and its next one
+# booked a WEEK away. Measured live on 2026-09-13: the Sunday turn fired at 07:14 while
+# the ceremony had not opened yet, read `hasCeremony=false`, halted «ok», and booked
+# itself for the following Sunday — so when edition 70 opened at 12:42 there was no turn
+# left to spend on it, and the fourteen likes and both chests were only made at 13:13
+# because the push listener happened to be alive and fired the same recipe. A `FAIL`
+# spends the errand's `retry_sec` (an hour) instead of its week, so the ceremony is
+# caught by the schedule whether or not the ear is listening.
+IF ceremony == 0
+    LOG "alliance star: no ceremony right now — nothing to like, try again later"
+    FAIL "no ceremony yet — retry later"
 
 # 2. The board. Two asks: the ceremony itself (who is nominated, who is the star) and the
 #    likes standing on it, which is where OUR own like shows up as `selfThumbs`.
@@ -45,9 +63,12 @@ WAIT 3
 
 READ_LUA (function() local M=DataCenter.AllianceStarManager local n=0 for _,l in pairs(M.ceremonyThumbs or {}) do for _,v in pairs(l or {}) do if v.isStar then n=n+1 end end end return n end)(), (function() local M=DataCenter.AllianceStarManager local n=0 for _,l in pairs(M.ceremonyThumbs or {}) do for _,v in pairs(l or {}) do if v.isStar and type(v.selfThumbs)=='table' and next(v.selfThumbs)~=nil then n=n+1 end end end return n end)() INTO stars, liked
 
+# An empty board is the same shape of answer as an unanswered `hasCeremony`: the ceremony
+# IS running (we got past the gate above), so «nobody to like» can only mean the reply has
+# not landed yet. A precondition unmet, not an ability finished — so it is retried too.
 IF stars == 0
-    LOG "alliance star: the board came back empty — nobody to like"
-    STOP "empty board"
+    LOG "alliance star: the board came back empty — nobody to like yet"
+    FAIL "the ceremony board has not arrived — retry later"
 
 # 3. THE LIKES, all of them in ONE call. A round trip costs the trip and not the work
 #    inside it, and thirteen sends inside one chunk all landed live (#2584) — so the
