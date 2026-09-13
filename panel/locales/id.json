@@ -3067,6 +3067,8 @@
   "triggers.item.alliance_star_ceremony": "Beri suka pada bintang aliansi saat upacara diumumkan",
   "timers.stat.alliance_gifts": "menunggu: {n} · biasa {ord} · premium {prem} · diambil hari ini: {today}",
   "timers.stat.alliance_star": "suka: {n} dari {all} · peti: {chests} dari {boxes}",
+  "timers.stat.alliance_star_scratch_taken": "suka: {n} dari {all} · peti: {chests} dari {boxes} · kartu gosok: sudah diambil",
+  "timers.stat.alliance_star_scratch_left": "suka: {n} dari {all} · peti: {chests} dari {boxes} · kartu gosok: belum diambil",
   "timers.stat.alliance_star_closed": "sekarang tidak berlangsung",
   "errand.arg.alliance_star.emoji": "Reaksi",
   "errand.arg.alliance_star.emoji.hint": "Suka diberikan dengan reaksi upacara yang mana dari lima. Peti menghitung suka, bukan wajah.",

@@ -3067,6 +3067,8 @@
   "triggers.item.alliance_star_ceremony": "Dar me gusta a las estrellas cuando se anuncie la ceremonia",
   "timers.stat.alliance_gifts": "esperando: {n} · normales {ord} · premium {prem} · recogidos hoy: {today}",
   "timers.stat.alliance_star": "me gusta: {n} de {all} · cofres: {chests} de {boxes}",
+  "timers.stat.alliance_star_scratch_taken": "me gusta: {n} de {all} · cofres: {chests} de {boxes} · tarjeta de rascar: recogida",
+  "timers.stat.alliance_star_scratch_left": "me gusta: {n} de {all} · cofres: {chests} de {boxes} · tarjeta de rascar: sin recoger",
   "timers.stat.alliance_star_closed": "ahora no se celebra",
   "errand.arg.alliance_star.emoji": "Reacción",
   "errand.arg.alliance_star.emoji.hint": "Con cuál de las cinco reacciones de la ceremonia se da el me gusta. El cofre cuenta me gusta, no caras.",

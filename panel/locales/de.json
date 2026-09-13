@@ -3067,6 +3067,8 @@
   "triggers.item.alliance_star_ceremony": "Allianzsterne liken, sobald die Zeremonie angekündigt ist",
   "timers.stat.alliance_gifts": "warten: {n} · gewöhnlich {ord} · Premium {prem} · heute geholt: {today}",
   "timers.stat.alliance_star": "Likes: {n} von {all} · Truhen: {chests} von {boxes}",
+  "timers.stat.alliance_star_scratch_taken": "Likes: {n} von {all} · Truhen: {chests} von {boxes} · Rubbelkarte: erhalten",
+  "timers.stat.alliance_star_scratch_left": "Likes: {n} von {all} · Truhen: {chests} von {boxes} · Rubbelkarte: nicht erhalten",
   "timers.stat.alliance_star_closed": "findet gerade nicht statt",
   "errand.arg.alliance_star.emoji": "Reaktion",
   "errand.arg.alliance_star.emoji.hint": "Mit welcher der fünf Zeremonie-Reaktionen das Like vergeben wird. Die Truhe zählt Likes, nicht Gesichter.",

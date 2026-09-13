@@ -118,12 +118,19 @@ The recipe's step 7 does the whole of it: read the flag, send once when it is fa
 for the ceremony again and read the flag back. A second run on the same Sunday sends
 nothing and says so.
 
+**The card says so too, since the person asked for it** (#2847, «Да»): the errand's line on
+«Таймеры» carries the card's state beside the chests — one line, one component, and the
+whole sentence is a key per state rather than a translated word dropped into another
+language's sentence. It costs the game nothing: `alstar_scratch` is one more field of the
+reading «Таймеры» already takes, and it is a **dash** — not a «0» — on a client that knows
+of no ceremony, so the row cannot say «не забрана» on a week with no ceremony in it.
+
 ## What the panel does with it
 
 | piece | where |
 |---|---|
 | the ability | `src/lastwar_bot/actions/work_alliance_star.md` |
-| the reading | four fields of `read_daily_checklist.md` — `alstar_open`, `alstar_stars`, `alstar_liked`, `alstar_chests` |
+| the reading | five fields of `read_daily_checklist.md` — `alstar_open`, `alstar_stars`, `alstar_liked`, `alstar_chests`, `alstar_scratch` (#2847) |
 | the card's line | `panel/runtime/errand_stats.py::_alliance_star` |
 | the ear | the `alliance_star_ceremony` trigger on `push.alliance.star.ceremony.info` |
 | the errand | «Таймеры» → `work_alliance_star`, Sunday only (`Timer.weekdays`) |
