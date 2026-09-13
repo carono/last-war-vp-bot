@@ -3193,5 +3193,6 @@
   "triggers.item.doomsday_gifts.short": "Regalos Día del Juicio",
   "timers.stat.doomsday.closed": "el evento no está activo",
   "timers.stat.doomsday.pending": "regalos por recoger: {n}",
-  "timers.stat.doomsday.done": "los {n} regalos están recogidos"
+  "timers.stat.doomsday.done": "los {n} regalos están recogidos",
+  "events.doomsday.gifts.value": "{taken} de {quests}"
 }

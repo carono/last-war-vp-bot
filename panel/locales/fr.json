@@ -3193,5 +3193,6 @@
   "triggers.item.doomsday_gifts.short": "Cadeaux Jour du Jugement",
   "timers.stat.doomsday.closed": "l'événement n'est pas en cours",
   "timers.stat.doomsday.pending": "cadeaux à récupérer : {n}",
-  "timers.stat.doomsday.done": "les {n} cadeaux sont récupérés"
+  "timers.stat.doomsday.done": "les {n} cadeaux sont récupérés",
+  "events.doomsday.gifts.value": "{taken} sur {quests}"
 }

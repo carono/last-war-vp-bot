@@ -3193,5 +3193,6 @@
   "triggers.item.doomsday_gifts.short": "Prezenty Dnia Sądu",
   "timers.stat.doomsday.closed": "wydarzenie nie trwa",
   "timers.stat.doomsday.pending": "prezenty do odebrania: {n}",
-  "timers.stat.doomsday.done": "wszystkie {n} prezentów odebrane"
+  "timers.stat.doomsday.done": "wszystkie {n} prezentów odebrane",
+  "events.doomsday.gifts.value": "{taken} z {quests}"
 }
