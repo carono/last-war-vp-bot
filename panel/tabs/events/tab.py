@@ -2178,6 +2178,11 @@ class EventsTab(PanelTab):
         # knob and only for an argument the row has not got (`_arms_carry_once`).
         self._arms_block = {key: raw[key] for key in modelmod.ARMS_ARG_OF
                             if key in raw}
+        # …and carried AT ONCE where the catalogue is already loaded, so the gear on
+        # «Таймеры» shows this account's own numbers without anybody having to open the
+        # card first. A no-op when the row is not there yet — the first read of a knob
+        # does it then.
+        self._arms_carry_once()
         self._squad = modelmod.squad_of(raw.get(modelmod.GOLDEN_SQUAD_KEY))
         self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, False))
         self._golden_limit = modelmod.whole_of(
