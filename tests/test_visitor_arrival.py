@@ -143,6 +143,26 @@ def test_within_is_refused_where_it_means_nothing():
         raise AssertionError(f"WITHIN on {why} must be a clear error")
 
 
+def test_a_visitor_the_server_has_not_sent_yet_is_nobody_to_wait_for():
+    """The queue holds LATER visitors too, and waiting for one waits for nothing.
+
+    Measured live (#2843): a gift entry sat in the queue with a `startTime` 803 seconds
+    in the future, `isCreate` unset and every flag nil — the server had scheduled it,
+    nobody was outside. Counted as «on the way» it cost every run the whole of its
+    `WITHIN` and collected nothing. So all three counts ask whether the visitor's turn
+    has COME, and a clock the client would not answer counts everyone rather than hiding
+    somebody who is standing there.
+    """
+    for name in ("visitor_recruit_waiting", "visitor_recruit_coming",
+                 "visitor_gift_waiting", "visitor_gift_coming"):
+        expr = getattr(lua_actions, name)()
+        assert "d.startTime <= __NOW" in expr, f"{name} waits for visitors who are not due"
+        assert "__NOW = UITimeManager" in expr, f"{name} has no clock to judge that by"
+        assert "__NOW <= 0 or" in expr, f"{name} hides visitors when the clock is silent"
+    # …and the press's own gate does not need it: an arrived visitor is due by definition.
+    assert "startTime" not in lua_actions.visitor_recruit_pending()
+
+
 def test_the_coming_count_is_the_same_kinds_as_the_gate():
     # The gift set is derived from the game's own enum by NAME, and both the gate and
     # the walk-up count must be built from that one set — never a second list.

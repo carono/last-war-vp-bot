@@ -1587,6 +1587,19 @@ def _visitor_kind_ready(kind: str, fallback: int) -> str:
     return ("d and m and d.eventType == ((VisitorType and VisitorType.%s) or %d) "
             "and m.isArrival and not m.isFinish" % (kind, fallback))
 
+#: The server's clock, for `_VISITOR_DUE`. Read once per count rather than per entry,
+#: and zero when the client would not answer — the right way round, because a clock
+#: we could not read must not be allowed to hide a visitor who is standing there.
+_VISITOR_NOW = ("local __NOW = 0 "
+                "pcall(function() __NOW = UITimeManager:GetInstance():GetServerTime() end) ")
+
+#: A queue entry whose turn has COME. The queue holds visitors the server has scheduled
+#: for later as well as the ones standing at the gate: measured live (#2843) one gift
+#: entry carried a `startTime` 803 seconds in the FUTURE, with `isCreate` unset and
+#: every flag nil. It is not walking up, and a run that waits for it waits for nothing —
+#: the whole of its `WITHIN` — while the person sees nobody outside.
+_VISITOR_DUE = ("(__NOW <= 0 or type(d.startTime) ~= 'number' or d.startTime <= __NOW)")
+
 
 # A visitor that is STILL WALKING UP: queued, spawned, not finished — and not yet
 # `isArrival`. It is not pressable and the gate above is right to refuse it; what it
@@ -1602,11 +1615,11 @@ def _visitor_kind_ready(kind: str, fallback: int) -> str:
 def _visitor_kind_coming(kind: str, fallback: int) -> str:
     """Lua condition snippet: `d` is a visitor of `kind` still walking up to the base."""
     return ("d and m and d.eventType == ((VisitorType and VisitorType.%s) or %d) "
-            "and not m.isArrival and not m.isFinish" % (kind, fallback))
+            "and not m.isArrival and not m.isFinish and %s" % (kind, fallback, _VISITOR_DUE))
 
 
 _VISITOR_GIFT_COMING = ("d and m and __K[d.eventType] "
-                        "and not m.isArrival and not m.isFinish")
+                        "and not m.isArrival and not m.isFinish and " + _VISITOR_DUE)
 
 
 # A gift-bearing visitor is not ONE kind, and the set grows with every season: the
@@ -1670,26 +1683,28 @@ def visitor_recruit_pending() -> str:
     return _visitor_count(_visitor_kind_ready("RECRUITMENT", 3))
 
 
+
 def _visitor_kind_waiting(kind: str, fallback: int) -> str:
     """Lua condition snippet: `d` is a visitor of `kind` queued and not yet served.
 
     Arrived or still walking — what a person looking at the base would call «ждёт».
     """
     return ("d and m and d.eventType == ((VisitorType and VisitorType.%s) or %d) "
-            "and not m.isFinish" % (kind, fallback))
+            "and not m.isFinish and %s" % (kind, fallback, _VISITOR_DUE))
 
 
-_VISITOR_GIFT_WAITING = "d and m and __K[d.eventType] and not m.isFinish"
+_VISITOR_GIFT_WAITING = ("d and m and __K[d.eventType] and not m.isFinish and "
+                         + _VISITOR_DUE)
 
 
 def visitor_recruit_waiting() -> str:
     """Lua *expression* -> recruitable survivors queued, arrived or still walking up."""
-    return _visitor_count(_visitor_kind_waiting("RECRUITMENT", 3))
+    return _visitor_count(_visitor_kind_waiting("RECRUITMENT", 3), _VISITOR_NOW)
 
 
 def visitor_recruit_coming() -> str:
     """Lua *expression* -> how many recruitable survivors are still walking up."""
-    return _visitor_count(_visitor_kind_coming("RECRUITMENT", 3))
+    return _visitor_count(_visitor_kind_coming("RECRUITMENT", 3), _VISITOR_NOW)
 
 
 def visitor_recruit_survivor() -> str:
@@ -1730,12 +1745,12 @@ def visitor_gift_pending() -> str:
 
 def visitor_gift_waiting() -> str:
     """Lua *expression* -> gift-bearing survivors queued, arrived or still walking up."""
-    return _visitor_count(_VISITOR_GIFT_WAITING, _VISITOR_GIFT_SET)
+    return _visitor_count(_VISITOR_GIFT_WAITING, _VISITOR_GIFT_SET + _VISITOR_NOW)
 
 
 def visitor_gift_coming() -> str:
     """Lua *expression* -> how many gift-bearing survivors are still walking up."""
-    return _visitor_count(_VISITOR_GIFT_COMING, _VISITOR_GIFT_SET)
+    return _visitor_count(_VISITOR_GIFT_COMING, _VISITOR_GIFT_SET + _VISITOR_NOW)
 
 
 def visitor_gift_collect() -> str:
