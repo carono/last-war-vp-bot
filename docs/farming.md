@@ -97,7 +97,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - 🟡 Beneath the Ruins («Под руинами», the seasonal descent machine) — one press and the bot plays it round after round, about twice the depth of simply falling
 - 🟡 Frontline Breakthrough («Прорыв обороны», the Sunday minigame) — one press plays it chain after chain and claims the three soldier boxes; stage 1 is cleared reliably, stage 2 once
 - 🟡 …and it can be left to the weekly timer: a row that fires on the event's own day, by the game's clock. Ships switched off
-- ✅ Alliance Star («Звезда альянса», the weekly ceremony) — one press likes every star of the week and takes both chests the likes pay. Nothing is spent
+- ✅ Alliance Star («Звезда альянса», the weekly ceremony) — one press likes every star of the week and takes both chests and the scratch card. Nothing is spent
 
 ### Arms Race
 
