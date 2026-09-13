@@ -3067,6 +3067,8 @@
   "triggers.item.alliance_star_ceremony": "Polub gwiazdy sojuszu, gdy ceremonia zostanie ogłoszona",
   "timers.stat.alliance_gifts": "czeka: {n} · zwykłych {ord} · premium {prem} · odebrano dziś: {today}",
   "timers.stat.alliance_star": "polubienia: {n} z {all} · skrzynie: {chests} z {boxes}",
+  "timers.stat.alliance_star_scratch_taken": "polubienia: {n} z {all} · skrzynie: {chests} z {boxes} · zdrapka: odebrana",
+  "timers.stat.alliance_star_scratch_left": "polubienia: {n} z {all} · skrzynie: {chests} z {boxes} · zdrapka: nieodebrana",
   "timers.stat.alliance_star_closed": "teraz się nie odbywa",
   "errand.arg.alliance_star.emoji": "Reakcja",
   "errand.arg.alliance_star.emoji.hint": "Którą z pięciu reakcji ceremonii dodawane jest polubienie. Skrzynia liczy polubienia, nie buźki.",

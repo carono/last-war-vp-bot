@@ -794,12 +794,25 @@ def _alliance_star(rt) -> "dict | None":
         return {"key": "timers.stat.alliance_star_closed", "fmt": {}, "age": age}
     if "alstar_stars" not in values:
         return None
-    return {"key": "timers.stat.alliance_star",
-            "fmt": {"n": _int(values.get("alstar_liked")),
-                    "all": _int(values.get("alstar_stars")),
-                    "chests": _int(values.get("alstar_chests")),
-                    "boxes": 2},
-            "age": age}
+    fmt = {"n": _int(values.get("alstar_liked")),
+           "all": _int(values.get("alstar_stars")),
+           "chests": _int(values.get("alstar_chests")),
+           "boxes": 2}
+    # THE SCRATCH CARD, the ceremony's third reward (#2847). It is a WORD rather than a
+    # count — taken or not — so the whole line is a key of its own per state instead of a
+    # translated fragment interpolated into another sentence: a phone in Turkish would
+    # otherwise get a Russian word inside a Turkish sentence.
+    #
+    # A reading that is NOT THERE keeps the old line. `alstar_scratch` is a dash on a
+    # client that knows of no ceremony, and a «не забрана» outside the event is precisely
+    # the lie this row must not tell — the same reason `alstar_open` decides the sentence
+    # above rather than a «0 из 0».
+    scratch = values.get("alstar_scratch")
+    if scratch not in (None, "-", ""):
+        key = ("timers.stat.alliance_star_scratch_taken" if _int(scratch)
+               else "timers.stat.alliance_star_scratch_left")
+        return {"key": key, "fmt": fmt, "age": age}
+    return {"key": "timers.stat.alliance_star", "fmt": fmt, "age": age}
 
 
 def _alliance_gifts(rt) -> "dict | None":

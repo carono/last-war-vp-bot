@@ -615,6 +615,29 @@ def test_the_weekly_ceremony_says_its_likes_and_its_two_chests():
         "timers.stat.alliance_star", "timers.stat.alliance_star_closed")
 
 
+def test_the_ceremony_says_whether_its_scratch_card_is_taken():
+    """The third reward, in words, on the same line (#2847)."""
+    base = {"alstar_open": 1, "alstar_stars": 14, "alstar_liked": 14, "alstar_chests": 2}
+    rt = _rt(daily=dict(base, alstar_scratch=0), daily_age=3.0)
+    assert statsmod.of(rt, "work_alliance_star") == {
+        "key": "timers.stat.alliance_star_scratch_left",
+        "fmt": {"n": 14, "all": 14, "chests": 2, "boxes": 2}, "age": 3.0}
+    rt = _rt(daily=dict(base, alstar_scratch=1), daily_age=3.0)
+    assert statsmod.of(rt, "work_alliance_star")["key"] == \
+        "timers.stat.alliance_star_scratch_taken"
+    # A READING THAT IS NOT THERE KEEPS THE OLD LINE. `alstar_scratch` is a dash on a
+    # client that knows of no ceremony, and «не забрана» outside the event is the one
+    # thing this row must not say.
+    rt = _rt(daily=base, daily_age=3.0)
+    assert statsmod.of(rt, "work_alliance_star")["key"] == "timers.stat.alliance_star"
+    rt = _rt(daily=dict(base, alstar_scratch="-"), daily_age=3.0)
+    assert statsmod.of(rt, "work_alliance_star")["key"] == "timers.stat.alliance_star"
+    # …and a week with no ceremony still says «не проводится», scratch or no scratch.
+    rt = _rt(daily={"alstar_open": 0, "alstar_scratch": "-"}, daily_age=1.0)
+    assert statsmod.of(rt, "work_alliance_star")["key"] == \
+        "timers.stat.alliance_star_closed"
+
+
 def test_a_shut_event_says_it_is_shut_rather_than_showing_a_quota():
     """The ghost quota means nothing on the six days «Операция Призрак» is not on."""
     rt = _rt(daily={"ghost_open": 0, "ghost_left": 5, "ghost_cap": 5}, daily_age=1.0)

@@ -3067,6 +3067,8 @@
   "triggers.item.alliance_star_ceremony": "Curtir as estrelas da aliança quando a cerimónia for anunciada",
   "timers.stat.alliance_gifts": "aguardando: {n} · comuns {ord} · premium {prem} · recebidos hoje: {today}",
   "timers.stat.alliance_star": "curtidas: {n} de {all} · baús: {chests} de {boxes}",
+  "timers.stat.alliance_star_scratch_taken": "curtidas: {n} de {all} · baús: {chests} de {boxes} · cartão de raspadinha: resgatado",
+  "timers.stat.alliance_star_scratch_left": "curtidas: {n} de {all} · baús: {chests} de {boxes} · cartão de raspadinha: não resgatado",
   "timers.stat.alliance_star_closed": "não está a decorrer agora",
   "errand.arg.alliance_star.emoji": "Reação",
   "errand.arg.alliance_star.emoji.hint": "Com qual das cinco reações da cerimónia a curtida é dada. O baú conta curtidas, não caras.",
