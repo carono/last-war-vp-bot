@@ -382,6 +382,47 @@ def _tab_class():
     return EventsTab
 
 
+class _Row:
+    """One row of the errand catalogue — its arguments and nothing else."""
+
+    def __init__(self, args: dict) -> None:
+        self.args = args
+
+
+class _Catalogue:
+    def __init__(self, rows: dict) -> None:
+        self._rows = rows
+
+    def by_name(self, name):
+        return self._rows.get(name)
+
+
+class _Schedule:
+    """Just enough catalogue for the arms knobs (#2841).
+
+    They are the recipe's own `ARGS` and live on the errand's row, which is what gives
+    them to a profile that has this tab switched off — so a test of the card has to read
+    and write them where the card does.
+    """
+
+    def __init__(self) -> None:
+        self.rows = {modelmod.ARMS_ERRAND: _Row({})}
+        self.timer_catalogue = _Catalogue(self.rows)
+
+    def timer_arg(self, errand, key, default=None):
+        row = self.rows.get(errand)
+        if row is None:
+            return default
+        return dict(row.args).get(key, default)
+
+    def set_timer_arg(self, errand, key, value) -> bool:
+        row = self.rows.get(errand)
+        if row is None:
+            return False
+        row.args[key] = value
+        return True
+
+
 class _Runtime:
     """Just enough runtime for the two paths a screen takes."""
 
@@ -395,6 +436,8 @@ class _Runtime:
         #: `None` store is what `panel/golden_zombies.py` reads as «no history yet».
         self.store = None
         self.settings = _Runtime._Settings()
+        #: The errand catalogue — where the arms knobs live since #2841.
+        self.schedule = _Schedule()
 
     def play_async(self, name, *a, **kw) -> bool:
         if not self.plays:
@@ -485,12 +528,12 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN,
     tab._arms_busy = False
     tab._arms_running = False
     tab._chain_arms = False
-    tab._arms_hero = modelmod.ARMS_HERO_DEFAULT
     tab._arms_hero_var = None
-    tab._arms_drone = modelmod.ARMS_DRONE_DEFAULT
     tab._arms_drone_var = None
-    tab._arms_stamina = modelmod.ARMS_STAMINA_DEFAULT
-    tab._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
+    tab._arms_speedup_var = None
+    #: What the profile chose BEFORE the knobs moved onto the errand's row (#2841),
+    #: carried across on the first read. Nothing to carry in a test.
+    tab._arms_block = {}
     tab._arms_args_registered = True
     # «Ящик с сюрпризом» and «Чужие пакеты в чате» — neither has a reading of its own:
     # each card carries the last line a run said about it, and an empty one is «никто не
@@ -1045,7 +1088,9 @@ def test_a_minute_phase_spends_speed_ups_and_asks_before_it_does():
         # one: the switch is OFF by default and the minutes are deliberately small.
         args = tab.rt.args[0]
         assert args["speedup"] == 0
-        assert args["minutes"] == modelmod.ARMS_MINUTES_DEFAULT
+        # …the recipe's OWN default, which is what an untouched row means since the
+        # knobs moved onto it (#2841): a fuse nobody has set spends the small number.
+        assert args["minutes"] == modelmod.ARMS_ARG_DEFAULTS["minutes"]
     # …the UNIT phase asks a different question, because it spends a different thing:
     # the base's own resources, bounded by a ceiling counted in soldiers rather than in
     # minutes. It got its recipe when the training send was proven live (#2065).
@@ -1081,20 +1126,21 @@ def test_the_arms_switch_is_one_value_drawn_in_two_places():
                                  "value": False})["ok"] is True
     assert tab.arms_hero() is False
     assert tab.arms_args()["hero"] == 0
-    # …and the row on «Таймеры» is the same setter, not a second copy of the value.
-    options = {o.key: o for o in tab.errand_options()[modelmod.ARMS_ERRAND]}
-    assert set(options) == {modelmod.ARMS_HERO_KEY, modelmod.ARMS_DRONE_KEY,
-                            modelmod.ARMS_STAMINA_KEY, modelmod.ARMS_SPEEDUP_KEY,
-                            modelmod.ARMS_MINUTES_KEY, modelmod.ARMS_UNITS_KEY,
-                            modelmod.ARMS_SOLDIERS_KEY,
-                            modelmod.ARMS_FREE_MINUTES_KEY, modelmod.ARMS_SQUAD_KEY}
-    options[modelmod.ARMS_HERO_KEY].write(tab.rt, True)
+    # …and the gear on «Таймеры» is the same value, declared by the RUNTIME and not by
+    # this tab (#2841): a profile with «События» switched off had no knobs at all while
+    # the card owned them. The card must not declare them a second time.
+    from panel.runtime import errand_args
+    assert modelmod.ARMS_ERRAND not in tab.errand_options()
+    options = {o.key: o for o in errand_args.options_for(tab.rt.schedule,
+                                                         modelmod.ARMS_ERRAND)}
+    assert set(options) == set(modelmod.ARMS_ARG_OF.values())
+    options["hero"].write(tab.rt, True)
     assert tab.arms_hero() is True
     # …and the same for the switch that stands in front of the player's speed-ups: one
     # value, the card and the gear both writing it, and the errand reading it at fire
     # time rather than off the catalogue row it was written with.
     assert tab.arms_args()["speedup"] == 0
-    options[modelmod.ARMS_SPEEDUP_KEY].write(tab.rt, True)
+    options["speedup"].write(tab.rt, True)
     assert tab.arms_speedup() is True
     assert tab.arms_args()["speedup"] == 1
     # A ceiling is REFUSED rather than quietly clamped, the rule the stamina one goes by.
@@ -1107,7 +1153,7 @@ def test_the_arms_switch_is_one_value_drawn_in_two_places():
     # the base's resources rather than items out of the bag, and its ceiling counts
     # soldiers and is refused rather than clamped.
     assert tab.arms_args()["units"] == 0
-    options[modelmod.ARMS_UNITS_KEY].write(tab.rt, True)
+    options["units"].write(tab.rt, True)
     assert tab.arms_units() is True
     assert tab.arms_args()["units"] == 1
     assert tab.web_press("set", {"key": modelmod.ARMS_SOLDIERS_KEY,
@@ -1527,13 +1573,13 @@ def test_the_gear_can_actually_change_the_hunt_s_squad():
     assert squad.write(tab.rt, "2,4") is True and tab.squad() == 1
 
 
-def test_the_unit_phase_knobs_survive_the_block_the_profile_writes():
-    """«Обучать юнитов» must still be on after the profile is written and read (#2657).
+def test_the_unit_phase_knobs_survive_a_restart_and_the_old_block_is_carried():
+    """«Обучать юнитов» must still be on after the panel is restarted (#2657, #2841).
 
-    The switch was applied by `apply_config` and saved by `_arms_knob_saved`, but
-    `config()` — the block a DRAWN tab hands the profile — did not name it, so the next
-    full save wrote the card without it and the following restore put the default back.
-    Live that is «включаю раз десять, он постоянно выключается обратно».
+    The switch used to live in this tab's own block, which is why it existed only for a
+    profile that had «События» switched on. It is the errand's own argument now, so the
+    test is that the press reaches the row — and that what a profile chose under the old
+    home is carried across exactly once, never on top of a value the row already has.
     """
     tab = _tab()
     assert tab.web_press("set", {"key": modelmod.ARMS_UNITS_KEY,
@@ -1542,30 +1588,51 @@ def test_the_unit_phase_knobs_survive_the_block_the_profile_writes():
                                  "value": 250})["ok"] is True
     assert tab.web_press("set", {"key": modelmod.ARMS_FREE_MINUTES_KEY,
                                  "value": 600})["ok"] is True
-    block = tab.config()
-    assert block[modelmod.ARMS_UNITS_KEY] is True
-    assert block[modelmod.ARMS_SOLDIERS_KEY] == 250
-    assert block[modelmod.ARMS_FREE_MINUTES_KEY] == 600
-    # …and the round trip a restart makes: the block written, then handed back.
+    row = tab.rt.schedule.rows[modelmod.ARMS_ERRAND].args
+    assert row["units"] == 1
+    assert row["soldiers"] == 250
+    assert row["free_minutes"] == 600
+    assert tab.arms_units() is True
+    assert tab.arms_args()["units"] == 1
+
+    # …and the block a profile written under the old home hands back is carried into
+    # the row on the first read of a knob, with nothing asked of the game.
     fresh = _tab()
-    fresh.apply_config(json.loads(json.dumps(block)))
+    fresh.apply_config(json.loads(json.dumps({
+        modelmod.ARMS_UNITS_KEY: True,
+        modelmod.ARMS_SOLDIERS_KEY: 250,
+        modelmod.ARMS_FREE_MINUTES_KEY: 600,
+        modelmod.ARMS_MINUTES_KEY: 6000})))
     assert fresh.arms_units() is True
-    assert fresh.arms_args()["units"] == 1
     assert fresh.arms_soldiers() == 250
     assert fresh.arms_free_minutes() == 600
+    assert fresh.arms_minutes() == 6000
+
+    # …and a row that already says something is never overwritten by the old block: a
+    # value typed after the move always wins.
+    third = _tab()
+    third.rt.schedule.set_timer_arg(modelmod.ARMS_ERRAND, "units", 0)
+    third.apply_config({modelmod.ARMS_UNITS_KEY: True})
+    assert third.arms_units() is False
 
 
-def test_the_saved_block_names_every_arms_knob_the_gear_can_move():
+def test_every_arms_knob_the_card_draws_is_written_to_the_errands_row():
     """No knob may be movable and unsaveable — the shape of #2657, for the next one.
 
-    Every option registered for the arms errand is a value this card owns, so every one
-    of them has to appear in the block `config()` hands the profile. A knob missing from
-    it is a knob that answers «ok» to both front-ends and forgets by the next save.
+    The arms knobs are the recipe's own `ARGS` since #2841, so the test of «a knob that
+    answers ok and forgets» is that the press reaches the ROW: a profile with this tab
+    switched off has nothing else, and that is exactly the account that had no gear.
     """
     tab = _tab()
+    card = _card(tab, "events.group.arms")
+    for field in card["fields"]:
+        key = field["key"]
+        value = 1 if field.get("kind") == "switch" else field.get("value")
+        assert tab.web_press("set", {"key": key, "value": value}).get("ok") is True, key
+        assert modelmod.ARMS_ARG_OF[key] in tab.rt.schedule.rows[
+            modelmod.ARMS_ERRAND].args, key
+    # …and the hunt's own knobs are still this tab's, and still in its block.
     block = tab.config()
-    for option in tab.errand_options()[modelmod.ARMS_ERRAND]:
-        assert option.key in block, option.key
     for option in tab.errand_options()[modelmod.GOLDEN_ATTACK]:
         assert option.key in block, option.key
 
@@ -1579,10 +1646,12 @@ def test_moving_a_knob_asks_for_the_profile_to_be_written():
     live answer to «включаю „Обучать юнитов"» was on until a restart and off after it.
     """
     tab = _tab()
-    before = tab.rt.settings.saves
+    # THE ARMS KNOBS ARE NOT IN THE BLOCK ANY MORE (#2841): the press writes the
+    # errand's row, which the schedule saves for itself, so there is nothing here to
+    # forget at the next restart.
     assert tab.web_press("set", {"key": modelmod.ARMS_UNITS_KEY,
                                  "value": True})["ok"] is True
-    assert tab.rt.settings.saves > before, "arms knob did not ask for a save"
+    assert tab.rt.schedule.timer_arg(modelmod.ARMS_ERRAND, "units") == 1
     before = tab.rt.settings.saves
     knobs = {o.key: o for o in tab.errand_options()[modelmod.GOLDEN_ATTACK]}
     assert knobs[modelmod.GOLDEN_SQUAD_KEY].write(tab.rt, "3") is True

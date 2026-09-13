@@ -131,11 +131,6 @@ class EventsTab(PanelTab):
     #: honest answer at that moment rather than an attribute error (#2065).
     _arms_counted = 0
     _arms_speedup_var = None
-    _arms_speedup = modelmod.ARMS_SPEEDUP_DEFAULT
-    _arms_minutes = modelmod.ARMS_MINUTES_DEFAULT
-    _arms_units = modelmod.ARMS_UNITS_DEFAULT
-    _arms_soldiers = modelmod.ARMS_SOLDIERS_DEFAULT
-    _arms_free_minutes = modelmod.ARMS_FREE_MINUTES_DEFAULT
 
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
@@ -276,20 +271,14 @@ class EventsTab(PanelTab):
         #: for the reason the train's knobs are not either: the scheduler reads it off
         #: its own thread through `register_args`, and a Tk variable read from there
         #: raises «main thread is not in main loop» (#1416).
-        self._arms_hero = modelmod.ARMS_HERO_DEFAULT
+        #: WHAT THIS PROFILE CHOSE BEFORE THE KNOBS MOVED (#2841) — carried into the
+        #: errand's row on the first read and forgotten (`_arms_carry_once`).
+        self._arms_block: dict = {}
         self._arms_hero_var = None
         #: …and the drone phase's three: whether it may raise at all, the stamina it may
         #: spend doing it, and which squad carries the banners.
-        self._arms_drone = modelmod.ARMS_DRONE_DEFAULT
         self._arms_drone_var = None
-        self._arms_stamina = modelmod.ARMS_STAMINA_DEFAULT
-        self._arms_speedup = modelmod.ARMS_SPEEDUP_DEFAULT
         self._arms_speedup_var = None
-        self._arms_minutes = modelmod.ARMS_MINUTES_DEFAULT
-        self._arms_units = modelmod.ARMS_UNITS_DEFAULT
-        self._arms_soldiers = modelmod.ARMS_SOLDIERS_DEFAULT
-        self._arms_free_minutes = modelmod.ARMS_FREE_MINUTES_DEFAULT
-        self._arms_squad = modelmod.ARMS_SQUAD_DEFAULT
         self._arms_args_registered = False
         #: How many banners of the CURRENT drone phase have already been
         #: written into the day's rally book (`arms_report`).
@@ -485,29 +474,19 @@ class EventsTab(PanelTab):
 
     def arms_drone(self) -> bool:
         """May the errand's drone phase raise banners?"""
-        if self._arms_drone_var is not None:
-            try:
-                return bool(self._arms_drone_var.get())
-            except tk.TclError:            # the window is going away
-                pass
-        return bool(self._arms_drone)
+        return bool(self._arms_arg(modelmod.ARMS_DRONE_KEY))
 
     def arms_stamina(self) -> int:
         """The most stamina one drone run may spend. The person's number, clamped."""
-        return modelmod.arms_stamina_of(self._arms_stamina)
+        return modelmod.arms_stamina_of(self._arms_arg(modelmod.ARMS_STAMINA_KEY))
 
     def arms_speedup(self) -> bool:
         """May the errand's building / units / research phases spend speed-ups?"""
-        if self._arms_speedup_var is not None:
-            try:
-                return bool(self._arms_speedup_var.get())
-            except tk.TclError:            # the window is going away
-                pass
-        return bool(self._arms_speedup)
+        return bool(self._arms_arg(modelmod.ARMS_SPEEDUP_KEY))
 
     def arms_minutes(self) -> int:
         """The most minutes of speed-up one such run may spend. Clamped."""
-        return modelmod.arms_minutes_of(self._arms_minutes)
+        return modelmod.arms_minutes_of(self._arms_arg(modelmod.ARMS_MINUTES_KEY))
 
     def arms_units(self) -> bool:
         """May the errand's unit phase collect the batches and start new ones?
@@ -516,19 +495,20 @@ class EventsTab(PanelTab):
         phase spends is RESOURCES, and an account saving them for a building says no to
         this one while leaving the speed-ups alone.
         """
-        return bool(self._arms_units)
+        return bool(self._arms_arg(modelmod.ARMS_UNITS_KEY))
 
     def arms_soldiers(self) -> int:
         """The most soldiers ONE unit-phase run may put into training. Clamped."""
-        return modelmod.arms_soldiers_of(self._arms_soldiers)
+        return modelmod.arms_soldiers_of(self._arms_arg(modelmod.ARMS_SOLDIERS_KEY))
 
     def arms_free_minutes(self) -> int:
         """The minutes a unit-phase run may spend freeing a busy barracks. Clamped."""
-        return modelmod.arms_free_minutes_of(self._arms_free_minutes)
+        return modelmod.arms_free_minutes_of(
+            self._arms_arg(modelmod.ARMS_FREE_MINUTES_KEY))
 
     def arms_squad(self) -> int:
         """Which squad raises the drone phase's banners, by the slot the player sees."""
-        return modelmod.squad_of(self._arms_squad)
+        return modelmod.squad_of(self._arms_arg(modelmod.ARMS_SQUAD_KEY))
 
     def errand_options(self) -> dict:
         """What the standing orders on this board will do when they fire (#2017).
@@ -567,69 +547,13 @@ class EventsTab(PanelTab):
                                   hint_key="events.golden.approach.hint",
                                   get=self.approach,
                                   set=lambda on: self._set_golden_approach(on))),
-            modelmod.ARMS_ERRAND: (
-                errandopts.Option(modelmod.ARMS_HERO_KEY, "events.arms.hero",
-                                  errandopts.SWITCH,
-                                  hint_key="events.arms.hero.hint",
-                                  get=self.arms_hero,
-                                  set=lambda on: self.set_arms_option(
-                                      modelmod.ARMS_HERO_KEY, on)),
-                errandopts.Option(modelmod.ARMS_DRONE_KEY, "events.arms.drone",
-                                  errandopts.SWITCH,
-                                  hint_key="events.arms.drone.hint",
-                                  get=self.arms_drone,
-                                  set=lambda on: self.set_arms_option(
-                                      modelmod.ARMS_DRONE_KEY, on)),
-                errandopts.Option(modelmod.ARMS_STAMINA_KEY, "events.arms.stamina",
-                                  errandopts.NUMBER,
-                                  hint_key="events.arms.stamina.hint",
-                                  low=modelmod.ARMS_STAMINA_MIN,
-                                  high=modelmod.ARMS_STAMINA_MAX,
-                                  get=self.arms_stamina,
-                                  set=lambda v: self.set_arms_option(
-                                      modelmod.ARMS_STAMINA_KEY, v)),
-                errandopts.Option(modelmod.ARMS_SPEEDUP_KEY, "events.arms.speedup",
-                                  errandopts.SWITCH,
-                                  hint_key="events.arms.speedup.hint",
-                                  get=self.arms_speedup,
-                                  set=lambda on: self.set_arms_option(
-                                      modelmod.ARMS_SPEEDUP_KEY, on)),
-                errandopts.Option(modelmod.ARMS_MINUTES_KEY, "events.arms.minutes",
-                                  errandopts.NUMBER,
-                                  hint_key="events.arms.minutes.hint",
-                                  low=modelmod.ARMS_MINUTES_MIN,
-                                  high=modelmod.ARMS_MINUTES_MAX,
-                                  get=self.arms_minutes,
-                                  set=lambda v: self.set_arms_option(
-                                      modelmod.ARMS_MINUTES_KEY, v)),
-                errandopts.Option(modelmod.ARMS_UNITS_KEY, "events.arms.units",
-                                  errandopts.SWITCH,
-                                  hint_key="events.arms.units.hint",
-                                  get=self.arms_units,
-                                  set=lambda on: self.set_arms_option(
-                                      modelmod.ARMS_UNITS_KEY, on)),
-                errandopts.Option(modelmod.ARMS_SOLDIERS_KEY, "events.arms.soldiers",
-                                  errandopts.NUMBER,
-                                  hint_key="events.arms.soldiers.hint",
-                                  low=modelmod.ARMS_SOLDIERS_MIN,
-                                  high=modelmod.ARMS_SOLDIERS_MAX,
-                                  get=self.arms_soldiers,
-                                  set=lambda v: self.set_arms_option(
-                                      modelmod.ARMS_SOLDIERS_KEY, v)),
-                errandopts.Option(modelmod.ARMS_FREE_MINUTES_KEY,
-                                  "events.arms.free_minutes",
-                                  errandopts.NUMBER,
-                                  hint_key="events.arms.free_minutes.hint",
-                                  low=modelmod.ARMS_FREE_MINUTES_MIN,
-                                  high=modelmod.ARMS_FREE_MINUTES_MAX,
-                                  get=self.arms_free_minutes,
-                                  set=lambda v: self.set_arms_option(
-                                      modelmod.ARMS_FREE_MINUTES_KEY, v)),
-                errandopts.Option(modelmod.ARMS_SQUAD_KEY, "events.arms.squad",
-                                  errandopts.SQUADS, single=True,
-                                  get=lambda: [self.arms_squad()],
-                                  set=lambda v: self.set_arms_option(
-                                      modelmod.ARMS_SQUAD_KEY, v)),),
+            # «ГОНКА ВООРУЖЕНИЙ» IS NOT HERE ANY MORE (#2841). Its nine knobs were
+            # declared by this tab, so they existed only for a profile that had
+            # «События» switched on — three of four live accounts had no gear on the
+            # errand's row at all and ran it with rules nobody could see. They are the
+            # recipe's own `ARGS` and live on the errand's row now
+            # (`panel/runtime/errand_args.py`), which the schedule registers with no
+            # tab in sight; this card draws the same values and writes the same row.
             "alliance_train_board": (
             errandopts.Option("train_carriage", "events.train.carriage.set",
                               errandopts.NUMBER,
@@ -1177,16 +1101,51 @@ class EventsTab(PanelTab):
         return modelmod.arms_state(self._arms, self._arms_cal)
 
     def arms_hero(self) -> bool:
-        """May the errand's hero phase hire? The widget wins while the tab is drawn."""
-        if self._arms_hero_var is not None:
-            try:
-                return bool(self._arms_hero_var.get())
-            except tk.TclError:            # the window is going away
-                pass
-        return bool(self._arms_hero)
+        """May the errand's hero phase hire?"""
+        return bool(self._arms_arg(modelmod.ARMS_HERO_KEY))
+
+    # -- where the arms knobs really live (#2841) ----------------------------
+    #
+    # NOWHERE ON THIS TAB, deliberately: the value is the errand's own argument, read
+    # fresh every time it is asked for (`panel/runtime/errand_args.py`). A copy kept
+    # here would be a second answer the moment somebody moved the knob from the gear on
+    # «Таймеры» — and, worse, it would exist only for a profile that HAS this tab: the
+    # three accounts with «События» switched off had no knobs at all, which is what
+    # brought the task.
+    def _arms_arg(self, key: str):
+        """One arms knob, off the errand's row. The recipe's own default when unset."""
+        self._arms_carry_once()
+        name = modelmod.ARMS_ARG_OF[key]
+        fallback = modelmod.ARMS_ARG_DEFAULTS[name]
+        sched = getattr(self.rt, "schedule", None)
+        if sched is None:
+            return fallback
+        try:
+            value = sched.timer_arg(modelmod.ARMS_ERRAND, name, fallback)
+        except Exception:                  # noqa: BLE001 — a reading, never the card
+            return fallback
+        return fallback if value is None else value
+
+    def _set_arms_arg(self, key: str, value) -> bool:
+        """Move one arms knob — from this card, from the gear, or from the phone."""
+        sched = getattr(self.rt, "schedule", None)
+        if sched is None:
+            return False
+        try:
+            return bool(sched.set_timer_arg(modelmod.ARMS_ERRAND,
+                                            modelmod.ARMS_ARG_OF[key], value))
+        except Exception as exc:           # noqa: BLE001 — one knob, never the panel
+            self.rt.dbg("events").warning("arms knob %s refused: %s", key, exc)
+            return False
 
     def set_arms_option(self, key: str, value) -> bool:
-        """The gear on «Таймеры» writing this card's own knob (`CLAUDE.md`)."""
+        """One arms knob, wherever it was pressed — card, window box or phone.
+
+        ONE PATH through `web_press`, so a value the card would refuse is refused here
+        too. The gear on «Таймеры» does NOT come this way any more: its knobs are the
+        errand's own arguments and are declared by the runtime (#2841), which is what
+        makes them reachable on a profile with this tab switched off.
+        """
         return bool(self.web_press("set", {"key": key, "value": value}).get("ok"))
 
     def play_arms(self, action: str) -> bool:
@@ -1933,19 +1892,25 @@ class EventsTab(PanelTab):
         # WHETHER THE FOUR-HOURLY RUN MAY HIRE. A standing order and not a press: the
         # errand fires on the phase border, which is the one minute in four hours when
         # nobody is at the machine.
+        # THE BOX IS A MIRROR OF THE ROW (#2841), never a home of its own: it is set
+        # from the errand's argument when it is drawn, and its own press writes that
+        # argument back. So the window, the gear on «Таймеры» and the phone are three
+        # drawings of one value and can never drift apart.
         if self._arms_hero_var is None:
             self._arms_hero_var = statevar.boolean(self.rt.root)
-        self._arms_hero = self.arms_hero()
-        self._arms_hero_var.set(self._arms_hero)
+        self._arms_hero_var.set(self.arms_hero())
         knob = ttk.Frame(self._body)
         knob.pack(fill="x", padx=28, pady=(4, 0))
-        self.tr(ttk.Checkbutton(knob, variable=self._arms_hero_var),
+        self.tr(ttk.Checkbutton(knob, variable=self._arms_hero_var,
+                                command=lambda: self._on_arms_box(
+                                    modelmod.ARMS_HERO_KEY, self._arms_hero_var)),
                 "events.arms.hero").pack(side="left")
         if self._arms_drone_var is None:
             self._arms_drone_var = statevar.boolean(self.rt.root)
-        self._arms_drone = self.arms_drone()
-        self._arms_drone_var.set(self._arms_drone)
-        self.tr(ttk.Checkbutton(knob, variable=self._arms_drone_var),
+        self._arms_drone_var.set(self.arms_drone())
+        self.tr(ttk.Checkbutton(knob, variable=self._arms_drone_var,
+                                command=lambda: self._on_arms_box(
+                                    modelmod.ARMS_DRONE_KEY, self._arms_drone_var)),
                 "events.arms.drone").pack(side="left", padx=(16, 0))
         self.tr(ttk.Label(knob, foreground=_GREY),
                 "events.arms.stamina").pack(side="left", padx=(16, 0))
@@ -2009,21 +1974,56 @@ class EventsTab(PanelTab):
             self.rt.dbg("events").warning("golden knob not stored: %s", exc)
         self._ask_for_a_save()
 
-    def _arms_knob_saved(self) -> None:
-        """The switch moved — ask for the profile to be written, both front-ends alike."""
+    def _on_arms_box(self, key: str, var) -> None:
+        """A box in the window moved — write the errand's row (#2841)."""
         try:
-            self.remember({modelmod.ARMS_HERO_KEY: self.arms_hero(),
-                           modelmod.ARMS_DRONE_KEY: self.arms_drone(),
-                           modelmod.ARMS_STAMINA_KEY: self.arms_stamina(),
-                           modelmod.ARMS_SPEEDUP_KEY: self.arms_speedup(),
-                           modelmod.ARMS_MINUTES_KEY: self.arms_minutes(),
-                           modelmod.ARMS_UNITS_KEY: self.arms_units(),
-                           modelmod.ARMS_SOLDIERS_KEY: self.arms_soldiers(),
-                           modelmod.ARMS_FREE_MINUTES_KEY: self.arms_free_minutes(),
-                           modelmod.ARMS_SQUAD_KEY: self.arms_squad()})
-        except Exception as exc:                # noqa: BLE001 — a profile going away
-            self.rt.dbg("events").warning("arms knob not saved: %s", exc)
-        self._ask_for_a_save()
+            on = bool(var.get())
+        except tk.TclError:                 # the window is going away
+            return
+        self.web_press("set", {"key": key, "value": on})
+
+    def _mirror_arms_box(self, var, on: bool) -> None:
+        """Keep a drawn box in step with the row that was just written (#2841).
+
+        The box is a MIRROR and not a home: whichever front-end moved the knob, the
+        value went to the errand's row, and this only stops the window showing what it
+        showed a second ago.
+        """
+        if var is None:
+            return
+        try:
+            var.set(bool(on))
+        except tk.TclError:                 # the window is going away
+            pass
+
+    def _arms_carry_once(self) -> None:
+        """Move what this profile ALREADY chose into the errand's row — once (#2841).
+
+        The nine knobs lived in this tab's own block until the row became their home.
+        Nothing is thrown away and nothing is asked of the game: a key the row already
+        has is left alone, so a value typed after the move always wins, and the block is
+        forgotten as soon as it has been carried. Done here rather than in
+        `apply_config` because the catalogue is not loaded yet when a profile is
+        restored — the first read of a knob is the earliest moment the row exists.
+        """
+        block = self._arms_block
+        if not block:
+            return
+        sched = getattr(self.rt, "schedule", None)
+        catalogue = getattr(sched, "timer_catalogue", None) if sched else None
+        if catalogue is None or catalogue.by_name(modelmod.ARMS_ERRAND) is None:
+            return
+        self._arms_block = {}
+        args = dict(catalogue.by_name(modelmod.ARMS_ERRAND).args or {})
+        for key, name in modelmod.ARMS_ARG_OF.items():
+            if name in args or key not in block:
+                continue
+            raw = block[key]
+            value = (1 if raw else 0) if isinstance(raw, bool) else raw
+            try:
+                sched.set_timer_arg(modelmod.ARMS_ERRAND, name, value)
+            except Exception as exc:        # noqa: BLE001 — one knob, never the panel
+                self.rt.dbg("events").warning("arms knob %s not carried: %s", key, exc)
 
     def _paint_golden_button(self) -> None:
         """Dead while a chain is on its way, and while the purse cannot pay for one march."""
@@ -2159,21 +2159,11 @@ class EventsTab(PanelTab):
         restored value answers when it is not — a tab nobody has opened must still hand
         back what it was given (`docs/panel-tabs.md`).
         """
-        return {modelmod.ARMS_HERO_KEY: self.arms_hero(),
-                modelmod.ARMS_DRONE_KEY: self.arms_drone(),
-                modelmod.ARMS_STAMINA_KEY: self.arms_stamina(),
-                modelmod.ARMS_SPEEDUP_KEY: self.arms_speedup(),
-                modelmod.ARMS_MINUTES_KEY: self.arms_minutes(),
-                # THE UNIT PHASE'S THREE (#2657). They were missing here while
-                # `apply_config` read them and `_arms_knob_saved` wrote them, so a
-                # switch moved on a DRAWN tab was written into the block and then
-                # overwritten by the next full save, which is built from this dict —
-                # live, «включаю „Обучать юнитов", он постоянно выключается обратно».
-                modelmod.ARMS_UNITS_KEY: self.arms_units(),
-                modelmod.ARMS_SOLDIERS_KEY: self.arms_soldiers(),
-                modelmod.ARMS_FREE_MINUTES_KEY: self.arms_free_minutes(),
-                modelmod.ARMS_SQUAD_KEY: self.arms_squad(),
-                modelmod.GOLDEN_SQUAD_KEY: self.squad(),
+        # THE ARMS KNOBS ARE NOT HERE ANY MORE (#2841) — they are the errand's own
+        # arguments and live on its row (`panel/runtime/errand_args.py`), which is what
+        # gives them to a profile that has this tab switched off. Handing them back here
+        # would be the second copy this whole rule exists to prevent.
+        return {modelmod.GOLDEN_SQUAD_KEY: self.squad(),
                 modelmod.GOLDEN_APPROACH_KEY: self.approach(),
                 modelmod.GOLDEN_LIMIT_KEY: self.limit(),
                 modelmod.GOLDEN_CLUSTER_KEY: self.cluster(),
@@ -2183,24 +2173,11 @@ class EventsTab(PanelTab):
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
-        self._arms_hero = bool(raw.get(modelmod.ARMS_HERO_KEY,
-                                       modelmod.ARMS_HERO_DEFAULT))
-        self._arms_drone = bool(raw.get(modelmod.ARMS_DRONE_KEY,
-                                        modelmod.ARMS_DRONE_DEFAULT))
-        self._arms_stamina = modelmod.arms_stamina_of(
-            raw.get(modelmod.ARMS_STAMINA_KEY, modelmod.ARMS_STAMINA_DEFAULT))
-        self._arms_speedup = bool(raw.get(modelmod.ARMS_SPEEDUP_KEY,
-                                          modelmod.ARMS_SPEEDUP_DEFAULT))
-        self._arms_minutes = modelmod.arms_minutes_of(
-            raw.get(modelmod.ARMS_MINUTES_KEY, modelmod.ARMS_MINUTES_DEFAULT))
-        self._arms_units = bool(raw.get(modelmod.ARMS_UNITS_KEY,
-                                        modelmod.ARMS_UNITS_DEFAULT))
-        self._arms_soldiers = modelmod.arms_soldiers_of(
-            raw.get(modelmod.ARMS_SOLDIERS_KEY, modelmod.ARMS_SOLDIERS_DEFAULT))
-        self._arms_free_minutes = modelmod.arms_free_minutes_of(
-            raw.get(modelmod.ARMS_FREE_MINUTES_KEY,
-                    modelmod.ARMS_FREE_MINUTES_DEFAULT))
-        self._arms_squad = modelmod.squad_of(raw.get(modelmod.ARMS_SQUAD_KEY))
+        # WHAT THIS PROFILE CHOSE BEFORE THE KNOBS MOVED (#2841). Kept, not applied:
+        # the catalogue is not loaded yet, so the carry happens at the first read of a
+        # knob and only for an argument the row has not got (`_arms_carry_once`).
+        self._arms_block = {key: raw[key] for key in modelmod.ARMS_ARG_OF
+                            if key in raw}
         self._squad = modelmod.squad_of(raw.get(modelmod.GOLDEN_SQUAD_KEY))
         self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, False))
         self._golden_limit = modelmod.whole_of(
@@ -2219,18 +2196,19 @@ class EventsTab(PanelTab):
             if self._approach_var is not None:
                 self._approach_var.set(self._approach)
             if self._arms_hero_var is not None:
-                self._arms_hero_var.set(self._arms_hero)
+                self._arms_hero_var.set(self.arms_hero())
             if self._arms_drone_var is not None:
-                self._arms_drone_var.set(self._arms_drone)
+                self._arms_drone_var.set(self.arms_drone())
             if self._arms_speedup_var is not None:
-                self._arms_speedup_var.set(self._arms_speedup)
+                self._arms_speedup_var.set(self.arms_speedup())
         except tk.TclError:                 # the window is going away
             pass
 
     def persist_vars(self) -> list:
-        return [v for v in (self._squad_var, self._approach_var, self._arms_hero_var,
-                            self._arms_drone_var, self._arms_speedup_var)
-                if v is not None]
+        # The arms boxes are NOT here (#2841): they mirror the errand's row, and a
+        # mirror written into this tab's block is exactly the second copy the move was
+        # made to remove.
+        return [v for v in (self._squad_var, self._approach_var) if v is not None]
 
     # -- the phone's copy ---------------------------------------------------
     def web_view(self) -> "dict | None":
@@ -2856,36 +2834,28 @@ class EventsTab(PanelTab):
                     return {"error": "unknown"}
                 return self._set_golden_squad(picked[0])
             if key == modelmod.ARMS_HERO_KEY:
-                self._arms_hero = bool(raw)
-                if self._arms_hero_var is not None:
-                    try:
-                        self._arms_hero_var.set(self._arms_hero)
-                    except tk.TclError:     # the window is going away
-                        pass
-                self._arms_knob_saved()
-                return {"ok": True, "hero": self._arms_hero}
+                on = bool(raw)
+                if not self._set_arms_arg(key, 1 if on else 0):
+                    return {"error": "unknown"}
+                self._mirror_arms_box(self._arms_hero_var, on)
+                return {"ok": True, "hero": on}
             if key == modelmod.ARMS_DRONE_KEY:
-                self._arms_drone = bool(raw)
-                if self._arms_drone_var is not None:
-                    try:
-                        self._arms_drone_var.set(self._arms_drone)
-                    except tk.TclError:     # the window is going away
-                        pass
-                self._arms_knob_saved()
-                return {"ok": True, "drone": self._arms_drone}
+                on = bool(raw)
+                if not self._set_arms_arg(key, 1 if on else 0):
+                    return {"error": "unknown"}
+                self._mirror_arms_box(self._arms_drone_var, on)
+                return {"ok": True, "drone": on}
             if key == modelmod.ARMS_SPEEDUP_KEY:
-                self._arms_speedup = bool(raw)
-                if self._arms_speedup_var is not None:
-                    try:
-                        self._arms_speedup_var.set(self._arms_speedup)
-                    except tk.TclError:     # the window is going away
-                        pass
-                self._arms_knob_saved()
-                return {"ok": True, "speedup": self._arms_speedup}
+                on = bool(raw)
+                if not self._set_arms_arg(key, 1 if on else 0):
+                    return {"error": "unknown"}
+                self._mirror_arms_box(self._arms_speedup_var, on)
+                return {"ok": True, "speedup": on}
             if key == modelmod.ARMS_UNITS_KEY:
-                self._arms_units = bool(raw)
-                self._arms_knob_saved()
-                return {"ok": True, "units": self._arms_units}
+                on = bool(raw)
+                if not self._set_arms_arg(key, 1 if on else 0):
+                    return {"error": "unknown"}
+                return {"ok": True, "units": on}
             if key == modelmod.ARMS_SOLDIERS_KEY:
                 # Refused rather than clamped, the same rule as the minute fuse: a
                 # ceiling that silently became another number is a ceiling nobody set,
@@ -2894,18 +2864,18 @@ class EventsTab(PanelTab):
                 if (number is None or number < modelmod.ARMS_SOLDIERS_MIN
                         or number > modelmod.ARMS_SOLDIERS_MAX):
                     return {"ok": False, "reason": "web.ui.not_a_number"}
-                self._arms_soldiers = number
-                self._arms_knob_saved()
-                return {"ok": True, "soldiers": self._arms_soldiers}
+                if not self._set_arms_arg(key, number):
+                    return {"error": "unknown"}
+                return {"ok": True, "soldiers": number}
             if key == modelmod.ARMS_FREE_MINUTES_KEY:
                 # Refused rather than clamped, like every other ceiling on this card.
                 number = _whole(raw)
                 if (number is None or number < modelmod.ARMS_FREE_MINUTES_MIN
                         or number > modelmod.ARMS_FREE_MINUTES_MAX):
                     return {"ok": False, "reason": "web.ui.not_a_number"}
-                self._arms_free_minutes = number
-                self._arms_knob_saved()
-                return {"ok": True, "free_minutes": self._arms_free_minutes}
+                if not self._set_arms_arg(key, number):
+                    return {"error": "unknown"}
+                return {"ok": True, "free_minutes": number}
             if key == modelmod.ARMS_MINUTES_KEY:
                 # Refused rather than clamped, for the same reason as the stamina one
                 # below — and this ceiling stands in front of the player's speed-ups,
@@ -2914,9 +2884,9 @@ class EventsTab(PanelTab):
                 if (number is None or number < modelmod.ARMS_MINUTES_MIN
                         or number > modelmod.ARMS_MINUTES_MAX):
                     return {"ok": False, "reason": "web.ui.not_a_number"}
-                self._arms_minutes = number
-                self._arms_knob_saved()
-                return {"ok": True, "minutes": self._arms_minutes}
+                if not self._set_arms_arg(key, number):
+                    return {"error": "unknown"}
+                return {"ok": True, "minutes": number}
             if key == modelmod.ARMS_STAMINA_KEY:
                 # REFUSED RATHER THAN CLAMPED, the rule the train's fare goes by: a
                 # ceiling that silently became something else is a ceiling the person
@@ -2925,18 +2895,19 @@ class EventsTab(PanelTab):
                 if (number is None or number < modelmod.ARMS_STAMINA_MIN
                         or number > modelmod.ARMS_STAMINA_MAX):
                     return {"ok": False, "reason": "web.ui.not_a_number"}
-                self._arms_stamina = number
-                self._arms_knob_saved()
-                return {"ok": True, "stamina": self._arms_stamina}
+                if not self._set_arms_arg(key, number):
+                    return {"error": "unknown"}
+                return {"ok": True, "stamina": number}
             if key == modelmod.ARMS_SQUAD_KEY:
                 # ONE squad — a run raises its banners with one, and inventing which is
                 # not the panel's call (#2062).
                 picked = squad_picker.chosen_from(raw)
                 if len(picked) != 1:
                     return {"error": "unknown"}
-                self._arms_squad = modelmod.squad_of(picked[0])
-                self._arms_knob_saved()
-                return {"ok": True, "squad": self._arms_squad}
+                squad = modelmod.squad_of(picked[0])
+                if not self._set_arms_arg(key, squad):
+                    return {"error": "unknown"}
+                return {"ok": True, "squad": squad}
             if key == modelmod.TRAIN_BUY_KEY:
                 self._train_buy = bool(raw)
                 self._train_knob_saved()
