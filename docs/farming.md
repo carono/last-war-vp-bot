@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 83 of 209
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 83 of 210
 
-🟩 83 done · 🟨 98 partly · 🟥 28 not automated
+🟩 83 done · 🟨 99 partly · 🟥 28 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what is
@@ -238,6 +238,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 ### Promotions
 
 - ✅ «Glittering Market» — one errand takes the day's free reward and every item the market prices at nothing
+- 🟡 «Doomsday» — the day's event reads itself and claims the gifts its achievements have earned; a card says how many are still owed
 - 🟡 Spending the market's coins — a second card, switched off: pick a row, how many and a ceiling, and the price is named before anything is sent
 - ❌ "Battle of Arsenals" rewards
 - ✅ Battle Pass rewards — the free track always, the premium one once unlocked, claimed with everything else the shop gives for nothing
