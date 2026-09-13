@@ -30,7 +30,7 @@ would be a second answer to one question.
 """
 from __future__ import annotations
 
-from . import errand_options as errandopts
+from . import errand_options as errandopts, squad_picker
 
 #: The weekdays a switch can name, 1 = Monday … 7 = Sunday. One locale key each rather
 #: than a formatted number: «Дуэль: 3» is not a sentence anybody reads.
@@ -54,9 +54,28 @@ def _flag(key: str, label_key: str, *, hint_key: str = "", default: int = 0) -> 
 
 
 def _num(key: str, label_key: str, *, low: int, high: int,
-         hint_key: str = "") -> dict:
+         hint_key: str = "", default: int = 0) -> dict:
+    """A number the recipe reads as a number.
+
+    `default` is what the knob SHOWS while the row has never been written, and it must
+    be the recipe's own `ARGS` value for the same reason a switch's must (#2841): the
+    row is the only home, so a knob drawing 0 over a recipe that defaults to 300 is the
+    front-end saying something that is not true.
+    """
     return {"key": key, "label": label_key, "kind": errandopts.NUMBER,
-            "low": low, "high": high, "hint": hint_key, "cast": "int"}
+            "low": low, "high": high, "hint": hint_key, "cast": "int",
+            "default": int(default)}
+
+
+def _squad(key: str, label_key: str, *, hint_key: str = "", default: int = 1) -> dict:
+    """WHICH SQUAD the errand spends, drawn as the player's own four (#2062).
+
+    One control everywhere a squad is chosen, and the value stored as the plain slot
+    number the recipe's `ARGS` takes.
+    """
+    return {"key": key, "label": label_key, "kind": errandopts.SQUADS,
+            "hint": hint_key, "cast": "int", "default": int(default),
+            "single": True}
 
 
 def _text(key: str, label_key: str, *, hint_key: str = "") -> dict:
@@ -300,6 +319,28 @@ SPEC: dict = {
         _num("pause_min", "errand.arg.rob.pause_min", low=1, high=240,
              hint_key="errand.arg.rob.pause_min.hint"),
     ),
+    # «ГОНКА ВООРУЖЕНИЙ» (#2841). Every one of these knobs existed already — on the card
+    # on «События», a tab a profile may perfectly well have switched off. So three of the
+    # four live accounts ran the errand with rules nobody could see and no gear on its
+    # row, which is the fault #2010 found in the ghost robbery and #2022 in the secret
+    # tasks. The values are the recipe's own `ARGS`, so the row holds them and the card
+    # is a second DRAWING of them rather than a second copy.
+    "perform_arms_race": (
+        _flag("hero", "events.arms.hero", hint_key="events.arms.hero.hint", default=1),
+        _flag("drone", "events.arms.drone", hint_key="events.arms.drone.hint",
+              default=1),
+        _num("stamina", "events.arms.stamina", low=0, high=2000,
+             hint_key="events.arms.stamina.hint", default=300),
+        _flag("speedup", "events.arms.speedup", hint_key="events.arms.speedup.hint"),
+        _num("minutes", "events.arms.minutes", low=0, high=20000,
+             hint_key="events.arms.minutes.hint", default=60),
+        _flag("units", "events.arms.units", hint_key="events.arms.units.hint"),
+        _num("soldiers", "events.arms.soldiers", low=0, high=100000,
+             hint_key="events.arms.soldiers.hint"),
+        _num("free_minutes", "events.arms.free_minutes", low=0, high=20000,
+             hint_key="events.arms.free_minutes.hint"),
+        _squad("squad", "events.arms.squad"),
+    ),
     "play_frontline_breakthrough": (
         _num("rounds", "errand.arg.frontline.rounds", low=1, high=20),
     ),
@@ -337,6 +378,9 @@ def options_for(schedule, errand: str) -> tuple:
         if spec.get("kind") == "days":
             built.extend(_day_options(schedule, errand, spec))
             continue
+        if spec.get("kind") == errandopts.SQUADS:
+            built.append(_squad_option(schedule, errand, spec))
+            continue
         built.append(_one_option(schedule, errand, spec))
     return tuple(built)
 
@@ -373,6 +417,28 @@ def _one_option(schedule, errand: str, spec: dict):
         low=low, high=high, hint_key=spec.get("hint") or "",
         options=[{"value": value, "text_key": text_key}
                  for value, text_key in spec.get("choices", ())])
+
+
+def _squad_option(schedule, errand: str, spec: dict):
+    """One squad over one argument — the picker, reading and writing the row (#2841)."""
+    key = spec["key"]
+    low, high = 1, 4
+    fallback = int(spec.get("default") or 1)
+
+    def read():
+        return [_as_int(schedule.timer_arg(errand, key, fallback),
+                        low, high, fallback=fallback)]
+
+    def write(value):
+        picked = squad_picker.chosen_from(value)
+        if len(picked) != 1:
+            return
+        schedule.set_timer_arg(errand, key,
+                               _as_int(picked[0], low, high, fallback=fallback))
+
+    return errandopts.Option(key, spec["label"], errandopts.SQUADS, single=True,
+                             hint_key=spec.get("hint") or "",
+                             get=read, set=write)
 
 
 def _day_options(schedule, errand: str, spec: dict) -> list:

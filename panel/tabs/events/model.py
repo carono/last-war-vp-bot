@@ -363,6 +363,9 @@ ARMS_STAMINA_MAX = 2000
 ARMS_SPEEDUP_KEY = "arms_speedup"
 ARMS_SPEEDUP_DEFAULT = False
 ARMS_MINUTES_KEY = "arms_minutes"
+#: ONLY THE CLAMP'S FALLBACK SINCE #2841. What an untouched knob SHOWS is the recipe's
+#: own `ARGS minutes` (`ARMS_ARG_DEFAULTS`), because the errand's row is the one home
+#: and a card drawing a number the run would not use is the front-end telling a story.
 ARMS_MINUTES_DEFAULT = 6000
 #: The bounds of that FUSE. Zero is a legal answer and means «spend nothing at all».
 #:
@@ -427,6 +430,31 @@ ARMS_SQUAD_DEFAULT = 1
 #: дроном никак не связаны, на стяги, что мы создаем лимитов нет». The game charges a
 #: raise in stamina and caps it nowhere, so the run's ceilings are the stamina, the
 #: phase's top chest and the squad, and nothing here hands it a number.
+
+
+#: THE CARD'S KEY → THE RECIPE'S OWN `ARGS` NAME (#2841). The knobs live in the
+#: errand's own row now (`panel/runtime/errand_args.py`), so that a profile with
+#: «События» switched off still has them: the gear on «Таймеры» is built from the
+#: catalogue and needs no tab. The card keeps its own key on the wire — it is what both
+#: front-ends already press with — and this is the one place the two names meet.
+ARMS_ARG_OF: dict = {
+    ARMS_HERO_KEY: "hero",
+    ARMS_DRONE_KEY: "drone",
+    ARMS_STAMINA_KEY: "stamina",
+    ARMS_SPEEDUP_KEY: "speedup",
+    ARMS_MINUTES_KEY: "minutes",
+    ARMS_UNITS_KEY: "units",
+    ARMS_SOLDIERS_KEY: "soldiers",
+    ARMS_FREE_MINUTES_KEY: "free_minutes",
+    ARMS_SQUAD_KEY: "squad",
+}
+
+#: What the recipe itself does when the row says nothing — its own `ARGS` line. The row
+#: is the only home, so these have to be the recipe's numbers and not the card's taste.
+ARMS_ARG_DEFAULTS: dict = {
+    "hero": 1, "drone": 1, "stamina": 300, "speedup": 0, "minutes": 60,
+    "units": 0, "soldiers": 0, "free_minutes": 0, "squad": 1,
+}
 
 
 def arms_stamina_of(value) -> int:

@@ -325,6 +325,23 @@ check the game itself answers and it survives the rules changing under it.
   ceiling, the phase's top chest, or the squad coming off the board, whichever comes
   first. No join allowance is asked for or spent.
 
+## Where the nine knobs live (#2841)
+
+On the ERRAND'S OWN ROW, as the recipe's own `ARGS` — `hero`, `drone`, `stamina`,
+`speedup`, `minutes`, `units`, `soldiers`, `free_minutes`, `squad` — declared in
+`panel/runtime/errand_options.py`'s neighbour `panel/runtime/errand_args.py` and
+registered by the schedule, which needs no tab.
+
+They used to be declared by the «События» tab and kept in that tab's own saved block.
+That made them a PROFILE-SHAPED accident: three of the four live accounts have the tab
+switched off, so their «Гонка вооружений» row had no gear at all and the errand ran with
+rules nobody could see or change — the same fault #2010 found in the ghost order and
+#2022 in the secret tasks. The card on «События» draws and writes the same row now, so
+the window, the gear on «Таймеры» and the phone are three drawings of one value.
+
+What a profile chose under the old home is carried into the row once, on the first read
+of a knob, and only where the row has nothing to say (`EventsTab._arms_carry_once`).
+
 ## An empty purse pauses a banner, it does not end the hour (#2664)
 
 #2661 taught the hour to take the day's FREE energy before calling the purse empty, and
