@@ -135,8 +135,8 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - ❌ Expedition
 - ❌ Levelling survivors
 - ✅ Upgrading a decoration — finds every decoration that can be upgraded and sends each to the top of what its spares will buy, no window opened
-- ✅ Accepting a survivor waiting at the base — one press per waiting survivor, no window opened. Wants the base on screen
-- ✅ Collecting gifts a survivor brought to the base — one press per gift-bearing visitor, no window opened. Wants the base on screen
+- ✅ Accepting a survivor waiting at the base — one press each, no window opened; walks back to the base and waits for them to reach the gate
+- ✅ Collecting gifts a survivor brought to the base — one press each, no window opened; walks back to the base and waits for them to reach the gate
 - ❌ Assembling the treasure from map pieces
 - 🟡 Collecting the two VIP rewards from the profile card — the daily points chest and the daily gift, both in one press with no window opened
 - ❌ Collecting mail rewards
