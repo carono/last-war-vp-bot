@@ -1315,6 +1315,23 @@ BUTTONS: dict[str, Button] = {
         # recipe then measures — so the pause is part of the proof, not politeness.
         wait=2.0, label="send the squad at the boss",
     ),
+    # --- «Кодовое имя»: the chests the fight earns (#2850) --------------------
+    # The event pays out along a ladder of damage achievements, and nothing hands the
+    # chests over: they wait in its window until somebody claims them. Two presses, and
+    # neither opens a window — the ask, then the claim of every rung that is waiting.
+    # `tools/lib/lua_actions.py::codename_rewards_fetch` / `codename_claim_rewards`,
+    # the recipe is actions/collect_codename_rewards.md, the reverse-engineering is
+    # docs/research/codename-event.md.
+    "codename_rewards_fetch": Button(
+        lua=_lua_actions.codename_rewards_fetch(),
+        wait=1.5, label="ask the server for the event's achievement ladder",
+    ),
+    "codename_claim_rewards": Button(
+        # One VM call for the whole ladder: a round trip costs about 0.15 s and the loop
+        # inside it is free, and the ladder is fifty rungs long.
+        lua=_lua_actions.codename_claim_rewards(),
+        wait=1.5, label="claim every «Кодовое имя» chest the ladder says is waiting",
+    ),
     # --- «Кристальный босс»: the day's three attacks --------------------------
     # The same three presses, against the client's own crystal-boss manager, and none
     # of them opens a window either:

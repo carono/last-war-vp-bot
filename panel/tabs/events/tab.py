@@ -142,6 +142,7 @@ class EventsTab(PanelTab):
         self._status = None
         self._attack_button = None
         self._daily_button = None
+        self._collect_button = None
         #: Which of the two presses is on its way, so the sentence that comes back names
         #: the right one. `None` while nothing is running.
         self._sent_key = None
@@ -1096,6 +1097,19 @@ class EventsTab(PanelTab):
                           busy_key="events.crystal.log.busy",
                           after=self.refresh_crystal)
 
+    def collect_codename(self) -> bool:
+        """Take the «Кодовое имя» chests — the ladder of damage achievements (#2850).
+
+        The day's errand does this for itself after its three attacks, because the third
+        attack is the moment a new rung can have been beaten. This is the same recipe as
+        a press, for the person looking at a card that says a chest is waiting, and it
+        claims whatever the game says is claimable and nothing else.
+        """
+        return self._play(modelmod.CODENAME_COLLECT, "events.codename.log.collected",
+                          failed_key="events.codename.log.collect.failed",
+                          busy_key="events.codename.log.busy",
+                          after=self.refresh)
+
     def arms(self):
         """The arms card against the last reading — what both front-ends draw."""
         return modelmod.arms_state(self._arms, self._arms_cal)
@@ -1590,6 +1604,7 @@ class EventsTab(PanelTab):
             return
         self._attack_button = None
         self._daily_button = None
+        self._collect_button = None
         for child in list(self._body.winfo_children()):
             child.destroy()
         for group in modelmod.GROUPS:
@@ -1621,6 +1636,11 @@ class EventsTab(PanelTab):
         rows.pack(fill="x", padx=4, pady=(0, 2))
         self._row(rows, "events.codename.attacks", modelmod.counter(state), grey)
         self._row(rows, "events.codename.damage", modelmod.damage(state.damage), grey)
+        # …and what the event OWES besides the fight (#2850): the chests of its
+        # achievement ladder. A dash is «the game would not say» and never a zero.
+        self._row(rows, "events.codename.bonus", modelmod.codename_bonus(state), grey)
+        self._row(rows, "events.codename.bonus.achievements",
+                  modelmod.codename_achievements(state), grey)
         if state.state == modelmod.OPEN:
             self._row(rows, "events.codename.until", modelmod.hhmm(state.seconds), grey)
 
@@ -1642,6 +1662,18 @@ class EventsTab(PanelTab):
         self._daily_button.pack(side="left")
         self.tr(ttk.Label(daily, foreground=_GREY),
                 "events.codename.daily.hint").pack(side="left", padx=(10, 0))
+
+        # …and the chests, on their own gate: a chest that has been COUNTED. Offered on
+        # a day whose attacks are all spent and on a shut event too — a rung beaten on
+        # Saturday is still waiting on Sunday — which is why it is not hung on
+        # `can_attack` (#2850).
+        collect = ttk.Frame(self._body)
+        collect.pack(fill="x", padx=28, pady=(0, 6))
+        self._collect_button = self.tr(
+            ttk.Button(collect, command=self.collect_codename), "events.codename.collect")
+        self._collect_button.pack(side="left")
+        self.tr(ttk.Label(collect, foreground=_GREY),
+                "events.codename.collect.hint").pack(side="left", padx=(10, 0))
         self._paint_attack_button()
 
     def _render_golden(self, group) -> None:
@@ -2120,10 +2152,18 @@ class EventsTab(PanelTab):
         buys the person a failure to read.
         """
         try:
-            alive = self.codename().can_attack and not self._attacking
+            state = self.codename()
+            alive = state.can_attack and not self._attacking
             for button in (self._attack_button, self._daily_button):
                 if button is not None:
                     button.configure(state=("normal" if alive else "disabled"))
+            # …and the claim on its OWN gate (#2850): a chest that has been counted. A
+            # shut event does not kill it — a rung beaten on Saturday is still waiting
+            # on Sunday — and only a press already on its way does.
+            if self._collect_button is not None:
+                self._collect_button.configure(
+                    state=("normal" if (state.can_collect and not self._attacking)
+                           else "disabled"))
         except tk.TclError:                 # the window is going away
             pass
 
@@ -2230,6 +2270,12 @@ class EventsTab(PanelTab):
             {"label": "events.state", "value": self._state_words(state)},
             {"label": "events.codename.attacks", "value": modelmod.counter(state)},
             {"label": "events.codename.damage", "value": modelmod.damage(state.damage)},
+            # …and what the event OWES besides the fight (#2850): the chests of its
+            # achievement ladder, and how far along it the account has got. A dash is
+            # «the game would not say» and is never drawn as a zero.
+            {"label": "events.codename.bonus", "value": modelmod.codename_bonus(state)},
+            {"label": "events.codename.bonus.achievements",
+             "value": modelmod.codename_achievements(state)},
         ]
         if state.state == modelmod.OPEN:
             rows.append({"label": "events.codename.until",
@@ -2245,6 +2291,12 @@ class EventsTab(PanelTab):
                               "pill": "events.codename.attack.off"},
                              {"label": "events.codename.daily",
                               "pill": "events.codename.attack.off"}]
+        # The claim stands on its own gate — a chest that has been COUNTED — so it is
+        # offered on a shut event too: a rung beaten on Saturday is still waiting on
+        # Sunday (#2850).
+        if state.can_collect and not self._attacking:
+            card.setdefault("actions", []).append(
+                {"id": "collect_codename", "label": "events.codename.collect"})
 
         # …and «Кристальный босс», the same event with a different manager and three
         # attacks the SERVER counts. The number that matters is what the day still owes,
@@ -2765,6 +2817,12 @@ class EventsTab(PanelTab):
             if not self.doomsday().can_collect:
                 return {"error": "closed"}
             return {"ok": self.collect_doomsday()}
+        if action == "collect_codename":
+            # A chest the game has counted, or nothing to press: unlike the attack, a
+            # claim over a ladder nobody could read would send nothing at all.
+            if not self.codename().can_collect:
+                return {"error": "closed"}
+            return {"ok": self.collect_codename()}
         if action == "collect_crystal":
             # A chest the game has counted, or nothing to press: unlike the attack, a
             # claim over a list nobody could read would send nothing at all.

@@ -221,6 +221,76 @@ of it; `retry_sec` is what actually finishes a day, in two or three short goes.
 
 ---
 
+## The chests the fight earns, and nobody hands over (#2850)
+
+The fight is not the whole of the event. It pays out along a **ladder of damage
+achievements** — «Нанести {1} урона {0} одной атакой», text key `456064`, one rung per
+threshold — and **nothing hands the chests over**: they wait in the event's window until
+somebody claims them. The person put it in one sentence: «в кодовом имени собирай призы,
+после 3х атак, если они были достигнуты, сейчас есть что забрать». Read live on
+2026-09-14 on an account whose three attacks had been made by the panel for weeks:
+
+```
+state0=27  state1=1  state2=28        <- 27 not reached, ONE waiting, 28 taken
+GetActRedNum()=1  CanShowTaskReddot()=true  HasRankReward()=false
+```
+
+### Where the ladder is
+
+`DataCenter.ActBossDataManager.AchievementTaskData`, a row per rung:
+
+```
+[29] {id=29, damage=16000000000, desc=456064, progressSpecial=0,
+      damageShowTime=…, reward=<a table of {type, value}>, state=1}
+```
+
+`state` is the whole gate: **0** not reached, **1** reached and WAITING, **2** taken.
+The panel does not rebuild «damage >= threshold and not claimed» for itself — the
+client's own `state` is asked, for the same reason the attack counter is the server's.
+
+**The manager has no claim of its own.** Its forty-odd methods are readers
+(`GetAchievementTaskData`, `GetActRedNum`, `JudgeAchievementTaskIsValid`, …), so the
+claim is the wire message the event's own window sends. Both are in
+`Net.Config.MsgMap`:
+
+| what | wire | fields |
+|---|---|---|
+| ask for the ladder | `act.boss.get.achievement.info` | `PutUtfString activityId` |
+| claim one rung | `act.boss.receive.achievement.reward` | `PutUtfString activityId`, `PutInt id` |
+
+The field shapes were read **without sending a byte**, with the `NewEmpty` + recording
+`sfsObj` trick of [`alliance-train.md`](alliance-train.md).
+
+### `activityId` travels as a STRING, and that is the whole trap
+
+A claim sent as `SendMessage(MsgDefines.UserGetActBossAchievementReward, 29)` — the id
+alone, which is the obvious guess — **did nothing at all**: the server answered nothing,
+the rung stayed at `state = 1` and the red dot stayed lit. With the activity id in front
+of it, as a string, the same rung went over in one go:
+
+```
+BEFORE  act=80001  state0=27 state1=1 state2=28
+AFTER             state0=27 state2=29  redNum=0
+```
+
+Two more things measured on the same client and worth not re-deriving:
+
+* **The march get does not bring the ladder.** `user.get.act.boss.march` fills the stage
+  list and the attack counter and touches nothing else, so a reading that wants the
+  chests asks `act.boss.get.achievement.info` too — the same shape as the trap at the
+  top of this file, one list along.
+* **There is no «получить всё».** Each rung is its own send, so the claim loops inside
+  ONE VM call: a round trip costs about 0.15 s and the ladder is 56 rungs long.
+
+### What is NOT a second family
+
+* `bossRewards[80001]` is empty and `GetRewardsDataByActId()` answers an empty list —
+  the attack-count reward is not a chest that waits, unlike the crystal boss's daily one
+  ([`crystal-boss.md`](crystal-boss.md)). There is no `CanClaimDailyReward` on this
+  manager at all.
+* `HasRankReward()` answered `false` throughout; the daily ranking pays out by mail
+  rather than by a button in the window. Nothing is claimed for it here.
+
 ## Where it lives
 
 | | |
@@ -229,6 +299,7 @@ of it; `retry_sec` is what actually finishes a day, in two or three short goes.
 | the attack | `src/lastwar_bot/actions/attack_codename_boss.md` — one attack, one squad |
 | the day's worth | `src/lastwar_bot/actions/attack_codename_daily.md` — as many as the day still owes |
 | the clock | `panel/timers.py`, the errand `attack_codename_daily` — a day, retried in 15 min |
+| the chests | `src/lastwar_bot/actions/collect_codename_rewards.md` — the ladder, claimed |
 | the presses | `tools/lib/game_buttons.py`, `codename_*` |
 | the Lua | `tools/lib/lua_actions.py`, `codename_*` |
 | the tab | `panel/tabs/events/` — «События», first group |

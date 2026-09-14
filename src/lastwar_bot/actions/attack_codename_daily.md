@@ -69,6 +69,7 @@ IF cn_left < 0
 
 IF cn_left < 1
     LOG "the day's «Кодовое имя» attacks are already made"
+    CALL collect_codename_rewards
     STOP "nothing left to send today"
 
 # --- send what is owed, re-asking the count after each ----------------------------
@@ -83,3 +84,13 @@ IF cn_left != 0
     FAIL "the day's «Кодовое имя» attacks are not all made — the clock will try again"
 
 LOG "The day's «Кодовое имя» attacks are made"
+
+# --- and then the CHESTS the fight has just earned --------------------------------
+# The event pays out along a ladder of damage achievements besides the fight, and
+# nothing hands those chests over: they wait in its window until somebody claims them.
+# The third attack is exactly the moment a new rung can have been beaten, so this is
+# where they are taken (#2850) — and the call is made on the day-already-played path
+# too, because a rung beaten by the person playing by hand is waiting just the same.
+# It ends as a success when there is nothing to take, so a day that earned no new chest
+# costs one ask and no failure.
+CALL collect_codename_rewards

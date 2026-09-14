@@ -10074,6 +10074,108 @@ def codename_shut_report() -> str:
     )
 
 
+# -- the ACHIEVEMENT chests, which the fight earns and nobody hands over (#2850) ---
+# The event pays out beside the fight, along a ladder of damage achievements — «Нанести
+# {1} урона {0} одной атакой», one rung per threshold — and the chests are NOT handed
+# over by beating a rung. They sit in the event's window until somebody claims them,
+# which is why the day's errand claims them after its three attacks: the third attack is
+# the moment a new rung can have been beaten. Read live on 2026-09-14: one rung stood at
+# `state = 1` with the day's three attacks long since made, and 28 more already taken.
+#
+# The manager holds the ladder in `AchievementTaskData` and has NO claim of its own — its
+# forty-odd methods are readers, so the claim is the wire message the event's own window
+# sends (read out of `Net.Config.MsgMap` and the message class itself):
+#
+#     act.boss.get.achievement.info      PutUtfString activityId
+#     act.boss.receive.achievement.reward  PutUtfString activityId, PutInt id
+#
+# **`activityId` TRAVELS AS A STRING and the id as an int**, which is the whole reason a
+# claim sent as `(id)` alone did nothing at all: the server answered nothing, the rung
+# stayed at `state = 1` and the red dot stayed lit. The shape was read without sending a
+# byte, with the `NewEmpty` + recording `sfsObj` trick (docs/research/alliance-train.md),
+# and then proven live — `state1 1 -> 0`, `state2 28 -> 29`, `GetActRedNum() 1 -> 0`.
+#
+# A rung's `state`: **0** not reached, **1** reached and waiting, **2** taken.
+_CODENAME_ACH = ("(%s.AchievementTaskData or {})" % _CODENAME_MGR)
+_CODENAME_ACT = ("tostring(%s.activityId)" % _CODENAME_MGR)
+
+
+def codename_rewards_fetch() -> str:
+    """Ask the server for the achievement ladder — the event window's own get.
+
+    `act.boss.get.achievement.info`, carrying the activity id as a string. The march get
+    (`codename_fetch`) does NOT bring the ladder, so a reading that wants the chests asks
+    a second time; the reply is what moves a rung a hit has just beaten.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage('
+            'MsgDefines.UserGetActBossAchievement, %s) end) '
+            'CS.UnityEngine.Debug.LogError("ACT codename_rewards_fetch sent")'
+            % _CODENAME_ACT)
+
+
+def codename_rewards_ready() -> str:
+    """Lua *expression* -> chests waiting on the ladder right now, or nil.
+
+    A rung at `state == 1` is reached and unclaimed, which is the whole of «есть что
+    забрать». ``nil`` when the ladder is not there at all — a manager nobody has asked
+    answers a claim exactly as it would with nothing to claim, and «nobody knows» must
+    never be drawn as a zero.
+    """
+    return ("(function() local ok, t = pcall(function() return %s end) "
+            "if not ok or type(t) ~= 'table' then return nil end "
+            "local n = 0 local any = false "
+            "for _, v in pairs(t) do any = true "
+            "if tostring(v.state) == '1' then n = n + 1 end end "
+            "if not any then return nil end return n end)()" % _CODENAME_ACH)
+
+
+def codename_rewards_taken() -> str:
+    """Lua *expression* -> rungs already claimed, or nil. The «5 / 56» on the card."""
+    return ("(function() local ok, t = pcall(function() return %s end) "
+            "if not ok or type(t) ~= 'table' then return nil end "
+            "local n = 0 local any = false "
+            "for _, v in pairs(t) do any = true "
+            "if tostring(v.state) == '2' then n = n + 1 end end "
+            "if not any then return nil end return n end)()" % _CODENAME_ACH)
+
+
+def codename_rewards_total() -> str:
+    """Lua *expression* -> how many rungs the ladder has at all, or nil."""
+    return ("(function() local ok, t = pcall(function() return %s end) "
+            "if not ok or type(t) ~= 'table' then return nil end "
+            "local n = 0 for _ in pairs(t) do n = n + 1 end "
+            "if n == 0 then return nil end return n end)()" % _CODENAME_ACH)
+
+
+def codename_claim_rewards() -> str:
+    """Claim every rung the ladder says is waiting — one round trip, one send each.
+
+    The loop is INSIDE the VM call because a round trip costs about 0.15 s and the work
+    inside it is free (`docs/research/alliance-tech.md`), and because the ladder is fifty
+    rungs long: a recipe that asked the panel to press once per rung would pay for fifty
+    trips to claim one chest.
+
+    Every send is its own message — there is no «получить всё» on this event — and the
+    proof is the SERVER's own ladder moving, never these calls returning: they return at
+    once and the rungs change when the replies land.
+    """
+    return ("pcall(function() local act = %(act)s local t = %(ach)s "
+            "local ids = {} "
+            "for _, v in pairs(t) do if tostring(v.state) == '1' then "
+            "ids[#ids+1] = math.floor((tonumber(v.id) or 0) + 0) end end "
+            "table.sort(ids) "
+            "for _, id in ipairs(ids) do pcall(function() SFSNetwork.SendMessage("
+            "MsgDefines.UserGetActBossAchievementReward, act, id) end) end "
+            "DataCenter.__lw_cnclaim = #ids end) "
+            "CS.UnityEngine.Debug.LogError(\"ACT codename_claim_rewards sent\")"
+            % {"act": _CODENAME_ACT, "ach": _CODENAME_ACH})
+
+
+def codename_claim_count() -> str:
+    """Lua *expression* -> how many rungs the last claim pressed, or 0."""
+    return "math.floor((tonumber(DataCenter.__lw_cnclaim) or 0) + 0)"
+
+
 # ---------------------------------------------------------------------------
 # «Кристальный босс» — the daily boss with three attacks (#2077)
 # ---------------------------------------------------------------------------

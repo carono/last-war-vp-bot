@@ -31,6 +31,7 @@
 # separated by spaces:
 #
 #     open=1 attacks=1 need=3 left=2 maxdmg=12607399171 targets=1 until=6042
+#     bonus=1 achdone=28 achall=56
 #
 # Every value is a whole number, and **`-` means the game would not answer** — a
 # manager not loaded yet, a client still at the login screen, an account that has
@@ -54,6 +55,14 @@
 #   targets   how many boss instances the client currently has on the map. 0 with
 #             `open=1` means the list has not arrived yet, not that there is none.
 #   until     seconds left in the open window. A dash when no window is open.
+#   bonus     chests WAITING on the event's achievement ladder — rungs reached and not
+#             claimed (#2850). The event pays out beside the fight and hands nothing
+#             over: a rung beaten on Monday is still unclaimed on Saturday unless
+#             somebody claims it. This is the number a person acts on, and the claim is
+#             actions/collect_codename_rewards.md.
+#   achdone   rungs already claimed, and `achall` how many rungs there are — the
+#             «28 / 56» beside the count. Neither is a gate; both say how far the
+#             account has got along the ladder.
 #
 # Every field is read inside its own `pcall`, so a manager that is missing costs one
 # dash rather than the whole line, and ONE round trip carries all of it — a VM call
@@ -75,10 +84,16 @@
 # answer, and the read below then honestly says `open=0`.
 TAP codename_fetch
 
+# …and a SECOND ask, for a second list. `act.boss.get.achievement.info` is what
+# fills the event's achievement ladder — the chests the fight earns — and the march
+# get above never touches it, so without this every rung reads as «nobody knows»:
+# the same trap as the paragraph above, one list along (#2850).
+TAP codename_rewards_fetch
+
 READ_LUA ((type(DataCenter.ActBossDataManager.stageTimeList) == 'table') and 1 or 0) INTO cn_loaded
 
 WHILE cn_loaded == 0 LIMIT 4
     WAIT 0.6
     READ_LUA ((type(DataCenter.ActBossDataManager.stageTimeList) == 'table') and 1 or 0) INTO cn_loaded
 
-READ_LUA (function() local out={} local function put(k,f) local ok,v=pcall(f) if not ok or v==nil then out[#out+1]=k..'=-' return end local n=tonumber(v) if n~=nil then v=math.floor(n) end out[#out+1]=k..'='..tostring(v) end put('open',function() return (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager:IsBossAvailable() end) if not ok then return nil end return (v and 1 or 0) end)() end) put('attacks',function() return (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.actBossTransTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() end) put('need',function() return (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.rewardMaxTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() end) put('left',function() return (function() local a = (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.actBossTransTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() local n = (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.rewardMaxTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() if a == nil or n == nil then return nil end local l = n - a if l < 0 then l = 0 end return l end)() end) put('maxdmg',function() return (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.maxDamage end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() end) put('targets',function() return (function() local ok, l = pcall(function() return DataCenter.ActBossDataManager:GetActBossDataList() end) if not ok or type(l) ~= 'table' then return nil end local n = 0 for _ in pairs(l) do n = n + 1 end return n end)() end) put('until',function() return (function() local ok, st = pcall(function() return DataCenter.ActBossDataManager:GetAttackStageData() end) if not ok or type(st) ~= 'table' then return nil end local e = tonumber(st.endTime) if e == nil then return nil end local now = tonumber(UITimeManager:GetInstance():GetServerTime()) or 0 local left = e - now if left < 0 then left = 0 end return math.floor(left) end)() end) return table.concat(out,' ') end)() INTO codename
+READ_LUA (function() local out={} local function put(k,f) local ok,v=pcall(f) if not ok or v==nil then out[#out+1]=k..'=-' return end local n=tonumber(v) if n~=nil then v=math.floor(n) end out[#out+1]=k..'='..tostring(v) end put('open',function() return (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager:IsBossAvailable() end) if not ok then return nil end return (v and 1 or 0) end)() end) put('attacks',function() return (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.actBossTransTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() end) put('need',function() return (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.rewardMaxTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() end) put('left',function() return (function() local a = (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.actBossTransTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() local n = (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.rewardMaxTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() if a == nil or n == nil then return nil end local l = n - a if l < 0 then l = 0 end return l end)() end) put('maxdmg',function() return (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.maxDamage end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() end) put('targets',function() return (function() local ok, l = pcall(function() return DataCenter.ActBossDataManager:GetActBossDataList() end) if not ok or type(l) ~= 'table' then return nil end local n = 0 for _ in pairs(l) do n = n + 1 end return n end)() end) put('until',function() return (function() local ok, st = pcall(function() return DataCenter.ActBossDataManager:GetAttackStageData() end) if not ok or type(st) ~= 'table' then return nil end local e = tonumber(st.endTime) if e == nil then return nil end local now = tonumber(UITimeManager:GetInstance():GetServerTime()) or 0 local left = e - now if left < 0 then left = 0 end return math.floor(left) end)() end) put('bonus',function() return (function() local ok, t = pcall(function() return (DataCenter.ActBossDataManager.AchievementTaskData or {}) end) if not ok or type(t) ~= 'table' then return nil end local n = 0 local any = false for _, v in pairs(t) do any = true if tostring(v.state) == '1' then n = n + 1 end end if not any then return nil end return n end)() end) put('achdone',function() return (function() local ok, t = pcall(function() return (DataCenter.ActBossDataManager.AchievementTaskData or {}) end) if not ok or type(t) ~= 'table' then return nil end local n = 0 local any = false for _, v in pairs(t) do any = true if tostring(v.state) == '2' then n = n + 1 end end if not any then return nil end return n end)() end) put('achall',function() return (function() local ok, t = pcall(function() return (DataCenter.ActBossDataManager.AchievementTaskData or {}) end) if not ok or type(t) ~= 'table' then return nil end local n = 0 for _ in pairs(t) do n = n + 1 end if n == 0 then return nil end return n end)() end) return table.concat(out,' ') end)() INTO codename
