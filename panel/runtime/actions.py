@@ -149,7 +149,8 @@ class ActionRunner:
             target = self._target() or {}
         except Exception:                 # noqa: BLE001 — a read, never the run
             return {}
-        return {key: target[key] for key in ("game_port", "game_token", "game_user")
+        return {key: target[key]
+                for key in ("game_port", "game_token", "game_user", "game_launcher_exe")
                 if target.get(key) is not None}
 
     def _books_kw(self) -> dict:

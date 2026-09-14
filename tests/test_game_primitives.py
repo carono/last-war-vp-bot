@@ -1055,8 +1055,10 @@ class FakeClient:
         self.asked_for.append(user)
         return self.attached or self.pid
 
-    def start(self, launcher=None, user=None, timeout=None, game_exe=None, log=None):
-        self.started.append({"launcher": launcher, "user": user, "timeout": timeout})
+    def start(self, launcher=None, user=None, timeout=None, game_exe=None, log=None,
+              launcher_exe=None):
+        self.started.append({"launcher": launcher, "user": user, "timeout": timeout,
+                             "launcher_exe": launcher_exe})
         if self.start_error is not None:
             raise self.start_error
         self.pid = self.next_pid
@@ -1359,6 +1361,7 @@ def test_start_game_on_this_desktop_names_no_session():
     with _fakes(client):
         assert se.run_text('START_GAME "C:\\a.exe"', ctx=ctx) is True
     assert client.started == [{"launcher": "C:\\a.exe", "user": None,
+                               "launcher_exe": None,
                                "timeout": se.START_TIMEOUT_SEC}], client.started
 
 
@@ -1375,6 +1378,7 @@ def test_start_game_goes_to_the_windows_session_the_profile_names():
     with _fakes(client):
         assert se.run_text("START_GAME WITHIN 60s", ctx=ctx) is True
     assert client.started == [{"launcher": None, "user": "player2",
+                               "launcher_exe": None,
                                "timeout": 60.0}], client.started
 
 
@@ -1519,7 +1523,7 @@ def test_a_stuck_launcher_is_ended_before_a_start_and_a_fresh_one_is_not():
     saved = (game_client.launcher_pids, game_client._age_of, game_client.close)
     game_client.close = lambda pid, **kw: ended.append(pid) or True
     try:
-        game_client.launcher_pids = lambda session=None: [4242]
+        game_client.launcher_pids = lambda session=None, exe=None: [4242]
         game_client._age_of = lambda pid: 1800.0
         assert game_client.clear_stale_launchers(older_than=300.0) == 1
         assert ended == [4242], ended
@@ -1558,7 +1562,7 @@ def test_both_start_routes_clear_the_ground_first():
              game_client.session_pids_of, game_client._tools_on_path,
              sys.modules.get("rdp_instance"))
     game_client.clear_stale_launchers = (
-        lambda session=None, user=None, older_than=None, log=None:
+        lambda session=None, user=None, older_than=None, log=None, exe=None:
         calls.append(("clear", session, user)) or 0)
     try:
         import subprocess as _sub

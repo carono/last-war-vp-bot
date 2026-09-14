@@ -992,13 +992,22 @@ def restore_console(target: int | None = None) -> bool:
 
 # ------------------------------------------------------------------ bring-up --
 
-def start_client(session: int, timeout: float = 300.0) -> dict:
+def start_client(session: int, timeout: float = 300.0,
+                 launcher_exe: str = "") -> dict:
+    """Start that session's own client. ``launcher_exe`` names the launcher FILE.
+
+    Empty means whatever the far side resolves for itself, which is what every caller
+    meant before a profile could name its own file (#2882) — a name travels because the
+    hop runs as SYSTEM and inherits nothing from here, environment included.
+    """
     existing = client_in(session)
     if existing:
         log(f"client already in session {session}: pid {existing['pid']}")
         return existing
-    rc, text = system_python(["tools\\session_launch.py", "--session", str(session),
-                              "--game"], tag="game", timeout=120)
+    args = ["tools\\session_launch.py", "--session", str(session), "--game"]
+    if (launcher_exe or "").strip():
+        args += ["--launcher-exe", launcher_exe.strip()]
+    rc, text = system_python(args, tag="game", timeout=120)
     log(f"launcher start rc={rc}: {' '.join(text.split())[:300]}")
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -1074,7 +1083,8 @@ def start_daemon(session: int, port: int, timeout: float = 120.0,
 
 def bring_up(user: str, port: int, server: str = "", width: int = 1600,
              height: int = 900, use_rdp: bool = True, restore: bool = True,
-             ask: bool | None = None, seal: bool = False, say=None) -> int:
+             ask: bool | None = None, seal: bool = False, say=None,
+             launcher_exe: str = "") -> int:
     """Session -> client -> daemon -> console back. ``0`` when the second instance answers.
 
     ``say`` is where the running commentary goes (the panel hands in its log; a command
@@ -1086,11 +1096,13 @@ def bring_up(user: str, port: int, server: str = "", width: int = 1600,
     """
     server = server or host_for(port)
     with spoken_to(say) if say else contextlib.nullcontext():
-        return _bring_up(user, port, server, width, height, use_rdp, restore, ask, seal)
+        return _bring_up(user, port, server, width, height, use_rdp, restore, ask, seal,
+                         launcher_exe)
 
 
 def _bring_up(user: str, port: int, server: str, width: int, height: int,
-              use_rdp: bool, restore: bool, ask: bool | None, seal: bool = False) -> int:
+              use_rdp: bool, restore: bool, ask: bool | None, seal: bool = False,
+              launcher_exe: str = "") -> int:
     s = session_of(user)
     if s:
         log(f"session {s['id']} for {user} already exists ({s['state']})")
@@ -1104,7 +1116,7 @@ def _bring_up(user: str, port: int, server: str, width: int, height: int,
     try:
         if s is None:
             s = rdp_connect(user, server, width, height, ask=ask, seal=seal)
-        client = start_client(s["id"])
+        client = start_client(s["id"], launcher_exe=launcher_exe)
         log(f"client pid {client['pid']} in session {s['id']}")
         warm = start_daemon(s["id"], port)
     finally:
@@ -1166,6 +1178,9 @@ def main() -> int:
                          f"Empty means the address of --port's own profile, so two "
                          f"accounts never share a password slot ({DEFAULT_SERVER} for "
                          f"the first; see the note above)")
+    ap.add_argument("--launcher-exe", default="",
+                    help="what the launcher file is called in that account's install "
+                         "(default: whatever the far side resolves)")
     ap.add_argument("--width", type=int, default=1600)
     ap.add_argument("--height", type=int, default=900)
     ap.add_argument("--status", action="store_true", help="sessions, clients, daemon")
@@ -1267,7 +1282,7 @@ def main() -> int:
         ask = True if a.ask else (False if a.stored else None)
         return bring_up(user_or_ask(), a.port, a.server, a.width, a.height,
                         use_rdp=not a.no_rdp, restore=not a.no_restore, ask=ask,
-                        seal=a.seal)
+                        seal=a.seal, launcher_exe=a.launcher_exe)
     status(user_or_ask(), a.port)
     return 0
 

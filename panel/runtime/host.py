@@ -1272,7 +1272,12 @@ class PanelRuntime:
         whatever the profile said, which is a third client nobody asked for (#1218).
         """
         return {"game_port": self.daemon_port(), "game_token": self.game.token,
-                "game_user": game_process.profile_user(self.settings)}
+                "game_user": game_process.profile_user(self.settings),
+                # …and WHAT the launcher is called for this profile (#2882) — the fourth
+                # thing only a launch can use, for the same reason the session is: there
+                # is no client yet to ask, and one account's launcher may be named
+                # differently from the machine's own answer.
+                "game_launcher_exe": game_process.profile_launcher_exe(self.settings)}
 
     # -- «I am still here» --------------------------------------------------
     def start_heartbeat(self) -> None:
