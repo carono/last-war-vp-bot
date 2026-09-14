@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 83 of 211
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 84 of 212
 
-🟩 83 done · 🟨 100 partly · 🟥 28 not automated
+🟩 84 done · 🟨 100 partly · 🟥 28 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what is
@@ -88,6 +88,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 
 - ❌ Alliance exercises
 - ✅ Codename — sends a squad at the boss and shows what the event still owes: attacks made of the three, and the biggest single hit
+- ✅ Codename rewards — claims the achievement chests the attacks earn, after the day's three
 - ✅ Crystal Boss — makes the day's three attacks once a day, then takes all three chests: weekly damage, achievements and the day's own
 - ✅ Golden zombies — one press hunts them one after another until the energy runs out or the number of kills you asked for is reached
 - ✅ Golden zombies: the fast approach — the long haul is ridden on a gather order and only the last few tiles at attack speed
