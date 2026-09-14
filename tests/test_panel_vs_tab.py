@@ -39,7 +39,7 @@ LOCALES = ROOT / "panel" / "locales"
 NEW_KEYS = ("tab.vs", "vs.week", "vs.day.actions", "vs.day.set",
             "vs.day.soon", "vsduel.drone_chips", "vsduel.drone_level",
             "vs.chips.title", "vs.chips.in_bag", "vs.chips.opened",
-            "vs.chips.read_at", "vs.chips.never",
+            "vs.chips.read_at", "vs.chips.never", "vs.chips.auto",
             "vs.chips.open_all", "vs.drone.raise_now",
             "vs.age.sec", "vs.age.min", "vs.age.hour", "vs.age.day",
             "vsduel.survivor_tickets", "vsduel.build_collect",
@@ -482,6 +482,74 @@ def test_the_bag_reading_is_taken_by_the_wire_and_the_run_carries_the_same_ids()
         assert "on_result" in kw
         # …and the press that used to take it is not a press any more.
         assert tab.web_press("chips_read", {}) != {"ok": True}
+    finally:
+        root.destroy()
+
+
+
+def test_the_chips_open_themselves_when_the_reading_lands():
+    """«Сразу должны открываться, когда таймер прочитает состояние карточки» (#2849).
+
+    The reading is the door. It opens on Monday, with the box ticked and something in
+    the bag, and on nothing else — and never twice over one reading.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                       # noqa: BLE001
+        print(f"  SKIP no tkinter / display: {exc}")
+        return
+    try:
+        from panel.tabs.vs import CHIP_IDS
+
+        class _Outcome:
+            def __init__(self, **vars_):
+                self.ok = True
+                self.ctx = type("C", (), {"vars": dict(vars_)})()
+
+        played = []
+        tab.rt.play_async = lambda name, args=None, **k: (
+            played.append((name, args)) or True)
+        # The spread books the opening on the clock; here it is run as it is booked.
+        tab.rt.tick.arm = lambda name, ms, call: call()
+        weekday = [1]
+        tab.rt.day = type("D", (), {"weekday": lambda self: weekday[0]})()
+
+        full = _Outcome(chips_rows=("540201|31|3|icon_item_540201|Chest R ;; "
+                                    "540301|10|4|icon_item_540301|Chest SR ;; "
+                                    "540401|3|5||Chest SSR"))
+        empty = _Outcome(chips_rows=("540201|0|3|icon_item_540201|Chest R ;; "
+                                     "540301|0|4|icon_item_540301|Chest SR ;; "
+                                     "540401|0|5||Chest SSR"))
+
+        tab._chips_rows_back(full)
+        assert played == [("open_drone_chips", {"ids": ",".join(CHIP_IDS)})], played
+
+        # …and the same reading again does not start a second run.
+        played.clear()
+        tab._chips_rows_back(full)
+        assert played == [], "one reading, one opening"
+
+        # A bag with nothing in it is not a run at all.
+        played.clear()
+        tab._chips_auto_at = 0.0
+        tab._chips_rows_back(empty)
+        assert played == [], "an empty bag opens nothing"
+
+        # Any other day of the duel week is Monday's box, not today's.
+        played.clear()
+        tab._chips_auto_at = 0.0
+        weekday[0] = 2
+        tab._chips_rows_back(full)
+        assert played == [], "the chests pay on Monday and are opened on Monday"
+
+        # …and the box is still a box: unticked, the reading changes nothing.
+        played.clear()
+        tab._chips_auto_at = 0.0
+        weekday[0] = 1
+        assert tab.web_press("set", {"key": "plan.mon.drone_chips",
+                                     "value": False}) == {"ok": True}
+        tab._chips_rows_back(full)
+        assert played == [], "an unticked ability is not played by anybody"
     finally:
         root.destroy()
 

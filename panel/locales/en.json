@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Raise it now",
   "vs.chips.read_at": "read {ago} ago",
   "vs.chips.never": "not read yet",
+  "vs.chips.auto": "opening the chip chests — the box is ticked and the bag has some",
   "vs.score": "Score",
   "vs.score.mine": "My points",
   "vs.score.mine.progress": "Progress",

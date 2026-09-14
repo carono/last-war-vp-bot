@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Şimdi yükselt",
   "vs.chips.read_at": "{ago} önce okundu",
   "vs.chips.never": "henüz okunmadı",
+  "vs.chips.auto": "çip sandıkları açılıyor — kutu işaretli ve çantada var",
   "vs.score": "Skor",
   "vs.score.mine": "Puanlarım",
   "vs.score.mine.progress": "İlerleme",

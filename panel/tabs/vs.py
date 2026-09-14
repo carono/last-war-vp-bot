@@ -177,6 +177,12 @@ CHAIN_BUILD_PUSH = "vs_build_push"
 #: moment a slot moves, and the push does not come round a second time.
 CHAIN_BUILD_RETRY = "vs_build_retry"
 CHAIN_FIRST = "vs_first_read"
+#: …AND THE ONE THE CHIP CHESTS OPEN THEMSELVES ON (#2849). The person's words: «Открывать
+#: чипы можно в любой момент дня, поэтому сразу должны открываться, когда таймер прочитает
+#: состояние этой карточки». So the reading is the door: when it lands on Monday with the
+#: box ticked and chests in the bag, the opening follows it — nobody has to press anything
+#: and nothing waits for a window to be looked at.
+CHAIN_CHIPS_OPEN = "vs_chips_open"
 #: …and the science queues' own three: the debounce under their pushes, the alarm on the
 #: earliest study's own end, and the retry under a reading the gate refused. They are
 #: separate from the build queue's for the same reason its own are separate from the
@@ -216,6 +222,17 @@ BUILD_RETRIES = 10
 #: queue, the science queues, the arms race and the duel's own score. The retry stops
 #: when they have all answered.
 FIRST_READS = 7
+
+#: WHICH DUEL DAY THE CHIP CHESTS PAY ON — Monday, 1 = Monday … 7 = Sunday. The GAME's
+#: weekday and never this machine's (`panel/runtime/day_reset.py`): the two disagree for
+#: two hours out of every twenty-four, and a day's points are scored on the game's side of
+#: that boundary.
+CHIP_DAY = 1
+
+#: The floor between two automatic openings, in seconds. A run that opened nothing leaves
+#: the chests where they were, so the next reading would ask again — this keeps a refusal
+#: the panel cannot see from becoming a loop against the game.
+CHIP_AUTO_GAP_SEC = 300.0
 
 #: The floor between two «read the whole page» rounds, in seconds. A profile can be told
 #: it is ready more than once inside a second (the bus is not de-duplicated), and three
@@ -278,6 +295,10 @@ class VsTab(VsDuelTab):
         #: What the store says about the chip chests — read on first need, never on a
         #: clock (CLAUDE.md, «Read once, then LISTEN»). `None` until it has been asked.
         self._chips = None
+        #: Whether an automatic opening is in flight, and when the last one started
+        #: (#2849) — a reading that lands while one is running must not start a second.
+        self._chips_opening = False
+        self._chips_auto_at = 0.0
         #: …and the same for Tuesday's two: the survivors' banner and the buildings that
         #: have finished. `None` until either has been asked for the first time.
         self._tickets = None
@@ -404,6 +425,9 @@ class VsTab(VsDuelTab):
         state["at"] = int(time.time())
         self._chips_save(state)
         self._first_ok.add("chips")
+        # …AND THE OPENING FOLLOWS THE READING (#2849), which is the whole of this: the
+        # state of the card is what decides, not a press and not a window being open.
+        self._chips_auto(rows)
 
     def _chips_opened_back(self, outcome) -> None:
         """`open_drone_chips` came back — add what it opened to the tally, by grade.
@@ -431,6 +455,62 @@ class VsTab(VsDuelTab):
         # It is not re-read here: the next press asks, and until then the age says so.
         state["spent_at"] = int(time.time())
         self._chips_save(state)
+
+    def _chips_auto(self, rows: list) -> None:
+        """The reading has landed — open the chests now, if the plan says to (#2849).
+
+        Three gates and none of them is a clock: the day is Monday on the GAME's own
+        calendar, Monday's «Открыть чипы дрона» is ticked (a day switched off answers
+        with nothing at all — :meth:`plan`), and the reading that just landed says there
+        is something in the bag. A run that opened nothing is not asked again for
+        :data:`CHIP_AUTO_GAP_SEC`, because the chests it failed on are still there and
+        the next reading would ask about the same ones.
+        """
+        if self._chips_opening:
+            return
+        if time.time() - self._chips_auto_at < CHIP_AUTO_GAP_SEC:
+            return
+        if not self.plan("mon").get("drone_chips"):
+            return
+        if self._game_weekday() != CHIP_DAY:
+            return
+        if not any(_int(row.get("count")) > 0 for row in rows):
+            return
+        self._chips_opening = True
+        self._chips_auto_at = time.time()
+        # A START BY THE CLOCK GOES INTO THE SPREAD (#2667). This one rides a reading
+        # that was itself taken at the boot, so it is queued behind the rest rather than
+        # landing in the same second as them — and a few seconds is invisible on a day
+        # the chests may be opened at any hour of.
+        try:
+            self.rt.tick.arm(CHAIN_CHIPS_OPEN, int(spread.SPREAD_SEC * 1000),
+                             self._chips_open)
+        except Exception:                    # noqa: BLE001 — no clock, open at once
+            self._chips_open()
+
+    def _chips_open(self) -> None:
+        """Play the ability. The panel holds no part of it (CLAUDE.md) — one call."""
+        started = self.rt.play_async(RUNS["mon.drone_chips"],
+                                     args={"ids": ",".join(CHIP_IDS)}, tag="vs",
+                                     on_result=self._chips_auto_back)
+        if not started:
+            # A refusal is the gate's and the reading will come round again — the next
+            # bag push, or the next time the client gets into the game.
+            self._chips_opening = False
+            return
+        self.say("vs", "vs.chips.auto")
+
+    def _chips_auto_back(self, outcome) -> None:
+        """…and what it opened is booked exactly as a press's would be."""
+        self._chips_opening = False
+        self._chips_opened_back(outcome)
+
+    def _game_weekday(self) -> int:
+        """Which weekday the GAME is on, 1 = Monday … 7 = Sunday. `0` — nobody knows."""
+        try:
+            return int(self.rt.day.weekday())
+        except Exception:                    # noqa: BLE001 — a gate, never the tab
+            return 0
 
     def _chips_rows(self) -> list:
         """One row per grade: the game's own picture, its name, what is held and opened.

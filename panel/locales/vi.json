@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Nâng ngay",
   "vs.chips.read_at": "đọc {ago} trước",
   "vs.chips.never": "chưa đọc",
+  "vs.chips.auto": "đang mở rương chip — ô đã được đánh dấu và trong túi còn rương",
   "vs.score": "Tỷ số",
   "vs.score.mine": "Điểm của tôi",
   "vs.score.mine.progress": "Tiến độ",

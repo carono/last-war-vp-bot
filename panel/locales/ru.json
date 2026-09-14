@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Повысить сейчас",
   "vs.chips.read_at": "прочитано {ago} назад",
   "vs.chips.never": "ещё не читалось",
+  "vs.chips.auto": "открываю сундуки чипов — галка включена, сундуки в сумке есть",
   "vs.score": "Счёт",
   "vs.score.mine": "Мои очки",
   "vs.score.mine.progress": "Прогресс",
