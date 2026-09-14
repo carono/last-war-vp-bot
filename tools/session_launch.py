@@ -43,6 +43,11 @@ import win32profile  # noqa: E402
 import win32security  # noqa: E402
 import win32ts  # noqa: E402
 
+#: `CREATE_NO_WINDOW` — `win32con` does not carry it. The one other spelling of the
+#: number is `tools/lib/quiet_proc.py`, which this module cannot import: it runs as
+#: SYSTEM out of a throwaway task and keeps its imports to what the far side has.
+CREATE_NO_WINDOW = 0x08000000
+
 STATE_NAMES = {0: "active", 1: "connected", 2: "connectquery", 3: "shadow",
                4: "disconnected", 5: "idle", 6: "listen", 7: "reset", 8: "down",
                9: "init"}
@@ -190,8 +195,15 @@ def launch_in_session(session: int, exe: str, args: str = "", cwd: str | None = 
     si.wShowWindow = win32con.SW_SHOWNORMAL if show else win32con.SW_HIDE
 
     cmdline = f'"{exe}"' + (f" {args}" if args else "")
-    flags = (win32con.CREATE_UNICODE_ENVIRONMENT | win32con.CREATE_NEW_CONSOLE
-             | win32process.CREATE_NEW_PROCESS_GROUP)
+    # A HIDDEN launch gets NO console, not a hidden one (#2874). `CREATE_NEW_CONSOLE`
+    # with `SW_HIDE` asks Windows to draw a console window and then hide it, and the
+    # gap between the two is the flash — on the target session's desktop, which is a
+    # desktop a person sits at often enough. `CREATE_NO_WINDOW` never draws one; the
+    # payload's own redirection (`>> log 2>&1`) is what the output was going to anyway.
+    # A VISIBLE launch keeps its console: that is the game launcher, and it is the one
+    # window the person is meant to see.
+    flags = (win32con.CREATE_UNICODE_ENVIRONMENT | win32process.CREATE_NEW_PROCESS_GROUP
+             | (win32con.CREATE_NEW_CONSOLE if show else CREATE_NO_WINDOW))
     hp, ht, pid, _tid = win32process.CreateProcessAsUser(
         primary, None, cmdline, None, None, False, flags, env,
         cwd or os.path.dirname(exe), si)

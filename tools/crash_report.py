@@ -45,6 +45,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 
 import game_paths  # noqa: E402
+import quiet_proc  # noqa: E402
 
 
 # --- the shell that can ask Windows ---------------------------------------------------
@@ -111,7 +112,7 @@ def windows_crashes(days: int, exe: str) -> list[dict]:
     start = (dt.datetime.now() - dt.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
     script = _PS.format(start=start, exe=exe)
     try:
-        out = subprocess.run([shell, "-NoProfile", "-Command", script],
+        out = quiet_proc.run([shell, "-NoProfile", "-Command", script],
                              capture_output=True, timeout=180).stdout
     except (OSError, subprocess.SubprocessError) as exc:
         print(f"[crash] the event log refused: {exc}", file=sys.stderr)

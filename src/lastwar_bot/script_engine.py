@@ -3904,7 +3904,6 @@ class Interpreter:
         - ``~/games/foo.exe``              (home directory)
         """
         import os
-        import subprocess
         from pathlib import Path
 
         expanded = os.path.expanduser(os.path.expandvars(stmt.path))
@@ -3915,7 +3914,12 @@ class Interpreter:
                 + (f" (expanded from {stmt.path})" if expanded != stmt.path else "")
             )
         try:
-            subprocess.Popen(
+            # No console over the desktop (#2874). The launcher keeps its own GUI; what
+            # this stops is the console Windows hands a child of a windowless panel.
+            self._tools_lib_on_path()
+            import quiet_proc                      # tools/lib
+
+            quiet_proc.popen(
                 [str(exe)],
                 cwd=str(exe.parent),
                 close_fds=True,

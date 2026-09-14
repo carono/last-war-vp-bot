@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import game_paths  # noqa: E402  (where tshark is — LW_WIRESHARK_DIR)
 import lastwar_proto as proto  # noqa: E402
+import quiet_proc  # noqa: E402
 import run_output  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 
@@ -71,7 +72,7 @@ def find_binary(name: str, override: str | None = None) -> str | None:
 def list_interfaces(tshark: str) -> list[tuple[str, str]]:
     """Return [(number, label)] for real capture devices, skipping extcap ones."""
     try:
-        out = subprocess.run([tshark, "-D"], capture_output=True, text=True,
+        out = quiet_proc.run([tshark, "-D"], capture_output=True, text=True,
                              timeout=30).stdout
     except Exception as exc:
         print(f"{C_ERR}could not list interfaces: {exc}{C_RESET}", file=sys.stderr)
@@ -123,7 +124,10 @@ def capture(binary: str, iface: str, label: str, decoder: LiveDecoder,
     if bpf:
         cmd += ["-f", bpf]
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        # No console window (#2874): `dumpcap` is a console program, and a capture
+        # started by the windowless panel would otherwise flash one per interface.
+        proc = quiet_proc.popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL)
     except Exception as exc:
         if verbose:
             print(f"{C_DIM}iface {iface}: {exc}{C_RESET}", file=sys.stderr)
@@ -515,7 +519,7 @@ def probe_interfaces(dumpcap: str, ifaces, seconds: int) -> dict[str, int]:
     threads = []
     for number, label in ifaces:
         try:
-            proc = subprocess.Popen([dumpcap, "-i", number, "-P", "-w", "-"],
+            proc = quiet_proc.popen([dumpcap, "-i", number, "-P", "-w", "-"],
                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         except Exception:
             continue

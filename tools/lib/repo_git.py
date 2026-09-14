@@ -30,6 +30,12 @@ import re
 import subprocess
 from pathlib import Path
 
+#: No console window for `git.exe` (#2874) — the panel calling this has none of its own,
+#: and Windows answers that by drawing one per call. Spelled out rather than taken from
+#: `quiet_proc` on purpose: this module is imported by the repository-hygiene checks,
+#: which run from a bare interpreter with nothing on `sys.path`.
+_QUIET = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
 #: `/mnt/p/…` — how WSL spells a Windows drive.
 _WSL_MOUNT = re.compile(r"^/mnt/([a-zA-Z])(/.*)?$")
 #: `P:\…` / `P:/…` — how Windows spells the same drive.
@@ -90,8 +96,11 @@ def run(repo: Path | str, *args: str, check: bool = True) -> subprocess.Complete
     a git that could not open the repository at all answers 128, and reading that as
     «not ignored» is how a check goes quietly wrong inside a worktree.
     """
+    # No console window (#2874): `git.exe` is a console program, and the panel that
+    # calls this has none of its own — Windows would draw one per call.
     return subprocess.run([*args_for(repo), *args], cwd=str(repo),
-                          capture_output=True, text=True, check=check)
+                          capture_output=True, text=True, check=check,
+                          **_QUIET)
 
 
 def out(repo: Path | str, *args: str) -> str:

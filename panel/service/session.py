@@ -187,7 +187,11 @@ def launch(cmd: list, *, cwd: str = "", session_id: int = -1, log=None) -> dict:
     if not is_windows() or here != SERVICE_SESSION:
         # An interactive process starting another in its own session: nothing to cross.
         try:
-            proc = subprocess.Popen(cmd, cwd=cwd or None, close_fds=True)
+            # No console over the desktop (#2874): the panel is a `pythonw` with no
+            # console of its own, so Windows would give this child one to draw.
+            proc = subprocess.Popen(
+                cmd, cwd=cwd or None, close_fds=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except OSError as exc:
             say(f"keeper: could not start the panel: {exc}")
             return {"ok": False, "why": "failed", "detail": str(exc)}

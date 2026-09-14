@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import game_paths  # noqa: E402
 import lua_client  # noqa: E402
 import proc_table  # noqa: E402
+import quiet_proc  # noqa: E402
 
 #: The client executable. A profile may name another one (an install somewhere else),
 #: which is why the process-name fallbacks take it as a parameter — and why the default
@@ -84,8 +85,9 @@ LAUNCHER_STALE_SEC = 1800.0
 #: the one after it, which is what «the launcher may still be updating» promised.
 LAUNCHER_STALE_FLOOR_X = 2.0
 
-# Windows: no console window for the taskkill fallback.
-_NO_WINDOW = 0x08000000
+# Windows: no console window for the taskkill fallback — the one spelling of it
+# lives in `quiet_proc` (#2874), so nothing here re-invents the number.
+_NO_WINDOW = quiet_proc.NO_WINDOW
 
 
 def default_launcher() -> str:
@@ -550,7 +552,10 @@ def _start_here(launcher: str, say) -> None:
     # A launcher left over from an earlier attempt refuses this one and says so in its
     # own log, where nothing here was reading (`clear_stale_launchers`).
     clear_stale_launchers(log=say)
-    subprocess.Popen([path], cwd=os.path.dirname(path) or None, close_fds=True)
+    # `CREATE_NO_WINDOW` (#2874): the launcher is a GUI program and keeps its own
+    # window, but a child of a windowless panel is handed a CONSOLE by Windows
+    # unless it is told not to — that console is the black box that flashes.
+    quiet_proc.popen([path], cwd=os.path.dirname(path) or None, close_fds=True)
     say(f"launcher started on this desktop: {path}")
 
 
