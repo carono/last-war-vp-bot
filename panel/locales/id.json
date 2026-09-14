@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Naikkan sekarang",
   "vs.chips.read_at": "dibaca {ago} lalu",
   "vs.chips.never": "belum dibaca",
+  "vs.chips.auto": "membuka peti chip — kotak dicentang dan tas berisi beberapa",
   "vs.score": "Skor",
   "vs.score.mine": "Poin saya",
   "vs.score.mine.progress": "Kemajuan",

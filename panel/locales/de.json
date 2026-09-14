@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Jetzt erhöhen",
   "vs.chips.read_at": "vor {ago} gelesen",
   "vs.chips.never": "noch nicht gelesen",
+  "vs.chips.auto": "öffne die Chip-Truhen — das Kästchen ist gesetzt und die Tasche hat welche",
   "vs.score": "Punktestand",
   "vs.score.mine": "Meine Punkte",
   "vs.score.mine.progress": "Fortschritt",

@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Podnieś teraz",
   "vs.chips.read_at": "odczytano {ago} temu",
   "vs.chips.never": "jeszcze nieodczytane",
+  "vs.chips.auto": "otwieram skrzynie z chipami — pole jest zaznaczone, a w torbie coś jest",
   "vs.score": "Wynik",
   "vs.score.mine": "Moje punkty",
   "vs.score.mine.progress": "Postęp",

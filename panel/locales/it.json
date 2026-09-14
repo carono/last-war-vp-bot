@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Aumenta ora",
   "vs.chips.read_at": "letto {ago} fa",
   "vs.chips.never": "non ancora letto",
+  "vs.chips.auto": "apro i forzieri dei chip — la casella è spuntata e la borsa ne ha",
   "vs.score": "Punteggio",
   "vs.score.mine": "I miei punti",
   "vs.score.mine.progress": "Avanzamento",

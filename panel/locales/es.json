@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Subir ahora",
   "vs.chips.read_at": "leído hace {ago}",
   "vs.chips.never": "aún sin leer",
+  "vs.chips.auto": "abriendo los cofres de chips — la casilla está marcada y la bolsa tiene algunos",
   "vs.score": "Marcador",
   "vs.score.mine": "Mis puntos",
   "vs.score.mine.progress": "Progreso",

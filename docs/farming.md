@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 83 of 210
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 83 of 211
 
-🟩 83 done · 🟨 99 partly · 🟥 28 not automated
+🟩 83 done · 🟨 100 partly · 🟥 28 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what is
@@ -112,6 +112,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 ### Alliance duel (VS)
 
 - ✅ Opening the drone's chip chests — one press empties every chest of every grade the bag holds, in a single go
+- 🟡 …and on Monday it opens them by itself as soon as the card's state is read, with the box ticked
 - 🟡 Spending the survivor tickets on a Tuesday — one press hires at the tavern with everything held, down to the reserve you asked to keep
 - ✅ Opening the buildings that have finished — a page lists what is waiting with its picture and level, a button per row and one for all
 - 🟡 Finishing a construction outright — the row says what closing it would take out of the bag before anything is pressed, and a button spends it

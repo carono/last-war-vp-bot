@@ -1625,6 +1625,7 @@
   "vs.drone.raise_now": "Augmenter maintenant",
   "vs.chips.read_at": "lu il y a {ago}",
   "vs.chips.never": "pas encore lu",
+  "vs.chips.auto": "ouverture des coffres de puces — la case est cochée et le sac en contient",
   "vs.score": "Score",
   "vs.score.mine": "Mes points",
   "vs.score.mine.progress": "Progression",
