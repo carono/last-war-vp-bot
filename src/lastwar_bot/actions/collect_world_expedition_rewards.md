@@ -18,6 +18,11 @@
 #
 # Nothing waiting is a SUCCESS, not a failure — the ordinary state of the event is «all
 # claimed so far».
+#
+# NOTHING HERE STOPS: a `STOP` inside a called recipe halts the CALLER with it, so a
+# «nothing to do» that stopped here would take the rest of the day's run with it — the
+# lineup's «all set already» would cancel the auto challenge and both claims. So every
+# «nothing to do» is an `IF` with a line in the log, and this file ends by running out.
 
 CALL read_world_expedition
 
