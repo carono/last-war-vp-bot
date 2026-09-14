@@ -160,6 +160,9 @@ INHERIT_ONLY_ACE = 0x08
 LOGON_WITH_PROFILE = 0x00000001
 CREATE_UNICODE_ENVIRONMENT = 0x00000400
 CREATE_NEW_CONSOLE = 0x00000010
+#: What the launches below actually ask for (#2874). The game is a GUI program,
+#: so a console of its own is nothing but a black box flashed over the desktop.
+CREATE_NO_WINDOW = 0x08000000
 
 DEFAULT_DESKTOP = r"WinSta0\Default"
 CRED_PREFIX = "LastWarVpBot"
@@ -299,7 +302,7 @@ def lastwar_pids() -> set[int]:
         raw = subprocess.run(
             ["tasklist.exe", "/FI", f"IMAGENAME eq {_game_paths.game_exe()}",
              "/FO", "CSV", "/NH"],
-            capture_output=True, timeout=30,
+            capture_output=True, timeout=30, creationflags=CREATE_NO_WINDOW,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return set()
@@ -320,7 +323,7 @@ def running_clients() -> list[tuple[str, ...]]:
         raw = subprocess.run(
             ["tasklist.exe", "/FI", f"IMAGENAME eq {_game_paths.game_exe()}",
              "/V", "/FO", "CSV", "/NH"],
-            capture_output=True, timeout=30,
+            capture_output=True, timeout=30, creationflags=CREATE_NO_WINDOW,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return []
@@ -638,7 +641,7 @@ def launch_as_user(username, password, exe_path, domain=None, *, args="",
     exe_path = os.path.expandvars(exe_path)
     cmdline = f'"{exe_path}"' + (f" {args}" if args else "")
     cwd = cwd or os.path.dirname(exe_path)
-    flags = CREATE_NEW_CONSOLE
+    flags = CREATE_NO_WINDOW
 
     last = None
     for route in {"logon": ["logon"], "asuser": ["asuser"],
@@ -944,7 +947,7 @@ def _launch_one(args, entry: dict, log) -> int:
     extra = entry.get("args") or args.args
     cwd = entry.get("cwd") or args.cwd or os.path.dirname(exe)
     cmdline = f'"{exe}"' + (f" {extra}" if extra else "")
-    flags = CREATE_NEW_CONSOLE
+    flags = CREATE_NO_WINDOW
 
     log(f"[plan] user    : {domain}\\{user}")
     log(f"[plan] exe     : {exe}")

@@ -78,7 +78,11 @@ def registered(name: str = "", run=None) -> bool:
 
 
 def _run(cmd: list) -> int:
-    return subprocess.run(cmd, capture_output=True, timeout=15).returncode
+    # `CREATE_NO_WINDOW` (#2874): `sc.exe` is a console program and this is asked from a
+    # windowless panel, so without it every reading of the service's state flashes a box.
+    return subprocess.run(cmd, capture_output=True, timeout=15,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                          ).returncode
 
 
 #: The service's own log, and the restarter's beside it. Computed the same way

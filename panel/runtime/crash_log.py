@@ -264,7 +264,9 @@ class Recorder:
             tool = Path(__file__).resolve().parents[2] / "tools" / "crash_report.py"
             out = subprocess.run(
                 [sys.executable, str(tool), "--days", "1", "--profile", self.profile],
-                capture_output=True, text=True, timeout=120)
+                capture_output=True, text=True, timeout=120,
+                # No console flashing over the desktop (#2874).
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             log = rt.dbg("crash")
             said = (out.stdout or out.stderr or "").strip()
             if not said:

@@ -119,6 +119,7 @@ sys.path.insert(0, os.path.join(REPO, "tools", "lib"))
 
 import game_paths  # noqa: E402
 import proc_table  # noqa: E402
+import quiet_proc  # noqa: E402
 
 import lua_client  # noqa: E402
 
@@ -291,7 +292,12 @@ def run_elevated(body: list[str], tag: str = "elev", timeout: float = 180.0,
     _write_cmd(script, body, out, done)
     ps = ("$ErrorActionPreference='Stop'; Start-Process -Verb RunAs -WindowStyle Hidden "
           f"-Wait -FilePath '{CMD}' -ArgumentList '/c','\"{script}\"'")
-    proc = subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", ps],
+    # QUIETLY (#2874). Everything here is a console program started from a windowless
+    # panel, which is precisely the case Windows answers by drawing a console of its
+    # own — one black box per elevation, and a client restart makes several. The
+    # payload it starts is already hidden (`-WindowStyle Hidden`); this is the
+    # powershell in front of it, which had nothing.
+    proc = quiet_proc.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", ps],
                           capture_output=True, timeout=timeout)
     deadline = time.time() + 15
     while not os.path.exists(done) and time.time() < deadline:
@@ -633,6 +639,9 @@ def save_credential(user: str, server: str = DEFAULT_SERVER) -> bool:
         return False
     log(f"Windows will ask for {qualified}'s password. It goes straight into Credential "
         f"Manager ({target}); nothing here sees it.")
+    # The other exception to #2874, and it is already fenced off by the `isatty` guard
+    # above: `cmdkey /pass` reads the password from the console it inherits, so there
+    # has to BE one. A panel never reaches this line — it has no tty.
     rc = subprocess.run([cmdkey, f"/generic:{target}", f"/user:{qualified}", "/pass"]
                         ).returncode
     stored = _cred_read(target, win32cred.CRED_TYPE_GENERIC)
@@ -908,6 +917,9 @@ def _one_connect(user: str, qualified: str, server: str, width: int, height: int
         + " — the console goes away until --restore-console")
     import threading
     threading.Thread(target=click_dialogs, args=(wait,), daemon=True).start()
+    # VISIBLE ON PURPOSE, and one of the two exceptions to #2874: `mstsc` IS the window
+    # — it draws the other session's desktop, and Windows may put a credential dialog
+    # on it that the thread above clicks through. Hiding it would hide the login.
     subprocess.Popen([MSTSC, path], close_fds=True)
     deadline = time.time() + wait
     while time.time() < deadline:
@@ -958,7 +970,7 @@ def rdp_connect(user: str, server: str = DEFAULT_SERVER, width: int = 1600, heig
 
 
 def kill_mstsc() -> None:
-    subprocess.run([os.path.join(WIN, "System32", "taskkill.exe"), "/F", "/IM",
+    quiet_proc.run([os.path.join(WIN, "System32", "taskkill.exe"), "/F", "/IM",
                     "mstsc.exe"], capture_output=True)
 
 
