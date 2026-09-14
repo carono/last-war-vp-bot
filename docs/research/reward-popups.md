@@ -124,11 +124,58 @@ reward_popups: 1756402331000|reward|ShowCommonReward|101x2,205x7 ;; 175640233108
 | `reward` | the client said what was given: the show's name, then `<id>x<count>` per row |
 | `closed` | a whitelisted popup, shut by the ear |
 | `popup` | a whitelisted popup that would NOT shut (no `Ctrl`, or `CloseSelf` raised) |
+| `nagged` | a NAG shut on sight: no reward behind it, nothing to decide on it (#2857) |
 | `unknown` | a reward-shaped window that is not on the list — left open on purpose |
 | `held` | a popup left alone because a recipe held a window |
 | `lost` | rows the ring dropped, counted rather than hidden |
 
 The ring holds 80 rows. A drain empties it; the recipes that earn things drain as they go.
+
+## 5a. The NAGS — windows with no reward behind them at all (#2857)
+
+The person's complaint: «Когда заходим в профиль, у нас модалка с поставленными нам
+лайками, найди эту модалку и так же подави, как и сообщения о подарках».
+
+It could not ride on `REWARD_WINDOWS`. That list is gated on guard 2 — a reward show in
+the last three seconds — and this modal announces no reward: nothing is granted, the
+likes are already counted, and the only thing anybody ever does with it is shut it. On
+the reward list it would have been `unknown` for ever.
+
+So there is a second list, `NAG_WINDOWS`, closed ON SIGHT. Two of the three guards still
+hold and the third is replaced rather than dropped:
+
+| # | guard | |
+|---|---|---|
+| 1 | the name is in `NAG_WINDOWS` — explicit, never a substring | unchanged |
+| 2 | ~~a reward show fired recently~~ | replaced by: the window must be one a person would only ever close — no button, no claim, no choice |
+| 3 | no recipe holds a window (`__lw_rewards.hold`) | unchanged |
+
+The mute (`__lw_rewards_off`) silences the nags exactly as it silences the rewards: one
+switch, one ear.
+
+### Finding the window
+
+`UILWPlayerThumbsUpGlory`, read off the live client on 2026-09-14 (a dev probe through
+the panel's web API, deleted afterwards):
+
+```
+modules=[… UI.LWPlayerInfo.UILWPlayerThumbsUpGlory.Config
+            UI.LWPlayerInfo.UILWPlayerThumbsUpGlory.Controller.UILWPlayerThumbsUpGloryCtrl
+            UI.LWPlayerInfo.UILWPlayerThumbsUpGlory.View.UILWPlayerThumbsUpGloryView …]
+windows=[… UILWPlayerThumbsUpGlory  UILWPlayerThumbsUpHistory
+           UIFlowerTrainThumbsUpGlory  UILWBirthdayThumbsUpGlory
+           LWUIActEasterThumbsUpGlory  LWAllianceThumbsUpPopView …]
+```
+
+Six windows of the client carry `ThumbsUp` in the name, and the evidence picks one: the
+namespace is `LWPlayerInfo` — the profile card — and its module family is the ONLY one of
+the six that the client had loaded on a session that had opened the profile. The client
+requires a window's modules when it first shows it, so a loaded family is a window that
+has been on screen and an unloaded one is a window that has not.
+
+**`UILWPlayerThumbsUpHistory` is deliberately NOT on the list**: the list of who liked
+you is a window a person opens on purpose, and a press of ours that shut it would be the
+exact fault this design is arranged around. `tests/test_reward_popups.py` pins it out.
 
 ## 6. «За что» — and why «не знаю» is an allowed answer
 

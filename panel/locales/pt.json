@@ -2765,6 +2765,7 @@
   "rewards.frame": "Janelas de recompensa",
   "rewards.hint": "Depois de quase cada recolha, ajuda ou roubo, o cliente mostra uma janela «foi isto que recebeste» — mesmo quando o bot carregou sem janela e ninguém a pediu. Um ouvinte dentro do cliente fecha essas janelas e anota o que estava nelas. Só são fechadas as janelas de recompensa CONHECIDAS; uma desconhecida aparece aqui como «não está na lista» e fica aberta, para ser acrescentada à mão.",
   "rewards.kind.closed": "Janela fechada",
+  "rewards.kind.nagged": "Aviso fechado",
   "rewards.kind.held": "Não tocada (ocupado)",
   "rewards.kind.lost": "Linhas perdidas",
   "rewards.kind.other": "Outro",

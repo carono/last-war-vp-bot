@@ -2765,6 +2765,7 @@
   "rewards.frame": "Ödül pencereleri",
   "rewards.hint": "Neredeyse her toplamadan, yardımdan ya da soygundan sonra istemci «işte aldıkların» penceresini açar — bot penceresiz bastığında ve kimse istemediğinde bile. İstemcinin içindeki bir dinleyici bu pencereleri kapatır ve içlerinde ne olduğunu yazar. YALNIZCA bilinen ödül pencereleri kapatılır; bilinmeyen biri burada «listede yok» olarak görünür ve elle eklensin diye açık bırakılır.",
   "rewards.kind.closed": "Pencere kapatıldı",
+  "rewards.kind.nagged": "Bildirim kapatıldı",
   "rewards.kind.held": "Dokunulmadı (meşgul)",
   "rewards.kind.lost": "Düşen satırlar",
   "rewards.kind.other": "Diğer",

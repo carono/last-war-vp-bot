@@ -2765,6 +2765,7 @@
   "rewards.frame": "Fenêtres de récompense",
   "rewards.hint": "Après presque chaque collecte, aide ou vol, le client affiche une fenêtre « voici ce que vous avez reçu » — même quand le bot a appuyé sans fenêtre et que personne ne l'a demandée. Un écouteur dans le client ferme ces fenêtres et note ce qu'elles contenaient. Seules les fenêtres de récompense CONNUES sont fermées ; une inconnue apparaît ici comme « pas dans la liste » et reste ouverte, pour être ajoutée à la main.",
   "rewards.kind.closed": "Fenêtre fermée",
+  "rewards.kind.nagged": "Avis fermé",
   "rewards.kind.held": "Non touchée (occupé)",
   "rewards.kind.lost": "Lignes perdues",
   "rewards.kind.other": "Autre",

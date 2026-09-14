@@ -134,6 +134,61 @@ def test_whitelist_is_real_and_narrow() -> None:
           % len(lua_actions.REWARD_WINDOWS))
 
 
+def test_the_nag_list_is_real_and_narrow() -> None:
+    """The nags exist in the client, and none of them is a reward or a working screen."""
+    groups = json.loads(WINDOW_NAMES.read_text(encoding="utf-8"))
+    known = {name for names in groups.values() for name in names}
+    for name in lua_actions.NAG_WINDOWS:
+        assert name in known, f"{name} is not a window this client has"
+        assert name not in lua_actions.REWARD_WINDOWS, f"{name} is on both lists"
+        assert name not in NEVER, f"{name} must never be closed"
+    assert len(set(lua_actions.NAG_WINDOWS)) == len(lua_actions.NAG_WINDOWS)
+    # The likes HISTORY is a window a person opens on purpose — it may never be a nag.
+    assert "UILWPlayerThumbsUpHistory" not in lua_actions.NAG_WINDOWS
+    print("ok  nag list: %d real windows, none of them a reward or a screen"
+          % len(lua_actions.NAG_WINDOWS))
+
+
+def test_a_nag_is_closed_with_no_reward_behind_it() -> None:
+    """«Вам поставили лайки» announces no reward, and is shut all the same (#2857)."""
+    rt = _vm()
+    rt.execute("UIManager.Instance:OpenWindow('UILWPlayerThumbsUpGlory')")
+    assert ("nagged", "UILWPlayerThumbsUpGlory") in _rows(rt), _rows(rt)
+    closed = rt.eval("CLOSED")
+    assert len(closed) == 1 and closed[1] == "UILWPlayerThumbsUpGlory"
+    # …and the game's own call still ran, and still gave its result back.
+    assert rt.eval("OPENED")[1] == "UILWPlayerThumbsUpGlory"
+    print("ok  a nag is closed with no reward show behind it")
+
+
+def test_a_nag_obeys_the_hold_and_closes_nothing_else() -> None:
+    """A recipe holding a window of its own is obeyed even for a nag."""
+    rt = _vm()
+    rt.execute(lua_actions.reward_watch_hold(10))
+    rt.execute("UIManager.Instance:OpenWindow('UILWPlayerThumbsUpGlory')")
+    assert ("held", "UILWPlayerThumbsUpGlory") in _rows(rt), _rows(rt)
+    assert len(rt.eval("CLOSED")) == 0
+    rt.execute(lua_actions.reward_watch_hold(0))
+    # A neighbouring window of the same family is NOT on the list and is never touched.
+    rt.execute("UIManager.Instance:OpenWindow('UILWPlayerThumbsUpHistory')")
+    assert len(rt.eval("CLOSED")) == 0, "a window nobody whitelisted was closed"
+    assert _rows(rt) == [("held", "UILWPlayerThumbsUpGlory")], _rows(rt)
+    print("ok  a nag obeys the hold, and its neighbours are left alone")
+
+
+def test_a_muted_ear_closes_no_nag_either() -> None:
+    """The switch on «Таймеры» silences the nags exactly as it silences the rewards."""
+    rt = _vm()
+    rt.execute(lua_actions.reward_watch_mute(False))
+    rt.execute("UIManager.Instance:OpenWindow('UILWPlayerThumbsUpGlory')")
+    assert len(rt.eval("CLOSED")) == 0, "a muted ear still closed a window"
+    assert _rows(rt) == [], _rows(rt)
+    rt.execute(lua_actions.reward_watch_mute(True))
+    rt.execute("UIManager.Instance:OpenWindow('UILWPlayerThumbsUpGlory')")
+    assert len(rt.eval("CLOSED")) == 1
+    print("ok  a muted ear closes no nag either")
+
+
 def test_a_reward_popup_is_closed_and_written_down() -> None:
     """A show, then its window: closed, and the row says what was given."""
     rt = _vm()

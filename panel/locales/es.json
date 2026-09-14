@@ -2765,6 +2765,7 @@
   "rewards.frame": "Ventanas de recompensa",
   "rewards.hint": "Tras casi cada recogida, ayuda o robo, el cliente muestra una ventana «esto es lo que has recibido», incluso cuando el bot pulsó sin ventana y nadie la pidió. Un escucha dentro del cliente cierra esas ventanas y anota lo que había en ellas. Solo se cierran las ventanas de recompensa CONOCIDAS; una desconocida aparece aquí como «no está en la lista» y se deja abierta para añadirla a mano.",
   "rewards.kind.closed": "Ventana cerrada",
+  "rewards.kind.nagged": "Aviso cerrado",
   "rewards.kind.held": "Sin tocar (ocupado)",
   "rewards.kind.lost": "Filas perdidas",
   "rewards.kind.other": "Otro",

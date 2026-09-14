@@ -2765,6 +2765,7 @@
   "rewards.frame": "Reward popups",
   "rewards.hint": "The client raises a «here is what you were given» window after almost every collect, help or robbery — even when the bot pressed headless and nobody asked for it. A listener inside the client closes those windows and writes down what was in them. It closes ONLY known reward windows; one it does not know is shown here as «not on the list» and left open, so it can be added by hand.",
   "rewards.kind.closed": "Window closed",
+  "rewards.kind.nagged": "Notice closed",
   "rewards.kind.held": "Left alone (busy)",
   "rewards.kind.lost": "Rows dropped",
   "rewards.kind.other": "Other",
