@@ -116,6 +116,14 @@ DEFAULTS: dict = {
     "trace_filter": "SFS",
     "sniff_ready_timeout": 25.0,
     "launcher": game_paths.launcher(),
+    # WHAT THE LAUNCHER FILE IS CALLED, per profile (#2882). The path above is the
+    # machine's own answer and stays that way; this is the FILENAME inside it, and it
+    # is a profile's because an anti-virus can block one account's copy by its path
+    # while the byte-identical file under another name starts perfectly — which is how
+    # one profile came to need a launcher of its own name. Empty = whatever this
+    # machine answers (`game_paths.launcher_exe()`), so nothing changes for a profile
+    # that has never been asked.
+    "launcher_exe": "",
     "game_exe": game_paths.game_exe(),
     "watchdog": False,
     # THE REWARD-POPUP EAR (#2408) — the standing order on «Триггеры». On by

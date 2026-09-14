@@ -309,3 +309,39 @@ Live proof of the fix, same morning:
 
 Three hours of a dead account, and the client was up fourteen seconds after the ground
 was cleared.
+
+## The launcher's FILENAME is a profile's setting (#2882)
+
+An anti-virus can block one account's copy of the launcher **by its path**. Measured in
+#2865: the launcher under its ordinary name was refused before it drew a window, while a
+byte-identical copy of the same file in the same folder, under another name, passed the
+network check, downloaded the manifest and started the client in the same minute. From
+the panel the two are indistinguishable — both read as the ordinary «клиент не запущен»,
+and the account farms nothing all night.
+
+So the FILE is a profile's knob (`launcher_exe`) while the INSTALL stays the machine's own
+answer (`tools/lib/game_paths.py`):
+
+| what | whose answer | where |
+|---|---|---|
+| the install folder | the machine's | `game_paths.game_dir()` / `LW_GAME_DIR` |
+| the launcher's path | the machine's | `game_paths.launcher()` / `LW_LAUNCHER` |
+| the launcher's **filename** | the **profile's** | `launcher_exe`, empty = the machine's |
+
+It travels as a NAME rather than a path, and that is the whole design: the install is
+resolved *per session* — ours here, the other account's over there, where `%LOCALAPPDATA%`
+means a different folder — and the filename is the one part of it an account may
+legitimately differ in. `panel/runtime/host.py::game_target` puts it on every run's
+context, `START_GAME` hands it to `game_client.start(launcher_exe=…)`, the stuck-launcher
+sweep looks for THAT image name, and the SYSTEM hop passes it on as `--launcher-exe`
+(`tools/session_launch.py`, `tools/rdp_instance.py --launcher-exe`).
+
+The guard on the field is `game_process.launcher_check`: a path is refused, a name the
+install has not got is refused, and an install this process cannot READ — the second
+account's own `%LOCALAPPDATA%`, which is most of them — is accepted, because «I could not
+check» is not «it is not there».
+
+**A client update rewrites the launcher under its OWN name**, so a renamed copy can go
+stale. It is a copy of a file that changes rarely, and the reading when it does is the
+familiar one — the launcher runs and updates the game. Re-copy it when a build refuses to
+start.

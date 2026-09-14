@@ -195,7 +195,14 @@ class SettingsTab(PanelTab):
         settings = self.rt.settings
         general_rows = [self._web_machine_row("win_python"),
                         {"label": "opt.daemon_port", "value": self._port_text()}]
-        game_rows = [self._web_machine_row("launcher"), self._web_machine_row("game_exe")]
+        game_rows = [self._web_machine_row("launcher"),
+                     # …and what the launcher FILE is called for this profile (#2882).
+                     # The path above is the machine's answer; this is the one part of
+                     # it an account may legitimately differ in, so it is drawn beside
+                     # it rather than left to be inferred from the field below.
+                     {"label": "opt.launcher_exe",
+                      "value": runtime.game_process.profile_launcher_exe(settings)},
+                     self._web_machine_row("game_exe")]
         # WHICH CLIENT, as two readings rather than two boxes — see the note above.
         game_rows.append({"label": "opt.rdp_session",
                           "value": self.t("web.ui.yes" if settings.opt("rdp_session")
@@ -386,7 +393,18 @@ class SettingsTab(PanelTab):
         return [{"key": "rdp_session", "label": "opt.rdp_session",
                  "hint": "opt.rdp_session.hint", "kind": opt_value.SWITCH,
                  "value": bool(settings.opt("rdp_session"))},
-                login]
+                login,
+                # WHAT THE LAUNCHER FILE IS CALLED (#2882), beside the two knobs that
+                # say WHICH client this profile drives — because it answers the same
+                # question from the other end: which file starts it. An anti-virus can
+                # block one account's copy by its path while the byte-identical file
+                # under another name starts perfectly, and until this was a field the
+                # cure was renaming things on disk and hoping. Empty = whatever this
+                # machine answers. The guard is the same shape as the login's: a name
+                # the install does not have is refused (:meth:`_press_launcher_exe`).
+                {"key": "launcher_exe", "label": "opt.launcher_exe",
+                 "hint": "opt.launcher_exe.hint", "kind": opt_value.TEXT,
+                 "value": str(settings.opt("launcher_exe") or "")}]
 
     def _web_machine_row(self, key: str) -> dict:
         """A path the MACHINE answered, worded exactly as the window words it."""
@@ -479,6 +497,8 @@ class SettingsTab(PanelTab):
                 else str(value).strip().lower() in ("1", "true", "yes", "on"))
         if key == "rdp_user":
             return self._press_session_user(str(value or ""))
+        if key == "launcher_exe":
+            return self._press_launcher_exe(str(value or ""))
         if key in runtime.settings.MACHINE_KEYS or key == "daemon_port":
             # Not a field on this screen, so a press naming one did not come from it.
             # The two that decide the SESSION are fields since #2823 (`_web_session_fields`);
@@ -955,6 +975,26 @@ class SettingsTab(PanelTab):
                  user=want or self.t("opt.value.unknown"))
         self._refresh_session_user_state()
         return {"ok": True, "reason": "session.user.saved"}
+
+    def _press_launcher_exe(self, want: str) -> dict:
+        """The launcher's filename for this profile, typed on the phone (#2882).
+
+        Refused rather than stored when it is a PATH — this knob is a filename, and the
+        install itself is resolved per session — or when the install we can read has no
+        such file: a name that looks configured and starts nothing is the failure this
+        setting exists to cure, not one to add. An install this process cannot read (the
+        second account's own `%LOCALAPPDATA%`) is not a refusal: «I could not check» is
+        not «it is not there», and the profile that most needs the knob is exactly the
+        one whose folder is somebody else's.
+        """
+        want = want.strip()
+        ok, reason = runtime.game_process.launcher_check(self.rt.settings, want)
+        if not ok:
+            return {"ok": False, "reason": reason}
+        opt_value.set(self.rt, "launcher_exe", want)
+        self.say("settings", "log.launcher_exe",
+                 name=want or self.t("opt.value.default"))
+        return {"ok": True, "reason": "opt.launcher_exe.saved"}
 
     def _live_client(self):
         """The client the WIDGETS name — the truth one save ahead of the files.

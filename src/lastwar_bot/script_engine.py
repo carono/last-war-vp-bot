@@ -1587,6 +1587,12 @@ class Context:
     # nothing running yet to be attached to. `None` keeps every script started from a
     # shell exactly as it was: the launcher spawns here (see START_GAME).
     game_user: str | None = None
+    # WHAT the launcher file is called for this profile, or `None` for whatever this
+    # machine answers (#2882). The fourth thing a launch — and only a launch — can use:
+    # an anti-virus may block one account's copy by its path while the same bytes under
+    # another name start, so the filename is a profile's setting rather than the
+    # machine's. Never a path: `game_client` joins it to the install it resolves.
+    game_launcher_exe: str | None = None
     # Script variables written by READ_LUA and tested by numeric IF/WHILE conditions.
     vars: dict = field(default_factory=dict)
     # Optional stop flag — anything with `.is_set()` (a threading.Event). Checked
@@ -4044,6 +4050,8 @@ class Interpreter:
         where = f"{user}'s session" if user else "this desktop"
         try:
             pid = game_client.start(stmt.path, user=user, timeout=stmt.timeout,
+                                    launcher_exe=(self.ctx.game_launcher_exe
+                                                  or "").strip() or None,
                                     log=lambda msg: self._log(f"  {msg}"))
         except FileNotFoundError as exc:
             raise ScriptRuntimeError(
@@ -4197,6 +4205,7 @@ def new_context(
     store: Any = None,
     days: Any = None,
     on_step: Any = None,
+    game_launcher_exe: str | None = None,
 ) -> Context:
     """A run context, optionally pre-seeded with script variables.
 
@@ -4220,7 +4229,8 @@ def new_context(
     """
     ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile,
                   cancel=cancel, game_port=game_port, game_token=game_token,
-                  game_user=game_user, yield_to=yield_to, regain=regain,
+                  game_user=game_user, game_launcher_exe=game_launcher_exe,
+                  yield_to=yield_to, regain=regain,
                   store=store, days=days,
                   on_step=on_step or (lambda _key, **_fmt: None))
     if variables:
@@ -4241,6 +4251,7 @@ def run_action(
     game_user: str | None = None,
     yield_to: Any = None,
     regain: Any = None,
+    game_launcher_exe: str | None = None,
 ) -> bool:
     """Convenience: parse and execute the named action.
 
@@ -4255,7 +4266,8 @@ def run_action(
     """
     if ctx is None:
         ctx = new_context(hwnd, on_event, profile, variables, cancel,
-                          game_port, game_token, game_user, yield_to, regain)
+                          game_port, game_token, game_user, yield_to, regain,
+                          game_launcher_exe=game_launcher_exe)
     return Interpreter(ctx).run_action(name)
 
 
@@ -4273,6 +4285,7 @@ def run_text(
     game_user: str | None = None,
     yield_to: Any = None,
     regain: Any = None,
+    game_launcher_exe: str | None = None,
 ) -> bool:
     """Execute DSL source given as text — the same language as an action file.
 
@@ -4286,7 +4299,8 @@ def run_text(
     """
     if ctx is None:
         ctx = new_context(hwnd, on_event, profile, variables, cancel,
-                          game_port, game_token, game_user, yield_to, regain)
+                          game_port, game_token, game_user, yield_to, regain,
+                          game_launcher_exe=game_launcher_exe)
     interp = Interpreter(ctx)
     interp._log(f"> {label}")
     interp._depth += 1

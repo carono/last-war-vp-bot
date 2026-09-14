@@ -34,6 +34,7 @@ This module still has no translator and must not grow one (the very same reason
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import game_link
@@ -94,6 +95,82 @@ def profile_user(settings) -> str | None:
         return settings.opt_str("rdp_user").strip() or None
     except Exception:                    # noqa: BLE001 — a half-typed knob, not a crash
         return None
+
+
+def profile_launcher_exe(settings) -> str:
+    """What THIS profile's launcher file is called — never a path (#2882).
+
+    Empty in the settings means «whatever this machine answers», which is
+    `game_paths.launcher_exe()` and therefore `LW_LAUNCHER_EXE` or the ordinary install.
+    A profile may name its own because an anti-virus can block one account's copy by its
+    PATH while the byte-identical file under another name starts perfectly — the reading
+    that costs an account a whole night and looks exactly like «клиент не запущен».
+
+    Never raises and never comes back empty: a half-typed knob falls back to the
+    machine's answer, which is what every profile behaved by before this existed.
+    """
+    import game_paths                       # noqa: PLC0415 — tools/lib, on the path
+
+    try:
+        name = settings.opt_str("launcher_exe").strip()
+    except Exception:                       # noqa: BLE001 — a knob, not a crash
+        name = ""
+    return os.path.basename(name) or game_paths.launcher_exe()
+
+
+def launcher_dir(settings) -> str:
+    """The folder this profile's launcher is looked for in, or ``""`` when unknowable.
+
+    Ours is `game_paths.game_dir()`. A profile whose client lives in another Windows
+    session has the game under THAT account's `%LOCALAPPDATA%` — a folder this process
+    may not be allowed to read, and one only the far side can resolve properly
+    (`game_paths.launcher_in_profile`). So the guess here is the sibling of our own
+    profile directory, and «I could not look» is an empty string rather than a folder
+    that happens not to exist: the two mean different things to a caller that is about
+    to refuse somebody's typing.
+    """
+    import game_paths                       # noqa: PLC0415 — tools/lib, on the path
+
+    user = profile_user(settings)
+    if not user:
+        return game_paths.game_dir()
+    home = os.path.dirname(os.path.expanduser("~"))
+    if not home or not os.path.isdir(home):
+        return ""
+    folder = os.path.join(home, user, game_paths.LOCAL_APPDATA_SUBDIR,
+                          game_paths.game_folder())
+    return folder if os.path.isdir(folder) else ""
+
+
+def launcher_check(settings, name: str) -> tuple:
+    """``(ok, reason)`` for a launcher filename somebody typed (#2882).
+
+    Three answers, and keeping them apart is the whole value of this function:
+
+    * a name with a directory in it is refused outright — this knob is a FILENAME, and
+      a path typed into it would silently disagree with the machine's own answer;
+    * a folder we can read and no such file in it is refused, because the alternative
+      is a profile that looks configured and starts nothing;
+    * a folder we cannot read is ACCEPTED. The second account's install sits under its
+      own `%LOCALAPPDATA%` and a panel that cannot see it must not refuse a name that is
+      perfectly right over there — «I could not check» is not «it is not there».
+
+    An empty name is always fine: it is how a profile goes back to the machine's answer.
+    """
+    name = (name or "").strip()
+    if not name:
+        return True, ""
+    # Both separators and the drive colon, never `os.path` alone: the panel runs on
+    # Windows and its tests do not, and a check that asks the HOST what a separator is
+    # would let `C:\\…` through on Linux and call the whole string a filename.
+    if any(ch in name for ch in "\\/:") or name in (".", ".."):
+        return False, "opt.launcher_exe.not_a_name"
+    folder = launcher_dir(settings)
+    if not folder:
+        return True, ""
+    if not os.path.exists(os.path.join(folder, name)):
+        return False, "opt.launcher_exe.missing"
+    return True, ""
 
 
 def local_users() -> tuple:
@@ -498,7 +575,12 @@ def bring_up(settings, say=None) -> int:
     import rdp_instance                    # noqa: PLC0415 — Windows-only, pywin32
     port = settings.opt_int("daemon_port", low=1, high=65535)
     try:
-        return rdp_instance.bring_up(user, port, say=say)
+        # …and WHAT the launcher is called over there (#2882). The far side resolves the
+        # install inside that account's own profile, so the name has to travel with the
+        # ask — a profile whose launcher is named differently would otherwise be brought
+        # up through a file that is not there.
+        return rdp_instance.bring_up(user, port, say=say,
+                                     launcher_exe=profile_launcher_exe(settings))
     except SystemExit as exc:
         # A command-line tool says "this cannot go on" by leaving; in a panel thread
         # that is a thread that stops with nothing said, because SystemExit is not an

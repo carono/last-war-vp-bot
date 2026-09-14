@@ -435,14 +435,18 @@ def launcher_stale_sec() -> float:
     return max(value, float(START_TIMEOUT_SEC) * LAUNCHER_STALE_FLOOR_X)
 
 
-def launcher_pids(session: "int | None" = None) -> list:
+def launcher_pids(session: "int | None" = None, exe: "str | None" = None) -> list:
     """Every launcher process — this session's, or the named session's.
 
     Narrow first, then open (tools/lib/proc_table.py): the names come from the one
     enumeration that opens nothing, and only the handful that ARE launchers are then
     asked which session they sit in.
+
+    `exe` is what the launcher is CALLED for the caller's profile (#2882). Unset, the
+    machine's own answer — which is what every caller meant before a profile could name
+    its own file, and still what a run from a shell means.
     """
-    pids = proc_table.pids_named(launcher_exe())
+    pids = proc_table.pids_named((exe or "").strip() or launcher_exe())
     if session is None:
         return sorted(_in_my_session(pids))
     rows = {pid: sid for sid, pid, _name in proc_table.wts_rows()}
@@ -474,7 +478,8 @@ def _pick_stale(ages: dict, older_than: float) -> list:
 
 
 def clear_stale_launchers(session: "int | None" = None, user: "str | None" = None,
-                          older_than: "float | None" = None, log=None) -> int:
+                          older_than: "float | None" = None, log=None,
+                          exe: "str | None" = None) -> int:
     """End a launcher that is up but has produced no client. How many went.
 
     THE LAUNCHER IS SINGLE-INSTANCE, and that is the whole reason this exists. Measured
@@ -492,7 +497,7 @@ def clear_stale_launchers(session: "int | None" = None, user: "str | None" = Non
     say = log or (lambda _msg: None)
     limit = launcher_stale_sec() if older_than is None else float(older_than)
     try:
-        pids = launcher_pids(session)
+        pids = launcher_pids(session, exe=exe)
     except Exception as exc:                 # noqa: BLE001 — no enumeration on this box
         say(f"could not look for a stuck launcher: {exc}")
         return 0
@@ -516,12 +521,20 @@ def clear_stale_launchers(session: "int | None" = None, user: "str | None" = Non
 
 def start(launcher: "str | None" = None, user: "str | None" = None,
           timeout: float = START_TIMEOUT_SEC, game_exe: str = GAME_EXE,
-          log=None) -> "int | None":
+          log=None, launcher_exe: "str | None" = None) -> "int | None":
     """Start the client this profile drives. The client's pid when it can be known.
 
     ``user`` is the login of the Windows session the client lives in; ``None`` means
     this desktop, where nothing is waited for — the launcher is fire-and-forget and the
     caller's own readiness test (`WAIT scene == city`) is what says the base is up.
+
+    ``launcher_exe`` is what the launcher FILE is called for this profile (#2882), and
+    it is a name rather than a path on purpose: the install itself is resolved per
+    session — ours here, the other account's over there — while the filename is the one
+    part of it a profile may legitimately differ in. An anti-virus can block one
+    account's copy by its path and start the byte-identical file under another name, and
+    that reading looks exactly like «клиент не запущен». A full ``launcher`` path still
+    wins outright, unchanged.
 
     Raises ``FileNotFoundError`` when the launcher is not where the path says (a
     configuration mistake, not a condition to retry), ``LookupError`` when nobody is
@@ -538,20 +551,27 @@ def start(launcher: "str | None" = None, user: "str | None" = None,
     if test_mode.in_test_run():
         raise test_mode.refuse("start the game client")
     say = log or (lambda _msg: None)
+    name = (launcher_exe or "").strip() or game_paths.launcher_exe()
     if user and str(user).strip():
-        return _start_in_session(str(user).strip(), launcher, timeout, game_exe, say)
-    _start_here(launcher or default_launcher(), say)
+        return _start_in_session(str(user).strip(), launcher, timeout, game_exe, say,
+                                 name)
+    _start_here(launcher or _named_launcher(name), say, name)
     return None
 
 
-def _start_here(launcher: str, say) -> None:
+def _named_launcher(name: str) -> str:
+    """This desktop's install, with the filename the profile asked for (#2882)."""
+    return os.path.join(os.path.dirname(default_launcher()), name)
+
+
+def _start_here(launcher: str, say, exe: "str | None" = None) -> None:
     """The single-account case, unchanged: spawn the launcher as a detached child."""
     path = os.path.expanduser(os.path.expandvars(launcher))
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     # A launcher left over from an earlier attempt refuses this one and says so in its
     # own log, where nothing here was reading (`clear_stale_launchers`).
-    clear_stale_launchers(log=say)
+    clear_stale_launchers(log=say, exe=exe or os.path.basename(path))
     # `CREATE_NO_WINDOW` (#2874): the launcher is a GUI program and keeps its own
     # window, but a child of a windowless panel is handed a CONSOLE by Windows
     # unless it is told not to — that console is the black box that flashes.
@@ -560,7 +580,7 @@ def _start_here(launcher: str, say) -> None:
 
 
 def _start_in_session(user: str, launcher: "str | None", timeout: float,
-                      game_exe: str, say) -> int:
+                      game_exe: str, say, exe: "str | None" = None) -> int:
     session = session_of(user)
     if session is None:
         # There is nothing to start a client INSIDE. Creating the session is a
@@ -581,7 +601,7 @@ def _start_in_session(user: str, launcher: "str | None", timeout: float,
 
     # The same single-instance trap as on this desktop, in the other account's session:
     # a stuck launcher there refuses the SYSTEM hop's start exactly as it refuses ours.
-    clear_stale_launchers(session=session, user=user, log=say)
+    clear_stale_launchers(session=session, user=user, log=say, exe=exe)
 
     # AND A LAUNCHER THAT SURVIVED THAT IS ONE TO WAIT FOR, NOT TO RACE (#2578). It is
     # young, so it is working — updating the game, most likely, which is the one job
@@ -592,7 +612,7 @@ def _start_in_session(user: str, launcher: "str | None", timeout: float,
     # honest version of the same intent — the recipe's job is «the client is up».
     still = []
     try:
-        still = launcher_pids(session)
+        still = launcher_pids(session, exe=exe)
     except Exception as exc:                 # noqa: BLE001 — no enumeration on this box
         say(f"could not look for a launcher already at work: {exc}")
     if still:
@@ -624,7 +644,7 @@ def _start_in_session(user: str, launcher: "str | None", timeout: float,
         # login, never a path typed by hand.
         args += ["--game",
                  "--game-folder", game_paths.game_folder(),
-                 "--launcher-exe", game_paths.launcher_exe()]
+                 "--launcher-exe", (exe or "").strip() or game_paths.launcher_exe()]
     say(f"starting the launcher in {user}'s session ({session}) through SYSTEM")
     rc, text = rdp_instance.system_python(args, tag="game",
                                           timeout=SYSTEM_HOP_TIMEOUT_SEC)
