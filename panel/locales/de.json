@@ -3198,10 +3198,16 @@
   "events.doomsday.log.busy": "Jüngster Tag: gerade läuft etwas anderes — gleich noch einmal versuchen",
   "timers.item.collect_doomsday_gifts": "Jüngster Tag: Geschenke für die Erfolge des Events einsammeln",
   "timers.item.collect_doomsday_gifts.short": "Jüngster Tag: Geschenke",
+  "timers.item.world_expedition": "Globale Expedition: täglich die automatische Herausforderung in jedem offenen Gebiet drücken und beide Belohnungen abholen",
+  "timers.item.world_expedition.short": "Globale Expedition",
   "triggers.item.doomsday_gifts": "Ein Geschenk des Jüngsten Tages einsammeln, sobald das Event es ankündigt",
   "triggers.item.doomsday_gifts.short": "Geschenke Jüngster Tag",
   "timers.stat.doomsday.closed": "das Event läuft nicht",
   "timers.stat.doomsday.pending": "abzuholende Geschenke: {n}",
   "timers.stat.doomsday.done": "alle {n} Geschenke sind abgeholt",
-  "events.doomsday.gifts.value": "{taken} von {quests}"
+  "events.doomsday.gifts.value": "{taken} von {quests}",
+  "timers.stat.expedition": "{live} von {zones} Gebieten offen · geschaffte Stufen: {floors} · {score} Punkte",
+  "timers.stat.expedition.rewards": "{live} von {zones} Gebieten offen · geschaffte Stufen: {floors} · {score} Punkte · {n} Belohnung(en) abzuholen",
+  "timers.stat.expedition.closed": "es läuft keine Runde",
+  "timers.stat.expedition.waiting": "die Runde hat begonnen — noch ist kein Gebiet offen"
 }

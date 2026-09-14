@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **40%** — 84 of 212
+🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥  **39%** — 84 of 213
 
-🟩 84 done · 🟨 100 partly · 🟥 28 not automated
+🟩 84 done · 🟨 101 partly · 🟥 28 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what is
@@ -99,6 +99,7 @@ is a banked charge on a 23.5-hour-plus cooldown.
 - 🟡 Frontline Breakthrough («Прорыв обороны», the Sunday minigame) — one press plays it chain after chain and claims the three soldier boxes; stage 1 is cleared reliably, stage 2 once
 - 🟡 …and it can be left to the weekly timer: a row that fires on the event's own day, by the game's clock. Ships switched off
 - ✅ Alliance Star («Звезда альянса», the weekly ceremony) — one press likes every star of the week and takes both chests and the scratch card. Nothing is spent
+- 🟡 Global Expedition («Мировой поход», the season's four-zone expedition) — daily: fills a lineup from squad 1, presses Auto Challenge in every open zone and claims both rewards. The Overlord still wants one touch by hand per round
 
 ### Arms Race
 

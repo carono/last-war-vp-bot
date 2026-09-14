@@ -3198,10 +3198,16 @@
   "events.doomsday.log.busy": "Судный день: сейчас идёт другое действие — попробуй через минуту",
   "timers.item.collect_doomsday_gifts": "Судный день: забирать подарки за достижения события",
   "timers.item.collect_doomsday_gifts.short": "Судный день: подарки",
+  "timers.item.world_expedition": "Мировой поход: каждый день нажимать авто-испытание во всех открытых зонах и забирать обе награды",
+  "timers.item.world_expedition.short": "Мировой поход",
   "triggers.item.doomsday_gifts": "Забирать подарок Судного дня, как только игра объявит о нём",
   "triggers.item.doomsday_gifts.short": "Подарки Судного дня",
   "timers.stat.doomsday.closed": "событие не идёт",
   "timers.stat.doomsday.pending": "подарков к получению: {n}",
   "timers.stat.doomsday.done": "все {n} подарков забраны",
-  "events.doomsday.gifts.value": "{taken} из {quests}"
+  "events.doomsday.gifts.value": "{taken} из {quests}",
+  "timers.stat.expedition": "открыто зон {live} из {zones} · пройдено этапов: {floors} · очков {score}",
+  "timers.stat.expedition.rewards": "открыто зон {live} из {zones} · пройдено этапов: {floors} · очков {score} · наград к получению {n}",
+  "timers.stat.expedition.closed": "раунд не идёт",
+  "timers.stat.expedition.waiting": "раунд начался — ни одна зона ещё не открыта"
 }

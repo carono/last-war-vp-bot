@@ -3198,10 +3198,16 @@
   "events.doomsday.log.busy": "Kıyamet Günü: şu anda başka bir iş sürüyor — birazdan tekrar dene",
   "timers.item.collect_doomsday_gifts": "Kıyamet Günü: etkinliğin başarımlarından kazanılan hediyeleri topla",
   "timers.item.collect_doomsday_gifts.short": "Kıyamet Günü: hediyeler",
+  "timers.item.world_expedition": "Küresel Keşif: her gün açık olan her alanda otomatik meydan okumaya basmak ve iki ödülü de almak",
+  "timers.item.world_expedition.short": "Küresel Keşif",
   "triggers.item.doomsday_gifts": "Etkinlik duyurur duyurmaz Kıyamet Günü hediyesini topla",
   "triggers.item.doomsday_gifts.short": "Kıyamet Günü hediyeleri",
   "timers.stat.doomsday.closed": "etkinlik sürmüyor",
   "timers.stat.doomsday.pending": "alınacak hediye: {n}",
   "timers.stat.doomsday.done": "{n} hediyenin hepsi alındı",
-  "events.doomsday.gifts.value": "{quests} içinden {taken}"
+  "events.doomsday.gifts.value": "{quests} içinden {taken}",
+  "timers.stat.expedition": "{zones} alandan {live} tanesi açık · geçilen aşamalar: {floors} · {score} puan",
+  "timers.stat.expedition.rewards": "{zones} alandan {live} tanesi açık · geçilen aşamalar: {floors} · {score} puan · alınacak {n} ödül",
+  "timers.stat.expedition.closed": "devam eden bir tur yok",
+  "timers.stat.expedition.waiting": "tur başladı — henüz hiçbir alan açılmadı"
 }
