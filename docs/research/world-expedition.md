@@ -58,21 +58,51 @@ recorded every key it read, and it read exactly `heroUuid` and `index`.
 
 The player's instruction was «герои из первого отряда + питомец если есть», and the game
 agrees: the lineup the account already had in zones 1 and 2 was, uuid for uuid, the five
-heroes of **squad 1** (`ArmyFormationDataManager:GetHeroUuidListInSquad(1)`) plus the same
-`dominatorUuid` («Повелитель», the game's own word — there is no separate «питомец» term
-in the tables).
+heroes of **squad 1** plus the same `dominatorUuid` («Повелитель», the game's own word —
+there is no separate «питомец» term in the tables).
+
+**The slot is `localIndexToHeroDic`, and `GetHeroUuidListInSquad` is NOT the same order.**
+Both return the same five heroes of squad 1, and they return them differently — the list's
+key is its own position, not the slot the hero stands in. Measured live on one account,
+with the heroes written as `A..E` (a lineup is account data and is never copied into this
+repository):
+
+    localIndexToHeroDic   1:A  2:B  3:C  4:D  5:E     the squad as the player arranged it
+    GetHeroUuidListInSquad 1:E  2:A  3:D  4:C  5:B     the same five, another order
+
+The first version of this recipe took the second one and used its key as `index`, so every
+zone the panel filled fought with the front hero at the back. A zone the player had
+arranged by hand matched `localIndexToHeroDic`; the zone the panel had filled matched the
+list. `actions/read_squad_heroes.md` had already written the same finding down for the
+squad pictures — the recipe simply did not read it.
 
 **Nothing is taken out of the base.** The expedition's formation is one of its own:
 `buildingUuid = 0`, `canMarch = false`, no soldiers. The heroes go on defending the base
 and riding rallies while they clear stages here.
 
-**The Overlord is the one thing that does NOT travel headless.** Neither
-`season.tower.save.formation` nor `season.tower.battle` carries a dominator field — proven
-by catching both messages' parameters — and a zone whose lineup was saved from the panel
-comes back with `dominatorUuid = nil` while zones set up by hand in the game keep theirs.
-The recipe attaches it locally (`formation:SetLocalDominator`), which is all the client
-offers; a zone that must have the Overlord on it wants one touch in the game's own window,
-once per round. **The sweep works either way** — measured below.
+**The Overlord cannot be sent at all — three ways were tried:**
+
+* `SaveFormation` puts exactly this on the wire, caught by wrapping `SFSNetwork.SendMessage`
+  for the length of one call:
+
+      season.tower.save.formation { stageId, chipSetId, heroes[{heroUuid, index}] }
+
+* the same message built by hand with `dominatorUuid` and `dominatorGuid` added was
+  accepted (the heroes landed, in the right order) and the zone came back with
+  `dominatorUuid = nil` — the field is not in the proto;
+* `season.tower.battle` carries no dominator either, and neither manager
+  (`LWSeasonTowerManager`, `ArmyFormationDataManager`) has a single function whose name
+  mentions one apart from `GetDominatorSquadIndex`.
+
+So the recipe attaches it locally (`formation:SetLocalDominator`), counts the zones that
+came back without one and **says so in the log**. A zone that must fight with the Overlord
+wants one touch in the game's own window, once per round. The sweep works either way.
+
+**The save is verified, never assumed.** After the writes the recipe re-reads every zone it
+touched and compares the zone's own `heroes` (a `uuid → slot` dictionary) with what it
+meant to put there. A mismatch is reported as `зона:промахов/героев`, with `+n` when the
+zone holds heroes the squad does not; nothing is stopped, because a `STOP` here takes the
+whole day's run with it.
 
 ## What one press does — measured live
 
