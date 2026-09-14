@@ -31,6 +31,7 @@ SHOWN = 60
 KIND_KEYS = {
     "reward": "rewards.kind.reward",
     "closed": "rewards.kind.closed",
+    "nagged": "rewards.kind.nagged",
     "popup": "rewards.kind.popup",
     "unknown": "rewards.kind.unknown",
     "held": "rewards.kind.held",

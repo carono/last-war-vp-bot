@@ -43,7 +43,7 @@ ROW_SEP = " ;; "
 #: The kinds the ear can write. Anything else is a row from a newer client than this
 #: panel — booked as it is rather than dropped, so nothing is lost while the two are out
 #: of step.
-KINDS = ("reward", "closed", "popup", "unknown", "held", "lost")
+KINDS = ("reward", "closed", "nagged", "popup", "unknown", "held", "lost")
 
 #: How long a row is kept. Ninety days is longer than any question anybody has asked of
 #: this book and small enough that it never becomes the biggest table in the file.

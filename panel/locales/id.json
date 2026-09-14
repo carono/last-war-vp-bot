@@ -2765,6 +2765,7 @@
   "rewards.frame": "Jendela hadiah",
   "rewards.hint": "Hampir setiap kali mengumpulkan, membantu, atau merampok, klien menampilkan jendela «ini yang kamu dapat» — bahkan ketika bot menekan tanpa jendela dan tidak ada yang memintanya. Pendengar di dalam klien menutup jendela itu dan mencatat isinya. Hanya jendela hadiah yang DIKENAL yang ditutup; yang tidak dikenal muncul di sini sebagai «tidak ada di daftar» dan dibiarkan terbuka agar ditambahkan secara manual.",
   "rewards.kind.closed": "Jendela ditutup",
+  "rewards.kind.nagged": "Pemberitahuan ditutup",
   "rewards.kind.held": "Tidak disentuh (sibuk)",
   "rewards.kind.lost": "Baris hilang",
   "rewards.kind.other": "Lainnya",

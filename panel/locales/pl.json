@@ -2765,6 +2765,7 @@
   "rewards.frame": "Okna nagród",
   "rewards.hint": "Po niemal każdym zbiorze, pomocy czy kradzieży klient pokazuje okno «oto co dostałeś» — nawet gdy bot nacisnął bez okna i nikt o nie nie prosił. Nasłuch w kliencie zamyka takie okna i zapisuje, co w nich było. Zamykane są TYLKO znane okna nagród; nieznane widnieje tutaj jako «nie ma na liście» i zostaje otwarte, żeby dodać je ręcznie.",
   "rewards.kind.closed": "Okno zamknięte",
+  "rewards.kind.nagged": "Powiadomienie zamknięte",
   "rewards.kind.held": "Nietknięte (zajęte)",
   "rewards.kind.lost": "Utracone wiersze",
   "rewards.kind.other": "Inne",

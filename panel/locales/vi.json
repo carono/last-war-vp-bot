@@ -2765,6 +2765,7 @@
   "rewards.frame": "Cửa sổ phần thưởng",
   "rewards.hint": "Sau gần như mỗi lần thu thập, trợ giúp hay cướp, client mở cửa sổ «đây là thứ bạn nhận được» — kể cả khi bot bấm không cần cửa sổ và không ai yêu cầu. Một bộ lắng nghe bên trong client đóng những cửa sổ đó và ghi lại thứ có trong chúng. Chỉ đóng những cửa sổ phần thưởng ĐÃ BIẾT; cửa sổ lạ hiện ở đây là «không có trong danh sách» và được để mở để thêm vào bằng tay.",
   "rewards.kind.closed": "Đã đóng cửa sổ",
+  "rewards.kind.nagged": "Đã đóng thông báo",
   "rewards.kind.held": "Không đụng tới (đang bận)",
   "rewards.kind.lost": "Dòng bị mất",
   "rewards.kind.other": "Khác",

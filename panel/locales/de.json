@@ -2765,6 +2765,7 @@
   "rewards.frame": "Belohnungsfenster",
   "rewards.hint": "Nach fast jedem Einsammeln, jeder Hilfe und jedem Raub zeigt der Client ein Fenster «das hast du bekommen» — auch wenn der Bot ohne Fenster gedrückt hat und niemand danach gefragt hat. Ein Zuhörer im Client schließt diese Fenster und schreibt auf, was darin war. Geschlossen werden NUR bekannte Belohnungsfenster; ein unbekanntes steht hier als «nicht auf der Liste» und bleibt offen, damit es von Hand ergänzt wird.",
   "rewards.kind.closed": "Fenster geschlossen",
+  "rewards.kind.nagged": "Hinweis geschlossen",
   "rewards.kind.held": "Unberührt (beschäftigt)",
   "rewards.kind.lost": "Verworfene Zeilen",
   "rewards.kind.other": "Sonstiges",

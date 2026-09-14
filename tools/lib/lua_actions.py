@@ -17706,6 +17706,32 @@ REWARD_WINDOWS = (
     "UIMultiRewardPop", "UILWGetGiftView",
 )
 
+#: The windows this ear closes ON SIGHT — no reward behind them, and nothing to decide
+#: on them either (#2857). They are NAGS: the client raises them by itself when the
+#: player walks into a screen, they acknowledge something that has already happened, and
+#: the only thing a person ever does with one is shut it.
+#:
+#: They cannot ride on :data:`REWARD_WINDOWS`, because that list is gated on a reward
+#: show having fired in the last few seconds and these announce no reward at all — so
+#: they would be `unknown` for ever. The two other guards still hold: the name is
+#: explicit, never a substring, and a recipe holding a window of its own is obeyed.
+#:
+#: **Grow it only with evidence, and only with windows a person would just close.** A
+#: window with a button on it — a claim, a choice, a purchase — does not belong here at
+#: any price.
+NAG_WINDOWS = (
+    # «Вам поставили лайки»: the modal that greets the player on opening their own
+    # profile card, counting the thumbs-up the account has been given. Read live on
+    # 2026-09-14: the client has `UILWPlayerThumbsUpGlory` in its window table and its
+    # whole module family (`UI.LWPlayerInfo.UILWPlayerThumbsUpGlory.*`) is loaded on a
+    # session that had opened the profile, while the other `…ThumbsUpGlory` windows
+    # (the flower train, the birthday, the Easter event) are not loaded at all.
+    # It hands over nothing: the likes are already counted, and the history a person
+    # may actually want is a separate window (`UILWPlayerThumbsUpHistory`) that is NOT
+    # on this list and is never touched.
+    "UILWPlayerThumbsUpGlory",
+)
+
 #: The show-methods on `RewardManager` that mean «the player has just been given this».
 #: Read off the live class (#2027); a name that is not on it is skipped rather than
 #: guessed at, so a client that renames one loses that row and nothing else.
@@ -17735,10 +17761,11 @@ def reward_watch_install() -> str:
     """
     shows = ",".join(f"'{name}'" for name in REWARD_SHOWS)
     allow = " ".join(f"W['{name}']=true" for name in REWARD_WINDOWS)
-    return _reward_watch_chunk(shows, allow)
+    nag = " ".join(f"N['{name}']=true" for name in NAG_WINDOWS)
+    return _reward_watch_chunk(shows, allow, nag)
 
 
-def _reward_watch_chunk(shows: str, allow: str, stamp: str = "") -> str:
+def _reward_watch_chunk(shows: str, allow: str, nag: str = "", stamp: str = "") -> str:
     """The install chunk, stamped with a fingerprint of ITSELF.
 
     THE EAR IS VERSIONED, AND THAT IS WHAT MAKES A FIX REACHABLE (#2642). The wrappers
@@ -17758,7 +17785,7 @@ def _reward_watch_chunk(shows: str, allow: str, stamp: str = "") -> str:
     if not stamp:
         import hashlib
 
-        body = _reward_watch_chunk(shows, allow, stamp="?")
+        body = _reward_watch_chunk(shows, allow, nag, stamp="?")
         stamp = hashlib.sha1(body.encode("utf-8")).hexdigest()[:12]
     return (
         "pcall(function() "
@@ -17772,9 +17799,10 @@ def _reward_watch_chunk(shows: str, allow: str, stamp: str = "") -> str:
         # `UIZombieBattleHangUpReward` still came back `unknown` from a panel that had
         # been restarted onto the commit adding it.
         f"local W={{}} {allow} "
-        f"if B and B.on=='{stamp}' then B.allow=W return end "
+        f"local N={{}} {nag} "
+        f"if B and B.on=='{stamp}' then B.allow=W B.nag=N return end "
         "B={rows={},lost=0,closed=0,seen=0} D.__lw_rewards=B "
-        "B.allow=W "
+        "B.allow=W B.nag=N "
         "local function now() local t=0 "
         "pcall(function() t=UITimeManager.Instance:GetServerTime() end) "
         "return math.floor((tonumber(tostring(t)) or 0)+0) end "
@@ -17824,6 +17852,18 @@ def _reward_watch_chunk(shows: str, allow: str, stamp: str = "") -> str:
         "if type(orig)=='function' then rawset(mgr,'OpenWindow',function(self,name,...) "
         "local res=pk(orig(self,name,...)) "
         "pcall(function() if D.__lw_rewards_off then return end local s=tostring(name) "
+        # THE NAGS (#2857), before the reward guards and instead of them. These windows
+        # announce no reward, so `B.expect` is never set for them and the span below
+        # would leave them open for ever. The hold is still obeyed — a recipe working
+        # inside a window of its own is the one case where even a nag is not ours to
+        # shut — and the name is still explicit.
+        "if (B.nag or {})[s] then "
+        "if B.hold and now()<B.hold then add('held',s) return end "
+        "local nw=self:GetWindow(name) "
+        "if nw and nw.Ctrl and nw.Ctrl.CloseSelf then "
+        "local okn=pcall(function() nw.Ctrl:CloseSelf() end) "
+        "if okn then B.closed=B.closed+1 add('nagged',s) else add('popup',s) end "
+        "else add('popup',s) end return end "
         # guard 2: the game said «here is a reward» a moment ago. Everything else that
         # opens is somebody's press and is not this ear's business at all.
         f"if not (B.expect and (now()-B.expect)<{REWARD_WINDOW_MS}) then return end "
