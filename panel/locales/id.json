@@ -3198,10 +3198,16 @@
   "events.doomsday.log.busy": "Hari Kiamat: ada pekerjaan lain yang sedang berjalan — coba lagi sebentar",
   "timers.item.collect_doomsday_gifts": "Hari Kiamat: ambil hadiah dari pencapaian event",
   "timers.item.collect_doomsday_gifts.short": "Hari Kiamat: hadiah",
+  "timers.item.world_expedition": "Ekspedisi Global: setiap hari menekan tantangan otomatis di setiap area yang terbuka dan mengambil kedua hadiah",
+  "timers.item.world_expedition.short": "Ekspedisi Global",
   "triggers.item.doomsday_gifts": "Ambil hadiah Hari Kiamat begitu event mengumumkannya",
   "triggers.item.doomsday_gifts.short": "Hadiah Hari Kiamat",
   "timers.stat.doomsday.closed": "event tidak berjalan",
   "timers.stat.doomsday.pending": "hadiah yang bisa diambil: {n}",
   "timers.stat.doomsday.done": "semua {n} hadiah sudah diambil",
-  "events.doomsday.gifts.value": "{taken} dari {quests}"
+  "events.doomsday.gifts.value": "{taken} dari {quests}",
+  "timers.stat.expedition": "{live} dari {zones} area terbuka · tahap yang dilewati: {floors} · {score} poin",
+  "timers.stat.expedition.rewards": "{live} dari {zones} area terbuka · tahap yang dilewati: {floors} · {score} poin · {n} hadiah menunggu diambil",
+  "timers.stat.expedition.closed": "tidak ada ronde yang berjalan",
+  "timers.stat.expedition.waiting": "ronde sudah mulai — belum ada area yang terbuka"
 }

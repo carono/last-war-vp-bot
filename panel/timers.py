@@ -508,6 +508,26 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.collect_doomsday_gifts",
     ),
     Timer(
+        name="world_expedition",
+        scenario=("world_expedition",),
+        # A DAY, because the event is a day's worth of pressing and no more: the auto
+        # challenge climbs until the lineup loses a stage, and nothing it could have
+        # cleared arrives before the next game day. A round runs fourteen days and opens
+        # its four zones on days 1, 3, 5 and 7, so most runs also find a zone that was
+        # not there yesterday — which is the other reason the clock is daily rather than
+        # weekly (docs/research/world-expedition.md).
+        interval_sec=86400,
+        # A failure here is a client that was not answering — the event itself never
+        # refuses. Half an hour is soon enough to catch the day.
+        retry_sec=1800,
+        # SWITCHED ON, with no `enabled=` at all (#2390): it can spend nothing. The event
+        # rations no attempts, costs no stamina and consumes no item, and LOSING a stage
+        # is its ordinary end rather than a fault — so a day nobody touched costs four
+        # presses and a day already played by hand costs the same and changes nothing.
+        args={"squad": 1},
+        label_key="timers.item.world_expedition",
+    ),
+    Timer(
         name="buy_glitter_market_goods",
         scenario=("buy_glitter_market_goods",),
         # A DAY, and the period is nearly beside the point: this row is OFF and is meant

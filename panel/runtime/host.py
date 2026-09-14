@@ -356,6 +356,7 @@ class PanelRuntime:
         self._doomsday = None           # …and «Судный день»'s own ear (#2842)
         self._shops = None              # …and the shelves of every shop (#2666)
         self._invasion = None           # …and «Вторжение зомби»'s (#2647)
+        self._expedition = None         # …and «Мирового похода»'s (#2852)
         self._arena = None              # …and the arena building's (#2688)
         self._players = None            # …and the register every source writes into
         self._secret_days = None        # …and the book of star-secret-task days (#1467)
@@ -457,6 +458,16 @@ class PanelRuntime:
         except Exception:                 # noqa: BLE001 — the panel still works
             self.dbg("invasion").error("could not start the invasion watch",
                                        exc_info=True)
+        # …AND «МИРОВОГО ПОХОДА»'s (#2852). Fourteen days a round, four zones that
+        # unlock over the first week, and a card on «Таймеры» that has to say which of
+        # them are open and how far each one got. One reading when the client gets into
+        # the game, one when a zone unlocks, one per run of the errand, and no clock
+        # (panel/runtime/expedition_live.py).
+        try:
+            self.expedition.start()
+        except Exception:                 # noqa: BLE001 — the panel still works
+            self.dbg("expedition").error("could not start the expedition watch",
+                                         exc_info=True)
         try:
             moved = self.players.ensure_imported()
         except Exception:                 # noqa: BLE001 — the register still works
@@ -639,6 +650,21 @@ class PanelRuntime:
             from .invasion_live import InvasionWatch
             self._invasion = InvasionWatch(self)
         return self._invasion
+
+    @property
+    def expedition(self):
+        """This profile's ear for «Мировой поход» (#2852).
+
+        On the runtime rather than on a page because the event has no page: its card
+        lives on «Таймеры», which draws rows and never reads the game. One reading when
+        the client gets into the game, one when a zone unlocks or the season's own record
+        arrives, one per run of the errand, and no clock anywhere
+        (panel/runtime/expedition_live.py).
+        """
+        if self._expedition is None:
+            from .expedition_live import ExpeditionWatch
+            self._expedition = ExpeditionWatch(self)
+        return self._expedition
 
     @property
     def rewards(self):

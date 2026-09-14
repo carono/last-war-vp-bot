@@ -957,6 +957,41 @@ def _arena(rt) -> "dict | None":
             "age": age}
 
 
+def _expedition(rt) -> "dict | None":
+    """«Мировой поход»: which zones are open, how far they got, what is owed (#2852).
+
+    The reading is `panel/runtime/expedition_live.py` — taken when the client got into
+    the game, when a zone unlocks and on every run of the errand, never on a clock — so
+    this line costs nothing and carries its own AGE, which is what makes a stale number
+    honest rather than wrong.
+    """
+    from . import expedition_live
+
+    fields, age = expedition_live.state(rt)
+    if age is None:
+        return None
+    if not fields.get("known"):
+        return None
+    if not fields.get("open"):
+        return {"key": "timers.stat.expedition.closed", "fmt": {}, "age": age}
+    live = _int(fields.get("live"))
+    if live <= 0:
+        return {"key": "timers.stat.expedition.waiting", "fmt": {}, "age": age}
+    floors = " · ".join(str(_int(fields.get("f%d" % i)))
+                        for i in range(1, 5) if _int(fields.get("o%d" % i)))
+    rewards = _int(fields.get("rewards"))
+    if rewards:
+        return {"key": "timers.stat.expedition.rewards",
+                "fmt": {"live": live, "zones": _int(fields.get("zones"), 4),
+                        "floors": floors, "n": rewards,
+                        "score": _int(fields.get("score"))},
+                "age": age}
+    return {"key": "timers.stat.expedition",
+            "fmt": {"live": live, "zones": _int(fields.get("zones"), 4),
+                    "floors": floors, "score": _int(fields.get("score"))},
+            "age": age}
+
+
 def _shop_likes(rt) -> "dict | None":
     """The free diamonds the two arenas pay for a LIKE, on the card that takes them (#2689).
 
@@ -1135,6 +1170,10 @@ PROVIDERS: dict = {
     # in it: the row is named for the 3v3 challenge only because renaming a timer throws
     # away the schedule somebody set on it, and its scenario plays whichever is open.
     "arena_3v3_battles": _arena,
+    # …and «Мировой поход» (#2852), whose card says which of the four zones are open,
+    # how far each one got and whether anything is waiting to be claimed. Off the ear in
+    # `panel/runtime/expedition_live.py`, which asks the game nothing on a clock.
+    "world_expedition": _expedition,
     # …and the rows #2579 gave a line to, every one of them off the SAME reading the
     # eight above ride on or off the panel's own record — not one new question.
     "heal_units": _hospital,

@@ -3198,10 +3198,16 @@
   "events.doomsday.log.busy": "Jour du Jugement : autre chose est en cours — réessaie dans un instant",
   "timers.item.collect_doomsday_gifts": "Jour du Jugement : récupérer les cadeaux gagnés par les hauts faits de l'événement",
   "timers.item.collect_doomsday_gifts.short": "Jour du Jugement : cadeaux",
+  "timers.item.world_expedition": "Expédition Mondiale : lancer chaque jour le défi automatique dans chaque région ouverte et récupérer les deux récompenses",
+  "timers.item.world_expedition.short": "Expédition Mondiale",
   "triggers.item.doomsday_gifts": "Récupérer un cadeau du Jour du Jugement dès que l'événement l'annonce",
   "triggers.item.doomsday_gifts.short": "Cadeaux Jour du Jugement",
   "timers.stat.doomsday.closed": "l'événement n'est pas en cours",
   "timers.stat.doomsday.pending": "cadeaux à récupérer : {n}",
   "timers.stat.doomsday.done": "les {n} cadeaux sont récupérés",
-  "events.doomsday.gifts.value": "{taken} sur {quests}"
+  "events.doomsday.gifts.value": "{taken} sur {quests}",
+  "timers.stat.expedition": "{live} régions sur {zones} ouvertes · étapes franchies : {floors} · {score} points",
+  "timers.stat.expedition.rewards": "{live} régions sur {zones} ouvertes · étapes franchies : {floors} · {score} points · {n} récompense(s) à récupérer",
+  "timers.stat.expedition.closed": "aucune manche en cours",
+  "timers.stat.expedition.waiting": "la manche a commencé — aucune région n'est encore ouverte"
 }

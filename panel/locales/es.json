@@ -3198,10 +3198,16 @@
   "events.doomsday.log.busy": "Día del Juicio: ahora se ejecuta otra cosa — inténtalo en un momento",
   "timers.item.collect_doomsday_gifts": "Día del Juicio: recoger los regalos ganados por los logros del evento",
   "timers.item.collect_doomsday_gifts.short": "Día del Juicio: regalos",
+  "timers.item.world_expedition": "Expedición Global: pulsar cada día el desafío automático en todas las áreas abiertas y recoger ambas recompensas",
+  "timers.item.world_expedition.short": "Expedición Global",
   "triggers.item.doomsday_gifts": "Recoger un regalo del Día del Juicio en cuanto el evento lo anuncie",
   "triggers.item.doomsday_gifts.short": "Regalos Día del Juicio",
   "timers.stat.doomsday.closed": "el evento no está activo",
   "timers.stat.doomsday.pending": "regalos por recoger: {n}",
   "timers.stat.doomsday.done": "los {n} regalos están recogidos",
-  "events.doomsday.gifts.value": "{taken} de {quests}"
+  "events.doomsday.gifts.value": "{taken} de {quests}",
+  "timers.stat.expedition": "{live} de {zones} áreas abiertas · fases superadas: {floors} · {score} puntos",
+  "timers.stat.expedition.rewards": "{live} de {zones} áreas abiertas · fases superadas: {floors} · {score} puntos · {n} recompensa(s) por recoger",
+  "timers.stat.expedition.closed": "no hay ninguna ronda en curso",
+  "timers.stat.expedition.waiting": "la ronda ha empezado: aún no hay ningún área abierta"
 }

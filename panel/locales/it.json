@@ -3198,10 +3198,16 @@
   "events.doomsday.log.busy": "Giorno del Giudizio: è in corso altro — riprova tra un momento",
   "timers.item.collect_doomsday_gifts": "Giorno del Giudizio: ritirare i regali guadagnati dalle imprese dell'evento",
   "timers.item.collect_doomsday_gifts.short": "Giorno del Giudizio: regali",
+  "timers.item.world_expedition": "Viaggio Mondiale: ogni giorno avviare le sfide consecutive in ogni area aperta e ritirare entrambi i premi",
+  "timers.item.world_expedition.short": "Viaggio Mondiale",
   "triggers.item.doomsday_gifts": "Ritirare un regalo del Giorno del Giudizio appena l'evento lo annuncia",
   "triggers.item.doomsday_gifts.short": "Regali Giorno del Giudizio",
   "timers.stat.doomsday.closed": "l'evento non è in corso",
   "timers.stat.doomsday.pending": "regali da ritirare: {n}",
   "timers.stat.doomsday.done": "tutti i {n} regali sono ritirati",
-  "events.doomsday.gifts.value": "{taken} su {quests}"
+  "events.doomsday.gifts.value": "{taken} su {quests}",
+  "timers.stat.expedition": "{live} aree su {zones} aperte · fasi superate: {floors} · {score} punti",
+  "timers.stat.expedition.rewards": "{live} aree su {zones} aperte · fasi superate: {floors} · {score} punti · {n} premio/i da ritirare",
+  "timers.stat.expedition.closed": "nessun turno in corso",
+  "timers.stat.expedition.waiting": "il turno è iniziato — nessuna area è ancora aperta"
 }
