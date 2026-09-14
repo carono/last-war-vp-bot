@@ -152,10 +152,15 @@ def test_the_reading_changes_nothing_it_only_asks():
     for line in body:
         for forbidden in ("OnClickStartMarch", "SendLuaMessage", "SendCreateMarchMessage"):
             assert forbidden not in line, f"the reading contains «{forbidden}»"
+    # TWO gets and nothing else (#2850): the march one and the achievement ladder's own,
+    # which the march one does not bring. Both are the client's own `get`.
     for line in body:
         if line.startswith("TAP "):
-            assert line == "TAP codename_fetch", f"the reading presses «{line}»"
+            assert line in ("TAP codename_fetch", "TAP codename_rewards_fetch"), (
+                f"the reading presses «{line}»")
     assert "SendMessage(MsgDefines.UserGetActBossMarch)" in lua_actions.codename_fetch()
+    assert ("SendMessage(MsgDefines.UserGetActBossAchievement,"
+            in lua_actions.codename_rewards_fetch())
 
 
 def test_the_reading_is_the_same_expressions_the_press_is_gated_on():
@@ -170,8 +175,83 @@ def test_the_reading_is_the_same_expressions_the_press_is_gated_on():
 
 def test_the_reading_answers_every_field_the_tab_draws():
     text = READ.read_text(encoding="utf-8")
-    for field in ("open", "attacks", "need", "left", "maxdmg", "targets", "until"):
+    for field in ("open", "attacks", "need", "left", "maxdmg", "targets", "until",
+                  # …and the chests the fight earns (#2850): what is waiting, and how
+                  # far along the ladder the account has got.
+                  "bonus", "achdone", "achall"):
         assert ("put('%s'" % field) in text, f"the reading does not answer «{field}»"
+
+
+# ---------------------------------------------------------------------------
+# the chests the fight earns (#2850)
+# ---------------------------------------------------------------------------
+COLLECT = ACTIONS / "collect_codename_rewards.md"
+
+
+def test_the_claim_is_a_scenario_and_the_panel_only_plays_it():
+    """`CLAUDE.md`: the ability is one file, and both front-ends run it by name."""
+    assert COLLECT.exists()
+    assert modelmod.CODENAME_COLLECT == "collect_codename_rewards"
+    text = COLLECT.read_text(encoding="utf-8")
+    # It ASKS for the ladder first: the march get does not bring it, and a claim over a
+    # list nobody fetched presses nothing and reports success.
+    assert text.index("TAP codename_rewards_fetch") < text.index("TAP codename_claim_rewards")
+    # An empty ladder is a SUCCESS — an errand that failed over it would sit out its
+    # retry hold and try again over a state only the next attack can change. And it
+    # ends the branch rather than STOPPING it: a `STOP` here unwinds the CALLER too
+    # (tests/test_recipe_calls.py).
+    assert "STOP " not in text, "a CALLed recipe must end its branches, not stop them"
+    assert "IF cn_bonus < 1" in text
+    # …and the proof is the SERVER's own count, re-ASKED rather than re-read.
+    body = [line.strip() for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    loop = [i for i, line in enumerate(body) if line.startswith("WHILE cn_bonus > 0")]
+    assert loop, body
+    assert "TAP codename_rewards_fetch" in body[loop[0] + 1:loop[0] + 4]
+    assert "FAIL " in text
+
+
+def test_the_day_claims_what_its_attacks_earned():
+    """#2850: the chests wait in the window, so the day's errand takes them.
+
+    On BOTH endings that mean «the three are in» — the ones it just sent, and a day the
+    person had already played by hand — because a rung beaten by any hand is waiting
+    just the same.
+    """
+    text = DAILY.read_text(encoding="utf-8")
+    assert text.count("CALL collect_codename_rewards") == 2, text
+    already = text.index("nothing left to send today")
+    assert text.index("CALL collect_codename_rewards") < already, (
+        "a day already played walks past its chests")
+
+
+def test_the_claim_presses_are_buttons_that_exist():
+    import game_buttons
+    text = COLLECT.read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.startswith("TAP "):
+            name = line.split()[1]
+            assert name in game_buttons.BUTTONS, f"«{name}» is not a button"
+
+
+def test_the_card_offers_the_claim_only_when_a_chest_was_COUNTED():
+    """A claim over a ladder nobody could read would press nothing at all.
+
+    The other way round from the attack, which is offered over «nobody knows» because
+    the recipe asks the server itself. And a SHUT event does not kill it: a rung beaten
+    on Saturday is still waiting on Sunday.
+    """
+    blind = modelmod.codename_state(modelmod.parse("open=1 bonus=-"))
+    assert blind.can_collect is False
+    none_left = modelmod.codename_state(modelmod.parse("open=1 bonus=0"))
+    assert none_left.can_collect is False
+    waiting = modelmod.codename_state(modelmod.parse("open=0 bonus=2"))
+    assert waiting.can_collect is True
+    assert modelmod.codename_bonus(waiting) == "2"
+    assert modelmod.codename_bonus(blind) == "—"
+    ladder = modelmod.codename_state(modelmod.parse("open=1 achdone=28 achall=56"))
+    assert modelmod.codename_achievements(ladder) == "28 / 56"
+    assert modelmod.codename_achievements(blind) == "—"
 
 
 def test_the_attack_is_a_scenario_and_the_panel_only_plays_it():
@@ -480,6 +560,7 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN,
     tab._status = None
     tab._attack_button = None
     tab._daily_button = None
+    tab._collect_button = None
     tab._sent_key = None
     tab._failed_key = "events.codename.log.failed"
     tab._after_press = None

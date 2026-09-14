@@ -42,6 +42,12 @@ CODENAME_ATTACK = "attack_codename_boss"
 #: the person makes one march at a time.
 CODENAME_DAILY = "attack_codename_daily"
 
+#: …and the chests the fight earns (#2850). The event pays out along a ladder of damage
+#: achievements and hands none of them over: a rung beaten on Monday is still unclaimed
+#: on Saturday unless somebody claims it. The day's errand plays this after its three
+#: attacks; the card offers it as a press for the person looking at «есть что забрать».
+CODENAME_COLLECT = "collect_codename_rewards"
+
 #: «Кристальный босс» — the SAME event with a different manager, and the person said so
 #: in those words: «аналогична событию кодового имени, суть та же, 3 атаки». One boss
 #: stands on the world map for a window that covers the server day, and the day pays for
@@ -594,10 +600,12 @@ class CodenameState:
     nobody can trust.
     """
 
-    __slots__ = ("state", "attacks", "need", "left", "damage", "targets", "seconds")
+    __slots__ = ("state", "attacks", "need", "left", "damage", "targets", "seconds",
+                 "bonus", "bonus_taken", "bonus_total")
 
     def __init__(self, state: str, attacks=None, need=None, left=None, damage=None,
-                 targets=None, seconds=None) -> None:
+                 targets=None, seconds=None, bonus=None, bonus_taken=None,
+                 bonus_total=None) -> None:
         self.state = state
         self.attacks = attacks
         self.need = need
@@ -606,6 +614,15 @@ class CodenameState:
         self.targets = targets
         #: Seconds left in the open window, when there is one.
         self.seconds = seconds
+        #: The event's CHESTS (#2850): a ladder of damage achievements, one rung per
+        #: threshold, and nothing hands them over. ``bonus`` is what can be claimed
+        #: RIGHT NOW — the number the card leads with, because it is the only one
+        #: anybody acts on — and ``bonus_taken`` / ``bonus_total`` are the rungs already
+        #: claimed against the rungs there are. ``None`` is «the game would not say»,
+        #: which is never drawn as a zero.
+        self.bonus = bonus
+        self.bonus_taken = bonus_taken
+        self.bonus_total = bonus_total
 
     @property
     def open(self) -> bool:
@@ -634,6 +651,22 @@ class CodenameState:
         """
         return self.state != CLOSED
 
+    @property
+    def can_collect(self) -> bool:
+        """May «Забрать призы» be pressed — has the game SAID a chest is waiting?
+
+        The other way round from the attack button, and deliberately: an attack is worth
+        offering over a reading nobody could take, because the recipe asks the server
+        itself and refuses in one line. A claim over a ladder the game has never
+        described would press nothing at all, so the button appears when a chest has
+        been COUNTED — and `None`, «nobody knows», is not a count.
+
+        It is NOT hung on the event being open: a rung beaten on Saturday is still
+        waiting on Sunday, and the day the claim matters most is the day the fight is
+        over.
+        """
+        return bool(self.bonus)
+
     def __repr__(self) -> str:
         return f"<codename {self.state} {self.attacks}/{self.need} dmg={self.damage}>"
 
@@ -654,7 +687,22 @@ def codename_state(reading) -> "CodenameState":
         damage=reading.get("maxdmg"),
         targets=reading.get("targets"),
         seconds=reading.get("until"),
+        bonus=reading.get("bonus"),
+        bonus_taken=reading.get("achdone"),
+        bonus_total=reading.get("achall"),
     )
+
+
+def codename_bonus(state) -> str:
+    """`1` — chests waiting on the ladder, or `—` for «the game would not say» (#2850)."""
+    return "—" if state.bonus is None else str(state.bonus)
+
+
+def codename_achievements(state) -> str:
+    """`28 / 56` — rungs of the ladder already claimed against how many there are."""
+    if state.bonus_taken is None or state.bonus_total is None:
+        return "—"
+    return "%d / %d" % (state.bonus_taken, state.bonus_total)
 
 
 class CrystalState:
